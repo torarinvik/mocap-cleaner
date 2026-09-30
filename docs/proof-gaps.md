@@ -50,3 +50,7 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
   given `a >= 0`). Blocks Stability. Assigned to the prover agent as task (e).
 - Prover self-audit exceeds the 1.2 GB memory watchdog (1.33 GB at 445c4be),
   which predates these changes. Not raised here; it's the prover owners' call.
+- G15: fixed (091d83c): division by a positive literal now has relational bounds. `soften` is proved.
+- Watchdog raised to 3 GB with the user's approval (e5a565c); the self-audit
+  now completes. Peak RSS for the whole run was 3.04 GiB.
+- G16 (new): module-qualified constants (`Fade::MAX_FRAMES`) in contracts are not resolved. Replacing them with literals takes fade_laws from 5/11 to 9/11. Assigned to the prover agent as task (f).
