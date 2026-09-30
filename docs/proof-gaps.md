@@ -44,3 +44,9 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
   them. Blocks Fade and, through it, Gate, Seam, Stability and most laws.
   Assigned to the prover agent as task (d).
 - Fully proved now: Order, Span, Smooth, Contact.
+- G14: fixed by the prover's task (d) commit: equality goals are now split into `<=` and `>=`, and
+  calls are accepted inside `or` goals. Fade is fully proved; gate 10/12, seam 6/7, fade_laws 5/11.
+- G15 (new): no relational facts for division by a literal (`0 <= a/2 <= a`
+  given `a >= 0`). Blocks Stability. Assigned to the prover agent as task (e).
+- Prover self-audit exceeds the 1.2 GB memory watchdog (1.33 GB at 445c4be),
+  which predates these changes. Not raised here; it's the prover owners' call.
