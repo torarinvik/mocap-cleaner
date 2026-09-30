@@ -1,0 +1,64 @@
+# Bridge between engine GLB key tracks (f32) and the cleaner's fixed-point
+# channels (micro-units). Rotations are renormalised after cleanup.
+include "../../../elisa-engine-mocap/src/assets/glb_document.elisa"
+include "../ops/stack.elisa"
+
+module GlbTracks:
+    public:
+        const SCALE: f64 = 1000000.0
+
+        def to_fixed(value: f32) -> i64:
+            scaled: f64 = value.f64() * SCALE
+            return Track::LIMIT if scaled >= 1000000000.0
+            return -Track::LIMIT if scaled <= -1000000000.0
+            return scaled.round().i64()
+
+        def read(doc: GlbDocument::Document&, slot: usize, component: usize) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for key in 0..<GlbDocument::key_count(doc, slot) |key, doc, slot, component, out|:
+                out.push(to_fixed(GlbDocument::track_value(doc, slot, key, component)))
+            return out
+
+        def write(doc: mutable GlbDocument::Document&, slot: usize, component: usize, values: darray[i64]&) -> i64:
+            changed: mutable i64 = 0
+            for key in 0..<values.count |key, doc, slot, component, values, changed|:
+                value: f32 = (values[key].f64() / SCALE).f32()
+                if value != GlbDocument::track_value(doc, slot, key, component):
+                    changed <- changed + 1 if GlbDocument::set_track_value(doc, slot, key, component, value)
+            return changed
+
+        def normalise_rotation(doc: mutable GlbDocument::Document&, slot: usize) -> void:
+            for key in 0..<GlbDocument::key_count(doc, slot) |key, doc, slot|:
+                x: f64 = GlbDocument::track_value(doc, slot, key, 0).f64()
+                y: f64 = GlbDocument::track_value(doc, slot, key, 1).f64()
+                z: f64 = GlbDocument::track_value(doc, slot, key, 2).f64()
+                w: f64 = GlbDocument::track_value(doc, slot, key, 3).f64()
+                n: f64 = (x * x + y * y + z * z + w * w).sqrt()
+                if n > 0.000001:
+                    _ = GlbDocument::set_track_value(doc, slot, key, 0, (x / n).f32())
+                    _ = GlbDocument::set_track_value(doc, slot, key, 1, (y / n).f32())
+                    _ = GlbDocument::set_track_value(doc, slot, key, 2, (z / n).f32())
+                    _ = GlbDocument::set_track_value(doc, slot, key, 3, (w / n).f32())
+
+        # Run an operation stack over every channel of one animation.
+        # Returns (tracks, values changed, spikes before, spikes after).
+        def clean_animation(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[Ops::Operation]&, threshold: i64) -> (tracks: i64, changed: i64, before: i64, after: i64):
+            tracks: mutable i64 = 0
+            changed: mutable i64 = 0
+            before: mutable i64 = 0
+            after: mutable i64 = 0
+            for at in 0..<GlbDocument::channel_count(doc, animation) |at, doc, animation, ops, threshold, tracks, changed, before, after|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, animation, at)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                continue if held.path == GlbDocument::TargetPath.Weights
+                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                bone: i64 = held.node.i64()
+                tracks <- tracks + 1
+                for component in 0..<track.components |component, doc, held, ops, bone, threshold, changed, before, after|:
+                    source: darray[i64] = read(doc, held.output, component)
+                    before <- before + Track::spike_count(source, threshold, false)
+                    cleaned: darray[i64] = Ops::evaluate(ops, bone, source, false)
+                    after <- after + Track::spike_count(cleaned, threshold, false)
+                    changed <- changed + write(doc, held.output, component, cleaned)
+                normalise_rotation(doc, held.output) if held.path == GlbDocument::TargetPath.Rotation
+            return (tracks, changed, before, after)

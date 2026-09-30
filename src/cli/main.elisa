@@ -1,0 +1,62 @@
+# Headless CLI: mocap-cleaner <in.glb> <out.glb> [animation]
+# Applies the default cleanup preset to every (or one named) animation.
+include "../io/glb_tracks.elisa"
+include "../io/console.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def preset() -> darray[Ops::Operation]:
+    mutable ops: darray[Ops::Operation] = []
+    ops.push(Ops::despike(0, 1000000, -1, 2))
+    return ops
+
+def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Release, Abort.Panic, Unsafe.PointerCast, Console, Blocking.IO]:
+    if argc < 3:
+        Out::line("usage: mocap-cleaner <in.glb> <out.glb> [animation]")
+        return 2
+    slots: mutable cstr&& = argv.cast[mutable cstr&&]
+    input: cstr = slots[1].cast[cstr]
+    output: cstr = slots[2].cast[cstr]
+    opened: i32 = catch GlbDocument::load(input):
+        value: 0
+        error failure: 1
+    if opened != 0:
+        Out::line("error: cannot load input GLB")
+        return 1
+    mutable doc: GlbDocument::Document = load_or_empty(input)
+    ops: darray[Ops::Operation] = preset()
+    tracks: mutable i64 = 0
+    changed: mutable i64 = 0
+    before: mutable i64 = 0
+    after: mutable i64 = 0
+    for a in 0..<GlbDocument::animation_count(&doc) |a, doc, ops, tracks, changed, before, after, argc, slots|:
+        if argc >= 4:
+            continue if not animation_matches(&doc, a, slots[3].cast[cstr])
+        result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation(&doc, a, ops, 20000)
+        tracks <- tracks + result.tracks
+        changed <- changed + result.changed
+        before <- before + result.before
+        after <- after + result.after
+    saved: i32 = catch GlbDocument::save(&doc, output):
+        value: 0
+        error failure: 1
+    if saved != 0:
+        Out::line("error: cannot write output GLB")
+        return 1
+    Out::field("tracks: ", tracks)
+    Out::field("values changed: ", changed)
+    Out::field("spikes before: ", before)
+    Out::field("spikes after: ", after)
+    return 0 if after <= before
+    return 3
+
+def animation_matches(doc: GlbDocument::Document&, a: usize, name: cstr) -> bool:
+    mutable text: darray[u8] = []
+    n: usize = GlbDocument::animation_name(doc, a, &text)
+    for i in 0..<n |i, text, name|:
+        return false if name[i] == 0 or name[i] != text[i]
+    return name[n] == 0
