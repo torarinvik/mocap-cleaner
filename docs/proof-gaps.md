@@ -29,3 +29,18 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
 - G13: callers cannot use a callee's disjunctive ensure by modus ponens
   (`k: a != b or result == b`; `k(v, v)` does not give `result == v`).
   Blocks most laws in `proof/*_laws.elisa`. Sent to the prover agent with task (b).
+
+## Status after prover commits 4517ba1, fefdb89, 445c4be (2026-09-30)
+
+- G4 (disjunction goals) and G13 (using disjunctive ensures): fixed (fefdb89).
+- G3 (`a % b < b`) and G2 (variable-divisor division bounds): fixed for signed
+  terms with `b >= 1`, `a >= 0` (445c4be). `(a / b) * b <= a` is still open.
+- G6 (refinement parameters): fixed. `type T = i64 where ...` parameters become
+  requires and returns become ensures (4517ba1).
+- G7: `law` drops its parameters; use `lemma name(params):` with
+  `assert P by: name(args)` instead.
+- G14 (new, the main blocker): call results whose arguments contain arithmetic
+  (`nearer(frame, last - frame)`) get no facts, and locals are inlined into
+  them. Blocks Fade and, through it, Gate, Seam, Stability and most laws.
+  Assigned to the prover agent as task (d).
+- Fully proved now: Order, Span, Smooth, Contact.
