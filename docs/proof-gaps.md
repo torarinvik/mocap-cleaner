@@ -54,3 +54,10 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
 - Watchdog raised to 3 GB with the user's approval (e5a565c); the self-audit
   now completes. Peak RSS for the whole run was 3.04 GiB.
 - G16 (new): module-qualified constants (`Fade::MAX_FRAMES`) in contracts are not resolved. Replacing them with literals takes fade_laws from 5/11 to 9/11. Assigned to the prover agent as task (f).
+- G16: fixed (76c3fab). Constants were resolved only for root-level functions, so functions inside modules missed them.
+- Added `Fade::scale: distance < edge or result == FULL` and
+  `Fade::weight: not looping or result == FULL`, so loop_is_full and saturates prove. fade_laws is now 10/11.
+- G17 (new): budget sensitivity. With the extra disjunctive ensures,
+  `last_frame_unfaded` (which proved before) now stops at the `budget` gate. Adding
+  true facts should not lose a proof; case splits on disjunctive callee facts need
+  pruning, e.g. drop a disjunct once a literal argument refutes it.

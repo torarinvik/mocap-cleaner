@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | Elisa-engine | `../elisa-engine-mocap` | `mocap-track` | `3f928cf5` | M06 GLB document, M02 long clip + pose override, M07 pipeline, M01 viewport, M03 skeleton, M05 overlays, M04 gizmos |
 | elisa-ui | `../elisa-ui-mocap-viewport` | `mocap-viewport` | `46e217f` | hosted engine surfaces in AppKit canvas panels |
-| elisa-proof | `../elisa-proof-mocap` | `mocap-cleaner-proofs` | `091d83c` | refinement types, disjunctions (G4, G13), relational `%` and `/` |
+| elisa-proof | `../elisa-proof-mocap` | `mocap-cleaner-proofs` | `76c3fab` | refinement types, disjunctions (G4, G13), relational `%` and `/` |
 
 ## Blockers
 
