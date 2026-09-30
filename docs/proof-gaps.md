@@ -72,3 +72,7 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
 - G18/G19 fixed (81a9cf3, b147bea); qualified call widths (j), linear Fourier–Motzkin tier with
   Farkas kernel check (k), and `y + -k` replay (l, 374a404) landed. Now: contact 9/10, fade 11/11,
   gate 11/18, order 10/11, physics 6/18, seam 6/13, span 13/14, stability 5/7.
+- Prover c57ebef..c91d462 (call-result generalisation, disequality refutation, width stability,
+  term-equality bounds, owner-module call resolution) plus mocap contracts ef99aba/6c626ac:
+  98/102 laws proved. Open: gate first_frame_is_source, last_frame_is_source, full_weight_is_fix;
+  seam jump_symmetric.
