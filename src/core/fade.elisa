@@ -1,0 +1,76 @@
+# Edge fade weights in permille (0..1000). Clip boundaries must equal the source
+# exactly, so a fix is weighted 0 at the first and last frame and 1000 in the
+# interior. Looping clips wrap and are never faded.
+module Fade:
+    public:
+        const FULL: i64 = 1000
+        const MAX_FRAMES: i64 = 10000000   # 23 hours at 120 Hz; keeps weight arithmetic far from i64 overflow
+        const MAX_EDGE: i64 = 100000
+
+        # The smaller of two frame counts.
+        def nearer(a: i64, b: i64) -> i64:
+            requires a >= 0
+            requires a <= MAX_FRAMES
+            requires b >= 0
+            requires b <= MAX_FRAMES
+            ensure result >= 0
+            ensure result <= a
+            ensure result <= b
+            return a if a <= b
+            return b
+
+        # Frames between `frame` and the nearer clip end (`last` is the final frame index).
+        def edge_distance(frame: i64, last: i64) -> i64:
+            requires last >= 0
+            requires last < MAX_FRAMES
+            requires frame >= 0
+            requires frame <= last
+            ensure result >= 0
+            ensure result <= frame
+            ensure result <= last - frame
+            ensure frame != last or result == 0
+            rest: i64 = last - frame
+            return nearer(frame, rest)
+
+        # Linear ramp over `edge` frames, clamped to FULL.
+        def scale(distance: i64, edge: i64) -> i64:
+            requires distance >= 0
+            requires distance <= MAX_FRAMES
+            requires edge >= 1
+            requires edge <= MAX_EDGE
+            ensure result >= 0
+            ensure result <= FULL
+            ensure distance != 0 or result == 0
+            return FULL if distance >= edge
+            return 0 if distance == 0
+            weight: i64 = distance * FULL / edge
+            return FULL if weight > FULL
+            return weight
+
+        def ramp(frame: i64, last: i64, edge: i64) -> i64:
+            requires last >= 0
+            requires last < MAX_FRAMES
+            requires edge >= 1
+            requires edge <= MAX_EDGE
+            requires frame >= 0
+            requires frame <= last
+            ensure result >= 0
+            ensure result <= FULL
+            ensure frame != 0 or result == 0
+            ensure frame != last or result == 0
+            distance: i64 = edge_distance(frame, last)
+            return scale(distance, edge)
+
+        def weight(frame: i64, last: i64, edge: i64, looping: bool) -> i64:
+            requires last >= 0
+            requires last < MAX_FRAMES
+            requires edge >= 1
+            requires edge <= MAX_EDGE
+            requires frame >= 0
+            requires frame <= last
+            ensure result >= 0
+            ensure result <= FULL
+            ensure looping or frame != 0 or result == 0
+            ensure looping or frame != last or result == 0
+            return FULL if looping
+            return ramp(frame, last, edge)

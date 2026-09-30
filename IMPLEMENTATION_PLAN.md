@@ -113,8 +113,10 @@ Everything above works headless first; the UI puts it in front of the user.
 
 ## Proofs (elisa-proof)
 
-Write these in `proof/` alongside the code. Each numeric kernel gets proofs of
-its contract, not just tests. Candidates, in rough order:
+**Target: roughly as much proof code as business logic.** Every kernel and
+operation lands in the same change as its proofs, and proofs are part of the
+phase gates. Write them in `proof/`. Each numeric kernel gets proofs of its
+contract, not just tests. Candidates, in rough order:
 
 - **Median de-spike:** output length equals input; a constant signal is
   unchanged; a monotone signal stays monotone; output lies within the input's
