@@ -61,3 +61,11 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
   `last_frame_unfaded` (which proved before) now stops at the `budget` gate. Adding
   true facts should not lose a proof; case splits on disjunctive callee facts need
   pruning, e.g. drop a disjunct once a literal argument refutes it.
+- G17: fixed (152ccb3). Disjuncts that literal arguments already decide are pruned before case splitting; fade_laws is now 11/11.
+- 907e795: comparisons that cancel to one name times a coefficient are now decided, so limit_step proves.
+- G18 (new, prover task h): literal call arguments lose their width inside callee preconditions.
+  Blocks most stability and physics laws.
+- G19 (new, prover task i): `-literal` bounds are not read by the arithmetic tiers.
+- G20: there is no general linear-arithmetic tier, e.g. for ballistic_residual, side, accel,
+  limit_wring and magnitude case splits. A design note was requested before work starts.
+- Triage found no missing kernel ensures in mocap-cleaner; every remaining open law is a prover gap.
