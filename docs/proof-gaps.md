@@ -15,3 +15,14 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
 | G8 | Calls inside `ensure` are not unfolded | Earlier `Order::median3` | Workaround: branch form |
 | G9 | No reasoning about float values (refused because of NaN) | All float kernels | Design choice: proof-critical logic uses integer fixed point; float math comes from engine M08 |
 | G10 | No model of darray contents (backlog E-01) | Whole-track properties | Open: prove per-element kernels, test whole tracks |
+| G11 | `x >= 0` does not follow from the negation of `x < 0` within budget when `x` is a local built from other locals | `Balance::ballistic_residual` | Open |
+| G12 | Nonlinear products of parameters, e.g. a cross product, cannot be related | `Balance::side` degenerate cases | Open (needs case lemmas) |
+
+## Compiler notes (Elisa stage1, not the prover)
+
+- C1: passing a `darray[u8]` by value to a `darray[u8]&` parameter, or a `cstr`
+  to an `sview` parameter, is not a type error: the backend emits invalid LLVM
+  IR ("backend generated invalid LLVM IR") with no source location. Found while
+  building the batch CLI; worked around with `&html` and `Out::c_text`.
+- C2: `is` is reserved; `x!` optional unwrap does not parse (use flow narrowing
+  after `!= null`).

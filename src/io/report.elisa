@@ -1,0 +1,83 @@
+# HTML batch report writer.
+@link_name("fopen")
+extern r_fopen(path: u8&, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+@link_name("fputc")
+extern r_fputc(c: i32, file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("fclose")
+extern r_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
+
+module Report:
+    public:
+        struct Row:
+            ok: bool
+            tracks: i64
+            changed: i64
+            before: i64
+            after: i64
+
+        def push_text(out: mutable darray[u8]&, s: sview):
+            for c in s:
+                out.push(c)
+
+        def push_cstr(out: mutable darray[u8]&, s: cstr):
+            mutable i: usize = 0
+            while s[i] != 0:
+                c: u8 = s[i]
+                if c == 60:
+                    push_text(out, "&lt;")
+                elif c == 38:
+                    push_text(out, "&amp;")
+                else:
+                    out.push(c)
+                i <- i + 1
+
+        def push_number(out: mutable darray[u8]&, value: i64):
+            if value < 0:
+                out.push(45)
+            mutable rest: i64 = value if value >= 0 else -value
+            mutable digits: darray[u8] = []
+            digits.push((48 + rest % 10).u8())
+            rest <- rest / 10
+            while rest > 0:
+                digits.push((48 + rest % 10).u8())
+                rest <- rest / 10
+            for k in 0..<digits.count:
+                out.push(digits[digits.count - 1 - k])
+
+        def cell(out: mutable darray[u8]&, value: i64):
+            push_text(out, "<td>")
+            push_number(out, value)
+            push_text(out, "</td>")
+
+        def begin(out: mutable darray[u8]&):
+            push_text(out, "<!doctype html><meta charset=utf-8><title>Mocap cleanup report</title>")
+            push_text(out, "<style>body{font:14px system-ui;margin:24px}td,th{padding:4px 10px;text-align:right}td:first-child,th:first-child{text-align:left}.bad{color:#b00}</style>")
+            push_text(out, "<h1>Mocap cleanup report</h1><table><tr><th>Take</th><th>Status</th><th>Tracks</th><th>Values changed</th><th>Spikes before</th><th>Spikes after</th></tr>")
+
+        def row(out: mutable darray[u8]&, name: cstr, r: Row):
+            push_text(out, "<tr><td>")
+            push_cstr(out, name)
+            if r.ok:
+                push_text(out, "</td><td>ok</td>")
+            else:
+                push_text(out, "</td><td class=bad>failed</td>")
+            cell(out, r.tracks)
+            cell(out, r.changed)
+            cell(out, r.before)
+            cell(out, r.after)
+            push_text(out, "</tr>")
+
+        def finish(out: mutable darray[u8]&):
+            push_text(out, "</table>")
+
+        def save(out: darray[u8]&, path: cstr) -> bool:
+            mutable ok: bool = false
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                file: mutable heap void&? = r_fopen(path.cast[u8&], "wb".cast[u8&])
+                if file != null:
+                    handle: mutable heap void& = file
+                    for c in out:
+                        _ = r_fputc(c.i32(), handle)
+                    _ = r_fclose(handle)
+                    ok <- true
+            return ok

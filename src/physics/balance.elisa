@@ -1,0 +1,80 @@
+# Balance and ballistic checks on fixed-point floor-plane coordinates (0.1 mm).
+module Balance:
+    public:
+        const LIMIT: i64 = 1000000000   # 100 km in 0.1 mm; products stay far below i64 range
+
+        # Twice the signed area of triangle (a, b, p): > 0 when p is left of a->b.
+        def side(ax: i64, ay: i64, bx: i64, by: i64, px: i64, py: i64) -> i64:
+            requires ax >= -LIMIT
+            requires ax <= LIMIT
+            requires ay >= -LIMIT
+            requires ay <= LIMIT
+            requires bx >= -LIMIT
+            requires bx <= LIMIT
+            requires by >= -LIMIT
+            requires by <= LIMIT
+            requires px >= -LIMIT
+            requires px <= LIMIT
+            requires py >= -LIMIT
+            requires py <= LIMIT
+            ensure ax != bx or ay != by or result == 0
+            ensure px != ax or py != ay or result == 0
+            dx: i64 = bx - ax
+            dy: i64 = by - ay
+            ex: i64 = px - ax
+            ey: i64 = py - ay
+            return 0 if dx == 0 and dy == 0
+            return 0 if ex == 0 and ey == 0
+            return dx * ey - dy * ex
+
+        # Centre of mass inside a counter-clockwise support triangle (edges included).
+        def supported(ax: i64, ay: i64, bx: i64, by: i64, cx: i64, cy: i64, px: i64, py: i64) -> bool:
+            requires ax >= -LIMIT
+            requires ax <= LIMIT
+            requires ay >= -LIMIT
+            requires ay <= LIMIT
+            requires bx >= -LIMIT
+            requires bx <= LIMIT
+            requires by >= -LIMIT
+            requires by <= LIMIT
+            requires cx >= -LIMIT
+            requires cx <= LIMIT
+            requires cy >= -LIMIT
+            requires cy <= LIMIT
+            requires px >= -LIMIT
+            requires px <= LIMIT
+            requires py >= -LIMIT
+            requires py <= LIMIT
+            return side(ax, ay, bx, by, px, py) >= 0 and side(bx, by, cx, cy, px, py) >= 0 and side(cx, cy, ax, ay, px, py) >= 0
+
+        # Ballistic residual: in flight the height's second difference should be
+        # -g*dt^2. Returns the deviation for one frame triple.
+        def ballistic_residual(prev: i64, now: i64, next: i64, gravity_step: i64) -> i64:
+            requires prev >= -LIMIT
+            requires prev <= LIMIT
+            requires now >= -LIMIT
+            requires now <= LIMIT
+            requires next >= -LIMIT
+            requires next <= LIMIT
+            requires gravity_step >= 0
+            requires gravity_step <= LIMIT
+            ensure result >= 0
+            accel: i64 = prev - 2 * now + next
+            deviation: i64 = accel + gravity_step
+            return -deviation if deviation < 0
+            return deviation
+
+        # Rate-limit a change (momentum spike cap): step never exceeds `cap`.
+        def limit_step(origin: i64, goal: i64, cap: i64) -> i64:
+            requires origin >= -LIMIT
+            requires origin <= LIMIT
+            requires goal >= -LIMIT
+            requires goal <= LIMIT
+            requires cap >= 0
+            requires cap <= LIMIT
+            ensure result - origin <= cap
+            ensure origin - result <= cap
+            ensure goal - origin > cap or origin - goal > cap or result == goal
+            return origin + cap if goal - origin > cap
+            return origin - cap if origin - goal > cap
+            return goal
