@@ -69,3 +69,6 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
 - G20: there is no general linear-arithmetic tier, e.g. for ballistic_residual, side, accel,
   limit_wring and magnitude case splits. A design note was requested before work starts.
 - Triage found no missing kernel ensures in mocap-cleaner; every remaining open law is a prover gap.
+- G18/G19 fixed (81a9cf3, b147bea); qualified call widths (j), linear Fourier–Motzkin tier with
+  Farkas kernel check (k), and `y + -k` replay (l, 374a404) landed. Now: contact 9/10, fade 11/11,
+  gate 11/18, order 10/11, physics 6/18, seam 6/13, span 13/14, stability 5/7.
