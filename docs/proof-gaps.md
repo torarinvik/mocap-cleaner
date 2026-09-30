@@ -26,3 +26,6 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
   building the batch CLI; worked around with `&html` and `Out::c_text`.
 - C2: `is` is reserved; `x!` optional unwrap does not parse (use flow narrowing
   after `!= null`).
+- G13: callers cannot use a callee's disjunctive ensure by modus ponens
+  (`k: a != b or result == b`; `k(v, v)` does not give `result == v`).
+  Blocks most laws in `proof/*_laws.elisa`. Sent to the prover agent with task (b).
