@@ -1,0 +1,103 @@
+# Track-level cleanup tools over fixed-point channels. Each tool loops over
+# frames and delegates the per-frame decision to a proved kernel.
+include "../core/fade.elisa"
+include "../core/order.elisa"
+include "../core/span.elisa"
+include "../core/gate.elisa"
+include "../core/seam.elisa"
+include "../core/smooth.elisa"
+include "../detect/contact.elisa"
+include "../detect/spike.elisa"
+
+module Track:
+    public:
+        const LIMIT: i64 = 1000000000
+
+        def sample(values: darray[i64]&, frame: i64, looping: bool) -> i64:
+            count: i64 = values.count.i64()
+            return 0 if count == 0
+            index: i64 = Span::wrap(frame, count) if looping else Span::clamp(frame, count)
+            return values[index.usize()]
+
+        # Running median-of-3 de-spike, repeated `passes` times, then faded to
+        # the source at clip edges (unless looping).
+        def despike(values: darray[i64]&, passes: i64, edge: i64, looping: bool) -> darray[i64]:
+            count: i64 = values.count.i64()
+            current: mutable darray[i64] = []
+            for v in values |current|:
+                current.push(v)
+            return current if count < 3
+            round: mutable i64 = 0
+            while round < passes |round, current, count, looping|:
+                next: mutable darray[i64] = []
+                for i in 0..<current.count |i, current, next, count, looping|:
+                    f: i64 = i.i64()
+                    next.push(Order::median3(sample(current, f - 1, looping), current[i], sample(current, f + 1, looping)))
+                current <- next
+                round <- round + 1
+            out: mutable darray[i64] = []
+            for i in 0..<values.count |i, values, current, out, count, edge, looping|:
+                w: i64 = Fade::weight(i.i64(), count - 1, edge, looping)
+                out.push(Gate::apply(values[i], current[i], w))
+            return out
+
+        # Repeated 1-2-1 smoothing, faded to the source at clip edges.
+        def smooth(values: darray[i64]&, passes: i64, edge: i64, looping: bool) -> darray[i64]:
+            count: i64 = values.count.i64()
+            current: mutable darray[i64] = []
+            for v in values |current|:
+                current.push(Order::clamp(v, -Smooth::LIMIT, Smooth::LIMIT))
+            return current if count < 3
+            round: mutable i64 = 0
+            while round < passes |round, current, looping|:
+                next: mutable darray[i64] = []
+                for i in 0..<current.count |i, current, next, looping|:
+                    f: i64 = i.i64()
+                    next.push(Smooth::binomial(sample(current, f - 1, looping), current[i], sample(current, f + 1, looping)))
+                current <- next
+                round <- round + 1
+            out: mutable darray[i64] = []
+            for i in 0..<values.count |i, values, current, out, count, edge, looping|:
+                w: i64 = Fade::weight(i.i64(), count - 1, edge, looping)
+                out.push(Gate::apply(values[i], current[i], w))
+            return out
+
+        # Count spikes in a track (the de-spike detector).
+        def spike_count(values: darray[i64]&, threshold: i64, looping: bool) -> i64:
+            total: mutable i64 = 0
+            for i in 0..<values.count |i, values, total, threshold, looping|:
+                f: i64 = i.i64()
+                total <- total + 1 if Spike::is_spike(sample(values, f - 1, looping), values[i], sample(values, f + 1, looping), threshold)
+            return total
+
+        # Contact flags from heights and speeds with hysteresis.
+        def contacts(heights: darray[i64]&, speeds: darray[i64]&, enter: i64, leave: i64, max_speed: i64) -> darray[bool]:
+            flags: mutable darray[bool] = []
+            planted: mutable bool = false
+            for i in 0..<heights.count |i, heights, speeds, flags, planted, enter, leave, max_speed|:
+                speed: i64 = speeds[i] if i < speeds.count else 0
+                planted <- Contact::step(planted, heights[i], speed, enter, leave, max_speed)
+                flags.push(planted)
+            return flags
+
+        # Pin planted frames of a height track to the floor.
+        def pin(heights: darray[i64]&, flags: darray[bool]&, floor: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for i in 0..<heights.count |i, heights, flags, out, floor|:
+                planted: bool = flags[i] if i < flags.count else false
+                out.push(Contact::pinned_height(planted, heights[i], floor))
+            return out
+
+        # Close a loop seam: pull the last `window` frames toward a linear
+        # continuation into frame 0.
+        def close_seam(values: darray[i64]&, window: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for v in values |out|:
+                out.push(v)
+            last: i64 = values.count.i64() - 1
+            return out if last < 1 or window < 1 or window > last
+            target_end: i64 = values[0]
+            for i in 0..<values.count |i, values, out, last, window, target_end|:
+                w: i64 = Seam::pull(i.i64(), last, window)
+                out[i] <- Gate::apply(values[i], target_end, w)
+            return out

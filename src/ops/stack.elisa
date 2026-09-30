@@ -1,0 +1,64 @@
+# The non-destructive operation stack: a source track plus ordered operations,
+# each toggled and scoped to a frame span and a bone mask.
+include "../tools/track.elisa"
+
+module Ops:
+    public:
+        enum Kind:
+            Despike
+            PinContacts
+            CloseSeam
+
+        struct Operation:
+            kind: Kind
+            enabled: bool
+            first: i64
+            last: i64
+            bones: i64
+            strength: i64      # passes for Despike, window for CloseSeam
+            edge: i64          # fade frames at the scope edges
+
+        def despike(first: i64, last: i64, bones: i64, passes: i64) -> Operation:
+            return Operation{kind: Kind.Despike, enabled: true, first: first, last: last, bones: bones, strength: passes, edge: 8}
+
+        def seam(window: i64) -> Operation:
+            return Operation{kind: Kind.CloseSeam, enabled: true, first: 0, last: 1000000, bones: -1, strength: window, edge: 1}
+
+        # The operation's candidate result for the whole track, before gating.
+        def candidate(op: Operation, values: darray[i64]&, looping: bool) -> darray[i64]:
+            match op.kind:
+                Kind.Despike:
+                    return Track::despike(values, op.strength, 1, looping)
+                Kind.CloseSeam:
+                    return Track::close_seam(values, op.strength)
+                Kind.PinContacts:
+                    flags: darray[bool] = Track::contacts(values, values, 10, 20, 1000000000)
+                    return Track::pin(values, flags, 0)
+
+        # Apply one operation to one bone channel. Frames outside the span, a
+        # disabled operation, and unselected bones come back unchanged.
+        def apply(op: Operation, bone: i64, values: darray[i64]&, looping: bool) -> darray[i64]:
+            out: mutable darray[i64] = []
+            selected: bool = bone >= 0 and bone < 62 and Gate::bone_selected(op.bones, bone)
+            fixed: darray[i64] = candidate(op, values, looping) if op.enabled and selected else []
+            count: i64 = values.count.i64()
+            for i in 0..<values.count |i, values, out, fixed, op, selected, count|:
+                f: i64 = i.i64()
+                inside: bool = Span::contains(op.first, op.last, f)
+                span_last: i64 = Order::clamp(op.last, op.first, count - 1) if op.first <= count - 1 else op.first
+                local_last: i64 = span_last - op.first
+                fade: mutable i64 = Fade::FULL
+                if inside and op.first >= 0 and local_last >= 0 and local_last < Fade::MAX_FRAMES and op.edge >= 1 and op.edge <= Fade::MAX_EDGE and f - op.first <= local_last:
+                    fade <- Fade::ramp(f - op.first, local_last, op.edge) if op.first > 0 or span_last < count - 1 else Fade::FULL
+                w: i64 = Gate::weight(op.enabled, inside, selected, fade)
+                out.push(Gate::apply(values[i], fixed[i], w) if w > 0 and i < fixed.count else values[i])
+            return out
+
+        # Evaluate the stack in order.
+        def evaluate(ops: darray[Operation]&, bone: i64, source: darray[i64]&, looping: bool) -> darray[i64]:
+            current: mutable darray[i64] = []
+            for v in source |current|:
+                current.push(v)
+            for op in ops |op, current, bone, looping|:
+                current <- apply(op, bone, current, looping)
+            return current
