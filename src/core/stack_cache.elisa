@@ -1,0 +1,85 @@
+# Cache validity for the operation stack. Each operation's result is stored
+# with a chained key: key[i] mixes key[i-1] with op i's parameters, so equal
+# keys at i mean equal input and equal ops 0..i. A disabled op is the identity
+# and passes its input key through, so editing its parameters invalidates
+# nothing. Re-evaluation reuses the longest prefix whose keys still match.
+module StackCache:
+    public:
+        const MAX_OPS: i64 = 1024
+        const MODULUS: i64 = 1000000007   # keys live in [0, MODULUS)
+        const SEED: i64 = 17
+
+        # Fold one value into a key.
+        def mix(key: i64, value: i64) -> i64:
+            requires key >= 0
+            requires key < MODULUS
+            ensure result >= 0
+            ensure result < MODULUS
+            folded: i64 = value % MODULUS
+            positive: i64 = folded + MODULUS
+            return (key * 31 + positive) % MODULUS
+
+        # The key after an op: a disabled op keeps its input key.
+        def op_key(input: i64, params: i64, enabled: bool) -> i64:
+            requires input >= 0
+            requires input < MODULUS
+            requires params >= 0
+            requires params < MODULUS
+            ensure result >= 0
+            ensure result < MODULUS
+            ensure enabled or result == input
+            return input if not enabled
+            return mix(input, params)
+
+        # Whether an op's effect changed between two evaluations.
+        def changed(old_enabled: bool, new_enabled: bool, old_params: i64, new_params: i64) -> bool:
+            ensure old_enabled or new_enabled or not result
+            ensure old_enabled or not new_enabled or result
+            ensure new_enabled or not old_enabled or result
+            ensure not new_enabled or not old_enabled or old_params == new_params or result
+            ensure not new_enabled or not old_enabled or old_params != new_params or not result
+            return false if not old_enabled and not new_enabled
+            return true if not old_enabled or not new_enabled
+            return false if old_params == new_params
+            return true
+
+        # One step of the common-prefix scan over old and new keys: the prefix
+        # grows only while every earlier key matched.
+        def scan(prefix: i64, index: i64, same: bool) -> i64:
+            requires prefix >= 0
+            requires prefix <= index
+            requires index < MAX_OPS
+            ensure result >= prefix
+            ensure result <= index + 1
+            ensure result == prefix or result == index + 1
+            ensure same or result == prefix
+            ensure prefix == index or result == prefix
+            ensure prefix < index or not same or result == index + 1
+            return index + 1 if same and prefix == index
+            return prefix
+
+        # How many cached results to reuse: never past the first changed op,
+        # the cached count, or the stack length.
+        def reusable(cached: i64, first_changed: i64, count: i64) -> i64:
+            requires cached >= 0
+            requires first_changed >= 0
+            requires count >= 0
+            requires count <= MAX_OPS
+            ensure result >= 0
+            ensure result <= cached
+            ensure result <= first_changed
+            ensure result <= count
+            ensure first_changed > cached or first_changed > count or result == first_changed
+            ensure cached > first_changed or cached > count or result == cached
+            ensure count > cached or count > first_changed or result == count
+            if cached <= first_changed:
+                return cached if cached <= count
+                return count
+            return first_changed if first_changed <= count
+            return count
+
+        # Whether op `index` must run, given the reusable prefix.
+        def needs_eval(index: i64, reuse: i64) -> bool:
+            ensure not result or index >= reuse
+            ensure index < reuse or result
+            return index >= reuse

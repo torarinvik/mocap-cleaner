@@ -1,6 +1,7 @@
 # The non-destructive operation stack: a source track plus ordered operations,
 # each toggled and scoped to a frame span and a bone mask.
 include "../tools/track.elisa"
+include "../core/stack_cache.elisa"
 
 module Ops:
     public:
@@ -82,4 +83,106 @@ module Ops:
                 current.push(v)
             for op in ops |op, current, bone, looping|:
                 current <- apply(op, bone, current, looping)
+            return current
+
+        # Per-operation cache: keys[i] is the chained key after op i (see
+        # StackCache) and results holds the channel after each op, op i at
+        # i * frames (the frame count is part of the source key). `evaluations`
+        # counts ops actually run, so callers and tests can see reuse.
+        struct Cache:
+            keys: mutable darray[i64]
+            results: mutable darray[i64]
+            frames: mutable i64
+            evaluations: mutable i64
+
+        def new_cache() -> Cache:
+            return Cache{keys: [], results: [], frames: 0, evaluations: 0}
+
+        def kind_code(kind: Kind) -> i64:
+            match kind:
+                Ops::Kind.Despike:
+                    return 1
+                Ops::Kind.PinContacts:
+                    return 2
+                Ops::Kind.CloseSeam:
+                    return 3
+                Ops::Kind.SmoothPath:
+                    return 4
+                Ops::Kind.LimitWring:
+                    return 5
+                Ops::Kind.Median:
+                    return 6
+
+        # Fingerprint of everything that shapes one op's effect on one bone.
+        def params_key(op: Operation, bone: i64) -> i64:
+            k: mutable i64 = StackCache::mix(StackCache::SEED, kind_code(op.kind))
+            k <- StackCache::mix(k, op.first)
+            k <- StackCache::mix(k, op.last)
+            k <- StackCache::mix(k, op.bones)
+            k <- StackCache::mix(k, op.strength)
+            k <- StackCache::mix(k, op.edge)
+            return StackCache::mix(k, bone)
+
+        # Fingerprint of the stack input.
+        def source_key(source: darray[i64]&, looping: bool) -> i64:
+            k: mutable i64 = StackCache::mix(StackCache::SEED, source.count.i64())
+            k <- StackCache::mix(k, 1 if looping else 0)
+            for v in source |k|:
+                k <- StackCache::mix(k, v)
+            return k
+
+        def copy(values: darray[i64]&) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for v in values |out|:
+                out.push(v)
+            return out
+
+        # Evaluate the stack in order, reusing cached results for the longest
+        # unchanged prefix and running only the ops after it. The output is
+        # identical to `evaluate`.
+        def evaluate_cached(ops: darray[Operation]&, bone: i64, source: darray[i64]&, looping: bool, cache: mutable Cache&) -> darray[i64]:
+            count: i64 = ops.count.i64()
+            if count >= StackCache::MAX_OPS:
+                cache.keys.clear()
+                cache.results.clear()
+                cache.evaluations <- cache.evaluations + count
+                return evaluate(ops, bone, source, looping)
+            key: mutable i64 = source_key(source, looping)
+            keys: mutable darray[i64] = []
+            prefix: mutable i64 = 0
+            cached: i64 = cache.keys.count.i64()
+            for i in 0..<ops.count |i, ops, bone, key, keys, prefix, cache, cached|:
+                key <- StackCache::op_key(key, params_key(ops[i], bone), ops[i].enabled)
+                keys.push(key)
+                index: i64 = i.i64()
+                same: bool = index < cached and cache.keys[i] == key
+                prefix <- StackCache::scan(prefix, index, same)
+            frames: i64 = source.count.i64()
+            reuse: i64 = StackCache::reusable(cached, prefix, count)
+            current: mutable darray[i64] = copy(source)
+            evaluated: mutable i64 = 0
+            for i in 0..<ops.count |i, ops, bone, looping, reuse, current, cache, evaluated, frames|:
+                index: i64 = i.i64()
+                if StackCache::needs_eval(index, reuse):
+                    if ops[i].enabled:
+                        current <- apply(ops[i], bone, current, looping)
+                        evaluated <- evaluated + 1
+                    base: i64 = index * frames
+                    for f in 0..<current.count |f, base, current, cache|:
+                        at: i64 = base + f.i64()
+                        if at < cache.results.count.i64():
+                            cache.results[at.usize()] <- current[f]
+                        else:
+                            cache.results.push(current[f])
+                else:
+                    base: i64 = index * frames
+                    for f in 0..<current.count |f, base, current, cache|:
+                        current[f] <- cache.results[(base + f.i64()).usize()]
+            while cache.results.count.i64() > count * frames:
+                cache.results.pop()
+            cache.frames <- frames
+            cache.keys.clear()
+            for k in keys |cache|:
+                cache.keys.push(k)
+            cache.evaluations <- cache.evaluations + evaluated
             return current

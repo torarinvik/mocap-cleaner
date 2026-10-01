@@ -151,3 +151,15 @@ No prover changes were needed; these limits were worked around in our code.
 - `proof/flight_laws.elisa`: 615/0 proved. Impure files (`rig_physics`,
   `folder`, `report`, `main`) are `unsupported` like every `src/io` file was
   at baseline.
+
+## Operation-stack cache (phase0-finish, 2026-10-01)
+
+No prover changes were needed; worked around in `src/core/stack_cache.elisa`.
+
+- G32: a local bound by a conditional expression (`low: i64 = a if a <= b
+  else b`) loses its facts for the following `return`. Explicit branches prove.
+- G33: a three-way disjunctive equality ensure (`result == a or result == b
+  or result == c`) is not usable by callers that feed the result into another
+  call; restated as one implication per case.
+- G34: `requires i + 1 < Module::CONST` does not establish `i < CONST` at a
+  call; `requires i < Module::CONST - 1` does.
