@@ -1,0 +1,174 @@
+# Ops file: the rig operation stack saved as text, so a cleanup can be
+# reapplied to another take or reloaded later. Format:
+#
+#   mocap-cleaner ops 1
+#   # kind enabled first last role axis amount passes edge
+#   4 1 20 60 9 0 0 0 4
+#
+# One operation per line, nine signed decimal fields; '#' starts a comment
+# line. Kind codes: 0 twist, 1 pole, 2 pelvis, 3 foot lock, 4 pin, 5 offset,
+# 6 keyed offset segment, 7 contact edit. Fields go through Codec.
+include "../ops/rig_stack.elisa"
+include "../core/codec.elisa"
+include "report.elisa"
+
+@link_name("fgetc")
+extern o_fgetc(file: mutable heap void&) -> i32 can[Blocking.IO]
+
+module OpsFile:
+    public:
+        const FIELDS: i64 = 9
+
+        def header() -> sview:
+            return "mocap-cleaner ops 1"
+
+        def code_of(kind: RigOps::RigKind) -> i64:
+            match kind:
+                RigOps::RigKind.Twist:
+                    return 0
+                RigOps::RigKind.Pole:
+                    return 1
+                RigOps::RigKind.PelvisPath:
+                    return 2
+                RigOps::RigKind.FootLock:
+                    return 3
+                RigOps::RigKind.PinEffector:
+                    return 4
+                RigOps::RigKind.OffsetLayer:
+                    return 5
+                RigOps::RigKind.KeyedOffset:
+                    return 6
+                RigOps::RigKind.ContactEdit:
+                    return 7
+
+        def kind_of(code: i64) -> RigOps::RigKind:
+            return RigOps::RigKind.Pole if code == 1
+            return RigOps::RigKind.PelvisPath if code == 2
+            return RigOps::RigKind.FootLock if code == 3
+            return RigOps::RigKind.PinEffector if code == 4
+            return RigOps::RigKind.OffsetLayer if code == 5
+            return RigOps::RigKind.KeyedOffset if code == 6
+            return RigOps::RigKind.ContactEdit if code == 7
+            return RigOps::RigKind.Twist
+
+        def push_number(out: mutable darray[u8]&, value: i64):
+            if value < 0:
+                out.push(45)
+            mutable rest: i64 = Order::clamp(value if value >= 0 else 0 - value, 0, Codec::LIMIT)
+            mutable digits: darray[u8] = []
+            digits.push((48 + Codec::last_digit(rest)).u8())
+            rest <- Codec::drop_digit(rest)
+            while rest > 0:
+                digits.push((48 + Codec::last_digit(rest)).u8())
+                rest <- Codec::drop_digit(rest)
+            mutable k: usize = digits.count
+            while k > 0:
+                k <- k - 1
+                out.push(digits[k])
+
+        def encode(ops: darray[RigOps::RigOp]&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            Report::push_text(&out, header())
+            out.push(10)
+            Report::push_text(&out, "# kind enabled first last role axis amount passes edge")
+            out.push(10)
+            for op in ops:
+                fields: darray[i64] = [code_of(op.kind), 1 if op.enabled else 0, op.first, op.last, op.role, op.axis, op.amount, op.passes, op.edge]
+                for k in 0..<fields.count:
+                    out.push(32) if k > 0
+                    push_number(&out, fields[k])
+                out.push(10)
+            return move out
+
+        # Signed decimal fields of one line; ok=false on any other byte or
+        # a field over the codec limit.
+        def parse_fields(line: darray[u8]&, fields: mutable darray[i64]&) -> bool:
+            fields.clear()
+            mutable k: usize = 0
+            while k < line.count:
+                if line[k] == 32 or line[k] == 9 or line[k] == 13:
+                    k <- k + 1
+                    continue
+                negative: bool = line[k] == 45
+                k <- k + 1 if negative
+                mutable acc: i64 = 0
+                mutable digits: i64 = 0
+                while k < line.count and line[k] >= 48 and line[k] <= 57:
+                    acc <- Codec::push_digit(acc, (line[k] - 48).i64())
+                    return false if not Codec::in_limit(acc)
+                    digits <- digits + 1
+                    k <- k + 1
+                return false if digits == 0
+                return false if k < line.count and line[k] != 32 and line[k] != 9 and line[k] != 13
+                fields.push(Codec::signed(negative, acc))
+            return true
+
+        def op_of(f: darray[i64]&) -> RigOps::RigOp:
+            return RigOps::RigOp{kind: kind_of(f[0]), enabled: f[1] != 0, first: f[2], last: f[3], role: f[4], axis: f[5], amount: f[6], passes: f[7], edge: f[8]}
+
+        def is_header(line: darray[u8]&) -> bool:
+            mutable h: darray[u8] = []
+            Report::push_text(&h, header())
+            return false if line.count < h.count
+            for k in 0..<h.count:
+                return false if line[k] != h[k]
+            for k in h.count..<line.count:
+                return false if line[k] != 32 and line[k] != 13
+            return true
+
+        # Decode an ops file into `out` (appended). False, with `out`
+        # unchanged, on a missing header or any malformed line.
+        def decode(text: darray[u8]&, out: mutable darray[RigOps::RigOp]&) -> bool:
+            mutable parsed: darray[RigOps::RigOp] = []
+            mutable line: darray[u8] = []
+            mutable fields: darray[i64] = []
+            mutable seen_header: bool = false
+            mutable k: usize = 0
+            while k <= text.count:
+                if k < text.count and text[k] != 10:
+                    line.push(text[k])
+                    k <- k + 1
+                    continue
+                k <- k + 1
+                mutable blank: bool = true
+                for b in line:
+                    blank <- false if b != 32 and b != 13 and b != 9
+                if blank or line[0] == 35:
+                    line.clear()
+                    continue
+                if not seen_header:
+                    return false if not is_header(&line)
+                    seen_header <- true
+                    line.clear()
+                    continue
+                return false if not parse_fields(&line, &fields)
+                return false if fields.count.i64() != FIELDS or not Codec::kind_ok(fields[0])
+                parsed.push(op_of(&fields))
+                line.clear()
+            return false if not seen_header
+            for op in parsed:
+                out.push(op)
+            return true
+
+        def save(ops: darray[RigOps::RigOp]&, path: cstr) -> bool:
+            text: darray[u8] = encode(ops)
+            return Report::save(&text, path)
+
+        def read_bytes(path: cstr, out: mutable darray[u8]&) -> bool:
+            mutable ok: bool = false
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                file: mutable heap void&? = r_fopen(path.cast[u8&], "rb".cast[u8&])
+                if file != null:
+                    handle: mutable heap void& = file
+                    mutable c: i32 = o_fgetc(handle)
+                    while c >= 0:
+                        out.push(c.u8())
+                        c <- o_fgetc(handle)
+                    _ = r_fclose(handle)
+                    ok <- true
+            return ok
+
+        def load(path: cstr, out: mutable darray[RigOps::RigOp]&) -> bool:
+            mutable text: darray[u8] = []
+            return false if not read_bytes(path, &text)
+            return decode(&text, out)

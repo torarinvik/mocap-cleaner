@@ -77,12 +77,19 @@ Each tool comes with its detector.
 | **Twist cleanup** | Off-axis twist on hinge joints (knee, elbow) | Rebuild from the hinge plane, move twist to the roll bones |
 | **Loop seam** | Position and velocity jump from last frame to first | Cross-fade the seam over N frames |
 
-Status (headless, `src/ops/rig_stack.elisa`, CLI `--op twist|pole|pelvis|lock`):
+Status (headless, `src/ops/rig_stack.elisa`, CLI `--op twist|pole|pelvis|lock|pivot`):
 twist cleanup, knee/elbow pole stability, pelvis path with leg re-solve, and
 foot lock are implemented on the rig view (`src/io/rig.elisa`, whole
-quaternions plus hierarchy). Foot contacts are detected, not yet hand-editable;
-the lock holds the ankle position and keeps the foot's source rotation (no
-heel/ball pivot yet).
+quaternions plus hierarchy). Foot contacts are detected and hand-editable
+(`--contact FOOT:FIRST:LAST:on|off`, `Contact::edited`). The plain lock holds
+the ankle and keeps the foot's source rotation; `--op pivot` instead turns the
+planted foot about the lower of heel and ball (`Pivot::choose`, with
+hysteresis), holds that point at its plant position and settles it on the
+floor (no sink or float; `test/rig_tools.elisa` on the boxing jab: pivot
+slide 22.5 mm to 1.4 mm, floor error 72.6 mm to 4.3 mm summed over planted
+frames). The heel is approximated by the ankle joint (the rigs have no heel
+bone). The operation stack is saved and loaded as an ops file
+(`src/io/ops_file.elisa`, `--save-ops FILE`, `--ops FILE`).
 
 ### Phase 2: The studio UI
 Everything above works headless first; the UI puts it in front of the user.
@@ -102,11 +109,16 @@ Everything above works headless first; the UI puts it in front of the user.
 - [ ] Gizmos (M04): rotate and translate a bone and key it as a correction
       layer that fades in and out over a range.
 - [x] Pin tool: pin any end effector (foot, hand, head) over a range. IK
-      holds it while other fixes run. (Headless: hands and feet via
-      `--pin ROLE:FIRST:LAST[:BLEND]`, run after every other fix; head not yet.)
+      holds it while other fixes run. (Headless: hands, feet and head via
+      `--pin ROLE:FIRST:LAST[:BLEND]`, run after every other fix. The head pin
+      turns the neck toward the anchor and restores the head's orientation;
+      its position is exact only while the torso keeps the neck-to-anchor
+      distance.)
 - [x] Offset layer: an additive correction curve per bone, e.g. to push the
       knees out. (Headless: constant angle about a local axis with fade in/out,
-      `--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]`; keyed curves wait for the studio.)
+      `--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]`; keyed curves, linear
+      between keys, via `--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES...`.
+      Keying from a gizmo waits for the studio.)
 
 ### Phase 4: Physics-aware cleanup (the Cascadeur part)
 - [ ] Centre of mass and support polygon overlay, flagging frames where

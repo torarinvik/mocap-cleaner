@@ -1,14 +1,17 @@
 # Rig-level operation stack: fixes that need whole rotations and the joint
 # hierarchy (knee/elbow twist, pole stability, pelvis path, foot lock) and
-# the user layers (end-effector pins and additive offsets). It runs after the
+# the user layers (end-effector and head pins, constant and keyed additive
+# offsets, hand-edited foot contacts, heel/ball pivot). It runs after the
 # channel stack (stack.elisa) on the same document. Every per-frame decision
 # goes through a proved kernel: Pin::pin_weight (range weights),
 # Hinge::kept_off_axis / roll_share / unwrap_step, Reach::limb_reach (via
-# Limb), Offset::offset_amount, Gate::apply and Contact::step (via Track).
+# Limb), Offset::offset_amount / keyed, Gate::apply, Lock::hold,
+# Contact::step (via Track) / edited and Pivot::choose / shift / settle.
 include "../tools/limb.elisa"
 include "../tools/track.elisa"
 include "../core/pin.elisa"
 include "../core/offset.elisa"
+include "../core/pivot.elisa"
 
 module RigOps:
     public:
@@ -21,12 +24,18 @@ module RigOps:
             FootLock      # hold planted feet still (contacts from height and speed)
             PinEffector   # hold a hand or foot at its pose on `first` over first..last
             OffsetLayer   # add a rotation about a local axis over first..last
+            KeyedOffset   # one segment of a keyed offset curve, keys (first, amount) and (last, passes)
+            ContactEdit   # force a foot's contact on (amount 1) or off (0) over first..last
 
         # `role` is a Roles index or ALL. `amount` is kind-specific:
         # Twist: kept off-axis tolerance (micro-rad); Pole: wring limit
-        # (micro-rad, 0 = none); OffsetLayer: angle (micro-rad). `passes`:
-        # Twist: roll share (permille); Pole, PelvisPath: filter passes.
-        # `edge` is the ramp in frames (Pin/Offset/FootLock blend).
+        # (micro-rad, 0 = none); OffsetLayer: angle (micro-rad); KeyedOffset:
+        # angle at `first` (micro-rad); ContactEdit: 1 planted, 0 lifted.
+        # `passes`: Twist: roll share (permille); Pole, PelvisPath: filter
+        # passes; KeyedOffset: angle at `last`. `axis`: Offset: local axis
+        # 0..2; FootLock: 0 ankle lock, 1 heel/ball pivot. `edge` is the ramp
+        # in frames (Pin/Offset/FootLock blend); KeyedOffset: 1 when the
+        # segment owns its `last` key (the curve's final segment), else 0.
         struct RigOp:
             kind: RigKind
             enabled: bool
@@ -48,6 +57,8 @@ module RigOps:
             slide_after: mutable i64
             pelvis_before: mutable i64
             pelvis_after: mutable i64
+            sink_before: mutable i64
+            sink_after: mutable i64
 
         def twist(role: i64, tolerance: i64, share: i64) -> RigOp:
             return RigOp{kind: RigKind.Twist, enabled: true, first: 0, last: 1000000, role: role, axis: 0, amount: tolerance, passes: share, edge: 8}
@@ -67,8 +78,26 @@ module RigOps:
         def offset(role: i64, axis: i64, angle: i64, first: i64, last: i64, fade: i64) -> RigOp:
             return RigOp{kind: RigKind.OffsetLayer, enabled: true, first: first, last: last, role: role, axis: axis, amount: angle, passes: 0, edge: fade}
 
+        def foot_pivot(blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.FootLock, enabled: true, first: 0, last: 1000000, role: ALL, axis: 1, amount: 0, passes: 0, edge: blend}
+
+        def keyed_segment(role: i64, axis: i64, f0: i64, a0: i64, f1: i64, a1: i64, closes: bool) -> RigOp:
+            return RigOp{kind: RigKind.KeyedOffset, enabled: true, first: f0, last: f1, role: role, axis: axis, amount: a0, passes: a1, edge: 1 if closes else 0}
+
+        # Keys (frames ascending, angles in micro-rad) as curve segments.
+        def keyed(role: i64, axis: i64, frames: darray[i64]&, angles: darray[i64]&) -> darray[RigOp]:
+            mutable out: darray[RigOp] = []
+            n: usize = frames.count if frames.count < angles.count else angles.count
+            return out if n < 2
+            for k in 1..<n:
+                out.push(keyed_segment(role, axis, frames[k - 1], angles[k - 1], frames[k], angles[k], k + 1 == n))
+            return out
+
+        def contact_edit(role: i64, first: i64, last: i64, planted: bool) -> RigOp:
+            return RigOp{kind: RigKind.ContactEdit, enabled: true, first: first, last: last, role: role, axis: 0, amount: 1 if planted else 0, passes: 0, edge: 1}
+
         def empty_summary() -> Summary:
-            return Summary{ops: 0, changed: 0, twist_max: 0, pole_before: 0, pole_after: 0, slide_before: 0, slide_after: 0, pelvis_before: 0, pelvis_after: 0}
+            return Summary{ops: 0, changed: 0, twist_max: 0, pole_before: 0, pole_after: 0, slide_before: 0, slide_after: 0, pelvis_before: 0, pelvis_after: 0, sink_before: 0, sink_after: 0}
 
         # Per-frame layer weight (permille) of an op's frame range.
         def range_weight(op: RigOp, frame: i64, frames: i64) -> i64:
@@ -251,16 +280,32 @@ module RigOps:
                 total <- total + (dx * dx + dz * dz).sqrt().round().i64()
             return total
 
-        def lock_leg(c: mutable Rig::Clip&, op: RigOp, side: i64, s: mutable Summary&) -> void:
+        # Apply the hand edits of `ops` (in order, later wins) to a foot's
+        # detected contact track.
+        def apply_edits(flags: mutable darray[bool]&, ops: darray[RigOp]&, foot_role: i64) -> void:
+            for op in ops:
+                continue if not op.enabled or op.kind != RigKind.ContactEdit or not role_selected(op, foot_role)
+                for k in 0..<flags.count:
+                    flags[k] <- Contact::edited(flags[k], k.i64(), op.first, op.last, op.amount != 0)
+
+        def leg_length(c: Rig::Clip&, leg: (upper: i64, hinge: i64, end: i64, toe: i64)) -> f64:
+            mutable w: Rig::World = Rig::empty_world()
+            Rig::solve_world(c, 0, &w)
+            return Rig::vlen(Rig::vsub(w.pos[leg.hinge.usize()], w.pos[leg.upper.usize()])) + Rig::vlen(Rig::vsub(w.pos[leg.end.usize()], w.pos[leg.hinge.usize()]))
+
+        # Contact track of one foot (side 0 left, 1 right): detected from the
+        # foot's lowest point and ankle speed, then the hand edits applied.
+        # Empty when the leg is missing.
+        def foot_contacts(c: Rig::Clip&, side: i64, ops: darray[RigOp]&) -> darray[bool]:
+            mutable none: darray[bool] = []
             leg: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, side)
-            return if leg.upper < 0 or leg.hinge < 0 or leg.end < 0 or c.frames < 3
+            return none if leg.upper < 0 or leg.hinge < 0 or leg.end < 0 or c.frames < 3
+            length: f64 = leg_length(c, leg)
+            return none if length <= 0.000001
             mutable pos: darray[MotionQuat::V] = []
             mutable rot: darray[MotionQuat::Q] = []
             ankle_path(c, leg.end, &pos, &rot)
             mutable w: Rig::World = Rig::empty_world()
-            Rig::solve_world(c, 0, &w)
-            length: f64 = Rig::vlen(Rig::vsub(w.pos[leg.hinge.usize()], w.pos[leg.upper.usize()])) + Rig::vlen(Rig::vsub(w.pos[leg.end.usize()], w.pos[leg.hinge.usize()]))
-            return if length <= 0.000001
             # Lowest point of the foot (ankle or toe) per frame, and the floor.
             mutable lows: darray[i64] = []
             for f in 0..<c.frames:
@@ -276,14 +321,8 @@ module RigOps:
                 heights.push(Order::clamp(h - floor, 0, Hinge::LIMIT))
             span: f64 = c.times[c.times.count - 1] - c.times[0]
             fps: f64 = (c.frames - 1).f64() / span if span > 0.0 else 30.0
-            mutable xs: darray[i64] = []
-            mutable ys: darray[i64] = []
-            mutable zs: darray[i64] = []
             mutable speeds: darray[i64] = []
             for k in 0..<pos.count:
-                xs.push(Limb::micro(pos[k].x))
-                ys.push(Limb::micro(pos[k].y))
-                zs.push(Limb::micro(pos[k].z))
                 if k == 0:
                     speeds.push(0)
                 else:
@@ -293,8 +332,136 @@ module RigOps:
             enter: i64 = Limb::micro(length * 0.05)
             leave: i64 = Limb::micro(length * 0.08)
             max_speed: i64 = Limb::micro(length * 0.5)
-            return if not Contact::valid_thresholds(enter, leave, max_speed)
-            flags: darray[bool] = Track::contacts(&heights, &speeds, enter, leave, max_speed)
+            return none if not Contact::valid_thresholds(enter, leave, max_speed)
+            mutable flags: darray[bool] = Track::contacts(&heights, &speeds, enter, leave, max_speed)
+            apply_edits(&flags, ops, Roles::LEFT_FOOT if side == 0 else Roles::RIGHT_FOOT)
+            return move flags
+
+        # Per-frame lock weight of a contact track: each planted run ramps in
+        # from its plant frame and out to its lift frame (Lock::hold).
+        def hold_weights(flags: darray[bool]&, blend: i64) -> darray[i64]:
+            mutable out: darray[i64] = []
+            for b in flags:
+                out.push(0)
+            count: i64 = flags.count.i64()
+            return out if count > Fade::MAX_FRAMES or blend < 1 or blend > Fade::MAX_EDGE
+            mutable start: i64 = 0
+            while start < count:
+                if not flags[start.usize()]:
+                    start <- start + 1
+                    continue
+                mutable finish: i64 = start
+                while finish + 1 < count and flags[(finish + 1).usize()]:
+                    finish <- finish + 1
+                for f in start..<(finish + 1):
+                    out[f.usize()] <- Lock::hold(f - start, finish - f, blend)
+                start <- finish + 1
+            return out
+
+        def m(value: f64) -> i64:
+            return Order::clamp(Limb::micro(value), -Pivot::LIMIT, Pivot::LIMIT)
+
+        # Pivot point of each frame (ankle for the heel, toe for the ball).
+        def pivot_points(ankle: darray[MotionQuat::V]&, ball: darray[MotionQuat::V]&, choices: darray[i64]&) -> darray[MotionQuat::V]:
+            mutable out: darray[MotionQuat::V] = []
+            for k in 0..<ankle.count:
+                use_ball: bool = k < choices.count and k < ball.count and choices[k] == Pivot::BALL
+                out.push(ball[k] if use_ball else ankle[k])
+            return out
+
+        # Travel of the pivot over planted frames, and its total distance from
+        # the floor over planted frames (sink or float), in micro-units.
+        def pivot_metrics(points: darray[MotionQuat::V]&, flags: darray[bool]&, floor: i64) -> (slide: i64, sink: i64):
+            mutable xs: darray[i64] = []
+            mutable zs: darray[i64] = []
+            mutable sink: i64 = 0
+            for k in 0..<points.count:
+                xs.push(m(points[k].x))
+                zs.push(m(points[k].z))
+                if k < flags.count and flags[k]:
+                    d: i64 = m(points[k].y) - floor
+                    sink <- sink + (d if d >= 0 else 0 - d)
+            return (slide(&xs, &zs, flags), sink)
+
+        # Heel/ball pivot: while planted, the lower of heel (ankle) and ball
+        # (toe) is held at its plant position and settled on the floor; the
+        # whole foot moves with it (source foot rotation) and the leg is
+        # re-solved to the shifted ankle. A switch from heel to ball carries
+        # the current shift over, so the roll-off never pops.
+        def pivot_leg(c: mutable Rig::Clip&, op: RigOp, leg: (upper: i64, hinge: i64, end: i64, toe: i64), flags: darray[bool]&, s: mutable Summary&) -> void:
+            mutable pos: darray[MotionQuat::V] = []
+            mutable rot: darray[MotionQuat::Q] = []
+            mutable ball: darray[MotionQuat::V] = []
+            mutable ball_rot: darray[MotionQuat::Q] = []
+            ankle_path(c, leg.end, &pos, &rot)
+            ankle_path(c, leg.toe, &ball, &ball_rot)
+            return if pos.count == 0 or ball.count != pos.count
+            mutable floor: i64 = m(pos[0].y)
+            for k in 0..<pos.count:
+                floor <- m(pos[k].y) if m(pos[k].y) < floor
+                floor <- m(ball[k].y) if m(ball[k].y) < floor
+            margin: i64 = Order::clamp(Limb::micro(leg_length(c, leg) * 0.01), 0, Pivot::LIMIT)
+            weights: darray[i64] = hold_weights(flags, Order::clamp(op.edge, 1, Fade::MAX_EDGE))
+            mutable choices: darray[i64] = []
+            mutable anchors: darray[MotionQuat::V] = []
+            mutable choice: i64 = Pivot::HEEL
+            mutable anchor: MotionQuat::V = pos[0]
+            for k in 0..<pos.count:
+                planted: bool = k < flags.count and flags[k]
+                heel_h: i64 = Order::clamp(m(pos[k].y) - floor, 0, Pivot::LIMIT)
+                ball_h: i64 = Order::clamp(m(ball[k].y) - floor, 0, Pivot::LIMIT)
+                next: i64 = Pivot::choose(choice, heel_h, ball_h, margin)
+                point: MotionQuat::V = ball[k] if next == Pivot::BALL else pos[k]
+                if planted and (k == 0 or not flags[k - 1]):
+                    anchor <- point
+                elif planted and next != choice:
+                    old: MotionQuat::V = ball[k] if choice == Pivot::BALL else pos[k]
+                    anchor <- Rig::vadd(point, Rig::vsub(anchor, old))
+                choice <- next
+                choices.push(choice)
+                anchors.push(anchor)
+            points: darray[MotionQuat::V] = pivot_points(&pos, &ball, &choices)
+            before: (slide: i64, sink: i64) = pivot_metrics(&points, flags, floor)
+            s.slide_before <- s.slide_before + before.slide
+            s.sink_before <- s.sink_before + before.sink
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                continue if k >= weights.count or k >= points.count
+                wt: i64 = Offset::offset_amount(weights[k], range_weight(op, f, c.frames))
+                continue if wt == 0
+                p: MotionQuat::V = points[k]
+                dx: i64 = Pivot::shift(m(p.x), m(anchors[k].x), wt)
+                dz: i64 = Pivot::shift(m(p.z), m(anchors[k].z), wt)
+                height: i64 = Order::clamp(m(p.y) - floor, -Pivot::LIMIT, Pivot::LIMIT)
+                dy: i64 = Pivot::settle(height, 0, wt) - height
+                target: MotionQuat::V = Rig::vadd(pos[k], Rig::v(Limb::unmicro(dx), Limb::unmicro(dy), Limb::unmicro(dz)))
+                _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, target, rot[k], &w)
+            ankle_path(c, leg.end, &pos, &rot)
+            ankle_path(c, leg.toe, &ball, &ball_rot)
+            after_points: darray[MotionQuat::V] = pivot_points(&pos, &ball, &choices)
+            after: (slide: i64, sink: i64) = pivot_metrics(&after_points, flags, floor)
+            s.slide_after <- s.slide_after + after.slide
+            s.sink_after <- s.sink_after + after.sink
+
+        def lock_leg(c: mutable Rig::Clip&, op: RigOp, ops: darray[RigOp]&, side: i64, s: mutable Summary&) -> void:
+            leg: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, side)
+            flags: darray[bool] = foot_contacts(c, side, ops)
+            return if flags.count == 0
+            if op.axis == 1 and leg.toe >= 0:
+                pivot_leg(c, op, leg, &flags, s)
+                return
+            mutable pos: darray[MotionQuat::V] = []
+            mutable rot: darray[MotionQuat::Q] = []
+            ankle_path(c, leg.end, &pos, &rot)
+            mutable w: Rig::World = Rig::empty_world()
+            mutable xs: darray[i64] = []
+            mutable ys: darray[i64] = []
+            mutable zs: darray[i64] = []
+            for p in pos:
+                xs.push(Limb::micro(p.x))
+                ys.push(Limb::micro(p.y))
+                zs.push(Limb::micro(p.z))
             s.slide_before <- s.slide_before + slide(&xs, &zs, &flags)
             blend: i64 = Order::clamp(op.edge, 1, Fade::MAX_EDGE)
             lx: darray[i64] = Track::lock(&xs, &flags, blend)
@@ -318,7 +485,34 @@ module RigOps:
 
         # ---- Pin ------------------------------------------------------------
 
+        # Head pin: the neck turns so the head reaches its anchor (exactly
+        # when the torso keeps the neck-to-anchor distance), then the head
+        # takes its anchor orientation.
+        def pin_head(c: mutable Rig::Clip&, op: RigOp) -> void:
+            neck: i64 = Rig::node_of(c, Roles::NECK)
+            head: i64 = Rig::node_of(c, Roles::HEAD)
+            return if neck < 0 or head < 0 or c.frames < 1 or not Rig::rot_writable(c, neck) or not Rig::rot_writable(c, head)
+            first: i64 = Order::clamp(op.first, 0, c.frames - 1)
+            mutable w: Rig::World = Rig::empty_world()
+            Rig::solve_world(c, first, &w)
+            anchor: MotionQuat::V = w.pos[head.usize()]
+            anchor_rot: MotionQuat::Q = w.rot[head.usize()]
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                continue if weight == 0
+                Rig::solve_world(c, f, &w)
+                n: MotionQuat::V = w.pos[neck.usize()]
+                p: MotionQuat::V = w.pos[head.usize()]
+                target: MotionQuat::V = Rig::v(Limb::unmicro(Gate::apply(m(p.x), m(anchor.x), weight)), Limb::unmicro(Gate::apply(m(p.y), m(anchor.y), weight)), Limb::unmicro(Gate::apply(m(p.z), m(anchor.z), weight)))
+                q: MotionQuat::Q = MotionQuat::between(Rig::vsub(p, n), Rig::vsub(target, n))
+                _ = Rig::set_world_rot(c, f, neck, MotionQuat::mul(q, w.rot[neck.usize()]), &w)
+                Rig::solve_world(c, f, &w)
+                _ = Rig::set_world_rot(c, f, head, MotionQuat::slerp(w.rot[head.usize()], anchor_rot, weight.f64() / 1000.0), &w)
+
         def pin_effector(c: mutable Rig::Clip&, op: RigOp) -> void:
+            if op.role == Roles::HEAD:
+                pin_head(c, op)
+                return
             hinge_role: i64 = Roles::effector_hinge(op.role) if Roles::role_valid(op.role) else Roles::NONE
             return if hinge_role < 0 or c.frames < 1
             upper: i64 = Rig::node_of(c, Roles::hinge_upper(hinge_role))
@@ -352,6 +546,23 @@ module RigOps:
                 continue if amount == 0
                 _ = Rig::set_local_rot(c, f, node, MotionQuat::mul(Rig::local_rot(c, f, node), MotionQuat::axis_angle(axis, Limb::unmicro(amount))))
 
+        # One keyed-offset segment: the curve between its two keys. A segment
+        # owns its first key; the final segment also owns its last one, so
+        # shared keys are applied once.
+        def keyed_layer(c: mutable Rig::Clip&, op: RigOp) -> void:
+            node: i64 = Rig::node_of(c, op.role) if Roles::role_valid(op.role) else -1
+            return if node < 0 or not Rig::rot_writable(c, node)
+            return if op.first < 0 or op.first >= op.last or op.last > Fade::MAX_FRAMES
+            axis: MotionQuat::V = Rig::v(1.0, 0.0, 0.0) if op.axis == 0 else (Rig::v(0.0, 1.0, 0.0) if op.axis == 1 else Rig::v(0.0, 0.0, 1.0))
+            a0: i64 = Order::clamp(op.amount, -Offset::LIMIT, Offset::LIMIT)
+            a1: i64 = Order::clamp(op.passes, -Offset::LIMIT, Offset::LIMIT)
+            stop: i64 = op.last if op.edge == 1 else op.last - 1
+            for f in op.first..<(stop + 1):
+                continue if f >= c.frames
+                amount: i64 = Offset::keyed(f, op.first, a0, op.last, a1)
+                continue if amount == 0
+                _ = Rig::set_local_rot(c, f, node, MotionQuat::mul(Rig::local_rot(c, f, node), MotionQuat::axis_angle(axis, Limb::unmicro(amount))))
+
         # ---- Stack ----------------------------------------------------------
 
         def hinge_roles() -> darray[i64]:
@@ -362,7 +573,7 @@ module RigOps:
             mutable s: Summary = empty_summary()
             for round in 0..<2:
                 for op in ops:
-                    continue if not op.enabled
+                    continue if not op.enabled or op.kind == RigKind.ContactEdit
                     is_pin: bool = op.kind == RigKind.PinEffector
                     continue if (round == 0) == is_pin
                     s.ops <- s.ops + 1
@@ -376,12 +587,16 @@ module RigOps:
                         RigKind.PelvisPath:
                             pelvis_path(c, op, threshold, &s)
                         RigKind.FootLock:
-                            lock_leg(c, op, 0, &s) if role_selected(op, Roles::LEFT_FOOT)
-                            lock_leg(c, op, 1, &s) if role_selected(op, Roles::RIGHT_FOOT)
+                            lock_leg(c, op, ops, 0, &s) if role_selected(op, Roles::LEFT_FOOT)
+                            lock_leg(c, op, ops, 1, &s) if role_selected(op, Roles::RIGHT_FOOT)
                         RigKind.PinEffector:
                             pin_effector(c, op)
                         RigKind.OffsetLayer:
                             offset_layer(c, op)
+                        RigKind.KeyedOffset:
+                            keyed_layer(c, op)
+                        RigKind.ContactEdit:
+                            pass
             return s
 
         def run(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[RigOp]&, threshold: i64) -> Summary:

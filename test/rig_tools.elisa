@@ -1,0 +1,158 @@
+# Phase 1 rig tools: head pin, keyed offsets, heel/ball pivot, hand-edited
+# contacts and the ops file round trip. Skips (rc 0) when the boxing take
+# is not present.
+include "../src/io/ops_file.elisa"
+include "../src/io/console.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def fresh(doc: GlbDocument::Document&, anim: i64) -> Rig::Clip:
+    return Rig::load(doc, anim.usize())
+
+def world(c: Rig::Clip&, frame: i64, node: i64) -> (pos: MotionQuat::V, rot: MotionQuat::Q):
+    mutable w: Rig::World = Rig::empty_world()
+    Rig::solve_world(c, frame, &w)
+    return (w.pos[node.usize()], w.rot[node.usize()])
+
+def turned(a: MotionQuat::Q, b: MotionQuat::Q) -> f64:
+    return MotionQuat::angle(MotionQuat::mul(MotionQuat::conjugate(a), b))
+
+def same_op(a: RigOps::RigOp, b: RigOps::RigOp) -> bool:
+    return a.kind == b.kind and a.enabled == b.enabled and a.first == b.first and a.last == b.last and a.role == b.role and a.axis == b.axis and a.amount == b.amount and a.passes == b.passes and a.edge == b.edge
+
+# Ops file round trip, in memory and through a file. No take needed.
+def ops_file_checks() -> i32:
+    mutable ops: darray[RigOps::RigOp] = [RigOps::twist(RigOps::ALL, 280000, 500), RigOps::pole(RigOps::ALL, 2, 0), RigOps::pelvis(4), RigOps::foot_lock(4), RigOps::foot_pivot(6), RigOps::pin(Roles::HEAD, 20, 60, 4), RigOps::offset(Roles::LEFT_LEG, 2, -174532, 10, 50, 4), RigOps::contact_edit(Roles::LEFT_FOOT, 5, 9, false)]
+    frames: darray[i64] = [10, 30, 50]
+    angles: darray[i64] = [0, -200000, 0]
+    for seg in RigOps::keyed(Roles::RIGHT_LEG, 1, &frames, &angles):
+        ops.push(seg)
+    mutable off: RigOps::RigOp = RigOps::pelvis(9)
+    off.enabled <- false
+    ops.push(off)
+    text: darray[u8] = OpsFile::encode(&ops)
+    mutable back: darray[RigOps::RigOp] = []
+    return 40 if not OpsFile::decode(&text, &back)
+    return 41 if back.count != ops.count
+    for k in 0..<ops.count:
+        return 42 if not same_op(ops[k], back[k])
+    # Through a file.
+    return 43 if not OpsFile::save(&ops, "build/test/rig_tools.ops".cast[cstr])
+    mutable loaded: darray[RigOps::RigOp] = []
+    return 44 if not OpsFile::load("build/test/rig_tools.ops".cast[cstr], &loaded)
+    return 45 if loaded.count != ops.count
+    for k in 0..<ops.count:
+        return 46 if not same_op(ops[k], loaded[k])
+    # Malformed input is refused and leaves the stack untouched.
+    mutable junk: darray[u8] = []
+    Report::push_text(&junk, "mocap-cleaner ops 1\n4 1 20 x 9 0 0 0 4\n")
+    mutable none: darray[RigOps::RigOp] = []
+    return 47 if OpsFile::decode(&junk, &none) or none.count != 0
+    mutable short: darray[u8] = []
+    Report::push_text(&short, "mocap-cleaner ops 1\n4 1 20 60\n")
+    return 48 if OpsFile::decode(&short, &none)
+    mutable headless: darray[u8] = []
+    Report::push_text(&headless, "4 1 20 60 9 0 0 0 4\n")
+    return 49 if OpsFile::decode(&headless, &none)
+    mutable badkind: darray[u8] = []
+    Report::push_text(&badkind, "mocap-cleaner ops 1\n8 1 20 60 9 0 0 0 4\n")
+    return 50 if OpsFile::decode(&badkind, &none)
+    # Comments, blank lines and an empty stack.
+    mutable empty: darray[u8] = []
+    Report::push_text(&empty, "# saved stack\n\nmocap-cleaner ops 1\n")
+    return 51 if not OpsFile::decode(&empty, &none) or none.count != 0
+    # Keys become one segment per gap; only the last owns its end key.
+    keyed: darray[RigOps::RigOp] = RigOps::keyed(Roles::RIGHT_LEG, 1, &frames, &angles)
+    return 52 if keyed.count != 2 or keyed[0].edge != 0 or keyed[1].edge != 1
+    return 0
+
+def main() -> i32:
+    rc: i32 = ops_file_checks()
+    return rc if rc != 0
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    doc: GlbDocument::Document = load_or_empty(path)
+    anim: i64 = GlbDocument::find_animation(&doc, "jab")
+    return 1 if anim < 0
+    threshold: i64 = 20000
+    src: Rig::Clip = fresh(&doc, anim)
+
+    # Head pin: the head holds its frame-20 place and orientation over 20..60.
+    mutable h: Rig::Clip = fresh(&doc, anim)
+    head: i64 = Rig::node_of(&h, Roles::HEAD)
+    return 2 if head < 0
+    anchor: (pos: MotionQuat::V, rot: MotionQuat::Q) = world(&h, 20, head)
+    moved_before: f64 = Rig::vlen(Rig::vsub(world(&h, 40, head).pos, anchor.pos))
+    turn_before: f64 = turned(world(&h, 40, head).rot, anchor.rot)
+    mutable ops: darray[RigOps::RigOp] = [RigOps::pin(Roles::HEAD, 20, 60, 4)]
+    sh: RigOps::Summary = RigOps::run_clip(&h, &ops, threshold)
+    return 3 if sh.ops != 1
+    moved_after: f64 = Rig::vlen(Rig::vsub(world(&h, 40, head).pos, anchor.pos))
+    return 4 if moved_before > 0.002 and moved_after > moved_before * 0.5
+    return 5 if turned(world(&h, 40, head).rot, anchor.rot) > 0.001 and turn_before > 0.001
+    return 6 if Rig::vlen(Rig::vsub(world(&h, 70, head).pos, world(&src, 70, head).pos)) > 0.000001
+    return 7 if Rig::vlen(Rig::vsub(world(&h, 10, head).pos, world(&src, 10, head).pos)) > 0.000001
+
+    # Keyed offset: 0 at frame 10, -0.2 rad about y at 30, 0 at 50.
+    mutable k: Rig::Clip = fresh(&doc, anim)
+    knee: i64 = Rig::node_of(&k, Roles::RIGHT_LEG)
+    frames: darray[i64] = [10, 30, 50]
+    angles: darray[i64] = [0, -200000, 0]
+    ops <- RigOps::keyed(Roles::RIGHT_LEG, 1, &frames, &angles)
+    _ = RigOps::run_clip(&k, &ops, threshold)
+    return 10 if MotionQuat::dot(Rig::local_rot(&k, 10, knee), Rig::local_rot(&src, 10, knee)) < 0.999999
+    return 11 if MotionQuat::dot(Rig::local_rot(&k, 50, knee), Rig::local_rot(&src, 50, knee)) < 0.999999
+    return 12 if MotionQuat::dot(Rig::local_rot(&k, 5, knee), Rig::local_rot(&src, 5, knee)) < 0.999999
+    at30: f64 = turned(Rig::local_rot(&src, 30, knee), Rig::local_rot(&k, 30, knee))
+    return 13 if at30 < 0.199 or at30 > 0.201
+    at20: f64 = turned(Rig::local_rot(&src, 20, knee), Rig::local_rot(&k, 20, knee))
+    return 14 if at20 < 0.099 or at20 > 0.101
+
+    # Contact edits: forced frames take the edit, all others the detection.
+    detected: darray[bool] = RigOps::foot_contacts(&src, 0, &ops)
+    return 20 if detected.count.i64() != src.frames
+    edits: darray[RigOps::RigOp] = [RigOps::contact_edit(Roles::LEFT_FOOT, 5, 15, true), RigOps::contact_edit(Roles::LEFT_FOOT, 12, 20, false), RigOps::contact_edit(Roles::RIGHT_FOOT, 0, 1000, true)]
+    edited: darray[bool] = RigOps::foot_contacts(&src, 0, &edits)
+    return 21 if edited.count != detected.count
+    for f in 0..<edited.count:
+        mutable expect: bool = detected[f]
+        expect <- true if f >= 5 and f <= 15
+        expect <- false if f >= 12 and f <= 20
+        return 22 if edited[f] != expect
+    right: darray[bool] = RigOps::foot_contacts(&src, 1, &edits)
+    for b in right:
+        return 23 if not b
+    # An edit alone changes nothing; with a lock it is honoured.
+    mutable e: Rig::Clip = fresh(&doc, anim)
+    ops <- [RigOps::contact_edit(Roles::LEFT_FOOT, 0, 1000, false)]
+    _ = RigOps::run_clip(&e, &ops, threshold)
+    ankle: i64 = Rig::node_of(&e, Roles::LEFT_FOOT)
+    for f in 0..<e.frames:
+        return 24 if Rig::vlen(Rig::vsub(world(&e, f, ankle).pos, world(&src, f, ankle).pos)) > 0.000001
+    ops <- [RigOps::contact_edit(RigOps::ALL, 0, 1000, false), RigOps::foot_lock(4)]
+    sl: RigOps::Summary = RigOps::run_clip(&e, &ops, threshold)
+    return 25 if sl.slide_before != 0 or sl.slide_after != 0
+    for f in 0..<e.frames:
+        return 26 if Rig::vlen(Rig::vsub(world(&e, f, ankle).pos, world(&src, f, ankle).pos)) > 0.000001
+
+    # Heel/ball pivot: planted pivots slide no more and sink or float less.
+    mutable p: Rig::Clip = fresh(&doc, anim)
+    ops <- [RigOps::foot_pivot(4)]
+    sp: RigOps::Summary = RigOps::run_clip(&p, &ops, threshold)
+    Out::field("pivot slide before (um): ", sp.slide_before)
+    Out::field("pivot slide after (um): ", sp.slide_after)
+    Out::field("pivot sink before (um): ", sp.sink_before)
+    Out::field("pivot sink after (um): ", sp.sink_after)
+    return 30 if sp.slide_after > sp.slide_before
+    return 31 if sp.sink_after > sp.sink_before
+    return 32 if sp.sink_before > 0 and sp.sink_after * 2 > sp.sink_before
+    return 0

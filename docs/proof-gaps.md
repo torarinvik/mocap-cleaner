@@ -104,3 +104,30 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
 - `pass` is reserved in stage1.
 - New kernels and laws fully proved: roles 8/8, hinge 11/11, reach 1/1, pin 17/17,
   offset 8/8; roles_laws, hinge_laws, reach_laws, pin_laws all proved.
+
+## Phase 1 rig tools, part 2 (2026-10-01)
+
+New kernels: `Pivot` (choose, shift, settle), `Contact::edited`,
+`Offset::segment_share` / `Offset::keyed`, `Codec` (ops file digits). All
+kernel files and `proof/pivot_laws`, `keyed_laws`, `edit_laws`, `codec_laws`
+prove fully. Gaps found on the way (worked around, not fixed in the prover):
+
+- G23 (new): an unqualified call to a sibling function resolves by bare name
+  across modules. Adding `Offset::ramp` made `Fade::weight` / `eased_weight`
+  (which call `Fade::ramp` unqualified) fail with call-requires errors.
+  Workaround: renamed to `segment_share`. The compiler resolves it correctly.
+- G24 (new): `wrap-guard-goal` refuses `a0 + f(...)` when the call result is
+  bounded only relationally (`result <= span`, `span = a1 - a0`), although
+  the facts are present. Workaround: an absolute ensure
+  (`result <= 2000000000`) on the callee.
+- G25 (new): the nonlinear local `(a1 - a0) * (frame - f0) / (f1 - f0)`
+  inside a function drops every later goal of that function, even ones that
+  only need the clamping branches. Workaround: move the product into its own
+  contracted helper (`segment_share`).
+- G26 (open): modular and division round trips are not proved:
+  `(acc * 10 + d) % 10 == d`, `(acc * 10 + d) / 10 == acc`, and
+  `in_limit(push_digit(acc, d))` for `acc <= 99999999999`. The ops-file round
+  trip is covered by `test/rig_tools.elisa` instead.
+- `ensure result == (A and B)` on a bool function is not usable by callers
+  for `not result` goals; split into implications (`Codec::kind_ok`).
+
