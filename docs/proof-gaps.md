@@ -76,3 +76,9 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
   term-equality bounds, owner-module call resolution) plus mocap contracts ef99aba/6c626ac:
   98/102 laws proved. Open: gate first_frame_is_source, last_frame_is_source, full_weight_is_fix;
   seam jump_symmetric.
+- Prover 9e656d9 (constant facts across calls), d5ad82f (callee-requires constants),
+  dd8d9df (field-place swap no longer costs split depth), 36ed514 (per-function JSON incl.
+  file-level findings): all 102 laws in proof/*.elisa proved, 0 replay gaps.
+  proof_status.py now reads functions[].proved so file-level findings count as open.
+  Known prover-side leftovers: compiler duplicate-alias wording drift (Elisa-compiler),
+  census baseline from 09-30 not re-baselined.
