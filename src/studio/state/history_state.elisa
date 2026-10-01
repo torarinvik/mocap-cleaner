@@ -1,0 +1,45 @@
+# Undo/redo over the operation stack: a ring of whole-stack snapshots driven
+# by the proved cursor policy in ../history.elisa.
+include "stack_state.elisa"
+include "../history.elisa"
+
+module HistoryState:
+    public:
+        const CAPACITY: i64 = 64
+
+        struct History:
+            states: mutable StackState::Stack[64]
+            cursor: mutable i64
+            count: mutable i64
+
+        def create(initial: StackState::Stack) -> History:
+            mutable h: History = History{states: zeroed, cursor: 0, count: 1}
+            h.states[0] <- initial
+            return h
+
+        def current(h: History&) -> StackState::Stack:
+            return h.states[h.cursor]
+
+        # Record `s` as the newest snapshot (no-op when it equals the current one).
+        def record(h: mutable History&, s: StackState::Stack) -> bool:
+            cur: StackState::Stack = h.states[h.cursor]
+            return false if StackState::same(cur, s)
+            shift: i64 = HistoryPolicy::push_shift(h.cursor, CAPACITY)
+            if shift == 1:
+                for i in 1..<CAPACITY |h|:
+                    h.states[i - 1] <- h.states[i]
+            c: i64 = HistoryPolicy::push_cursor(h.cursor, CAPACITY)
+            h.count <- HistoryPolicy::push_count(h.cursor, CAPACITY)
+            h.cursor <- c
+            h.states[c] <- s
+            return true
+
+        def undo(h: mutable History&) -> bool:
+            return false if not HistoryPolicy::can_undo(h.cursor)
+            h.cursor <- HistoryPolicy::undo(h.cursor, h.count)
+            return true
+
+        def redo(h: mutable History&) -> bool:
+            return false if not HistoryPolicy::can_redo(h.cursor, h.count)
+            h.cursor <- HistoryPolicy::redo(h.cursor, h.count)
+            return true

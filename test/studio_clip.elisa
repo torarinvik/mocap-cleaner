@@ -1,0 +1,70 @@
+# Headless test of the studio's clip sampling against the boxing GLB: rig
+# order, pose evaluation through engine pose override, joint tracks, curves,
+# problem markers and live cleaning (source vs cleaned documents).
+include "../src/studio/state/clip_state.elisa"
+include "../src/studio/state/stack_state.elisa"
+include "../src/ops/presets.elisa"
+
+extern puts(text: cstr) -> i64
+
+def run(src: GlbDocument::Document&, cleaned: GlbDocument::Document&) -> i32:
+    found: i64 = GlbDocument::find_animation(src, "jab")
+    return 2 if found < 0
+    anim: usize = found.usize()
+    frames: i64 = StudioClip::frame_count(src, anim)
+    return 3 if frames < 10
+    nodes: darray[i64] = StudioClip::order(src)
+    return 4 if nodes.count != GlbDocument::node_count(src)
+    slot: darray[i64] = StudioClip::slots(src, nodes)
+    # Parents come first.
+    for k in 0..<nodes.count |k, nodes, slot, src|:
+        p: i64 = GlbDocument::node_parent(src, nodes[k].usize())
+        return 5 if p >= 0 and slot[p.usize()] >= k.i64()
+    rig: PoseOverride::Rig = StudioClip::rig(src, nodes, slot)
+    return 6 if PoseOverride::rig_bone_count(rig) != nodes.count
+    models: darray[Geometry::Transform] = StudioClip::models_at(rig, src, anim, 0, nodes, slot)
+    return 7 if models.count != nodes.count
+    hips: i64 = StudioClip::slot_of_role(src, slot, Roles::HIPS)
+    foot: i64 = StudioClip::slot_of_role(src, slot, Roles::LEFT_FOOT)
+    return 8 if hips < 0 or foot < 0
+    # A standing boxer: hips well above the left foot.
+    return 9 if models[hips.usize()].position.y <= models[foot.usize()].position.y
+    track: darray[Geometry::Vec3] = StudioClip::joint_track(rig, src, anim, frames, nodes, slot, foot)
+    return 10 if track.count.i64() != frames
+    planted: darray[bool] = StudioClip::contacts(track, 120)
+    return 11 if planted.count.i64() != frames
+    # Curves: hips rotation x, source vs cleaned have the same length.
+    hips_node: usize = nodes[hips.usize()].usize()
+    ch: i64 = StudioClip::channel_of(src, anim, hips_node, GlbDocument::TargetPath.Rotation)
+    return 12 if ch < 0
+    a: darray[i64] = StudioClip::curve(src, anim, ch, 0)
+    b: darray[i64] = StudioClip::curve(cleaned, anim, ch, 0)
+    return 13 if a.count == 0 or a.count != b.count
+    threshold: i64 = Presets::spike_threshold(Presets::Preset.Boxing)
+    before: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
+    after: darray[i64] = StudioClip::problems(cleaned, anim, frames, threshold)
+    mutable nb: i64 = 0
+    mutable na: i64 = 0
+    for f in 0..<frames |f, before, after, nb, na|:
+        nb <- nb + before[f.usize()]
+        na <- na + after[f.usize()]
+    return 14 if na > nb
+    peaks: darray[i64] = StudioClip::peak_accel(src, anim, frames)
+    return 15 if peaks.count.i64() != frames
+    _ = puts("studio_clip: jab sampled, rig ordered, cleaning does not add spikes")
+    return 0
+
+def main() -> i32:
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    src: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: return 0     # no test asset: skip, as the other GLB tests do
+    mutable cleaned: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: return 1
+    found: i64 = GlbDocument::find_animation(cleaned, "jab")
+    return 2 if found < 0
+    mutable s: StackState::Stack = StackState::from_list(Presets::operations(Presets::Preset.Boxing))
+    ops: darray[Ops::Operation] = StackState::operations(s)
+    _ = GlbTracks::clean_animation(&cleaned, found.usize(), ops, Presets::spike_threshold(Presets::Preset.Boxing))
+    return run(src, cleaned)

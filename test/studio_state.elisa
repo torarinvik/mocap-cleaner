@@ -1,0 +1,145 @@
+# Headless tests of the studio's state modules: timeline playback, the
+# editable operation stack and undo/redo.
+include "../src/studio/state/timeline_state.elisa"
+include "../src/studio/state/history_state.elisa"
+
+def timeline() -> i32:
+    mutable s: TimelineState::State = TimelineState::create(120)
+    return 10 if s.frame != 0 or s.playing or s.divisor != 1
+    # Round trip: every frame's start time maps back to that frame.
+    for f in 0..<120 |s|:
+        return 11 if Timeline::frame_at_time(Timeline::time_of_frame(f), 120) != f
+    # 1x for one second of wall time plays the whole clip and stops on the end.
+    s <- TimelineState::toggle_play(s)
+    for i in 0..<120 |s|:
+        s <- TimelineState::tick(s, 8334)
+    return 12 if s.frame != 119 or s.playing
+    # Play again from the end restarts at 0.
+    s <- TimelineState::toggle_play(s)
+    return 13 if s.frame != 0 or not s.playing
+    # 1/2x: 1/2 second of wall time reaches frame 30, 1/4x reaches frame 15.
+    s <- TimelineState::cycle_speed(s)
+    return 14 if s.divisor != 2 or TimelineState::speed_label(s.divisor) != "1/2x"
+    for i in 0..<60 |s|:
+        s <- TimelineState::tick(s, 8334)
+    return 15 if s.frame < 29 or s.frame > 31
+    s <- TimelineState::scrub(s, 0)
+    s <- TimelineState::cycle_speed(s)
+    return 16 if s.divisor != 4
+    for i in 0..<60 |s|:
+        s <- TimelineState::tick(s, 8334)
+    return 17 if s.frame < 14 or s.frame > 16
+    s <- TimelineState::cycle_speed(s)
+    return 18 if s.divisor != 1
+    # A stalled frame cannot jump the playhead by more than MAX_STEP_US.
+    s <- TimelineState::scrub(s, 0)
+    s <- TimelineState::tick(s, 5000000)
+    return 19 if s.frame != 30
+    # Looping wraps.
+    s.looping <- true
+    s <- TimelineState::scrub(s, 110)
+    s <- TimelineState::tick(s, 200000)
+    return 20 if not s.playing or s.frame >= 110 or s.frame > 20
+    # Stepping pauses and wraps when looping, clamps otherwise.
+    s <- TimelineState::step_by(s, -100)
+    return 21 if s.playing
+    s <- TimelineState::scrub(s, 0)
+    s <- TimelineState::step_by(s, -1)
+    return 22 if s.frame != 119
+    s.looping <- false
+    s <- TimelineState::step_by(s, 5)
+    return 23 if s.frame != 119
+    # Scrub clamps.
+    s <- TimelineState::scrub(s, 500)
+    return 24 if s.frame != 119
+    s <- TimelineState::scrub(s, -5)
+    return 25 if s.frame != 0
+    # Pixel mapping: left edge is frame 0, right edge the last frame.
+    return 26 if Timeline::frame_at_x(0, 600, 120) != 0 or Timeline::frame_at_x(600, 600, 120) != 119
+    return 27 if Timeline::x_of_frame(60, 600, 120) != 300
+    return 0
+
+def op_stack() -> i32:
+    mutable s: StackState::Stack = StackState::empty()
+    return 30 if not StackState::add(&s, Ops::despike(0, 59, -1, 1))
+    _ = StackState::add(&s, Ops::smooth_path(0, 59, -1, 2))
+    _ = StackState::add(&s, Ops::median(0, 59, 2, 3))
+    return 31 if s.count != 3 or s.selected != 2
+    # Move the median to the top.
+    return 32 if not StackState::move(&s, 2, -5)
+    return 33 if s.ops[0].kind != Ops::Kind.Median or s.ops[1].kind != Ops::Kind.Despike or s.ops[2].kind != Ops::Kind.SmoothPath
+    return 34 if s.selected != 0
+    return 35 if StackState::move(&s, 0, -1)       # already at the top
+    _ = StackState::toggle(&s, 1)
+    return 36 if s.ops[1].enabled
+    _ = StackState::set_scope(&s, 1, 50, 10, 60)
+    return 37 if s.ops[1].first != 50 or s.ops[1].last != 50
+    _ = StackState::set_scope(&s, 1, -4, 99, 60)
+    return 38 if s.ops[1].first != 0 or s.ops[1].last != 59
+    _ = StackState::nudge_strength(&s, 2, 100)
+    return 39 if s.ops[2].strength != StackState::MAX_STRENGTH
+    _ = StackState::cycle_bones(&s, 2)
+    return 40 if s.ops[2].bones != 2
+    StackState::select(&s, 2)
+    _ = StackState::remove(&s, 0)
+    return 41 if s.count != 2 or s.ops[0].kind != Ops::Kind.Despike or s.selected != 1
+    _ = StackState::remove(&s, 1)
+    _ = StackState::remove(&s, 0)
+    return 42 if s.count != 0 or s.selected != -1
+    return 43 if StackState::remove(&s, 0)
+    for i in 0..<16 |s|:
+        _ = StackState::add(&s, Ops::despike(0, 9, -1, 1))
+    return 44 if StackState::add(&s, Ops::despike(0, 9, -1, 1)) or s.count != 16
+    list: darray[Ops::Operation] = StackState::operations(s)
+    mutable n: i64 = 0
+    for op in list |op, n|:
+        n <- n + 1
+    return 45 if n != 16
+    return 0
+
+def history() -> i32:
+    base: StackState::Stack = StackState::empty()
+    mutable h: HistoryState::History = HistoryState::create(base)
+    return 50 if HistoryState::undo(&h) or HistoryState::redo(&h)
+    mutable s: StackState::Stack = StackState::empty()
+    _ = StackState::add(&s, Ops::despike(0, 59, -1, 1))
+    return 51 if not HistoryState::record(&h, s)
+    return 52 if HistoryState::record(&h, s)          # unchanged: not recorded
+    _ = StackState::add(&s, Ops::median(0, 59, -1, 2))
+    _ = HistoryState::record(&h, s)
+    return 53 if h.count != 3 or h.cursor != 2
+    return 54 if not HistoryState::undo(&h)
+    one: StackState::Stack = HistoryState::current(h)
+    return 55 if one.count != 1
+    _ = HistoryState::undo(&h)
+    zero: StackState::Stack = HistoryState::current(h)
+    return 56 if zero.count != 0
+    _ = HistoryState::redo(&h)
+    _ = HistoryState::redo(&h)
+    two: StackState::Stack = HistoryState::current(h)
+    return 57 if two.count != 2 or HistoryState::redo(&h)
+    # A fresh edit after undo drops the redo branch.
+    _ = HistoryState::undo(&h)
+    mutable t: StackState::Stack = HistoryState::current(h)
+    _ = StackState::toggle(&t, 0)
+    _ = HistoryState::record(&h, t)
+    return 58 if h.count != 3 or HistoryState::redo(&h)
+    # Overflow keeps the newest CAPACITY snapshots.
+    for i in 0..<100 |h, t|:
+        _ = StackState::set_scope(&t, 0, i % 50, 59, 60)
+        _ = HistoryState::record(&h, t)
+    return 59 if h.count != HistoryState::CAPACITY or h.cursor != HistoryState::CAPACITY - 1
+    last: StackState::Stack = HistoryState::current(h)
+    return 60 if last.ops[0].first != 49
+    mutable undone: i64 = 0
+    while HistoryState::undo(&h) |h, undone|:
+        undone <- undone + 1
+    return 61 if undone != HistoryState::CAPACITY - 1
+    return 0
+
+def main() -> i32:
+    rc: i32 = timeline()
+    return rc if rc != 0
+    rc2: i32 = op_stack()
+    return rc2 if rc2 != 0
+    return history()

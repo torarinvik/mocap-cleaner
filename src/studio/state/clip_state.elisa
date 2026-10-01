@@ -1,0 +1,180 @@
+# The clip the studio edits, read straight from GLB documents: node order for
+# the engine rig (parents first), per-frame poses through PoseOverride, joint
+# tracks for trails and contacts, per-channel curves and the per-frame problem
+# count the timeline marks. The studio holds two documents, the source and
+# the source cleaned by the current operation stack (GlbTracks::
+# clean_animation, the same call the CLI exports with), and samples both here.
+include "../../io/glb_tracks.elisa"
+include "../../../../elisa-engine-mocap/src/animation/pose_override.elisa"
+
+module StudioClip:
+    public:
+        # Frame `frame`'s key (keys are uniform at the clip rate).
+        def key_of(doc: GlbDocument::Document&, slot: usize, frame: i64) -> usize:
+            n: i64 = GlbDocument::key_count(doc, slot).i64()
+            return 0 if n <= 0 or frame <= 0
+            return (n - 1).usize() if frame >= n
+            return frame.usize()
+
+        def frame_count(doc: GlbDocument::Document&, anim: usize) -> i64:
+            mutable most: i64 = 0
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, most|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                n: i64 = GlbDocument::key_count(doc, held.output).i64()
+                most <- n if n > most else most
+            return most
+
+        # Nodes with every parent before its children.
+        def order(doc: GlbDocument::Document&) -> darray[i64]:
+            n: usize = GlbDocument::node_count(doc)
+            out: mutable darray[i64] = []
+            placed: mutable darray[bool] = []
+            for i in 0..<n |placed|:
+                placed.push(false)
+            mutable progress: bool = true
+            while progress |progress, out, placed, doc, n|:
+                progress <- false
+                for i in 0..<n |i, out, placed, doc, progress|:
+                    continue if placed[i]
+                    p: i64 = GlbDocument::node_parent(doc, i)
+                    if p < 0 or placed[p.usize()]:
+                        placed[i] <- true
+                        out.push(i.i64())
+                        progress <- true
+            return out
+
+        # Rig slot of every node (-1 when unplaced).
+        def slots(doc: GlbDocument::Document&, nodes: darray[i64]&) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for i in 0..<GlbDocument::node_count(doc) |out|:
+                out.push(-1)
+            for k in 0..<nodes.count |k, nodes, out|:
+                out[nodes[k].usize()] <- k.i64()
+            return out
+
+        def rig(doc: GlbDocument::Document&, nodes: darray[i64]&, slot: darray[i64]&) -> PoseOverride::Rig:
+            mutable r: PoseOverride::Rig = PoseOverride::Rig()
+            for k in 0..<nodes.count |k, r, doc, nodes, slot|:
+                node: usize = nodes[k].usize()
+                p: i64 = GlbDocument::node_parent(doc, node)
+                parent: i64 = -1 if p < 0 else slot[p.usize()]
+                _ = catch PoseOverride::rig_add(&r, parent, GlbDocument::node_rest(doc, node)):
+                    value: 0
+                    error failure: 1
+            return move r
+
+        # Local transforms of every rig slot at `frame`: rest, with animated
+        # channels replaced by their key at that frame.
+        def locals_at(doc: GlbDocument::Document&, anim: usize, frame: i64, nodes: darray[i64]&, slot: darray[i64]&) -> darray[Geometry::Transform]:
+            out: mutable darray[Geometry::Transform] = []
+            for k in 0..<nodes.count |k, out, doc, nodes|:
+                out.push(GlbDocument::node_rest(doc, nodes[k].usize()))
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, out, doc, anim, frame, slot|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                s: i64 = slot[held.node]
+                continue if s < 0
+                key: usize = key_of(doc, held.output, frame)
+                mutable t: Geometry::Transform = out[s.usize()]
+                if held.path == GlbDocument::TargetPath.Translation:
+                    t.position <- Geometry::Vec3{x: GlbDocument::track_value(doc, held.output, key, 0), y: GlbDocument::track_value(doc, held.output, key, 1), z: GlbDocument::track_value(doc, held.output, key, 2)}
+                if held.path == GlbDocument::TargetPath.Rotation:
+                    t.rotation <- Geometry::Quat{x: GlbDocument::track_value(doc, held.output, key, 0), y: GlbDocument::track_value(doc, held.output, key, 1), z: GlbDocument::track_value(doc, held.output, key, 2), w: GlbDocument::track_value(doc, held.output, key, 3)}
+                if held.path == GlbDocument::TargetPath.Scale:
+                    t.scale <- Geometry::Vec3{x: GlbDocument::track_value(doc, held.output, key, 0), y: GlbDocument::track_value(doc, held.output, key, 1), z: GlbDocument::track_value(doc, held.output, key, 2)}
+                out[s.usize()] <- t
+            return out
+
+        # Model transforms of the rig at `frame`, through engine pose
+        # override (every animated bone is an override of its rest pose).
+        def models_at(r: PoseOverride::Rig&, doc: GlbDocument::Document&, anim: usize, frame: i64, nodes: darray[i64]&, slot: darray[i64]&) -> darray[Geometry::Transform]:
+            locals: darray[Geometry::Transform] = locals_at(doc, anim, frame, nodes, slot)
+            mutable held: PoseOverride::Overrides = PoseOverride::overrides(r)
+            for k in 0..<locals.count |k, held, locals|:
+                _ = PoseOverride::set_override(&held, k, locals[k])
+            models: mutable darray[Geometry::Transform] = []
+            _ = catch PoseOverride::evaluate_rest(r, held, &models):
+                value: 0
+                error failure: 1
+            return models
+
+        # World position of rig slot `bone` over every frame.
+        def joint_track(r: PoseOverride::Rig&, doc: GlbDocument::Document&, anim: usize, frames: i64, nodes: darray[i64]&, slot: darray[i64]&, bone: i64) -> darray[Geometry::Vec3]:
+            out: mutable darray[Geometry::Vec3] = []
+            for f in 0..<frames |f, out, r, doc, anim, nodes, slot, bone|:
+                models: darray[Geometry::Transform] = models_at(r, doc, anim, f, nodes, slot)
+                if bone >= 0 and bone < models.count.i64():
+                    out.push(models[bone.usize()].position)
+                else:
+                    out.push(Geometry::Vec3{x: 0.0, y: 0.0, z: 0.0})
+            return out
+
+        # Rig slot of the first node with role `role` (-1 when absent).
+        def slot_of_role(doc: GlbDocument::Document&, slot: darray[i64]&, role: i64) -> i64:
+            for i in 0..<GlbDocument::node_count(doc) |i, doc, slot, role|:
+                return slot[i] if RigMap::role_of(doc, i) == role
+            return -1
+
+        # Channel index (in `anim`) animating `node` along `path`, or -1.
+        def channel_of(doc: GlbDocument::Document&, anim: usize, node: usize, path: GlbDocument::TargetPath) -> i64:
+            return GlbDocument::find_channel(doc, anim, node, path)
+
+        # One component of one channel as fixed-point values per key.
+        def curve(doc: GlbDocument::Document&, anim: usize, channel: i64, component: usize) -> darray[i64]:
+            return [] if channel < 0 or channel >= GlbDocument::channel_count(doc, anim).i64()
+            held: GlbDocument::Channel = GlbDocument::channel(doc, anim, channel.usize())
+            track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+            return [] if component >= track.components
+            return GlbTracks::read(doc, held.output, component)
+
+        # Spikes per frame over every linear channel component of `anim`.
+        def problems(doc: GlbDocument::Document&, anim: usize, frames: i64, threshold: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for f in 0..<frames |out|:
+                out.push(0)
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, out, doc, anim, frames, threshold|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                continue if held.path == GlbDocument::TargetPath.Weights
+                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                for c in 0..<track.components |c, out, doc, held, frames, threshold|:
+                    v: darray[i64] = GlbTracks::read(doc, held.output, c)
+                    n: i64 = v.count.i64()
+                    for f in 1..<(n - 1) |f, v, out, frames, threshold|:
+                        if f < frames and Spike::is_spike(v[(f - 1).usize()], v[f.usize()], v[(f + 1).usize()], threshold):
+                            out[f.usize()] <- out[f.usize()] + 1
+            return out
+
+        # Strongest second difference at each frame over every channel,
+        # for the timeline's severity colouring.
+        def peak_accel(doc: GlbDocument::Document&, anim: usize, frames: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for f in 0..<frames |out|:
+                out.push(0)
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, out, doc, anim, frames|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                continue if held.path == GlbDocument::TargetPath.Weights
+                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                for c in 0..<track.components |c, out, doc, held, frames|:
+                    v: darray[i64] = GlbTracks::read(doc, held.output, c)
+                    n: i64 = v.count.i64()
+                    for f in 1..<(n - 1) |f, v, out, frames|:
+                        if f < frames:
+                            a: i64 = Spike::magnitude(Spike::accel(v[(f - 1).usize()], v[f.usize()], v[(f + 1).usize()]))
+                            old: i64 = out[f.usize()]
+                            out[f.usize()] <- a if a > old else old
+            return out
+
+        # Ground contacts of one joint track (heights in metres -> micro-units).
+        def contacts(track: darray[Geometry::Vec3]&, fps: i64) -> darray[bool]:
+            heights: mutable darray[i64] = []
+            speeds: mutable darray[i64] = []
+            n: usize = track.count
+            for f in 0..<n |f, track, heights, speeds, n, fps|:
+                heights.push(GlbTracks::to_fixed(track[f].y))
+                prev: Geometry::Vec3 = track[f - 1] if f > 0 else track[f]
+                dx: f32 = track[f].x - prev.x
+                dz: f32 = track[f].z - prev.z
+                speeds.push(GlbTracks::to_fixed((dx * dx + dz * dz).sqrt() * fps.f32()))
+            return Track::contacts(heights, speeds, 40000, 60000, 400000)

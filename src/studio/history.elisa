@@ -1,0 +1,91 @@
+# Undo/redo cursor policy for the studio's operation-stack history.
+#
+# The history holds `count` snapshots (0 = oldest) and a `cursor` at the one
+# being shown. Recording a new snapshot drops everything after the cursor (no
+# redo past a fresh edit); when the history is full the oldest snapshot is
+# dropped (`push_shift` = 1) so the newest always fits. The snapshot store
+# itself is state/history_state.elisa; these kernels decide every index.
+module HistoryPolicy:
+    public:
+        const MAX_CAPACITY: i64 = 4096
+
+        def can_undo(cursor: i64) -> bool:
+            ensure not result or cursor >= 1
+            ensure result or cursor <= 0
+            return cursor >= 1
+
+        def can_redo(cursor: i64, count: i64) -> bool:
+            ensure not result or cursor + 1 < count
+            ensure result or cursor + 1 >= count
+            return cursor + 1 < count
+
+        def undo(cursor: i64, count: i64) -> i64:
+            requires count >= 1
+            requires cursor >= 0
+            requires cursor < count
+            ensure result >= 0
+            ensure result < count
+            ensure cursor < 1 or result == cursor - 1
+            ensure cursor >= 1 or result == cursor
+            return cursor - 1 if cursor >= 1
+            return cursor
+
+        def redo(cursor: i64, count: i64) -> i64:
+            requires count >= 1
+            requires cursor >= 0
+            requires cursor < count
+            ensure result >= 0
+            ensure result < count
+            ensure cursor + 1 >= count or result == cursor + 1
+            ensure cursor + 1 < count or result == cursor
+            return cursor + 1 if cursor + 1 < count
+            return cursor
+
+        # Snapshots dropped from the front when recording: 1 when full.
+        def push_shift(cursor: i64, capacity: i64) -> i64:
+            requires capacity >= 2
+            requires capacity <= MAX_CAPACITY
+            requires cursor >= 0
+            requires cursor < capacity
+            ensure result == 0 or result == 1
+            ensure cursor >= capacity - 1 or result == 0
+            ensure cursor < capacity - 1 or result == 1
+            return 1 if cursor >= capacity - 1
+            return 0
+
+        # Cursor after recording: the new snapshot.
+        def push_cursor(cursor: i64, capacity: i64) -> i64:
+            requires capacity >= 2
+            requires capacity <= MAX_CAPACITY
+            requires cursor >= 0
+            requires cursor < capacity
+            ensure result >= 1
+            ensure result < capacity
+            ensure cursor >= capacity - 1 or result == cursor + 1
+            ensure cursor < capacity - 1 or result == capacity - 1
+            return cursor + 1 if cursor < capacity - 1
+            return capacity - 1
+
+        # Snapshot count after recording: everything after the cursor is gone.
+        def push_count(cursor: i64, capacity: i64) -> i64:
+            requires capacity >= 2
+            requires capacity <= MAX_CAPACITY
+            requires cursor >= 0
+            requires cursor < capacity
+            ensure result >= 2
+            ensure result <= capacity
+            ensure cursor >= capacity - 1 or result == cursor + 2
+            ensure cursor < capacity - 1 or result == capacity
+            return cursor + 2 if cursor < capacity - 1
+            return capacity
+
+        # Where old snapshot `index` lives after a recording shifted by `shift`
+        # (-1 when it was dropped).
+        def shifted_index(index: i64, shift: i64) -> i64:
+            requires index >= 0
+            requires shift == 0 or shift == 1
+            ensure result >= -1
+            ensure result <= index
+            ensure shift < 0 or shift > 0 or result == index
+            ensure shift < 1 or shift > 1 or result == index - 1
+            return index - shift

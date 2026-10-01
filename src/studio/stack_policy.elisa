@@ -1,0 +1,141 @@
+# Index policy for editing the operation stack in the studio: where a moved
+# operation lands, which old slot fills each new slot after a move, a removal
+# or an insertion, where the selection goes, and how a scope or a strength is
+# clamped. state/stack_state.elisa applies these to the operation array.
+module StackPolicy:
+    public:
+        const MAX_OPS: i64 = 16
+        const MAX_FRAMES: i64 = 10000000
+
+        # Target slot when moving `index` by `delta` (clamped to the stack).
+        def move_target(index: i64, delta: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_OPS
+            requires index >= 0
+            requires index < count
+            requires delta >= -16
+            requires delta <= MAX_OPS
+            ensure result >= 0
+            ensure result < count
+            ensure index + delta < 0 or index + delta >= count or result == index + delta
+            ensure delta < 0 or delta > 0 or result == index
+            return 0 if index + delta < 0
+            return count - 1 if index + delta >= count
+            return index + delta
+
+        # Old slot shown at new slot `i` after moving `src` to `dst`.
+        def move_source(i: i64, src: i64, dst: i64) -> i64:
+            requires src >= 0
+            requires dst >= 0
+            requires i >= 0
+            requires i < MAX_OPS
+            requires src < MAX_OPS
+            requires dst < MAX_OPS
+            ensure result >= 0
+            ensure i < dst or i > dst or result == src
+            ensure src < dst or src > dst or result == i
+            ensure i >= src or i >= dst or result == i
+            ensure i <= src or i <= dst or result == i
+            return src if i == dst
+            return i if src == dst
+            return i + 1 if src < dst and i >= src and i < dst
+            return i - 1 if src > dst and i > dst and i <= src
+            return i
+
+        # Old slot shown at new slot `i` after removing slot `at`.
+        def removed_source(i: i64, at: i64) -> i64:
+            requires i >= 0
+            requires at >= 0
+            requires i < MAX_OPS
+            requires at < MAX_OPS
+            ensure result >= 0
+            ensure result < at or result > at
+            ensure i >= at or result == i
+            ensure i < at or result == i + 1
+            return i + 1 if i >= at
+            return i
+
+        # Old slot shown at new slot `i` after inserting a new operation at
+        # `at` (-1 for the inserted slot itself).
+        def inserted_source(i: i64, at: i64) -> i64:
+            requires i >= 0
+            requires at >= 0
+            ensure result >= -1
+            ensure result <= i
+            ensure i < at or i > at or result == -1
+            ensure i >= at or result == i
+            ensure i <= at or result == i - 1
+            return i if i < at
+            return -1 if i == at
+            return i - 1
+
+        def can_add(count: i64) -> bool:
+            ensure not result or count < MAX_OPS
+            ensure result or count >= MAX_OPS or count < 0
+            return count >= 0 and count < MAX_OPS
+
+        # Selection after removing slot `at` from a stack of `count`
+        # (-1 when the stack becomes empty).
+        def select_after_remove(selected: i64, at: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_OPS
+            requires at >= 0
+            requires at < count
+            requires selected >= -1
+            requires selected < count
+            ensure result >= -1
+            ensure result < count - 1 or (count == 1 and result == -1)
+            ensure count < 1 or count > 1 or result == -1
+            return -1 if count == 1
+            return selected - 1 if selected > at
+            return count - 2 if selected >= count - 1
+            return -1 if selected < 0
+            return selected
+
+        # Scope start clamped into the clip.
+        def scope_first(first: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            ensure result >= 0
+            ensure result < count
+            ensure first < 0 or first >= count or result == first
+            return 0 if first < 0
+            return count - 1 if first >= count
+            return first
+
+        # Scope end clamped into [first, count).
+        def scope_last(first: i64, last: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            requires first >= 0
+            requires first < count
+            ensure result >= first
+            ensure result < count
+            ensure last < first or last >= count or result == last
+            return first if last < first
+            return count - 1 if last >= count
+            return last
+
+        # A parameter nudged by `delta` and held inside [lo, hi].
+        def nudge(value: i64, delta: i64, lo: i64, hi: i64) -> i64:
+            requires lo <= hi
+            requires value >= -1000000000
+            requires value <= 1000000000
+            requires delta >= -1000000000
+            requires delta <= 1000000000
+            ensure result >= lo
+            ensure result <= hi
+            ensure value + delta < lo or value + delta > hi or result == value + delta
+            return lo if value + delta < lo
+            return hi if value + delta > hi
+            return value + delta
+
+        # Bone mask cycle shown in the panel: all bones (-1), legs (2), the rest (1).
+        def next_mask(mask: i64) -> i64:
+            ensure result == -1 or result == 1 or result == 2
+            ensure mask < -1 or mask > -1 or result == 2
+            ensure mask < 2 or mask > 2 or result == 1
+            ensure mask == -1 or mask == 2 or result == -1
+            return 2 if mask == -1
+            return 1 if mask == 2
+            return -1

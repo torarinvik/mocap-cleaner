@@ -1,0 +1,125 @@
+# The studio's editable operation stack: up to StackPolicy::MAX_OPS operations
+# in a fixed array (globals cannot hold darrays in stage1), a count and the
+# selected row. Every index decision goes through the proved kernels in
+# ../stack_policy.elisa; this module only moves values around.
+include "../../ops/stack.elisa"
+include "../stack_policy.elisa"
+
+module StackState:
+    public:
+        const MAX_STRENGTH: i64 = 64
+        const MAX_EDGE: i64 = 120
+
+        struct Stack:
+            ops: mutable Ops::Operation[16]
+            count: mutable i64
+            selected: mutable i64
+
+        def empty() -> Stack:
+            return Stack{ops: zeroed, count: 0, selected: -1}
+
+        def valid(s: Stack&, at: i64) -> bool:
+            return at >= 0 and at < s.count and s.count <= StackPolicy::MAX_OPS
+
+        # Append `op` (ignored when full) and select it.
+        def add(s: mutable Stack&, op: Ops::Operation) -> bool:
+            return false if not StackPolicy::can_add(s.count)
+            s.ops[s.count] <- op
+            s.selected <- s.count
+            s.count <- s.count + 1
+            return true
+
+        def remove(s: mutable Stack&, at: i64) -> bool:
+            return false if not valid(s, at)
+            old: Ops::Operation[16] = s.ops
+            n: i64 = s.count - 1
+            for i in 0..<n |s, old, at|:
+                s.ops[i] <- old[StackPolicy::removed_source(i, at)]
+            s.selected <- StackPolicy::select_after_remove(s.selected, at, s.count)
+            s.count <- n
+            return true
+
+        # Move row `at` by `delta` rows; the selection follows it.
+        def move(s: mutable Stack&, at: i64, delta: i64) -> bool:
+            return false if not valid(s, at)
+            d: i64 = -16 if delta < -16 else (16 if delta > 16 else delta)
+            dst: i64 = StackPolicy::move_target(at, d, s.count)
+            return false if dst == at
+            old: Ops::Operation[16] = s.ops
+            for i in 0..<s.count |s, old, at, dst|:
+                s.ops[i] <- old[StackPolicy::move_source(i, at, dst)]
+            s.selected <- dst
+            return true
+
+        def toggle(s: mutable Stack&, at: i64) -> bool:
+            return false if not valid(s, at)
+            mutable op: Ops::Operation = s.ops[at]
+            op.enabled <- not op.enabled
+            s.ops[at] <- op
+            return true
+
+        # Scope row `at` to frames [first, last] of a clip of `frames` frames.
+        def set_scope(s: mutable Stack&, at: i64, first: i64, last: i64, frames: i64) -> bool:
+            return false if not valid(s, at) or frames < 1 or frames > StackPolicy::MAX_FRAMES
+            mutable op: Ops::Operation = s.ops[at]
+            op.first <- StackPolicy::scope_first(first, frames)
+            op.last <- StackPolicy::scope_last(op.first, last, frames)
+            s.ops[at] <- op
+            return true
+
+        def nudge_strength(s: mutable Stack&, at: i64, delta: i64) -> bool:
+            return false if not valid(s, at)
+            mutable op: Ops::Operation = s.ops[at]
+            v: i64 = op.strength if op.strength >= 0 and op.strength <= MAX_STRENGTH else 1
+            d: i64 = -MAX_STRENGTH if delta < -MAX_STRENGTH else (MAX_STRENGTH if delta > MAX_STRENGTH else delta)
+            op.strength <- StackPolicy::nudge(v, d, 1, MAX_STRENGTH)
+            s.ops[at] <- op
+            return true
+
+        def cycle_bones(s: mutable Stack&, at: i64) -> bool:
+            return false if not valid(s, at)
+            mutable op: Ops::Operation = s.ops[at]
+            op.bones <- StackPolicy::next_mask(op.bones)
+            s.ops[at] <- op
+            return true
+
+        def select(s: mutable Stack&, at: i64) -> void:
+            s.selected <- at if valid(s, at) else -1
+            return
+
+        # The enabled-and-disabled list in order, for Ops::evaluate.
+        def operations(s: Stack&) -> darray[Ops::Operation]:
+            out: mutable darray[Ops::Operation] = []
+            for i in 0..<s.count |s, out|:
+                out.push(s.ops[i])
+            return out
+
+        def from_list(list: darray[Ops::Operation]&) -> Stack:
+            mutable s: Stack = empty()
+            for op in list |op, s|:
+                _ = add(&s, op)
+            s.selected <- -1 if s.count == 0 else 0
+            return s
+
+        def same(a: Stack&, b: Stack&) -> bool:
+            return false if a.count != b.count
+            for i in 0..<a.count |a, b|:
+                x: Ops::Operation = a.ops[i]
+                y: Ops::Operation = b.ops[i]
+                return false if x.kind != y.kind or x.enabled != y.enabled or x.first != y.first
+                return false if x.last != y.last or x.bones != y.bones or x.strength != y.strength or x.edge != y.edge
+            return true
+
+        def kind_label(k: Ops::Kind) -> sview:
+            return "Despike" if k == Ops::Kind.Despike
+            return "Pin contacts" if k == Ops::Kind.PinContacts
+            return "Close seam" if k == Ops::Kind.CloseSeam
+            return "Smooth path" if k == Ops::Kind.SmoothPath
+            return "Limit wring" if k == Ops::Kind.LimitWring
+            return "Median"
+
+        def bones_label(mask: i64) -> sview:
+            return "all bones" if mask == -1
+            return "legs" if mask == 2
+            return "upper body" if mask == 1
+            return "custom"

@@ -1,0 +1,99 @@
+# Pixel mapping kernels for the studio's 2D panels: the curve view's value
+# axis, problem-marker severity, rectangle hit tests and the split of the
+# window into panels. Integer pixels throughout; the panels convert at the
+# edge. Every result stays inside the rectangle it was asked about.
+module StudioView:
+    public:
+        const MAX_PIXELS: i64 = 100000
+        # Curve values are micro-units (GlbTracks::SCALE); +-1e9 covers them.
+        const MAX_VALUE: i64 = 1000000000
+        const SEVERITY_LEVELS: i64 = 4
+
+        # Row of `value` in a curve box `height` pixels tall at `top`, with
+        # `hi` on the top row and `lo` on the bottom one.
+        def value_y(value: i64, lo: i64, hi: i64, top: i64, height: i64) -> i64:
+            requires lo >= -MAX_VALUE
+            requires hi <= MAX_VALUE
+            requires lo < hi
+            requires height >= 1
+            requires height <= MAX_PIXELS
+            requires top >= 0
+            requires top <= MAX_PIXELS
+            ensure result >= top
+            ensure result <= top + height
+            ensure value < hi or result == top
+            ensure value > lo or result == top + height
+            return top if value >= hi
+            return top + height if value <= lo
+            return top + share(hi - value, hi - lo, height)
+
+        # `part / whole` of `height` pixels, held inside [0, height].
+        def share(part: i64, whole: i64, height: i64) -> i64:
+            requires whole >= 1
+            requires whole <= 2 * MAX_VALUE
+            requires part >= 0
+            requires part <= whole
+            requires height >= 1
+            requires height <= MAX_PIXELS
+            ensure result >= 0
+            ensure result <= height
+            v: i64 = part * height / whole
+            return 0 if v < 0
+            return height if v > height
+            return v
+
+        # Severity 0..3 of a spike of acceleration `accel` against `threshold`:
+        # 0 below it, 1 up to twice it, 2 up to four times it, 3 beyond.
+        def severity(accel: i64, threshold: i64) -> i64:
+            requires threshold >= 1
+            requires threshold <= MAX_VALUE
+            requires accel >= 0
+            requires accel <= MAX_VALUE
+            ensure result >= 0
+            ensure result < SEVERITY_LEVELS
+            ensure accel >= threshold or result == 0
+            ensure accel < threshold or result >= 1
+            return 0 if accel < threshold
+            return 1 if accel <= 2 * threshold
+            return 2 if accel <= 4 * threshold
+            return 3
+
+        def inside(px: i64, py: i64, x: i64, y: i64, w: i64, h: i64) -> bool:
+            ensure not result or px >= x
+            ensure not result or py >= y
+            ensure not result or px < x + w
+            ensure not result or py < y + h
+            return false if w <= 0 or h <= 0
+            return false if px < x or py < y
+            return false if px >= x + w or py >= y + h
+            return true
+
+        # Start of part `i` of `parts` equal parts of `total` pixels.
+        def part_start(total: i64, parts: i64, i: i64) -> i64:
+            requires total >= 0
+            requires total <= MAX_PIXELS
+            requires parts >= 1
+            requires parts <= 16
+            requires i >= 0
+            requires i <= parts
+            ensure result >= 0
+            ensure result <= total
+            ensure i > 0 or result == 0
+            return 0 if i == 0
+            v: i64 = total * i / parts
+            return 0 if v < 0
+            return total if v > total
+            return v
+
+        # Pixels left for a flexible panel once fixed panels take `used`.
+        def remaining(total: i64, used: i64, minimum: i64) -> i64:
+            requires total >= 0
+            requires total <= MAX_PIXELS
+            requires used >= 0
+            requires used <= MAX_PIXELS
+            requires minimum >= 0
+            requires minimum <= total
+            ensure result >= minimum
+            ensure result <= total
+            return minimum if total - used < minimum
+            return total - used

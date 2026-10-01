@@ -1,0 +1,196 @@
+# Timeline kernels for the studio: the playhead, play/pause, playback speed
+# (1x, 1/2x, 1/4x), frame stepping and the frame <-> pixel mapping used by the
+# timeline strip and the curve view. Pure integer policy; the kernels carry
+# contracts and the laws live in timeline_laws.elisa. The State struct and its
+# transitions are in state/timeline_state.elisa (tested, not proved).
+#
+# Playback keeps clip time in microseconds so a slow speed never loses
+# fractional frames: each tick adds the wall-clock time divided by the speed
+# divisor, and the frame is that time at the clip rate.
+module Timeline:
+    public:
+        const MAX_FRAMES: i64 = 10000000
+        const RATE: i64 = 120
+        const MICROS: i64 = 1000000
+        # Longest wall-clock step one tick may add (a stalled frame does not
+        # jump the playhead by seconds).
+        const MAX_STEP_US: i64 = 250000
+        # Speed divisors: 1 = 1x, 2 = 1/2x, 4 = 1/4x.
+        const FULL: i64 = 1
+        const HALF: i64 = 2
+        const QUARTER: i64 = 4
+        const MAX_PIXELS: i64 = 100000
+        # Longest clip time (MAX_FRAMES at RATE, in microseconds, rounded up).
+        const MAX_TIME_US: i64 = 100000000000
+
+        def valid_divisor(d: i64) -> bool:
+            ensure not result or d == 1 or d == 2 or d == 4
+            ensure d < 1 or d > 1 or result
+            ensure d < 2 or d > 2 or result
+            ensure d < 4 or d > 4 or result
+            return true if d == FULL
+            return true if d == HALF
+            return true if d == QUARTER
+            return false
+
+        # The next speed in the cycle 1x -> 1/2x -> 1/4x -> 1x.
+        def next_divisor(d: i64) -> i64:
+            ensure result == FULL or result == HALF or result == QUARTER
+            ensure d < FULL or d > FULL or result == HALF
+            ensure d < HALF or d > HALF or result == QUARTER
+            ensure d == FULL or d == HALF or result == FULL
+            return HALF if d == FULL
+            return QUARTER if d == HALF
+            return FULL
+
+        def clamp(frame: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            ensure result >= 0
+            ensure result < count
+            ensure frame < 0 or frame >= count or result == frame
+            ensure frame >= 0 or result == 0
+            ensure frame < count or result == count - 1
+            return 0 if frame < 0
+            return count - 1 if frame >= count
+            return frame
+
+        # Wrap a frame into a looping clip (frames within one clip length
+        # either side of it).
+        def wrap(frame: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            requires frame >= -count
+            requires frame < 2 * count
+            ensure result >= 0
+            ensure result < count
+            ensure frame < 0 or frame >= count or result == frame
+            ensure frame >= 0 or result == frame + count
+            ensure frame < count or result == frame - count
+            return frame + count if frame < 0
+            return frame - count if frame >= count
+            return frame
+
+        # Step by `delta` frames (|delta| <= count), holding the clip ends.
+        def step_clamped(frame: i64, delta: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            requires frame >= 0
+            requires frame < count
+            requires delta >= -count
+            requires delta <= count
+            ensure result >= 0
+            ensure result < count
+            ensure frame + delta < 0 or frame + delta >= count or result == frame + delta
+            ensure frame + delta >= 0 or result == 0
+            ensure frame + delta < count or result == count - 1
+            return clamp(frame + delta, count)
+
+        # Step by `delta` frames (|delta| <= count), wrapping around the loop.
+        def step_looped(frame: i64, delta: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            requires frame >= 0
+            requires frame < count
+            requires delta >= -count
+            requires delta <= count
+            ensure result >= 0
+            ensure result < count
+            ensure frame + delta < 0 or frame + delta >= count or result == frame + delta
+            ensure frame + delta >= 0 or result == frame + delta + count
+            ensure frame + delta < count or result == frame + delta - count
+            return wrap(frame + delta, count)
+
+        def step(frame: i64, delta: i64, count: i64, looping: bool) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            requires frame >= 0
+            requires frame < count
+            requires delta >= -count
+            requires delta <= count
+            ensure result >= 0
+            ensure result < count
+            return step_looped(frame, delta, count) if looping
+            return step_clamped(frame, delta, count)
+
+        # Clip time added by one tick of `elapsed_us` wall time at speed 1/d.
+        def advance_us(elapsed_us: i64, d: i64) -> i64:
+            requires d >= 1
+            requires d <= 4
+            ensure result >= 0
+            ensure result <= MAX_STEP_US
+            ensure elapsed_us >= 0 or result == 0
+            ensure elapsed_us < 0 or elapsed_us > MAX_STEP_US or result <= elapsed_us
+            ensure d < 1 or d > 1 or elapsed_us < 0 or elapsed_us > MAX_STEP_US or result == elapsed_us
+            ensure d < 1 or d > 1 or elapsed_us <= MAX_STEP_US or result == MAX_STEP_US
+            return 0 if elapsed_us < 0
+            e: i64 = MAX_STEP_US if elapsed_us > MAX_STEP_US else elapsed_us
+            return e if d <= 1
+            return e / 2 if d <= 2
+            return e / 4 if d <= 3
+            return e / 4
+
+        # Clip length in microseconds.
+        def duration_us(count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            ensure result >= 1
+            return count * MICROS / RATE + 1
+
+        # Frame shown at clip time `t` (0 <= t).
+        def frame_at_time(t: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            requires t >= 0
+            requires t <= MAX_TIME_US
+            ensure result >= 0
+            ensure result < count
+            ensure t < 0 or t > 0 or result == 0
+            return 0 if t == 0
+            return clamp(t * RATE / MICROS, count)
+
+        # Start time of a frame, rounded up so frame_at_time maps it back to
+        # the same frame.
+        def time_of_frame(frame: i64) -> i64:
+            requires frame >= 0
+            requires frame < MAX_FRAMES
+            ensure result >= 0
+            ensure result <= MAX_TIME_US
+            v: i64 = (frame * MICROS + RATE - 1) / RATE
+            return 0 if v < 0
+            return MAX_TIME_US if v > MAX_TIME_US
+            return v
+
+        # Frame under pixel column `x` of a strip `width` pixels wide.
+        def frame_at_x(x: i64, width: i64, count: i64) -> i64:
+            requires width >= 1
+            requires width <= MAX_PIXELS
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            ensure result >= 0
+            ensure result < count
+            ensure x > 0 or result == 0
+            ensure x < width or result == count - 1
+            return 0 if x <= 0
+            return count - 1 if x >= width
+            v: i64 = x * count / width
+            return 0 if v < 0
+            return count - 1 if v >= count
+            return v
+
+        # Left pixel of frame `frame` in a strip `width` pixels wide.
+        def x_of_frame(frame: i64, width: i64, count: i64) -> i64:
+            requires width >= 1
+            requires width <= MAX_PIXELS
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            requires frame >= 0
+            requires frame < count
+            ensure result >= 0
+            ensure result <= width
+            ensure frame < 0 or frame > 0 or result == 0
+            return 0 if frame == 0
+            v: i64 = frame * width / count
+            return 0 if v < 0
+            return width if v > width
+            return v
