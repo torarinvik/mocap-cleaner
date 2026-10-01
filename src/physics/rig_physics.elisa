@@ -250,8 +250,23 @@ module Physics:
             return false
 
         def balance_check(c: Rig::Clip&, left: darray[bool]&, right: darray[bool]&, floor: i64, length: f64, out: mutable Findings&):
-            return if c.frames < 3 or length <= 0.000001
             coms: darray[MotionQuat::V] = com_track(c)
+            mutable inside_flags: darray[bool] = []
+            mutable impossible: darray[bool] = []
+            balance_frames(c, &coms, left, right, floor, length, out, &inside_flags, &impossible)
+
+        # The balance detector per frame: `inside` is whether the centre of
+        # mass is over the (margin-grown) support of the planted feet, and
+        # `impossible` marks the frames of every reported run (see
+        # Balance::reported). Both get one entry per frame; `coms` is
+        # com_track(c). Totals go to `out` as for the `balance` op.
+        def balance_frames(c: Rig::Clip&, coms: darray[MotionQuat::V]&, left: darray[bool]&, right: darray[bool]&, floor: i64, length: f64, out: mutable Findings&, inside_flags: mutable darray[bool]&, impossible: mutable darray[bool]&):
+            inside_flags.clear()
+            impossible.clear()
+            for f in 0..<c.frames:
+                inside_flags.push(false)
+                impossible.push(false)
+            return if c.frames < 3 or length <= 0.000001 or coms.count.i64() != c.frames
             fps: f64 = frame_rate(c)
             margin: i64 = Limb::micro(length * 0.06)
             mutable xs: darray[i64] = []
@@ -282,6 +297,7 @@ module Physics:
                     com_held <- com_in
                 flags.push(flagged)
                 held.push(com_held)
+                inside_flags[k] <- com_held
             # A flagged run is a step, not a fall, when a foot touches down
             # within it or within MIN_UNBALANCED frames after it and the
             # centre of mass is over the new support at that frame.
@@ -299,7 +315,9 @@ module Physics:
                     touchdown: bool = (left[u] and not left[u - 1]) or (right[u] and not right[u - 1])
                     stepped <- true if touchdown and held[u]
                 out.stepped <- out.stepped + run if stepped
-                continue if stepped
+                continue if not Balance::reported(run, MIN_UNBALANCED, stepped)
+                for t in first..=f:
+                    impossible[t.usize()] <- true
                 out.unbalanced_runs <- out.unbalanced_runs + 1
                 out.unbalanced <- out.unbalanced + run
                 if run > out.worst_run:

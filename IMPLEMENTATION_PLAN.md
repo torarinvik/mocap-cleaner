@@ -97,16 +97,25 @@ bone). The operation stack is saved and loaded as an ops file
 
 ### Phase 2: The studio UI
 Everything above works headless first; the UI puts it in front of the user.
-- [ ] Main window: a viewport (engine M01) with perspective, front and side
-      views, a skeleton overlay (M03), and a mesh toggle with x-ray.
-- [ ] Timeline: scrub, play at 1×, ½× and ¼×, frame step, contact bars, and
-      problem markers from the detectors.
-- [ ] Curve view: per-bone rotation and position curves, with source and
-      cleaned drawn together.
-- [ ] Operation stack panel: add, reorder, toggle and scope operations, with
-      live preview through engine pose override (M02).
-- [ ] Overlays (M05): foot and hand motion trails, contact markers,
-      acceleration heat on bones, onion skins, before/after ghost.
+- [x] Main window: a viewport (engine M01) with perspective, front and side
+      views, a skeleton overlay (M03), and a mesh toggle with x-ray. (Three
+      Metal views in `src/studio/app/app.elisa`; M toggles the skinned mesh,
+      X x-ray. Headless capture of all three plus the mesh view in
+      `studio_capture`. The GPU path itself is only checked by hand.)
+- [x] Timeline: scrub, play at 1×, ½× and ¼×, frame step, contact bars, and
+      problem markers from the detectors. (Proved `TimelineState`; markers
+      binned by severity; a red strip marks balance-impossible frames.)
+- [x] Curve view: per-bone rotation and position curves, with source and
+      cleaned drawn together. (Dim source, bright cleaned; P switches between
+      rotation and position, falling back to whichever channel the bone has,
+      via proved `StudioOverlay::channel`. Position mode added here.)
+- [x] Operation stack panel: add, reorder, toggle and scope operations, with
+      live preview through engine pose override (M02). (Add 1-5, up/down,
+      toggle, remove, range I/O, bones B, strength [ ]; each edit goes through
+      history and rebuilds the cleaned clip, drawn via PoseOverride.)
+- [x] Overlays (M05): foot and hand motion trails, contact markers,
+      acceleration heat on bones, onion skins, before/after ghost. (Toolbar
+      and T/C/H/N/G; rendered in `studio_capture`.)
 - [x] Undo and redo over the operation stack. (History of whole stacks,
       corrections included; Cmd-Z / Cmd-Shift-Z through the proved
       `src/studio/shortcuts.elisa`; tests `studio_shortcuts`, `studio_capture`.)
@@ -116,8 +125,10 @@ Everything above works headless first; the UI puts it in front of the user.
       layer that fades in and out over a range. (R / V show the engine gizmo
       on the selected bone; releasing a drag keys `src/ops/corrections.elisa`
       at the current frame, faded over 12 frames each side by the proved
-      `KeyWeight` ramp, into the stack and history. Applied on release, no
-      live drag preview yet. Translation needs a translation channel on the
+      `KeyWeight` ramp, into the stack and history. Applied on release; while
+      dragging, the posed skeleton is previewed in orange (PoseOverride with
+      the gizmo goal, gated by proved `StudioOverlay::preview`; the preview
+      pose is tested headless, the drag wiring only by hand). Translation needs a translation channel on the
       bone. Test `studio_correction`.)
 - [x] Pin tool: pin any end effector (foot, hand, head) over a range. IK
       holds it while other fixes run. (Headless: hands, feet and head via
@@ -132,8 +143,13 @@ Everything above works headless first; the UI puts it in front of the user.
       Keying from a gizmo waits for the studio.)
 
 ### Phase 4: Physics-aware cleanup (the Cascadeur part)
-- [ ] Centre of mass and support polygon overlay, flagging frames where
-      balance is impossible.
+- [x] Centre of mass and support polygon overlay, flagging frames where
+      balance is impossible. (Engine `BalanceOverlay` (CoM marker, plumb line,
+      convex support hull; test `viewport_balance`). Per-frame states come from
+      the same detector as `--op balance` (`Physics::balance_frames`, report
+      rule proved as `Balance::reported`); impossible frames turn the CoM red
+      and are marked on the timeline. Q toggles. The jab clip has no impossible
+      frames, so the red path is checked only in the engine test.)
 - [x] Ballistic check: airborne phases should follow a parabola; fix the
       pelvis path to match. (`--op ballistic`, opt-in; the boxing clips' "flights"
       are mostly contact-detection gaps.)
