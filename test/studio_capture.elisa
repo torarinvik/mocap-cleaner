@@ -1,0 +1,101 @@
+# Headless test of the studio's 3D views: load the boxing clip, clean it with
+# the boxing preset, build each view's draw list (grid, ghost, onion skins,
+# heat trails, contacts, skeleton) and rasterise perspective, front and side
+# views offscreen to build/studio_{perspective,front,side}.png. Then edit the
+# stack through history (disable every op, undo) and check the live preview
+# follows: with no operations the cleaned clip equals the source.
+include "../src/studio/app/scene.elisa"
+include "../../elisa-engine-mocap/src/viewport/viewport_raster.elisa"
+include "../../elisa-engine-mocap/src/viewport/png_writer.elisa"
+
+extern puts(text: cstr) -> i64
+
+const PATH: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+
+# Pixels that differ from the clear colour.
+def inked(img: ViewportRaster::Image&, background: u32) -> i64:
+    mutable n: i64 = 0
+    for y in 0..<img.height |y, img, n, background|:
+        for x in 0..<img.width |x, y, img, n, background|:
+            n <- n + 1 if ViewportRaster::pixel(img, x, y) != background else n
+    return n
+
+def capture(c: StudioModel::Clip&, projection: i32, path: cstr, flags: i64) -> i64:
+    w: i64 = 480
+    h: i64 = 360
+    mutable cam: ViewportCamera::Camera = ViewportCamera::create(w, h) if projection == ViewportCamera::PERSPECTIVE else ViewportCamera::create_ortho(w, h, projection)
+    frame: i64 = c.frames / 2
+    pts: darray[Geometry::Vec3] = StudioScene::points(c, frame)
+    _ = ViewportCamera::frame_points(&cam, &pts, 1.15)
+    list: ViewportDraw::List = StudioScene::build(cam, c, frame, flags, StudioModel::default_bone(c))
+    background: u32 = ViewportDraw::rgba(24, 26, 32, 255)
+    mutable img: ViewportRaster::Image = ViewportRaster::create(w, h)
+    ViewportRaster::clear(&img, background)
+    ViewportRaster::render(&img, cam, list)
+    _ = catch PngWriter::save(path, img.width, img.height, img.rgba):
+        value: value
+        error failure: return -1
+    return inked(img, background)
+
+def views(c: StudioModel::Clip&) -> i32:
+    flags: i64 = StudioScene::DEFAULT_FLAGS + StudioScene::ONION + StudioScene::HEAT
+    p: i64 = capture(c, ViewportCamera::PERSPECTIVE, "build/studio_perspective.png", flags)
+    f: i64 = capture(c, ViewportCamera::FRONT, "build/studio_front.png", flags)
+    s: i64 = capture(c, ViewportCamera::SIDE, "build/studio_side.png", flags)
+    return 10 if p < 500 or f < 500 or s < 500
+    # Picking at the projected hips finds a joint.
+    mutable cam: ViewportCamera::Camera = ViewportCamera::create_ortho(480, 360, ViewportCamera::FRONT)
+    frame: i64 = c.frames / 2
+    pts: darray[Geometry::Vec3] = StudioScene::points(c, frame)
+    _ = ViewportCamera::frame_points(&cam, &pts, 1.15)
+    hips: i64 = StudioModel::default_bone(c)
+    at: ViewportCamera::ScreenPoint = ViewportCamera::project(cam, pts[hips.usize()])
+    picked: i64 = StudioScene::pick(cam, c, frame, flags, at.x, at.y)
+    return 11 if picked < 0
+    return 0
+
+def curves(c: StudioModel::Clip&) -> i32:
+    ch: i64 = StudioModel::curve_channel(c, StudioModel::default_bone(c))
+    return 20 if ch < 0
+    a: darray[i64] = StudioClip::curve(c.source, c.anim, ch, 0)
+    b: darray[i64] = StudioClip::curve(c.cleaned, c.anim, ch, 0)
+    return 21 if a.count == 0 or a.count != b.count
+    return 22 if c.problems.count.i64() != c.frames or c.peaks.count.i64() != c.frames
+    return 23 if c.left_contact.count.i64() != c.frames
+    return 24 if c.spikes_after > c.spikes_before
+    return 0
+
+def main() -> i32:
+    initial: StackState::Stack = StudioModel::initial_stack()
+    mutable history: HistoryState::History = HistoryState::create(initial)
+    built: StudioModel::Clip? = StudioModel::build(PATH, "jab", initial)
+    if built is c:
+        r: i32 = views(c)
+        return r if r != 0
+        q: i32 = curves(c)
+        return q if q != 0
+        return 30 if c.changed <= 0
+        # Disable every operation: one history entry per toggle.
+        mutable s: StackState::Stack = HistoryState::current(history)
+        for i in 0..<s.count |i, s, history|:
+            _ = StackState::toggle(&s, i)
+            _ = HistoryState::record(&history, s)
+        off: StackState::Stack = HistoryState::current(history)
+        plain: StudioModel::Clip? = StudioModel::build(PATH, "jab", off)
+        if plain is p:
+            # (`changed` counts fixed-point round-trip writes, so it is not
+            # zero even with every operation off; spike counts are exact.)
+            return 31 if p.changed > c.changed
+            return 32 if p.spikes_after != p.spikes_before
+        else:
+            return 33
+        # Undo all toggles: back to the preset, which cleans again.
+        for i in 0..<off.count |i, history|:
+            _ = HistoryState::undo(&history)
+        back: StackState::Stack = HistoryState::current(history)
+        return 34 if not StackState::same(back, initial)
+        _ = puts("studio_capture: three views rendered, pick, curves, live preview through history")
+        return 0
+    # No test asset in this checkout: skip like the other GLB tests.
+    _ = puts("studio_capture: no boxing clip, skipped")
+    return 0

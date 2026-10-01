@@ -1,0 +1,111 @@
+# The 3D scene of one studio view, as an engine draw list: ground grid,
+# before/after ghost (the raw source pose), onion skins, joint trails (plain
+# or acceleration heat), foot contacts and the skeleton overlay of the
+# cleaned pose. Every overlay is an engine feature (MotionOverlay,
+# SkeletonOverlay); this file only chooses what to show. The same list feeds
+# the on-screen Metal viewports and the headless raster capture.
+include "model.elisa"
+include "../../../../elisa-engine-mocap/src/viewport/skeleton_overlay.elisa"
+include "../../../../elisa-engine-mocap/src/viewport/motion_overlay.elisa"
+
+module StudioScene:
+    public:
+        # Overlay switches (a bit mask).
+        const TRAILS: i64 = 1
+        const CONTACTS: i64 = 2
+        const HEAT: i64 = 4
+        const ONION: i64 = 8
+        const GHOST: i64 = 16
+        const XRAY: i64 = 32
+        const MESH: i64 = 64
+        const DEFAULT_FLAGS: i64 = 1 + 2 + 16 + 32
+
+        const TRAIL_BEFORE: i64 = 60
+        const TRAIL_AFTER: i64 = 60
+        const ONION_COUNT: i64 = 3
+        const ONION_STEP: i64 = 8
+
+        def on(flags: i64, bit: i64) -> bool:
+            return (flags / bit) % 2 == 1
+
+        def toggle(flags: i64, bit: i64) -> i64:
+            return flags - bit if on(flags, bit) else flags + bit
+
+        def style(flags: i64) -> SkeletonOverlay::Style:
+            mutable s: SkeletonOverlay::Style = SkeletonOverlay::default_style()
+            s.xray <- on(flags, XRAY)
+            # Stored for when the engine mesh backdrop lands on this branch
+            # (ViewportScene is engine-main only); the overlay ignores it now.
+            s.show_mesh <- on(flags, MESH)
+            return s
+
+        def draw_trail(list: mutable ViewportDraw::List&, track: darray[Geometry::Vec3]&, frame: i64, flags: i64, color: u32) -> i64:
+            if on(flags, HEAT):
+                heat: MotionOverlay::Heat = MotionOverlay::Heat{mode: MotionOverlay::ACCELERATION, low: 0.0, high: 60.0, fps: Timeline::RATE.f32()}
+                return catch MotionOverlay::heat_trail(list, track, frame, TRAIL_BEFORE, TRAIL_AFTER, &heat, ViewportDraw::TOP):
+                    value: value.i64()
+                    error failure: 0
+            return catch MotionOverlay::trail(list, track, frame, TRAIL_BEFORE, TRAIL_AFTER, color, ViewportDraw::TOP):
+                value: value.i64()
+                error failure: 0
+
+        def draw_contacts(list: mutable ViewportDraw::List&, cam: ViewportCamera::Camera&, track: darray[Geometry::Vec3]&, frame: i64, ground: f32, color: u32) -> i64:
+            return catch MotionOverlay::contacts(list, cam, track, frame, TRAIL_BEFORE, TRAIL_AFTER, Timeline::RATE.f32(), ground, 0.04, 0.4, 4.0, color, ViewportDraw::TOP):
+                value: value.i64()
+                error failure: 0
+
+        # Everything one view draws at `frame`. `selected` is a rig slot
+        # (-1 for none). Returns the list; drawing failures (vertex budget)
+        # drop that overlay only.
+        def build(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, frame: i64, flags: i64, selected: i64) -> ViewportDraw::List:
+            mutable list: ViewportDraw::List = ViewportDraw::create()
+            _ = catch ViewportDraw::grid(&list, 0.25, 12, ViewportDraw::rgba(70, 74, 84, 255)):
+                value: 0
+                error failure: 1
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            if on(flags, GHOST):
+                raw: darray[Geometry::Transform] = StudioModel::models(c, r, frame, true)
+                _ = catch MotionOverlay::ghost(&list, r, raw, ViewportDraw::rgba(235, 80, 120, 200), ViewportDraw::TOP):
+                    value: value
+                    error failure: 0
+            if on(flags, ONION):
+                for i in 0..<(2 * ONION_COUNT) |i, list, r, c, frame|:
+                    k: i64 = i.i64() - ONION_COUNT if i.i64() < ONION_COUNT else i.i64() - ONION_COUNT + 1
+                    f: i64 = MotionOverlay::ghost_frame(frame, k, ONION_STEP, c.frames)
+                    m: darray[Geometry::Transform] = StudioModel::models(c, r, f, false)
+                    _ = catch MotionOverlay::ghost(&list, r, m, MotionOverlay::ghost_color(k, ONION_COUNT), ViewportDraw::DEPTH):
+                        value: value
+                        error failure: 0
+            if on(flags, TRAILS) or on(flags, HEAT):
+                _ = draw_trail(&list, c.left_hand, frame, flags, ViewportDraw::rgba(80, 200, 255, 255))
+                _ = draw_trail(&list, c.right_hand, frame, flags, ViewportDraw::rgba(255, 120, 80, 255))
+                _ = draw_trail(&list, c.left_foot, frame, flags, ViewportDraw::rgba(120, 220, 120, 255))
+                _ = draw_trail(&list, c.right_foot, frame, flags, ViewportDraw::rgba(240, 220, 90, 255))
+            if on(flags, CONTACTS):
+                _ = draw_contacts(&list, cam, c.left_foot, frame, c.ground, ViewportDraw::rgba(120, 255, 140, 255))
+                _ = draw_contacts(&list, cam, c.right_foot, frame, c.ground, ViewportDraw::rgba(255, 230, 90, 255))
+            models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+            st: SkeletonOverlay::Style = style(flags)
+            target: SkeletonOverlay::Target = SkeletonOverlay::joint(selected) if selected >= 0 else SkeletonOverlay::nothing()
+            _ = catch SkeletonOverlay::draw(&list, cam, r, models, st, target, SkeletonOverlay::nothing()):
+                value: value
+                error failure: 0
+            return move list
+
+        # Joint positions of the cleaned pose at `frame` (for framing).
+        def points(c: StudioModel::Clip&, frame: i64) -> darray[Geometry::Vec3]:
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+            out: mutable darray[Geometry::Vec3] = []
+            for m in models |m, out|:
+                out.push(m.position)
+            return out
+
+        # Rig slot of the joint under pixel (px, py), or -1.
+        def pick(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, frame: i64, flags: i64, px: f32, py: f32) -> i64:
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+            st: SkeletonOverlay::Style = style(flags)
+            hit: SkeletonOverlay::Hit = SkeletonOverlay::pick(cam, r, models, st, px, py)
+            return hit.bone if hit.kind == SkeletonPickPolicy::JOINT or hit.kind == SkeletonPickPolicy::BONE
+            return -1

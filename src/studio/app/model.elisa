@@ -1,0 +1,173 @@
+# The studio's loaded clip: the source document, the source cleaned by the
+# current operation stack (the same GlbTracks::clean_animation the CLI exports
+# with), the rig order, and everything the panels draw that is costly to
+# recompute every frame (joint tracks, contacts, problem counts, peaks).
+#
+# A Clip is affine and built in one piece by `build`; the app keeps it in an
+# optional module global and rebuilds it whenever the stack changes (live
+# preview). Stage1 keeps darrays alive only when the owning struct is moved
+# into the global, so nothing here is mutated in place.
+include "../state/clip_state.elisa"
+include "../state/history_state.elisa"
+include "../state/timeline_state.elisa"
+include "../view.elisa"
+include "../../ops/presets.elisa"
+
+module StudioModel:
+    public:
+        # Tracked joints for trails and contacts, in this order.
+        const LEFT_HAND: usize = 0
+        const RIGHT_HAND: usize = 1
+        const LEFT_FOOT: usize = 2
+        const RIGHT_FOOT: usize = 3
+
+        affine struct Clip:
+            source: mutable GlbDocument::Document
+            cleaned: mutable GlbDocument::Document
+            anim: usize
+            frames: i64
+            nodes: mutable darray[i64]
+            slot: mutable darray[i64]
+            # Spike count and strongest acceleration per frame (cleaned and
+            # source), for the timeline's markers.
+            problems: mutable darray[i64]
+            source_problems: mutable darray[i64]
+            peaks: mutable darray[i64]
+            # World tracks of the cleaned clip: hands, then feet.
+            left_hand: mutable darray[Geometry::Vec3]
+            right_hand: mutable darray[Geometry::Vec3]
+            left_foot: mutable darray[Geometry::Vec3]
+            right_foot: mutable darray[Geometry::Vec3]
+            left_contact: mutable darray[bool]
+            right_contact: mutable darray[bool]
+            ground: f32
+            threshold: i64
+            changed: i64
+            spikes_before: i64
+            spikes_after: i64
+
+        def open(path: cstr) -> GlbDocument::Document?:
+            d: GlbDocument::Document = catch GlbDocument::load(path):
+                value: value
+                error failure: return null
+            return move d
+
+        def total(v: darray[i64]&) -> i64:
+            mutable sum: i64 = 0
+            for x in v |x, sum|:
+                sum <- sum + x
+            return sum
+
+        def lowest(a: darray[Geometry::Vec3]&, b: darray[Geometry::Vec3]&) -> f32:
+            mutable low: f32 = 1000000.0
+            for p in a |p, low|:
+                low <- p.y if p.y < low else low
+            for p in b |p, low|:
+                low <- p.y if p.y < low else low
+            return 0.0 if low > 999999.0 else low
+
+        # Index of the animation named `name` (C string), or -1.
+        def find(doc: GlbDocument::Document&, name: cstr) -> i64:
+            for a in 0..<GlbDocument::animation_count(doc) |a, doc, name|:
+                text: mutable darray[u8] = []
+                n: usize = GlbDocument::animation_name(doc, a, &text)
+                mutable same: bool = true
+                for i in 0..<n |i, text, name, same|:
+                    same <- false if name[i] == 0 or name[i] != text[i]
+                return a.i64() if same and name[n] == 0
+            return -1
+
+        # Load `path`, find `anim_name`, clean a second copy with `s` and
+        # sample everything the studio draws. Null when the file or the
+        # animation is missing.
+        def build(path: cstr, anim_name: cstr, s: StackState::Stack&) -> Clip?:
+            a: GlbDocument::Document? = open(path)
+            b: GlbDocument::Document? = open(path)
+            if a is src:
+                if b is copy:
+                    found: i64 = find(src, anim_name)
+                    found_any: i64 = found if found >= 0 else (0 if GlbDocument::animation_count(src) > 0 else -1)
+                    return null if found_any < 0
+                    anim: usize = found_any.usize()
+                    threshold: i64 = Presets::spike_threshold(Presets::Preset.Boxing)
+                    mutable cleaned: GlbDocument::Document = copy
+                    ops: darray[Ops::Operation] = StackState::operations(s)
+                    result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation(&cleaned, anim, ops, threshold)
+                    frames: i64 = StudioClip::frame_count(src, anim)
+                    nodes: darray[i64] = StudioClip::order(src)
+                    slot: darray[i64] = StudioClip::slots(src, nodes)
+                    rig: PoseOverride::Rig = StudioClip::rig(cleaned, nodes, slot)
+                    lh: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_HAND))
+                    rh: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_HAND))
+                    lf: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_FOOT))
+                    rf: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_FOOT))
+                    lc: darray[bool] = StudioClip::contacts(lf, Timeline::RATE)
+                    rc: darray[bool] = StudioClip::contacts(rf, Timeline::RATE)
+                    problems: darray[i64] = StudioClip::problems(cleaned, anim, frames, threshold)
+                    source_problems: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
+                    peaks: darray[i64] = StudioClip::peak_accel(cleaned, anim, frames)
+                    ground: f32 = lowest(lf, rf)
+                    before: i64 = total(source_problems)
+                    after: i64 = total(problems)
+                    c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after}
+                    return move c
+            return null
+
+        def rig(c: Clip&) -> PoseOverride::Rig:
+            return StudioClip::rig(c.cleaned, c.nodes, c.slot)
+
+        # Model transforms of the cleaned (or, `source`, the raw) clip.
+        def models(c: Clip&, r: PoseOverride::Rig&, frame: i64, source: bool) -> darray[Geometry::Transform]:
+            return StudioClip::models_at(r, c.source, c.anim, frame, c.nodes, c.slot) if source
+            return StudioClip::models_at(r, c.cleaned, c.anim, frame, c.nodes, c.slot)
+
+        # Rig slot of the default curve bone (hips; slot 0 when unmapped).
+        def default_bone(c: Clip&) -> i64:
+            hips: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, Roles::HIPS)
+            return hips if hips >= 0 else 0
+
+        # The rotation channel of rig slot `bone` (translation when the bone
+        # has no rotation channel), or -1.
+        def curve_channel(c: Clip&, bone: i64) -> i64:
+            return -1 if bone < 0 or bone >= c.nodes.count.i64()
+            node: usize = c.nodes[bone.usize()].usize()
+            rot: i64 = StudioClip::channel_of(c.source, c.anim, node, GlbDocument::TargetPath.Rotation)
+            return rot if rot >= 0
+            return StudioClip::channel_of(c.source, c.anim, node, GlbDocument::TargetPath.Translation)
+
+        # Save the cleaned document.
+        def save_cleaned(c: Clip&, path: cstr) -> bool:
+            _ = catch GlbDocument::save(c.cleaned, path):
+                value: value
+                error failure: return false
+            return true
+
+        # Default stack: the boxing preset.
+        def initial_stack() -> StackState::Stack:
+            return StackState::from_list(Presets::operations(Presets::Preset.Boxing))
+
+        # A fresh operation of kind index `k` (0..4) over the whole clip.
+        def new_operation(k: i64, frames: i64) -> Ops::Operation:
+            last: i64 = frames - 1 if frames > 0 else 0
+            return Ops::smooth_path(0, last, -1, 2) if k == 1
+            return Ops::median(0, last, -1, 2) if k == 2
+            return Ops::limit_wring(0, last, -1, WRING_DEFAULT) if k == 3
+            return Ops::seam(8) if k == 4
+            return Ops::despike(0, last, -1, 2)
+
+        # Limit wring's strength is a fixed-point limit, not a pass count, so
+        # it nudges in steps of WRING_STEP within [0, SCALE]; every other kind
+        # goes through StackState::nudge_strength.
+        const WRING_DEFAULT: i64 = 200000
+        const WRING_STEP: i64 = 20000
+        const WRING_MAX: i64 = 1000000
+
+        def nudge(s: mutable StackState::Stack&, at: i64, delta: i64) -> bool:
+            return false if not StackState::valid(s, at)
+            mutable op: Ops::Operation = s.ops[at]
+            if op.kind == Ops::Kind.LimitWring:
+                v: i64 = op.strength + delta * WRING_STEP
+                op.strength <- 0 if v < 0 else (WRING_MAX if v > WRING_MAX else v)
+                s.ops[at] <- op
+                return true
+            return StackState::nudge_strength(s, at, delta)

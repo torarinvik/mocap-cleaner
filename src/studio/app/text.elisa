@@ -1,0 +1,71 @@
+# Per-frame text for the studio's immediate-mode panels. elisa-ui draws a
+# TextRun as a view that must outlive the frame, so numbers are formatted
+# into fixed slots of one static buffer (never a per-frame allocation) and
+# each slot is viewed once per frame. Slots wrap; a frame uses fewer than
+# SLOTS runs of formatted text.
+module StudioText:
+    public:
+        const SLOTS: usize = 96
+        const WIDTH: usize = 48
+        const CAPACITY: usize = 4608
+
+        global mutable buffer: u8[CAPACITY] = zeroed
+        global mutable next: usize = 0
+        global mutable start: usize = 0
+        global mutable length: usize = 0
+
+        # Start formatting into the next slot.
+        def begin() -> void:
+            start <- (next % SLOTS) * WIDTH
+            next <- next + 1
+            length <- 0
+
+        def byte(b: u8) -> void:
+            return if length >= WIDTH
+            buffer[start + length] <- b
+            length <- length + 1
+
+        def put(text: sview) -> void:
+            return if text.len <= 0 or text.data == null
+            for i in 0..<text.len.usize():
+                byte(text.data[i])
+
+        def put_i(value: i64) -> void:
+            if value < 0:
+                byte(45)
+                if value > -1000000000000:
+                    put_i(0 - value)
+                return
+            if value >= 10:
+                put_i(value / 10)
+            byte((48 + value % 10).u8())
+
+        # Fixed-point micro-units (GlbTracks::SCALE) with three decimals.
+        def put_fixed3(value: i64) -> void:
+            if value < 0:
+                byte(45)
+            v: i64 = value if value >= 0 else 0 - value
+            put_i(v / 1000000)
+            byte(46)
+            m: i64 = (v % 1000000) / 1000
+            byte((48 + m / 100).u8())
+            byte((48 + (m / 10) % 10).u8())
+            byte((48 + m % 10).u8())
+
+        def view() -> sview can Unsafe.PointerCast:
+            return UiText::fixed_bytes_view_range[4608](buffer, start, length)
+
+        # One-call helpers: "<label><n>" and "<label><a><mid><b>".
+        def number(label: sview, n: i64) -> sview can Unsafe.PointerCast:
+            begin()
+            put(label)
+            put_i(n)
+            return view()
+
+        def pair(label: sview, a: i64, mid: sview, b: i64) -> sview can Unsafe.PointerCast:
+            begin()
+            put(label)
+            put_i(a)
+            put(mid)
+            put_i(b)
+            return view()

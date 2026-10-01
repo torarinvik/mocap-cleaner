@@ -1,0 +1,585 @@
+# The studio window: three hosted engine viewports (perspective, front,
+# side), the curve view, the timeline and the operation stack, wired to the
+# state modules. Every stack edit is recorded in history and rebuilds the
+# cleaned clip (live preview through the same clean_animation the CLI
+# exports with, posed with PoseOverride).
+#
+# State lives in optional module globals: stage1 declines struct and darray
+# global initialisers, and keeps an affine Clip's darrays alive only when it
+# is moved into the global whole.
+include "../../../../elisa-ui-mocap-viewport/src/platform/appkit/ui_appkit_canvas_flat.elisa"
+include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
+include "scene.elisa"
+include "panels.elisa"
+
+extern puts(text: cstr) -> i64
+
+module Studio:
+    public:
+        const EXPORT_PATH: cstr = "build/studio_export.glb"
+
+        global mutable path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+        global mutable anim_name: cstr = "jab"
+        global mutable clip: StudioModel::Clip? = null
+        global mutable history: HistoryState::History? = null
+        global mutable timeline: TimelineState::State? = null
+        global mutable flags: i64 = StudioScene::DEFAULT_FLAGS
+        global mutable bone: i64 = 0
+        global mutable last_time: f64 = 0.0
+        global mutable drawn_frame: i64 = -1
+        global mutable revision: i64 = 0
+        global mutable status: sview = "ready"
+
+        global mutable view0: Viewport::Viewport? = null
+        global mutable view1: Viewport::Viewport? = null
+        global mutable view2: Viewport::Viewport? = null
+        global mutable seen0: i64 = -1
+        global mutable seen1: i64 = -1
+        global mutable seen2: i64 = -1
+        global mutable shown0: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
+        global mutable shown1: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
+        global mutable shown2: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
+        global mutable framed: bool = false
+
+        global mutable drag_view: i64 = -1
+        global mutable drag_button: i32 = -1
+        global mutable scrubbing: bool = false
+        global mutable last_x: f32 = 0.0
+        global mutable last_y: f32 = 0.0
+        global mutable down_x: f32 = 0.0
+        global mutable down_y: f32 = 0.0
+
+        def set_path(p: cstr) -> void:
+            path <- p
+
+        def set_anim(a: cstr) -> void:
+            anim_name <- a
+
+        # ---- per-view globals ------------------------------------------
+        def put_view(i: i64, vp: Viewport::Viewport) -> void:
+            if i == 0:
+                view0 <- vp
+            elif i == 1:
+                view1 <- vp
+            else:
+                view2 <- vp
+
+        def view(i: i64) -> Viewport::Viewport?:
+            return view0 if i == 0
+            return view1 if i == 1
+            view2
+
+        def seen(i: i64) -> i64:
+            return seen0 if i == 0
+            return seen1 if i == 1
+            seen2
+
+        def put_seen(i: i64, r: i64) -> void:
+            if i == 0:
+                seen0 <- r
+            elif i == 1:
+                seen1 <- r
+            else:
+                seen2 <- r
+
+        def open_view(i: i64) -> Viewport::Viewport?:
+            mutable vp: Viewport::Viewport = catch Viewport::create(320, 240):
+                value: value
+                error failure: return null
+            if i == 1:
+                vp.camera <- ViewportCamera::create_ortho(320, 240, ViewportCamera::FRONT)
+            if i == 2:
+                vp.camera <- ViewportCamera::create_ortho(320, 240, ViewportCamera::SIDE)
+            return move vp
+
+        def rect_of(b: StudioPanels::Box) -> UiHostedSurface::Rect:
+            UiHostedSurface::Rect{x: b.x, y: b.y, width: b.w, height: b.h}
+
+        def view_box(i: i64) -> StudioPanels::Box:
+            StudioPanels::view_box(i.usize(), UiCore::viewport_width(), UiCore::viewport_height())
+
+        # ---- state helpers -----------------------------------------------
+        def frame_now() -> i64:
+            if timeline is t:
+                return t.frame
+            0
+
+        def frames() -> i64:
+            if clip is c:
+                return c.frames
+            1
+
+        def current_stack() -> StackState::Stack:
+            if history is h:
+                return HistoryState::current(h)
+            StackState::empty()
+
+        def touch() -> void:
+            revision <- revision + 1
+            UiCore::request_frame_after(0.001)
+
+        # Rebuild the cleaned clip from the current stack (live preview).
+        def rebuild() -> void:
+            s: StackState::Stack = current_stack()
+            built: StudioModel::Clip? = StudioModel::build(path, anim_name, s)
+            if built == null:
+                status <- "clip failed to load"
+                return
+            clip <- built
+            touch()
+
+        # Record an edited stack and preview it; selection-only edits are
+        # recorded too so undo restores the row the user was on.
+        def commit(s: StackState::Stack, preview: bool) -> void:
+            if history is h:
+                mutable hh: HistoryState::History = h
+                changed: bool = HistoryState::record(&hh, s)
+                history <- hh
+                if changed and preview:
+                    rebuild()
+                touch()
+
+        def undo() -> void:
+            if history is h:
+                mutable hh: HistoryState::History = h
+                if HistoryState::undo(&hh):
+                    history <- hh
+                    rebuild()
+                    status <- "undo"
+
+        def redo() -> void:
+            if history is h:
+                mutable hh: HistoryState::History = h
+                if HistoryState::redo(&hh):
+                    history <- hh
+                    rebuild()
+                    status <- "redo"
+
+        def set_timeline(t: TimelineState::State) -> void:
+            timeline <- t
+            touch()
+
+        def scrub_to(f: i64) -> void:
+            if timeline is t:
+                set_timeline(TimelineState::scrub(t, f))
+
+        def step_frames(d: i64) -> void:
+            if timeline is t:
+                set_timeline(TimelineState::step_by(t, d))
+
+        def toggle_play() -> void:
+            if timeline is t:
+                last_time <- UiAppKitCanvas::monotonic_time()
+                set_timeline(TimelineState::toggle_play(t))
+
+        def cycle_speed() -> void:
+            if timeline is t:
+                set_timeline(TimelineState::cycle_speed(t))
+
+        def toggle_loop() -> void:
+            if timeline is t:
+                mutable n: TimelineState::State = t
+                n.looping <- not n.looping
+                set_timeline(n)
+
+        def toggle_flag(bit: i64) -> void:
+            flags <- StudioScene::toggle(flags, bit)
+            touch()
+
+        # ---- stack edits -----------------------------------------------
+        def add_op(k: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::add(&s, StudioModel::new_operation(k, frames())):
+                StackState::select(&s, s.count - 1)
+                commit(s, true)
+                status <- "operation added"
+
+        def edit_selected(kind: i64, amount: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            at: i64 = s.selected
+            return if not StackState::valid(s, at)
+            mutable ok: bool = false
+            if kind == StudioPanels::HIT_TOGGLE:
+                ok <- StackState::toggle(&s, at)
+            elif kind == StudioPanels::HIT_REMOVE:
+                ok <- StackState::remove(&s, at)
+            elif kind == StudioPanels::HIT_UP:
+                ok <- StackState::move(&s, at, -1)
+            elif kind == StudioPanels::HIT_DOWN:
+                ok <- StackState::move(&s, at, 1)
+            elif kind == 7:
+                ok <- StudioModel::nudge(&s, at, amount)
+            elif kind == 8:
+                ok <- StackState::cycle_bones(&s, at)
+            elif kind == 9:
+                op: Ops::Operation = s.ops[at]
+                ok <- StackState::set_scope(&s, at, frame_now(), op.last, frames())
+            elif kind == 10:
+                op: Ops::Operation = s.ops[at]
+                ok <- StackState::set_scope(&s, at, op.first, frame_now(), frames())
+            if ok:
+                commit(s, true)
+
+        def select_row(i: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            StackState::select(&s, i)
+            commit(s, false)
+
+        def row_action(hit: i64) -> void:
+            kind: i64 = hit / 100
+            row: i64 = hit % 100
+            if kind == StudioPanels::HIT_ADD:
+                add_op(row)
+                return
+            select_row(row)
+            edit_selected(kind, 0) if kind != StudioPanels::HIT_SELECT
+
+        def export_clip() -> void:
+            if clip is c:
+                status <- "exported build/studio_export.glb" if StudioModel::save_cleaned(c, EXPORT_PATH) else "export failed"
+                _ = puts(EXPORT_PATH)
+                touch()
+
+        # ---- views -----------------------------------------------------
+        def frame_all() -> void:
+            if clip is c:
+                pts: darray[Geometry::Vec3] = StudioScene::points(c, frame_now())
+                for i in 0..<3 |i, pts|:
+                    if view(i) is opened:
+                        mutable vp: Viewport::Viewport = opened
+                        _ = ViewportCamera::frame_points(&vp.camera, &pts, 1.15)
+                        Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                        put_view(i, vp)
+                touch()
+
+        def view_at(x: f32, y: f32) -> i64:
+            for i in 0..<3 |i, x, y|:
+                return i if StudioPanels::inside(view_box(i), x, y)
+            -1
+
+        def sync_view(i: i64, scale: f32) -> void:
+            if view(i) is opened:
+                mutable vp: Viewport::Viewport = opened
+                rect: UiHostedSurface::Rect = rect_of(view_box(i))
+                _ = catch Viewport::resize(&vp, UiHostedSurface::pixel_extent(rect.width, scale), UiHostedSurface::pixel_extent(rect.height, scale)):
+                    value: value
+                    error failure: false
+                if seen(i) != revision:
+                    Viewport::invalidate(&vp, ViewportPolicy::DIRTY_SCENE)
+                    put_seen(i, revision)
+                if clip is c:
+                    list: ViewportDraw::List = StudioScene::build(&vp.camera, c, frame_now(), flags, bone)
+                    _ = catch Viewport::tick(&vp, &list):
+                        value: value
+                        error failure: false
+                action: i32 = present(i, vp, rect)
+                if action == UiHostedSurface::APPLY:
+                    _ = Viewport::acknowledge(&vp, vp.published_frame)
+                if vp.dirty != 0:
+                    UiCore::request_frame_after(0.016)
+                put_view(i, vp)
+
+        def present(i: i64, vp: Viewport::Viewport&, rect: UiHostedSurface::Rect) -> i32:
+            w: f32 = UiCore::viewport_width()
+            h: f32 = UiCore::viewport_height()
+            if i == 0:
+                return UiAppKitCanvas::present_hosted(&shown0, 0, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+            if i == 1:
+                return UiAppKitCanvas::present_hosted(&shown1, 1, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+            UiAppKitCanvas::present_hosted(&shown2, 2, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+
+        # ---- lifecycle -------------------------------------------------
+        def init() -> void:
+            UiHandles::reset()
+            initial: StackState::Stack = StudioModel::initial_stack()
+            history <- HistoryState::create(initial)
+            rebuild()
+            if clip is c:
+                timeline <- TimelineState::create(c.frames)
+                bone <- StudioModel::default_bone(c)
+                _ = puts("studio: clip loaded")
+            else:
+                timeline <- TimelineState::create(1)
+                _ = puts("studio: clip not found")
+            view0 <- open_view(0)
+            view1 <- open_view(1)
+            view2 <- open_view(2)
+            if view0 == null:
+                status <- "no Metal device"
+            last_time <- UiAppKitCanvas::monotonic_time()
+
+        def advance() -> void:
+            now: f64 = UiAppKitCanvas::monotonic_time()
+            elapsed: f64 = now - last_time
+            last_time <- now
+            if timeline is t:
+                if t.playing:
+                    us: i64 = (elapsed * 1000000.0).i64()
+                    n: TimelineState::State = TimelineState::tick(t, us)
+                    timeline <- n
+                    if n.frame != drawn_frame:
+                        revision <- revision + 1
+                    UiCore::request_frame_after(0.008)
+
+        def frame() -> void:
+            advance()
+            if not framed and clip != null:
+                framed <- true
+                frame_all()
+            w: f32 = UiCore::viewport_width()
+            h: f32 = UiCore::viewport_height()
+            UiCore::clear(StudioDraw::color(17, 20, 27))
+            s: StackState::Stack = current_stack()
+            mutable cursor: i64 = 0
+            mutable count: i64 = 1
+            mutable can_undo: bool = false
+            mutable can_redo: bool = false
+            if history is hist:
+                cursor <- hist.cursor
+                count <- hist.count
+                can_undo <- HistoryPolicy::can_undo(hist.cursor)
+                can_redo <- HistoryPolicy::can_redo(hist.cursor, hist.count)
+            if timeline is t:
+                StudioPanels::toolbar(t, flags, can_undo, can_redo)
+                StudioDraw::text(StudioPanels::button_x(StudioPanels::BUTTONS) + 8.0, 16.0, 12.0, status, StudioDraw::muted())
+                for i in 0..<3 |i|:
+                    b: StudioPanels::Box = view_box(i)
+                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(38, 40, 46))
+                if clip is c:
+                    first: i64 = -1
+                    last: i64 = -1
+                    if StackState::valid(s, s.selected):
+                        op: Ops::Operation = s.ops[s.selected]
+                        StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, op.first, op.last if op.last < c.frames else c.frames - 1)
+                    else:
+                        StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, first, last)
+                    StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame)
+                    StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
+                    drawn_frame <- t.frame
+            scale: f32 = UiAppKitCanvas::backing_scale()
+            sync_view(0, scale)
+            sync_view(1, scale)
+            sync_view(2, scale)
+
+        def camera_input(i: i64, dx: f32, dy: f32) -> void:
+            if view(i) is opened:
+                mutable vp: Viewport::Viewport = opened
+                scale: f32 = UiAppKitCanvas::backing_scale()
+                if drag_button == 0:
+                    _ = ViewportCamera::orbit(&vp.camera, (dx * scale).i64(), (dy * scale).i64())
+                else:
+                    _ = ViewportCamera::pan(&vp.camera, dx * scale, dy * scale)
+                Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                put_view(i, vp)
+                UiCore::request_frame_after(0.001)
+
+        def zoom(i: i64, notches: i64) -> void:
+            if view(i) is opened:
+                mutable vp: Viewport::Viewport = opened
+                _ = ViewportCamera::zoom(&vp.camera, notches)
+                Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                put_view(i, vp)
+                UiCore::request_frame_after(0.001)
+
+        # A click (no drag) in a view picks the joint under it.
+        def pick(i: i64, x: f32, y: f32) -> void:
+            if view(i) is opened:
+                if clip is c:
+                    b: StudioPanels::Box = view_box(i)
+                    scale: f32 = UiAppKitCanvas::backing_scale()
+                    hit: i64 = StudioScene::pick(opened.camera, c, frame_now(), flags, (x - b.x) * scale, (y - b.y) * scale)
+                    if hit >= 0:
+                        bone <- hit
+                        status <- "bone selected"
+                        touch()
+
+        def toolbar_action(a: i64) -> void:
+            if a == StudioPanels::A_PLAY:
+                toggle_play()
+            elif a == StudioPanels::A_BACK:
+                step_frames(-1)
+            elif a == StudioPanels::A_FORWARD:
+                step_frames(1)
+            elif a == StudioPanels::A_SPEED:
+                cycle_speed()
+            elif a == StudioPanels::A_LOOP:
+                toggle_loop()
+            elif a == StudioPanels::A_UNDO:
+                undo()
+            elif a == StudioPanels::A_REDO:
+                redo()
+            elif a == StudioPanels::A_TRAILS:
+                toggle_flag(StudioScene::TRAILS)
+            elif a == StudioPanels::A_CONTACTS:
+                toggle_flag(StudioScene::CONTACTS)
+            elif a == StudioPanels::A_HEAT:
+                toggle_flag(StudioScene::HEAT)
+            elif a == StudioPanels::A_ONION:
+                toggle_flag(StudioScene::ONION)
+            elif a == StudioPanels::A_GHOST:
+                toggle_flag(StudioScene::GHOST)
+            elif a == StudioPanels::A_XRAY:
+                toggle_flag(StudioScene::XRAY)
+            elif a == StudioPanels::A_MESH:
+                toggle_flag(StudioScene::MESH)
+                status <- "mesh backdrop needs engine ViewportScene (not on mocap-track)"
+            elif a == StudioPanels::A_FRAME:
+                frame_all()
+            elif a == StudioPanels::A_EXPORT:
+                export_clip()
+
+        def pointer_down(x: f32, y: f32, button: i32) -> void:
+            w: f32 = UiCore::viewport_width()
+            h: f32 = UiCore::viewport_height()
+            down_x <- x
+            down_y <- y
+            last_x <- x
+            last_y <- y
+            a: i64 = StudioPanels::toolbar_hit(x, y)
+            if a >= 0:
+                toolbar_action(a)
+                return
+            tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+            if StudioPanels::inside(tb, x, y) or StudioPanels::inside(StudioPanels::curve_box(w, h), x, y):
+                scrubbing <- true
+                scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
+                return
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            if StudioPanels::inside(sb, x, y):
+                s: StackState::Stack = current_stack()
+                hit: i64 = StudioPanels::stack_hit(sb, s, x, y)
+                if hit >= 0:
+                    row_action(hit)
+                return
+            v: i64 = view_at(x, y)
+            if v >= 0:
+                drag_view <- v
+                drag_button <- button
+
+        def pointer_move(x: f32, y: f32) -> void:
+            if scrubbing:
+                tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+                scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
+            elif drag_view >= 0:
+                camera_input(drag_view, x - last_x, y - last_y)
+            last_x <- x
+            last_y <- y
+
+        def pointer_up(x: f32, y: f32) -> void:
+            if drag_view >= 0 and drag_button == 0:
+                moved: f32 = (x - down_x) * (x - down_x) + (y - down_y) * (y - down_y)
+                if moved < 9.0:
+                    pick(drag_view, x, y)
+            drag_view <- -1
+            drag_button <- -1
+            scrubbing <- false
+
+        def key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Space:
+                toggle_play()
+            elif code == UiCore::Key.Left:
+                step_frames(-1)
+            elif code == UiCore::Key.Right:
+                step_frames(1)
+            elif code == UiCore::Key.Z:
+                undo()
+            elif code == UiCore::Key.Y:
+                redo()
+            elif code == UiCore::Key.L:
+                toggle_loop()
+            elif code == UiCore::Key.S:
+                cycle_speed()
+            elif code == UiCore::Key.T:
+                toggle_flag(StudioScene::TRAILS)
+            elif code == UiCore::Key.C:
+                toggle_flag(StudioScene::CONTACTS)
+            elif code == UiCore::Key.H:
+                toggle_flag(StudioScene::HEAT)
+            elif code == UiCore::Key.N:
+                toggle_flag(StudioScene::ONION)
+            elif code == UiCore::Key.G:
+                toggle_flag(StudioScene::GHOST)
+            elif code == UiCore::Key.X:
+                toggle_flag(StudioScene::XRAY)
+            elif code == UiCore::Key.M:
+                toggle_action_mesh()
+            elif code == UiCore::Key.F:
+                frame_all()
+            elif code == UiCore::Key.E:
+                export_clip()
+            elif code == UiCore::Key.LeftBracket:
+                edit_selected(7, -1)
+            elif code == UiCore::Key.RightBracket:
+                edit_selected(7, 1)
+            elif code == UiCore::Key.B:
+                edit_selected(8, 0)
+            elif code == UiCore::Key.I:
+                edit_selected(9, 0)
+            elif code == UiCore::Key.O:
+                edit_selected(10, 0)
+            elif code == UiCore::Key.D:
+                edit_selected(StudioPanels::HIT_TOGGLE, 0)
+            elif code == UiCore::Key.Delete or code == UiCore::Key.Backspace:
+                edit_selected(StudioPanels::HIT_REMOVE, 0)
+            elif code == UiCore::Key.PageUp:
+                edit_selected(StudioPanels::HIT_UP, 0)
+            elif code == UiCore::Key.PageDown:
+                edit_selected(StudioPanels::HIT_DOWN, 0)
+            elif code == UiCore::Key.Up:
+                s: StackState::Stack = current_stack()
+                select_row(s.selected - 1) if s.selected > 0
+            elif code == UiCore::Key.Down:
+                s: StackState::Stack = current_stack()
+                select_row(s.selected + 1) if s.selected + 1 < s.count
+            elif code == UiCore::Key.Digit1:
+                add_op(0)
+            elif code == UiCore::Key.Digit2:
+                add_op(1)
+            elif code == UiCore::Key.Digit3:
+                add_op(2)
+            elif code == UiCore::Key.Digit4:
+                add_op(3)
+            elif code == UiCore::Key.Digit5:
+                add_op(4)
+
+        def toggle_action_mesh() -> void:
+            toolbar_action(StudioPanels::A_MESH)
+
+        def event(incoming: UiCore::Event) -> void:
+            match incoming:
+                UiCore::PointerEvent.Down(at, button):
+                    pointer_down(at.x, at.y, button)
+                UiCore::PointerEvent.Up(at, button):
+                    pointer_up(at.x, at.y)
+                UiCore::PointerEvent.Move(at):
+                    pointer_move(at.x, at.y)
+                UiCore::PointerEvent.Scroll(at, delta):
+                    v: i64 = view_at(at.x, at.y)
+                    if v >= 0:
+                        zoom(v, 1 if delta.y > 0.0 else (-1 if delta.y < 0.0 else 0))
+                UiCore::KeyEvent.Down(code):
+                    key(code)
+                _:
+                    pass
+            UiCore::request_frame_after(0.001)
+
+def app_init() -> void:
+    Studio::init()
+
+def app_widget_event(widget: usize, event: i32) -> void:
+    pass
+
+def app_event(event: UiCore::Event) -> void:
+    Studio::event(event)
+
+def app_text_input(text: sview) -> void:
+    pass
+
+def app_validate() -> void:
+    pass
+
+def app_text_editing(text: sview, selected_start: i32, selected_length: i32) -> void:
+    pass
+
+def app_frame() -> void:
+    Studio::frame()
