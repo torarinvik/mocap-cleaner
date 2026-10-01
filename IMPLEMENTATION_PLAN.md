@@ -51,21 +51,27 @@ algorithmic spec for phase 1:
 ## Phases
 
 ### Phase 0: Skeleton of the app (headless first)
-- [ ] Project setup: `elisa.project.json`, build script via Elisa-engine's
+- [x] Project setup: `elisa.project.json`, build script via Elisa-engine's
       `scripts/elisa_build_run.py`, README, AGENTS.md.
+      Status: `scripts/build.sh` builds the CLI through `elisa_build_run.py`
+      with the new engine console host (`"host": "console"`, mocap-track
+      dd502f51); `scripts/check.sh` builds the CLI that way.
 - [x] Data model: `Skeleton` (hierarchy, rest pose, hinge axes), `Clip`
       (per-bone tracks resampled to a fixed rate), `Pose`.
 - [x] GLB import into the model, and GLB export that leaves untouched nodes,
       meshes and skins byte-identical (engine M06).
-- [ ] Operation stack: `Operation { kind, params, bones, range, enabled }`,
+- [x] Operation stack: `Operation { kind, params, bones, range, enabled }`,
       evaluated in order and cached per operation.
+      Status: `Ops::evaluate_cached` keeps chained per-op keys and results and
+      reruns only ops after the first changed one (disabled-op edits change
+      nothing); kernel `src/core/stack_cache.elisa` and
+      `proof/stack_cache_laws.elisa` proved; `test/op_stack_cache.elisa`
+      checks equal output and evaluation counts. The rig stack
+      (`rig_stack.elisa`) is not cached yet: contact edits there are read by
+      earlier lock/pivot ops, so its prefix is not independent.
 - [x] Headless CLI: `mocap-cleaner clean in.glb --preset boxing -o out.glb --report r.json`.
 - [x] Gate: the CLI reproduces the boxing leg-cleanup metrics within
       tolerance on the boxing GLBs.
-
-Phase 0 audit (2026-10-01): project setup stays open (no `elisa_build_run.py`
-build; tests use stage1 directly); the operation stack stays open (no
-per-operation cache).
 
 ### Phase 1: The immediately useful tools
 Each tool comes with its detector.

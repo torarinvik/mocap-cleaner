@@ -10,6 +10,19 @@ A Cascadeur-style tool that does one thing: clean motion capture. See
 - `test/`: runtime tests, where each `main` returns 0 on pass.
 - `docs/proof-gaps.md`: prover limits found by this project, and their fixes.
 
+## Building
+
+```
+scripts/build.sh                                  # -> build/mocap-cleaner
+scripts/build.sh run -- clean in.glb --preset boxing -o build/out.glb
+```
+The CLI builds through Elisa-engine's `scripts/elisa_build_run.py` (from
+`../elisa-engine-mocap`, branch `mocap-track`). `elisa.project.json` sets
+`"host": "console"`, so the engine compiles `main()` straight to an executable
+without the SDL3/Wicked application host. Override paths with
+`ELISA_ENGINE_ROOT` and `ELISAC`. The studio window has its own
+`scripts/build_studio.sh` (elisa-ui AppKit host).
+
 ## Checking
 
 ```

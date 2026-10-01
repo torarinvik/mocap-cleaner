@@ -18,9 +18,9 @@ for t in test/*.elisa; do
         echo "test  $name: BUILD FAILED (build/test/$name.log)"; status=1
     fi
 done
-# CLI in the plan's form, and a folder batch with its HTML report.
+# CLI built through elisa_build_run.py (scripts/build.sh), in the plan's form, and a folder batch with its HTML report.
 boxer=../elisa-boxing-game/build/dual-stance/black/black-boxer.glb
-if ELISA_ALLOW_STALE_STAGE1=1 "$ELISAC" -emit exe -o build/mocap-cleaner src/cli/main.elisa >build/test/cli.log 2>&1; then
+if ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1; then
     if [ -f "$boxer" ]; then
         rm -rf build/cli-test && mkdir -p build/cli-test/in build/cli-test/out
         cp "$boxer" build/cli-test/in/

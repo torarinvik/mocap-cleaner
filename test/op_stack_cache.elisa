@@ -1,0 +1,57 @@
+include "../src/ops/stack.elisa"
+
+def same(a: darray[i64]&, b: darray[i64]&) -> bool:
+    return false if a.count != b.count
+    for i in 0..<a.count |a, b|:
+        return false if a[i] != b[i]
+    return true
+
+# Cached evaluation must equal plain evaluation; returns ops run this call.
+def run(ops: darray[Ops::Operation]&, bone: i64, source: darray[i64]&, cache: mutable Ops::Cache&) -> i64:
+    before: i64 = cache.evaluations
+    cached: darray[i64] = Ops::evaluate_cached(ops, bone, source, false, cache)
+    plain: darray[i64] = Ops::evaluate(ops, bone, source, false)
+    return -1 if not same(cached, plain)
+    return cache.evaluations - before
+
+def main() -> i32:
+    raw: mutable darray[i64] = []
+    for i in 0..<80 |raw|:
+        raw.push((i.i64() * 37) % 200 + (900 if i % 11 == 5 else 0))
+    ops: mutable darray[Ops::Operation] = []
+    ops.push(Ops::despike(0, 79, -1, 1))
+    ops.push(Ops::smooth_path(10, 70, -1, 2))
+    ops.push(Ops::median(0, 79, -1, 2))
+    off: mutable Ops::Operation = Ops::despike(0, 79, -1, 3)
+    off.enabled <- false
+    ops.push(off)
+    ops.push(Ops::seam(4))
+    cache: mutable Ops::Cache = Ops::new_cache()
+    return 1 if run(ops, 0, raw, cache) != 4            # cold: every enabled op runs
+    return 2 if run(ops, 0, raw, cache) != 0            # unchanged: all reused
+    ops[2].strength <- 3
+    return 3 if run(ops, 0, raw, cache) != 2            # edit op 2: ops 2 and 4 rerun
+    ops[3].strength <- 5
+    return 4 if run(ops, 0, raw, cache) != 0            # disabled op edited: nothing
+    ops[1].enabled <- false
+    return 5 if run(ops, 0, raw, cache) != 2            # op 1 off: ops 2 and 4 rerun
+    ops[1].enabled <- true
+    return 6 if run(ops, 0, raw, cache) != 3            # back on: 1, 2, 4
+    ops[4].strength <- 6
+    return 7 if run(ops, 0, raw, cache) != 1            # last op only
+    return 8 if run(ops, 1, raw, cache) != 4            # other bone: new keys
+    return 9 if run(ops, 1, raw, cache) != 0
+    raw[40] <- raw[40] + 500
+    return 10 if run(ops, 1, raw, cache) != 4           # new source: all rerun
+    shorter: mutable darray[Ops::Operation] = []
+    for k in 0..<3 |shorter, ops|:
+        shorter.push(ops[k])
+    return 11 if run(shorter, 1, raw, cache) != 0       # truncated stack: prefix kept
+    shorter.push(Ops::seam(2))
+    return 12 if run(shorter, 1, raw, cache) != 1       # appended op runs alone
+    short_raw: mutable darray[i64] = []
+    for i in 0..<30 |short_raw, raw|:
+        short_raw.push(raw[i])
+    return 13 if run(shorter, 1, short_raw, cache) != 4 # new frame count
+    return 14 if run(shorter, 1, short_raw, cache) != 0
+    return 0
