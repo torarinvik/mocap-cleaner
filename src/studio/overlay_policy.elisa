@@ -1,0 +1,95 @@
+# Decisions behind the studio's balance overlay, curve view and gizmo
+# preview, as small proved kernels:
+#   - the balance state of a frame (airborne, supported, outside support but
+#     recovering, impossible), which picks the centre-of-mass colour and the
+#     timeline's balance markers;
+#   - a timeline bin shows the worst state of its frames;
+#   - which channel the curve view plots (rotation or position) and how the
+#     mode cycles;
+#   - when the gizmo's live drag preview is drawn.
+module StudioOverlay:
+    public:
+        const AIRBORNE: i64 = 0
+        const SUPPORTED: i64 = 1
+        const OUTSIDE: i64 = 2
+        const IMPOSSIBLE: i64 = 3
+
+        const ROTATION: i64 = 0
+        const POSITION: i64 = 1
+        const CURVE_MODES: i64 = 2
+
+        # Balance state of one frame. `impossible` comes from the detector
+        # (a reported run) and wins; otherwise a frame with no planted foot is
+        # airborne, and a planted one is supported when the centre of mass is
+        # over the support region.
+        def state(planted: bool, com_inside: bool, impossible: bool) -> i64:
+            ensure result >= AIRBORNE
+            ensure result <= IMPOSSIBLE
+            ensure not impossible or result == IMPOSSIBLE
+            ensure impossible or result != IMPOSSIBLE
+            ensure impossible or planted or result == AIRBORNE
+            ensure impossible or not planted or not com_inside or result == SUPPORTED
+            ensure impossible or not planted or com_inside or result == OUTSIDE
+            return IMPOSSIBLE if impossible
+            return AIRBORNE if not planted
+            return SUPPORTED if com_inside
+            return OUTSIDE
+
+        # Whether the timeline marks a frame in this state.
+        def marked(s: i64) -> bool:
+            ensure not result or s == IMPOSSIBLE
+            ensure s != IMPOSSIBLE or result
+            return s == IMPOSSIBLE
+
+        # A timeline bin keeps the worst state seen so far (0 for an empty bin).
+        def worst(level: i64, s: i64) -> i64:
+            requires level >= AIRBORNE
+            requires level <= IMPOSSIBLE
+            requires s >= AIRBORNE
+            requires s <= IMPOSSIBLE
+            ensure result >= level
+            ensure result >= s
+            ensure result == level or result == s
+            ensure result <= IMPOSSIBLE
+            return s if s > level
+            return level
+
+        # The next curve mode (rotation, position, rotation, ...).
+        def next_mode(mode: i64) -> i64:
+            ensure result >= ROTATION
+            ensure result < CURVE_MODES
+            ensure mode != ROTATION or result == POSITION
+            ensure mode == ROTATION or result == ROTATION
+            return POSITION if mode == ROTATION
+            return ROTATION
+
+        # The channel the curve view plots: the one `mode` asks for when the
+        # bone has it, else the other one, else -1. Channels are indices
+        # (-1 when the bone has none).
+        def channel(mode: i64, rotation: i64, position: i64) -> i64:
+            requires rotation >= -1
+            requires position >= -1
+            ensure result >= -1
+            ensure result == rotation or result == position or result == -1
+            ensure mode == POSITION or rotation < 0 or result == rotation
+            ensure mode != POSITION or position < 0 or result == position
+            ensure rotation >= 0 or position >= 0 or result == -1
+            ensure rotation < 0 and position < 0 or result >= 0
+            if mode == POSITION:
+                return position if position >= 0
+                return rotation if rotation >= 0
+                return -1
+            return rotation if rotation >= 0
+            return position if position >= 0
+            return -1
+
+        # The live drag preview shows while a gizmo drag runs in a view and
+        # a bone is selected.
+        def preview(drag_view: i64, dragging: bool, bone: i64) -> bool:
+            ensure not result or drag_view >= 0
+            ensure not result or dragging
+            ensure not result or bone >= 0
+            ensure drag_view < 0 or not dragging or bone < 0 or result
+            return false if drag_view < 0
+            return false if not dragging
+            return bone >= 0

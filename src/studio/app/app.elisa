@@ -41,6 +41,10 @@ module Studio:
         global mutable gizmo_mode: i64 = -1
         global mutable gizmo_drag: Gizmo::Drag? = null
         global mutable gizmo_view: i64 = -1
+        # Pose goal of the running gizmo drag, for the live preview.
+        global mutable gizmo_goal: Geometry::Transform? = null
+        # Curve view channel (StudioOverlay::ROTATION or POSITION).
+        global mutable curve_mode: i64 = 0
         # Held modifiers (StudioShortcuts mask).
         global mutable modifiers: i64 = 0
 
@@ -306,10 +310,14 @@ module Studio:
                 skinned_revision <- revision
 
         def draw_list(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, empty_mesh: GlbSkinMesh::Mesh&, no_points: darray[Geometry::Vec3]&) -> ViewportDraw::List:
+            mutable preview: darray[Geometry::Transform] = []
+            if StudioOverlay::preview(gizmo_view, gizmo_drag != null, bone):
+                if gizmo_goal is goal:
+                    preview <- StudioScene::preview_models(c, frame_now(), bone, goal)
             if mesh is m:
                 if skinned is p:
-                    return StudioScene::build(cam, c, m, p, frame_now(), flags, bone)
-            return StudioScene::build(cam, c, empty_mesh, no_points, frame_now(), flags, bone)
+                    return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
+            return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
 
         def present(i: i64, vp: Viewport::Viewport&, rect: UiHostedSurface::Rect) -> i32:
             w: f32 = UiCore::viewport_width()
@@ -391,7 +399,7 @@ module Studio:
                         StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, op.first, op.last if op.last < c.frames else c.frames - 1)
                     else:
                         StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, first, last)
-                    StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame)
+                    StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode)
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
                     drawn_frame <- t.frame
             scale: f32 = UiAppKitCanvas::backing_scale()
@@ -465,6 +473,10 @@ module Studio:
                 frame_all()
             elif a == StudioPanels::A_EXPORT:
                 export_clip()
+            elif a == StudioPanels::A_BALANCE:
+                toggle_flag(StudioScene::BALANCE)
+                if clip is c:
+                    status <- StudioText::number("balance impossible frames: ", c.impossible_frames)
 
         def pointer_down(x: f32, y: f32, button: i32) -> void:
             w: f32 = UiCore::viewport_width()
@@ -498,6 +510,7 @@ module Studio:
 
         def pointer_move(x: f32, y: f32) -> void:
             if gizmo_view >= 0:
+                gizmo_preview(x, y)
                 last_x <- x
                 last_y <- y
                 return
@@ -565,6 +578,14 @@ module Studio:
                     return true
             false
 
+        # Track the drag goal so the scene draws the live preview.
+        def gizmo_preview(x: f32, y: f32) -> void:
+            i: i64 = gizmo_view
+            if gizmo_drag is d:
+                if view(i) is opened:
+                    gizmo_goal <- Gizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
+                    touch()
+
         # Key the dragged pose at the current frame as a correction.
         def gizmo_release(x: f32, y: f32) -> void:
             i: i64 = gizmo_view
@@ -582,11 +603,13 @@ module Studio:
                         else:
                             status <- "corrections full (16)"
             gizmo_drag <- null
+            gizmo_goal <- null
             touch()
 
         def gizmo_cancel() -> void:
             gizmo_view <- -1
             gizmo_drag <- null
+            gizmo_goal <- null
             status <- "gizmo drag cancelled"
             touch()
 
@@ -623,6 +646,12 @@ module Studio:
                 toggle_flag(StudioScene::GHOST)
             elif code == UiCore::Key.X:
                 toggle_flag(StudioScene::XRAY)
+            elif code == UiCore::Key.Q:
+                toolbar_action(StudioPanels::A_BALANCE)
+            elif code == UiCore::Key.P:
+                curve_mode <- StudioOverlay::next_mode(curve_mode)
+                status <- "curves: position" if curve_mode == StudioOverlay::POSITION else "curves: rotation"
+                touch()
             elif code == UiCore::Key.M:
                 toggle_action_mesh()
             elif code == UiCore::Key.F:

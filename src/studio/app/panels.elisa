@@ -88,6 +88,7 @@ module StudioIcons:
         const DOWN: i64 = 19
         const TRASH: i64 = 20
         const PLUS: i64 = 21
+        const BALANCE: i64 = 22
 
         def draw(icon: i64, x: f32, y: f32, s: f32, c: UiCore::Color) -> void:
             cx: f32 = x + s * 0.5
@@ -168,6 +169,11 @@ module StudioIcons:
                 StudioDraw::rect(cx - 6.0 * u, cy - 5.0 * u, 12.0 * u, 2.0 * u, c)
                 StudioDraw::rect(cx - 2.0 * u, cy - 7.0 * u, 4.0 * u, 2.0 * u, c)
                 StudioDraw::rect(cx - 4.5 * u, cy - 2.0 * u, 9.0 * u, 8.0 * u, c)
+            elif icon == BALANCE:
+                # A centre-of-mass disc over a support bar, plumb line between.
+                StudioDraw::disc(cx, cy - 3.0 * u, 3.0 * u, c)
+                StudioDraw::segment(cx, cy, cx, cy + 5.0 * u, w * 0.7, c)
+                StudioDraw::segment(cx - 6.0 * u, cy + 6.0 * u, cx + 6.0 * u, cy + 6.0 * u, w, c)
             elif icon == PLUS:
                 StudioDraw::rect(cx - 5.0 * u, cy - 1.0 * u, 10.0 * u, 2.0 * u, c)
                 StudioDraw::rect(cx - 1.0 * u, cy - 5.0 * u, 2.0 * u, 10.0 * u, c)
@@ -180,7 +186,7 @@ module StudioPanels:
         const CURVE: f32 = 150.0
         const GAP: f32 = 8.0
         const BUTTON: f32 = 32.0
-        const BUTTONS: i64 = 16
+        const BUTTONS: i64 = 17
         const ROW: f32 = 46.0
         const ADD_KINDS: i64 = 5
         const CURVE_SEGMENTS: i64 = 40
@@ -203,6 +209,7 @@ module StudioPanels:
         const A_MESH: i64 = 13
         const A_FRAME: i64 = 14
         const A_EXPORT: i64 = 15
+        const A_BALANCE: i64 = 16
 
         # Stack-panel hits: kind * 100 + row (kind 1 select, 2 toggle, 3 up,
         # 4 down, 5 remove), or 600 + k for "add kind k".
@@ -284,6 +291,7 @@ module StudioPanels:
             return StudioIcons::MESH if action == A_MESH
             return StudioIcons::FRAME if action == A_FRAME
             return StudioIcons::EXPORT if action == A_EXPORT
+            return StudioIcons::BALANCE if action == A_BALANCE
             -1
 
         # Whether a toggle button is lit.
@@ -296,6 +304,7 @@ module StudioPanels:
             return StudioScene::on(flags, StudioScene::GHOST) if action == A_GHOST
             return StudioScene::on(flags, StudioScene::XRAY) if action == A_XRAY
             return StudioScene::on(flags, StudioScene::MESH) if action == A_MESH
+            return StudioScene::on(flags, StudioScene::BALANCE) if action == A_BALANCE
             false
 
         def toolbar(t: TimelineState::State&, flags: i64, can_undo: bool, can_redo: bool) -> void:
@@ -354,6 +363,7 @@ module StudioPanels:
                     StudioDraw::rect(x0, s.y + 14.0, wide, 6.0, StudioDraw::color(90, 70, 80))
                 if worst > 0:
                     StudioDraw::rect(x0, s.y + 22.0, wide, 16.0, StudioDraw::severity_color(worst))
+            balance_bar(s, c, s.y + 40.0)
             contact_bar(s, c.left_contact, s.y + 46.0, StudioDraw::color(110, 220, 130))
             contact_bar(s, c.right_contact, s.y + 58.0, StudioDraw::color(240, 220, 90))
             px: f32 = frame_x(s, t.frame, n)
@@ -362,6 +372,25 @@ module StudioPanels:
             StudioDraw::text(tb.x + 150.0, tb.y + tb.h - 20.0, 12.0, "L foot", StudioDraw::color(110, 220, 130))
             StudioDraw::text(tb.x + 200.0, tb.y + tb.h - 20.0, 12.0, "R foot", StudioDraw::color(240, 220, 90))
             StudioDraw::text(tb.x + 250.0, tb.y + tb.h - 20.0, 12.0, StudioText::pair("spikes ", c.spikes_before, " -> ", c.spikes_after), StudioDraw::muted())
+            StudioDraw::text(tb.x + 400.0, tb.y + tb.h - 20.0, 12.0, StudioText::number("balance impossible: ", c.impossible_frames), StudioDraw::color(240, 70, 70) if c.impossible_frames > 0 else StudioDraw::muted())
+
+        # Frames the balance detector reports as impossible, binned like the
+        # problem markers (a bin shows the worst state of its frames).
+        def balance_bar(s: Box, c: StudioModel::Clip&, y: f32) -> void:
+            n: i64 = c.balance.count.i64()
+            return if n < 1
+            bins: i64 = MARKER_BINS if n > MARKER_BINS else n
+            for b in 0..<bins |b, bins, n, s, c, y|:
+                first: i64 = b * n / bins
+                last: i64 = (b + 1) * n / bins
+                mutable level: i64 = StudioOverlay::AIRBORNE
+                for f in first..<last |f, c, level|:
+                    v: i64 = c.balance[f.usize()]
+                    level <- StudioOverlay::worst(level, v) if v >= StudioOverlay::AIRBORNE and v <= StudioOverlay::IMPOSSIBLE else level
+                if StudioOverlay::marked(level):
+                    x0: f32 = frame_x(s, first, n)
+                    x1: f32 = frame_x(s, last, n)
+                    StudioDraw::rect(x0, y, x1 - x0 if x1 - x0 > 2.0 else 2.0, 5.0, StudioDraw::color(240, 50, 50))
 
         # Runs of planted frames as bars.
         def contact_bar(s: Box, flags: darray[bool]&, y: f32, col: UiCore::Color) -> void:
@@ -390,9 +419,9 @@ module StudioPanels:
 
         # Curve view: every component of the selected bone's channel,
         # source dim and cleaned bright, on one shared value range.
-        def curves(cb: Box, c: StudioModel::Clip&, bone: i64, frame: i64) -> void:
+        def curves(cb: Box, c: StudioModel::Clip&, bone: i64, frame: i64, mode: i64) -> void:
             StudioDraw::rect(cb.x, cb.y, cb.w, cb.h, StudioDraw::panel())
-            ch: i64 = StudioModel::curve_channel(c, bone)
+            ch: i64 = StudioModel::curve_channel_in(c, bone, mode)
             if ch < 0:
                 StudioDraw::text(cb.x + 10.0, cb.y + 8.0, 12.0, "no animated channel on this bone", StudioDraw::muted())
                 return
@@ -424,7 +453,8 @@ module StudioPanels:
             n: i64 = c.frames if c.frames > 0 else 1
             px: f32 = inner.x + Timeline::x_of_frame(frame, inner.w.i64(), n).f32()
             StudioDraw::segment(px, inner.y, px, inner.y + inner.h, 1.5, StudioDraw::accent())
-            StudioDraw::text(cb.x + 10.0, cb.y + 4.0, 12.0, "Curves: dim = source, bright = cleaned (x y z w)", StudioDraw::muted())
+            label: sview = "Position curves: dim = source, bright = cleaned (x y z)  P: rotation" if StudioModel::is_position(c, ch) else "Rotation curves: dim = source, bright = cleaned (x y z w)  P: position"
+            StudioDraw::text(cb.x + 10.0, cb.y + 4.0, 12.0, label, StudioDraw::muted())
             StudioDraw::text(cb.x + cb.w - 150.0, cb.y + 4.0, 12.0, StudioText::number("bone slot ", bone), StudioDraw::ink())
 
         def polyline(inner: Box, v: darray[i64]&, lo: i64, hi: i64, col: UiCore::Color, width: f32) -> void:
@@ -510,3 +540,5 @@ module StudioPanels:
             StudioDraw::text(sb.x + 12.0, help + 64.0, 11.0, "T trails C contacts H heat N onion G ghost", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 80.0, 11.0, "X x-ray M mesh F frame E export", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 96.0, 11.0, "Drag view: orbit  right drag: pan  click: pick", StudioDraw::muted())
+            StudioDraw::text(sb.x + 12.0, help + 112.0, 11.0, "Q balance overlay  P curve rotation/position", StudioDraw::muted())
+            StudioDraw::text(sb.x + 12.0, help + 128.0, 11.0, "R rotate / V move gizmo (live preview)", StudioDraw::muted())

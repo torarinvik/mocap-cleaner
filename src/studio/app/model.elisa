@@ -12,6 +12,8 @@ include "../state/history_state.elisa"
 include "../state/timeline_state.elisa"
 include "../view.elisa"
 include "../../ops/presets.elisa"
+include "../../physics/rig_physics.elisa"
+include "../overlay_policy.elisa"
 
 module StudioModel:
     public:
@@ -40,7 +42,15 @@ module StudioModel:
             right_foot: mutable darray[Geometry::Vec3]
             left_contact: mutable darray[bool]
             right_contact: mutable darray[bool]
-            ground: f32
+            ground: mutable f32
+            # Balance (Phase 4) of the cleaned clip, per frame: the centre of
+            # mass, StudioOverlay state, and SUPPORT_CORNERS support points
+            # (ankle and toe of each planted foot; NaN when absent).
+            com: mutable darray[Geometry::Vec3]
+            balance: mutable darray[i64]
+            support: mutable darray[Geometry::Vec3]
+            balance_ground: f32
+            impossible_frames: i64
             threshold: i64
             changed: i64
             spikes_before: i64
@@ -112,9 +122,75 @@ module StudioModel:
                     ground: f32 = lowest(lf, rf)
                     before: i64 = total(source_problems)
                     after: i64 = total(problems)
-                    c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after}
+                    mutable bal: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0}
+                    balance_of(&cleaned, anim, frames, &bal)
+                    c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after}
                     return move c
             return null
+
+        const SUPPORT_CORNERS: i64 = 4
+
+        struct Balanced:
+            com: mutable darray[Geometry::Vec3]
+            states: mutable darray[i64]
+            support: mutable darray[Geometry::Vec3]
+            ground: mutable f32
+            impossible: mutable i64
+
+        def vec(p: MotionQuat::V) -> Geometry::Vec3:
+            Geometry::Vec3{x: p.x.f32(), y: p.y.f32(), z: p.z.f32()}
+
+        # The Phase 4 balance detector (Physics::balance_frames, the same one
+        # `--op balance` reports) over the cleaned document, per frame.
+        # Always fills `frames` entries (SUPPORT_CORNERS per frame for the
+        # support), so the overlay can index by frame.
+        def balance_of(doc: GlbDocument::Document&, anim: usize, frames: i64, out: mutable Balanced&) -> void:
+            nan: f32 = 0.0 / 0.0
+            absent: Geometry::Vec3 = Geometry::Vec3{x: nan, y: nan, z: nan}
+            rc: Rig::Clip = Rig::load(doc, anim)
+            ok: bool = rc.frames == frames
+            length: f64 = Physics::leg_length(&rc) if ok else 0.0
+            floor: i64 = Physics::floor_of(&rc) if ok else 0
+            left: darray[bool] = Physics::foot_flags(&rc, 0, floor, length) if ok else []
+            right: darray[bool] = Physics::foot_flags(&rc, 1, floor, length) if ok else []
+            coms: darray[MotionQuat::V] = Physics::com_track(&rc) if ok else []
+            mutable findings: Physics::Findings = Physics::empty_findings()
+            mutable inside: darray[bool] = []
+            mutable impossible: darray[bool] = []
+            if ok:
+                Physics::balance_frames(&rc, &coms, &left, &right, floor, length, &findings, &inside, &impossible)
+            out.ground <- Limb::unmicro(floor).f32()
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<frames |f, out, rc, ok, left, right, coms, inside, impossible, w, absent|:
+                k: usize = f.usize()
+                have: bool = ok and k < left.count and k < right.count and k < coms.count and k < inside.count and k < impossible.count
+                planted_l: bool = have and left[k]
+                planted_r: bool = have and right[k]
+                gone: bool = have and impossible[k]
+                st: i64 = StudioOverlay::state(planted_l or planted_r, have and inside[k], gone)
+                out.states.push(st)
+                out.impossible <- out.impossible + 1 if gone else out.impossible
+                out.com.push(vec(coms[k]) if have else absent)
+                if planted_l or planted_r:
+                    Rig::solve_world(&rc, f, &w)
+                for side in 0..<2 |side, out, rc, w, planted_l, planted_r, absent|:
+                    on: bool = planted_l if side == 0 else planted_r
+                    for role in [Roles::LEFT_FOOT + side.i64() * 4, Roles::LEFT_TOE + side.i64() * 4] |role, out, rc, w, on, absent|:
+                        node: i64 = Rig::node_of(&rc, role)
+                        if on and node >= 0 and node.usize() < w.pos.count:
+                            out.support.push(vec(w.pos[node.usize()]))
+                        else:
+                            out.support.push(absent)
+
+        # The support points of `frame` (empty when out of range).
+        def support_at(c: Clip&, frame: i64) -> darray[Geometry::Vec3]:
+            mutable out: darray[Geometry::Vec3] = []
+            return out if frame < 0 or frame >= c.frames
+            base: i64 = frame * SUPPORT_CORNERS
+            return out if (base + SUPPORT_CORNERS).usize() > c.support.count
+            for k in 0..<SUPPORT_CORNERS |k, out, c, base|:
+                out.push(c.support[(base + k).usize()])
+            return out
 
         def rig(c: Clip&) -> PoseOverride::Rig:
             return StudioClip::rig(c.cleaned, c.nodes, c.slot)
@@ -132,11 +208,22 @@ module StudioModel:
         # The rotation channel of rig slot `bone` (translation when the bone
         # has no rotation channel), or -1.
         def curve_channel(c: Clip&, bone: i64) -> i64:
+            return curve_channel_in(c, bone, StudioOverlay::ROTATION)
+
+        # The channel the curve view plots in `mode` (StudioOverlay::ROTATION
+        # or POSITION), falling back to the other path, or -1.
+        def curve_channel_in(c: Clip&, bone: i64, mode: i64) -> i64:
             return -1 if bone < 0 or bone >= c.nodes.count.i64()
             node: usize = c.nodes[bone.usize()].usize()
             rot: i64 = StudioClip::channel_of(c.source, c.anim, node, GlbDocument::TargetPath.Rotation)
-            return rot if rot >= 0
-            return StudioClip::channel_of(c.source, c.anim, node, GlbDocument::TargetPath.Translation)
+            pos: i64 = StudioClip::channel_of(c.source, c.anim, node, GlbDocument::TargetPath.Translation)
+            return StudioOverlay::channel(mode, rot if rot >= 0 else -1, pos if pos >= 0 else -1)
+
+        # Whether `channel` animates a translation (else a rotation).
+        def is_position(c: Clip&, channel: i64) -> bool:
+            return false if channel < 0 or channel >= GlbDocument::channel_count(c.source, c.anim).i64()
+            held: GlbDocument::Channel = GlbDocument::channel(c.source, c.anim, channel.usize())
+            return held.path == GlbDocument::TargetPath.Translation
 
         # Frames each side of the key a gizmo correction fades over.
         const FIX_REACH: i64 = 12

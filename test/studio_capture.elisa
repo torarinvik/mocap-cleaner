@@ -73,6 +73,62 @@ def curves(c: StudioModel::Clip&) -> i32:
     return 24 if c.spikes_after > c.spikes_before
     return 0
 
+def far(a: Geometry::Vec3, b: Geometry::Vec3) -> f32:
+    dx: f32 = a.x - b.x
+    dy: f32 = a.y - b.y
+    dz: f32 = a.z - b.z
+    dx * dx + dy * dy + dz * dz
+
+# Phase 4 balance overlay, curve modes and the gizmo's live drag preview.
+def overlays(c: StudioModel::Clip&) -> i32:
+    # One balance state and centre of mass per frame, four support corners.
+    return 40 if c.balance.count.i64() != c.frames or c.com.count.i64() != c.frames
+    return 41 if c.support.count.i64() != c.frames * StudioModel::SUPPORT_CORNERS
+    mutable marked: i64 = 0
+    for k in 0..<c.balance.count |k, c, marked|:
+        marked <- marked + 1 if StudioOverlay::marked(c.balance[k]) else marked
+    return 42 if marked != c.impossible_frames
+    frame: i64 = c.frames / 2
+    hips: i64 = StudioModel::default_bone(c)
+    pts: darray[Geometry::Vec3] = StudioScene::points(c, frame)
+    # The centre of mass sits near the hips (within 40 cm) in the same space.
+    return 43 if far(c.com[frame.usize()], pts[hips.usize()]) > 0.16
+    # The overlay alone inks the CoM, plumb line and support polygon.
+    mutable cam: ViewportCamera::Camera = ViewportCamera::create(480, 360)
+    _ = ViewportCamera::frame_points(&cam, &pts, 1.15)
+    mutable list: ViewportDraw::List = ViewportDraw::create()
+    drawn: i64 = StudioScene::draw_balance(&list, cam, c, frame)
+    return 44 if drawn < 3
+    background: u32 = ViewportDraw::rgba(24, 26, 32, 255)
+    mutable img: ViewportRaster::Image = ViewportRaster::create(480, 360)
+    ViewportRaster::clear(&img, background)
+    ViewportRaster::render(&img, cam, list)
+    _ = catch PngWriter::save("build/studio_balance.png", img.width, img.height, img.rgba):
+        value: value
+        error failure: return 45
+    return 46 if inked(img, background) < 30
+    _ = puts("studio_capture: balance overlay drawn, states match the detector")
+    # Position mode plots the hips' translation channel; rotation mode a rotation.
+    pc: i64 = StudioModel::curve_channel_in(c, hips, StudioOverlay::POSITION)
+    rc: i64 = StudioModel::curve_channel_in(c, hips, StudioOverlay::ROTATION)
+    return 47 if pc < 0 or not StudioModel::is_position(c, pc)
+    return 48 if rc < 0 or StudioModel::is_position(c, rc)
+    # Live preview: moving the hips' goal moves the hips and the bones below.
+    base: Geometry::Transform = StudioScene::bone_model(c, frame, hips)
+    lift: Geometry::Vec3 = Geometry::Vec3{x: base.position.x, y: base.position.y + 0.2, z: base.position.z}
+    goal: Geometry::Transform = Geometry::Transform{position: lift, rotation: base.rotation, scale: base.scale}
+    moved: darray[Geometry::Transform] = StudioScene::preview_models(c, frame, hips, goal)
+    return 49 if moved.count.i64() <= hips
+    return 50 if far(moved[hips.usize()].position, lift) > 0.0001
+    mutable shifted: i64 = 0
+    for k in 0..<moved.count |k, moved, pts, shifted|:
+        if k < pts.count:
+            d: f32 = moved[k].position.y - pts[k].y
+            shifted <- shifted + 1 if d > 0.19 and d < 0.21 else shifted
+    return 51 if shifted < 5
+    _ = puts("studio_capture: position curves and gizmo live preview")
+    return 0
+
 def main() -> i32:
     initial: StackState::Stack = StudioModel::initial_stack()
     mutable history: HistoryState::History = zeroed
@@ -83,6 +139,8 @@ def main() -> i32:
         return r if r != 0
         q: i32 = curves(c)
         return q if q != 0
+        o: i32 = overlays(c)
+        return o if o != 0
         return 30 if c.changed <= 0
         # Disable every operation: one history entry per toggle.
         mutable s: StackState::Stack = HistoryState::current(history)
