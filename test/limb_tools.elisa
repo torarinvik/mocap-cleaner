@@ -1,0 +1,53 @@
+include "../src/tools/limb.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def main() -> i32:
+    # Kernels.
+    return 20 if Reach::limb_reach(5, 3, 1) != 4
+    return 21 if Reach::limb_reach(1, 3, 1) != 2
+    return 22 if Reach::limb_reach(3, 3, 1) != 3
+    return 23 if Hinge::unwrap_step(3000000, -3000000) != 283186
+    return 24 if Hinge::unwrap_step(-3000000, 3000000) != -283186
+
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    mutable doc: GlbDocument::Document = load_or_empty(path)
+    anim: i64 = GlbDocument::find_animation(&doc, "jab")
+    return 1 if anim < 0
+    mutable clip: Rig::Clip = Rig::load(&doc, anim.usize())
+    hip: i64 = Rig::node_of(&clip, Roles::LEFT_UPLEG)
+    knee: i64 = Rig::node_of(&clip, Roles::LEFT_LEG)
+    ankle: i64 = Rig::node_of(&clip, Roles::LEFT_FOOT)
+    return 2 if hip < 0 or knee < 0 or ankle < 0
+    # The pole track is continuous: no frame-to-frame step reaches half a turn.
+    poles: darray[i64] = Limb::pole_track(&clip, hip, knee, ankle)
+    return 3 if poles.count != clip.frames.usize()
+    for k in 1..<poles.count:
+        step: i64 = poles[k] - poles[k - 1]
+        return 4 if step > 3141593 or step < -3141593
+    # Re-solving onto the current ankle keeps the ankle and its rotation.
+    mutable w: Rig::World = Rig::empty_world()
+    frame: i64 = clip.frames / 2
+    Rig::solve_world(&clip, frame, &w)
+    target: MotionQuat::V = w.pos[ankle.usize()]
+    rot: MotionQuat::Q = w.rot[ankle.usize()]
+    knee_before: MotionQuat::V = w.pos[knee.usize()]
+    return 5 if not Limb::solve_chain(&clip, frame, hip, knee, ankle, target, rot, &w)
+    return 6 if Rig::vlen(Rig::vsub(w.pos[ankle.usize()], target)) > 0.001
+    return 7 if Rig::vlen(Rig::vsub(w.pos[knee.usize()], knee_before)) > 0.01
+    # Moving the target moves the ankle there (within reach).
+    moved: MotionQuat::V = Rig::vadd(target, Rig::v(0.0, 0.03, 0.02))
+    return 10 if not Limb::solve_chain(&clip, frame, hip, knee, ankle, moved, rot, &w)
+    return 11 if Rig::vlen(Rig::vsub(w.pos[ankle.usize()], moved)) > 0.001
+    return 12 if MotionQuat::dot(w.rot[ankle.usize()], rot) < 0.9999 and MotionQuat::dot(w.rot[ankle.usize()], rot) > -0.9999
+    return 0

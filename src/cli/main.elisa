@@ -1,6 +1,10 @@
 # Headless CLI.
-#   mocap-cleaner clean <in.glb> <out.glb> [--preset boxing|raw] [--anim NAME]
-#   mocap-cleaner batch <outdir> [--preset boxing|raw] <in.glb>...
+#   mocap-cleaner clean <in.glb> <out.glb> [--preset boxing|raw|rokoko] [--anim NAME]
+#       [--op twist|pole|pelvis|lock]... [--pin ROLE:FIRST:LAST[:BLEND]]...
+#       [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]...
+#   mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] <in.glb>...
+# ROLE is a bare joint name in any supported naming (LeftHand, LeftFoot,
+# LeftShin, ...); AXIS is x, y or z (the bone's local axis).
 # Batch writes each cleaned take to <outdir>/<basename> and <outdir>/report.html.
 include "../io/glb_tracks.elisa"
 include "../io/console.elisa"
@@ -30,10 +34,11 @@ def animation_matches(doc: GlbDocument::Document&, a: usize, name: cstr) -> bool
 def preset_of(name: cstr) -> Presets::Preset:
     return Presets::Preset.Boxing if same(name, "boxing".cast[cstr])
     return Presets::Preset.Raw if same(name, "raw".cast[cstr])
+    return Presets::Preset.Rokoko if same(name, "rokoko".cast[cstr])
     return Presets::Preset.Unknown
 
 # Clean one take. `only` is an animation name, or empty for all.
-def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr) -> Report::Row:
+def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, rig: mutable RigOps::Summary&) -> Report::Row:
     failed: Report::Row = Report::Row{ok: false, tracks: 0, changed: 0, before: 0, after: 0}
     opened: i32 = catch GlbDocument::load(input):
         value: 0
@@ -42,6 +47,9 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr) -
     mutable doc: GlbDocument::Document = load_or_empty(input)
     ops: darray[Ops::Operation] = Presets::operations(preset)
     threshold: i64 = Presets::spike_threshold(preset)
+    mutable rig_ops: darray[RigOps::RigOp] = Presets::rig_operations(preset)
+    for op in extra:
+        rig_ops.push(op)
     mutable tracks: i64 = 0
     mutable changed: i64 = 0
     mutable before: i64 = 0
@@ -53,10 +61,125 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr) -
         changed <- changed + result.changed
         before <- before + result.before
         after <- after + result.after
+        summary: RigOps::Summary = RigOps::run(&doc, a, &rig_ops, threshold)
+        add_summary(rig, summary)
     saved: i32 = catch GlbDocument::save(&doc, output):
         value: 0
         error failure: 1
     return Report::Row{ok: saved == 0, tracks: tracks, changed: changed, before: before, after: after}
+
+def add_summary(total: mutable RigOps::Summary&, s: RigOps::Summary):
+    total.ops <- total.ops + s.ops
+    total.changed <- total.changed + s.changed
+    total.twist_max <- s.twist_max if s.twist_max > total.twist_max
+    total.pole_before <- total.pole_before + s.pole_before
+    total.pole_after <- total.pole_after + s.pole_after
+    total.slide_before <- total.slide_before + s.slide_before
+    total.slide_after <- total.slide_after + s.slide_after
+    total.pelvis_before <- total.pelvis_before + s.pelvis_before
+    total.pelvis_after <- total.pelvis_after + s.pelvis_after
+
+def print_rig(s: RigOps::Summary&):
+    return if s.ops == 0
+    Out::field("rig ops: ", s.ops)
+    Out::field("rig values changed: ", s.changed)
+    Out::field("twist removed max (urad): ", s.twist_max)
+    Out::field("pole spikes before: ", s.pole_before)
+    Out::field("pole spikes after: ", s.pole_after)
+    Out::field("pelvis spikes before: ", s.pelvis_before)
+    Out::field("pelvis spikes after: ", s.pelvis_after)
+    Out::field("foot slide before (um): ", s.slide_before)
+    Out::field("foot slide after (um): ", s.slide_after)
+
+# Fields of "A:B:C" split at ':' (each NUL-free byte run).
+def split_fields(text: cstr) -> darray[darray[u8]]:
+    mutable out: darray[darray[u8]] = []
+    mutable cur: darray[u8] = []
+    mutable i: usize = 0
+    while text[i] != 0:
+        if text[i] == 58:
+            out.push(cur)
+            cur <- []
+        else:
+            cur.push(text[i])
+        i <- i + 1
+    out.push(cur)
+    return out
+
+# Signed decimal (optionally with a fraction, scaled by `scale`); ok=false on junk.
+def parse_scaled(bytes: darray[u8]&, scale: i64) -> (ok: bool, value: i64):
+    return (false, 0) if bytes.count == 0
+    mutable k: usize = 0
+    negative: bool = bytes[0] == 45
+    k <- 1 if negative
+    mutable whole: i64 = 0
+    mutable frac: i64 = 0
+    mutable div: i64 = 1
+    mutable dot: bool = false
+    mutable digits: i64 = 0
+    while k < bytes.count:
+        c: u8 = bytes[k]
+        if c == 46 and not dot:
+            dot <- true
+        elif c >= 48 and c <= 57:
+            return (false, 0) if digits > 12
+            digits <- digits + 1
+            if dot:
+                if div < 1000000:
+                    frac <- frac * 10 + (c - 48).i64()
+                    div <- div * 10
+            else:
+                whole <- whole * 10 + (c - 48).i64()
+        else:
+            return (false, 0)
+        k <- k + 1
+    return (false, 0) if digits == 0
+    value: i64 = whole * scale + frac * scale / div
+    return (true, -value if negative else value)
+
+def role_field(bytes: darray[u8]&) -> i64:
+    return RigMap::role_of_name(bytes)
+
+# --pin ROLE:FIRST:LAST[:BLEND]
+def parse_pin(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+    f: darray[darray[u8]] = split_fields(text)
+    bad: RigOps::RigOp = RigOps::pin(Roles::NONE, 0, 0, 1)
+    return (false, bad) if f.count < 3 or f.count > 4
+    role: i64 = role_field(&f[0])
+    first: (ok: bool, value: i64) = parse_scaled(&f[1], 1)
+    last: (ok: bool, value: i64) = parse_scaled(&f[2], 1)
+    mutable blend: (ok: bool, value: i64) = (true, 8)
+    blend <- parse_scaled(&f[3], 1) if f.count == 4
+    return (false, bad) if not Roles::role_valid(role) or Roles::effector_hinge(role) < 0
+    return (false, bad) if not first.ok or not last.ok or not blend.ok or first.value < 0 or last.value < first.value or blend.value < 1
+    return (true, RigOps::pin(role, first.value, last.value, blend.value))
+
+# --offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]
+def parse_offset(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+    f: darray[darray[u8]] = split_fields(text)
+    bad: RigOps::RigOp = RigOps::offset(Roles::NONE, 0, 0, 0, 0, 1)
+    return (false, bad) if f.count < 5 or f.count > 6
+    role: i64 = role_field(&f[0])
+    return (false, bad) if not Roles::role_valid(role) or f[1].count != 1
+    axis: i64 = (f[1][0] - 120).i64()
+    return (false, bad) if axis < 0 or axis > 2
+    degrees: (ok: bool, value: i64) = parse_scaled(&f[2], 1000000)
+    first: (ok: bool, value: i64) = parse_scaled(&f[3], 1)
+    last: (ok: bool, value: i64) = parse_scaled(&f[4], 1)
+    mutable fade: (ok: bool, value: i64) = (true, 8)
+    fade <- parse_scaled(&f[5], 1) if f.count == 6
+    return (false, bad) if not degrees.ok or not first.ok or not last.ok or not fade.ok
+    return (false, bad) if first.value < 0 or last.value < first.value or fade.value < 1
+    return (false, bad) if degrees.value > 360000000 or degrees.value < -360000000
+    radians: i64 = degrees.value * 314159 / 18000000
+    return (true, RigOps::offset(role, axis, radians, first.value, last.value, fade.value))
+
+def parse_op(name: cstr) -> (ok: bool, op: RigOps::RigOp):
+    return (true, RigOps::twist(RigOps::ALL, 280000, 500)) if same(name, "twist".cast[cstr])
+    return (true, RigOps::pole(RigOps::ALL, 2, 0)) if same(name, "pole".cast[cstr])
+    return (true, RigOps::pelvis(4)) if same(name, "pelvis".cast[cstr])
+    return (true, RigOps::foot_lock(4)) if same(name, "lock".cast[cstr])
+    return (false, RigOps::pelvis(1))
 
 def print_row(row: Report::Row):
     if row.ok:
@@ -69,8 +192,10 @@ def print_row(row: Report::Row):
     Out::field("spikes after: ", row.after)
 
 def usage() -> i64:
-    Out::line("usage: mocap-cleaner clean <in.glb> <out.glb> [--preset boxing|raw] [--anim NAME]")
-    Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw] <in.glb>...")
+    Out::line("usage: mocap-cleaner clean <in.glb> <out.glb> [--preset boxing|raw|rokoko] [--anim NAME]")
+    Out::line("           [--op twist|pole|pelvis|lock] [--pin ROLE:FIRST:LAST[:BLEND]]")
+    Out::line("           [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]")
+    Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] <in.glb>...")
     return 2
 
 # <dir>/<basename of path>, NUL-terminated.
@@ -105,6 +230,7 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
     if same(command, "clean".cast[cstr]):
         return usage() if argc < 4
         mutable only: cstr = "".cast[cstr]
+        mutable extra: darray[RigOps::RigOp] = []
         mutable k: i64 = 4
         while k + 1 < argc:
             flag: cstr = slots[k.usize()].cast[cstr]
@@ -113,12 +239,26 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 preset <- preset_of(value)
             elif same(flag, "--anim".cast[cstr]):
                 only <- value
+            elif same(flag, "--op".cast[cstr]):
+                parsed: (ok: bool, op: RigOps::RigOp) = parse_op(value)
+                return usage() if not parsed.ok
+                extra.push(parsed.op)
+            elif same(flag, "--pin".cast[cstr]):
+                parsed: (ok: bool, op: RigOps::RigOp) = parse_pin(value)
+                return usage() if not parsed.ok
+                extra.push(parsed.op)
+            elif same(flag, "--offset".cast[cstr]):
+                parsed: (ok: bool, op: RigOps::RigOp) = parse_offset(value)
+                return usage() if not parsed.ok
+                extra.push(parsed.op)
             else:
                 return usage()
             k <- k + 2
         return usage() if k < argc or preset == Presets::Preset.Unknown
-        row: Report::Row = clean_take(slots[2].cast[cstr], slots[3].cast[cstr], preset, only)
+        mutable rig: RigOps::Summary = RigOps::empty_summary()
+        row: Report::Row = clean_take(slots[2].cast[cstr], slots[3].cast[cstr], preset, only, &extra, &rig)
         print_row(row)
+        print_rig(&rig)
         return 1 if not row.ok
         return 0 if row.after <= row.before
         return 3
@@ -138,12 +278,15 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
             k <- k + 1
             target: darray[u8] = join(outdir, input, "".cast[cstr])
             output: cstr = (&target[0]).cast[cstr]
-            row: Report::Row = clean_take(input, output, preset, "".cast[cstr])
+            none: darray[RigOps::RigOp] = []
+            mutable rig: RigOps::Summary = RigOps::empty_summary()
+            row: Report::Row = clean_take(input, output, preset, "".cast[cstr], &none, &rig)
             failures <- failures + 1 if not row.ok
             Report::row(&html, input, row)
             Out::c_text(input)
             Out::text(": ")
             print_row(row)
+            print_rig(&rig)
         Report::finish(&html)
         report_path: darray[u8] = join(outdir, "".cast[cstr], "report.html".cast[cstr])
         if not Report::save(&html, (&report_path[0]).cast[cstr]):

@@ -1,0 +1,85 @@
+include "../src/ops/rig_stack.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def fresh(doc: GlbDocument::Document&, anim: i64) -> Rig::Clip:
+    return Rig::load(doc, anim.usize())
+
+def world_of(c: Rig::Clip&, frame: i64, node: i64) -> MotionQuat::V:
+    mutable w: Rig::World = Rig::empty_world()
+    Rig::solve_world(c, frame, &w)
+    return w.pos[node.usize()]
+
+def main() -> i32:
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    mutable doc: GlbDocument::Document = load_or_empty(path)
+    anim: i64 = GlbDocument::find_animation(&doc, "jab")
+    return 1 if anim < 0
+    threshold: i64 = 20000
+
+    # Offset layer: zero outside the range, full in the middle, faded edges.
+    mutable c: Rig::Clip = fresh(&doc, anim)
+    knee: i64 = Rig::node_of(&c, Roles::LEFT_LEG)
+    before0: MotionQuat::Q = Rig::local_rot(&c, 2, knee)
+    before_mid: MotionQuat::Q = Rig::local_rot(&c, 30, knee)
+    mutable ops: darray[RigOps::RigOp] = [RigOps::offset(Roles::LEFT_LEG, 0, 200000, 10, 50, 4)]
+    s: RigOps::Summary = RigOps::run_clip(&c, &ops, threshold)
+    return 2 if s.ops != 1
+    return 3 if MotionQuat::dot(Rig::local_rot(&c, 2, knee), before0) < 0.999999
+    turned: f64 = MotionQuat::angle(MotionQuat::mul(MotionQuat::conjugate(before_mid), Rig::local_rot(&c, 30, knee)))
+    return 4 if turned < 0.199 or turned > 0.201
+
+    # Pin: the left hand stays where it was on `first` through the range.
+    mutable p: Rig::Clip = fresh(&doc, anim)
+    hand: i64 = Rig::node_of(&p, Roles::LEFT_HAND)
+    anchor: MotionQuat::V = world_of(&p, 20, hand)
+    moved_before: f64 = Rig::vlen(Rig::vsub(world_of(&p, 40, hand), anchor))
+    ops <- [RigOps::pin(Roles::LEFT_HAND, 20, 60, 4)]
+    _ = RigOps::run_clip(&p, &ops, threshold)
+    moved_after: f64 = Rig::vlen(Rig::vsub(world_of(&p, 40, hand), anchor))
+    return 5 if moved_before > 0.002 and moved_after > moved_before * 0.05 + 0.001
+    return 6 if Rig::vlen(Rig::vsub(world_of(&p, 70, hand), world_of(&c, 70, hand))) > 0.000001
+
+    # Twist: never adds off-axis rotation; reports what it removed.
+    mutable t: Rig::Clip = fresh(&doc, anim)
+    ops <- [RigOps::twist(RigOps::ALL, 50000, 500)]
+    st: RigOps::Summary = RigOps::run_clip(&t, &ops, threshold)
+    return 7 if st.twist_max < 0
+
+    # Pole: never more pole spikes than before.
+    mutable q: Rig::Clip = fresh(&doc, anim)
+    ops <- [RigOps::pole(RigOps::ALL, 2, 0)]
+    sp: RigOps::Summary = RigOps::run_clip(&q, &ops, threshold)
+    return 8 if sp.pole_after > sp.pole_before
+
+    # Pelvis: path spikes do not grow; feet stay on their ankle targets.
+    mutable h: Rig::Clip = fresh(&doc, anim)
+    ankle: i64 = Rig::node_of(&h, Roles::LEFT_FOOT)
+    ankle_before: MotionQuat::V = world_of(&h, 50, ankle)
+    ops <- [RigOps::pelvis(8)]
+    sh: RigOps::Summary = RigOps::run_clip(&h, &ops, threshold)
+    return 10 if sh.pelvis_after > sh.pelvis_before
+    return 11 if Rig::vlen(Rig::vsub(world_of(&h, 50, ankle), ankle_before)) > 0.002
+
+    # Foot lock: planted slide does not grow.
+    mutable l: Rig::Clip = fresh(&doc, anim)
+    ops <- [RigOps::foot_lock(4)]
+    sl: RigOps::Summary = RigOps::run_clip(&l, &ops, threshold)
+    return 12 if sl.slide_after > sl.slide_before
+
+    # Store writes the edits back.
+    mutable doc2: GlbDocument::Document = load_or_empty(path)
+    ops <- [RigOps::offset(Roles::LEFT_LEG, 0, 100000, 10, 50, 4)]
+    sr: RigOps::Summary = RigOps::run(&doc2, anim.usize(), &ops, threshold)
+    return 13 if sr.changed <= 0
+    return 0

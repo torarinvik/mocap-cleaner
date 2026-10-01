@@ -1,0 +1,392 @@
+# Rig-level operation stack: fixes that need whole rotations and the joint
+# hierarchy (knee/elbow twist, pole stability, pelvis path, foot lock) and
+# the user layers (end-effector pins and additive offsets). It runs after the
+# channel stack (stack.elisa) on the same document. Every per-frame decision
+# goes through a proved kernel: Pin::pin_weight (range weights),
+# Hinge::kept_off_axis / roll_share / unwrap_step, Reach::limb_reach (via
+# Limb), Offset::offset_amount, Gate::apply and Contact::step (via Track).
+include "../tools/limb.elisa"
+include "../tools/track.elisa"
+include "../core/pin.elisa"
+include "../core/offset.elisa"
+
+module RigOps:
+    public:
+        const ALL: i64 = 0 - 1
+
+        enum RigKind:
+            Twist         # rebuild knees/elbows from the hinge plane; twist to roll bones
+            Pole          # de-spike and wring-limit the knee/elbow pole angle
+            PelvisPath    # smooth the hips path, legs re-solved to their contacts
+            FootLock      # hold planted feet still (contacts from height and speed)
+            PinEffector   # hold a hand or foot at its pose on `first` over first..last
+            OffsetLayer   # add a rotation about a local axis over first..last
+
+        # `role` is a Roles index or ALL. `amount` is kind-specific:
+        # Twist: kept off-axis tolerance (micro-rad); Pole: wring limit
+        # (micro-rad, 0 = none); OffsetLayer: angle (micro-rad). `passes`:
+        # Twist: roll share (permille); Pole, PelvisPath: filter passes.
+        # `edge` is the ramp in frames (Pin/Offset/FootLock blend).
+        struct RigOp:
+            kind: RigKind
+            enabled: bool
+            first: i64
+            last: i64
+            role: i64
+            axis: i64
+            amount: i64
+            passes: i64
+            edge: i64
+
+        struct Summary:
+            ops: mutable i64
+            changed: mutable i64
+            twist_max: mutable i64
+            pole_before: mutable i64
+            pole_after: mutable i64
+            slide_before: mutable i64
+            slide_after: mutable i64
+            pelvis_before: mutable i64
+            pelvis_after: mutable i64
+
+        def twist(role: i64, tolerance: i64, share: i64) -> RigOp:
+            return RigOp{kind: RigKind.Twist, enabled: true, first: 0, last: 1000000, role: role, axis: 0, amount: tolerance, passes: share, edge: 8}
+
+        def pole(role: i64, passes: i64, limit: i64) -> RigOp:
+            return RigOp{kind: RigKind.Pole, enabled: true, first: 0, last: 1000000, role: role, axis: 0, amount: limit, passes: passes, edge: 8}
+
+        def pelvis(passes: i64) -> RigOp:
+            return RigOp{kind: RigKind.PelvisPath, enabled: true, first: 0, last: 1000000, role: Roles::HIPS, axis: 0, amount: 0, passes: passes, edge: 8}
+
+        def foot_lock(blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.FootLock, enabled: true, first: 0, last: 1000000, role: ALL, axis: 0, amount: 0, passes: 0, edge: blend}
+
+        def pin(role: i64, first: i64, last: i64, blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.PinEffector, enabled: true, first: first, last: last, role: role, axis: 0, amount: 0, passes: 0, edge: blend}
+
+        def offset(role: i64, axis: i64, angle: i64, first: i64, last: i64, fade: i64) -> RigOp:
+            return RigOp{kind: RigKind.OffsetLayer, enabled: true, first: first, last: last, role: role, axis: axis, amount: angle, passes: 0, edge: fade}
+
+        def empty_summary() -> Summary:
+            return Summary{ops: 0, changed: 0, twist_max: 0, pole_before: 0, pole_after: 0, slide_before: 0, slide_after: 0, pelvis_before: 0, pelvis_after: 0}
+
+        # Per-frame layer weight (permille) of an op's frame range.
+        def range_weight(op: RigOp, frame: i64, frames: i64) -> i64:
+            return 0 if not op.enabled or frames < 1 or frame < 0 or frame >= frames or frames > Fade::MAX_FRAMES
+            first: i64 = Order::clamp(op.first, 0, frames - 1)
+            last: i64 = Order::clamp(op.last, 0, frames - 1)
+            return 0 if last < first
+            # Whole-clip fixes are not faded at the clip ends.
+            return Fade::FULL if first == 0 and last == frames - 1 and op.kind != RigKind.PinEffector and op.kind != RigKind.OffsetLayer
+            blend: i64 = Order::clamp(op.edge, 1, Fade::MAX_EDGE)
+            return Pin::pin_weight(frame, first, last, blend)
+
+        def role_selected(op: RigOp, role: i64) -> bool:
+            return op.role == ALL or op.role == role
+
+        # ---- Twist ----------------------------------------------------------
+
+        # Hinge axis of a joint's motion: the mean (sign-aligned) rotation axis
+        # of its local rotation relative to rest.
+        def hinge_axis(c: Rig::Clip&, node: i64) -> MotionQuat::V:
+            rest: MotionQuat::Q = c.joints[node.usize()].rest_r
+            mutable sum: MotionQuat::V = Rig::v(0.0, 0.0, 0.0)
+            for f in 0..<c.frames:
+                d: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(rest), Rig::local_rot(c, f, node))
+                s: f64 = -1.0 if d.w < 0.0 else 1.0
+                mutable a: MotionQuat::V = Rig::v(d.x * s, d.y * s, d.z * s)
+                a <- Rig::vscale(a, -1.0) if MotionQuat::vdot(a, sum) < 0.0
+                sum <- Rig::vadd(sum, a)
+            return sum
+
+        def twist_limb(c: mutable Rig::Clip&, op: RigOp, hinge_role: i64, s: mutable Summary&) -> void:
+            hinge: i64 = Rig::node_of(c, hinge_role)
+            end: i64 = Rig::node_of(c, Roles::hinge_end(hinge_role))
+            roll: i64 = Rig::node_of(c, Roles::hinge_roll(hinge_role))
+            return if hinge < 0 or end < 0 or not Rig::rot_writable(c, hinge)
+            axis: MotionQuat::V = hinge_axis(c, hinge)
+            return if Rig::vlen(axis) < 0.000001
+            h: MotionQuat::V = MotionQuat::vnormalize(axis)
+            bone: MotionQuat::V = MotionQuat::vnormalize(c.joints[end.usize()].rest_t)
+            rest: MotionQuat::Q = c.joints[hinge.usize()].rest_r
+            tolerance: i64 = Order::clamp(op.amount, 0, Hinge::LIMIT)
+            share: i64 = Order::clamp(op.passes, 0, Fade::FULL)
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                continue if weight == 0
+                Rig::solve_world(c, f, &w)
+                end_rot: MotionQuat::Q = w.rot[end.usize()]
+                local: MotionQuat::Q = Rig::local_rot(c, f, hinge)
+                d: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(rest), local)
+                parts: MotionQuat::SwingTwist = MotionQuat::swing_twist(d, h)
+                off: i64 = Limb::micro(MotionQuat::angle(parts.swing))
+                continue if off <= 0
+                kept: i64 = Hinge::kept_off_axis(off, tolerance)
+                continue if kept == off
+                swing: MotionQuat::Q = MotionQuat::slerp(MotionQuat::identity(), parts.swing, kept.f64() / off.f64())
+                rebuilt: MotionQuat::Q = MotionQuat::mul(rest, MotionQuat::mul(swing, parts.twist))
+                fixed: MotionQuat::Q = MotionQuat::slerp(local, rebuilt, weight.f64() / 1000.0)
+                _ = Rig::set_local_rot(c, f, hinge, fixed)
+                removed_q: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(fixed), local)
+                removed: i64 = Limb::micro(MotionQuat::angle(removed_q))
+                s.twist_max <- removed if removed > s.twist_max
+                if roll >= 0 and share > 0 and Rig::rot_writable(c, roll):
+                    roll_angle: i64 = Limb::micro(MotionQuat::hinge_angle(removed_q, bone))
+                    moved: i64 = Hinge::roll_share(roll_angle, share)
+                    roll_local: MotionQuat::Q = Rig::local_rot(c, f, roll)
+                    along: MotionQuat::V = MotionQuat::rotate(MotionQuat::conjugate(roll_local), bone)
+                    _ = Rig::set_local_rot(c, f, roll, MotionQuat::mul(roll_local, MotionQuat::axis_angle(along, Limb::unmicro(moved))))
+                Rig::solve_world(c, f, &w)
+                _ = Rig::set_world_rot(c, f, end, end_rot, &w)
+
+        # ---- Pole -----------------------------------------------------------
+
+        def pole_spikes(c: Rig::Clip&, upper: i64, hinge: i64, end: i64, threshold: i64) -> i64:
+            track: darray[i64] = Limb::pole_track(c, upper, hinge, end)
+            return Track::spike_count(&track, threshold, false)
+
+        def pole_limb(c: mutable Rig::Clip&, op: RigOp, hinge_role: i64, threshold: i64, s: mutable Summary&) -> void:
+            upper: i64 = Rig::node_of(c, Roles::hinge_upper(hinge_role))
+            hinge: i64 = Rig::node_of(c, hinge_role)
+            end: i64 = Rig::node_of(c, Roles::hinge_end(hinge_role))
+            return if upper < 0 or hinge < 0 or end < 0 or not Rig::rot_writable(c, upper)
+            track: darray[i64] = Limb::pole_track(c, upper, hinge, end)
+            s.pole_before <- s.pole_before + Track::spike_count(&track, threshold, false)
+            mutable fixed: darray[i64] = Track::despike(&track, Order::clamp(op.passes, 1, 16), op.edge, false)
+            if op.amount > 0:
+                fixed <- Track::limit_wring(&fixed, op.amount)
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                k: usize = f.usize()
+                continue if weight == 0 or k >= fixed.count or k >= track.count
+                delta: i64 = Order::clamp(fixed[k] - track[k], -Offset::LIMIT, Offset::LIMIT)
+                turn: i64 = Offset::offset_amount(delta, weight)
+                continue if turn == 0
+                Rig::solve_world(c, f, &w)
+                end_rot: MotionQuat::Q = w.rot[end.usize()]
+                n: MotionQuat::V = Rig::vsub(w.pos[end.usize()], w.pos[upper.usize()])
+                continue if Rig::vlen(n) < 0.000001
+                q: MotionQuat::Q = MotionQuat::axis_angle(n, Limb::unmicro(turn))
+                _ = Rig::set_world_rot(c, f, upper, MotionQuat::mul(q, w.rot[upper.usize()]), &w)
+                Rig::solve_world(c, f, &w)
+                _ = Rig::set_world_rot(c, f, end, end_rot, &w)
+            s.pole_after <- s.pole_after + pole_spikes(c, upper, hinge, end, threshold)
+
+        # ---- Shared leg helpers --------------------------------------------
+
+        # World ankle position and rotation of a leg over the clip.
+        def ankle_path(c: Rig::Clip&, end: i64, pos: mutable darray[MotionQuat::V]&, rot: mutable darray[MotionQuat::Q]&) -> void:
+            pos.clear()
+            rot.clear()
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                Rig::solve_world(c, f, &w)
+                pos.push(w.pos[end.usize()])
+                rot.push(w.rot[end.usize()])
+
+        def leg_nodes(c: Rig::Clip&, side: i64) -> (upper: i64, hinge: i64, end: i64, toe: i64):
+            base: i64 = Roles::LEFT_UPLEG if side == 0 else Roles::RIGHT_UPLEG
+            return (Rig::node_of(c, base), Rig::node_of(c, base + 1), Rig::node_of(c, base + 2), Rig::node_of(c, base + 3))
+
+        # ---- Pelvis path ----------------------------------------------------
+
+        def pelvis_path(c: mutable Rig::Clip&, op: RigOp, threshold: i64, s: mutable Summary&) -> void:
+            hips: i64 = Rig::node_of(c, Roles::HIPS)
+            return if hips < 0 or not Rig::pos_writable(c, hips)
+            mutable left_pos: darray[MotionQuat::V] = []
+            mutable left_rot: darray[MotionQuat::Q] = []
+            mutable right_pos: darray[MotionQuat::V] = []
+            mutable right_rot: darray[MotionQuat::Q] = []
+            left: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, 0)
+            right: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, 1)
+            if left.end >= 0:
+                ankle_path(c, left.end, &left_pos, &left_rot)
+            if right.end >= 0:
+                ankle_path(c, right.end, &right_pos, &right_rot)
+            mutable xs: darray[i64] = []
+            mutable ys: darray[i64] = []
+            mutable zs: darray[i64] = []
+            for f in 0..<c.frames:
+                p: MotionQuat::V = Rig::local_pos(c, f, hips)
+                xs.push(Limb::micro(p.x))
+                ys.push(Limb::micro(p.y))
+                zs.push(Limb::micro(p.z))
+            s.pelvis_before <- s.pelvis_before + Track::spike_count(&xs, threshold, false) + Track::spike_count(&ys, threshold, false) + Track::spike_count(&zs, threshold, false)
+            passes: i64 = Order::clamp(op.passes, 1, 64)
+            sx: darray[i64] = Track::smooth(&xs, passes, op.edge, false)
+            sy: darray[i64] = Track::smooth(&ys, passes, op.edge, false)
+            sz: darray[i64] = Track::smooth(&zs, passes, op.edge, false)
+            mutable ax: darray[i64] = []
+            mutable ay: darray[i64] = []
+            mutable az: darray[i64] = []
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                weight: i64 = range_weight(op, f, c.frames)
+                nx: i64 = Gate::apply(xs[k], sx[k], weight)
+                ny: i64 = Gate::apply(ys[k], sy[k], weight)
+                nz: i64 = Gate::apply(zs[k], sz[k], weight)
+                ax.push(nx)
+                ay.push(ny)
+                az.push(nz)
+                continue if nx == xs[k] and ny == ys[k] and nz == zs[k]
+                _ = Rig::set_local_pos(c, f, hips, Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz)))
+                if left.end >= 0 and k < left_pos.count:
+                    _ = Limb::solve_chain(c, f, left.upper, left.hinge, left.end, left_pos[k], left_rot[k], &w)
+                if right.end >= 0 and k < right_pos.count:
+                    _ = Limb::solve_chain(c, f, right.upper, right.hinge, right.end, right_pos[k], right_rot[k], &w)
+            s.pelvis_after <- s.pelvis_after + Track::spike_count(&ax, threshold, false) + Track::spike_count(&ay, threshold, false) + Track::spike_count(&az, threshold, false)
+
+        # ---- Foot lock ------------------------------------------------------
+
+        # Horizontal foot travel over planted frames (micro-units).
+        def slide(xs: darray[i64]&, zs: darray[i64]&, flags: darray[bool]&) -> i64:
+            mutable total: i64 = 0
+            for k in 1..<xs.count:
+                continue if k >= flags.count or not flags[k] or not flags[k - 1]
+                dx: f64 = (xs[k] - xs[k - 1]).f64()
+                dz: f64 = (zs[k] - zs[k - 1]).f64()
+                total <- total + (dx * dx + dz * dz).sqrt().round().i64()
+            return total
+
+        def lock_leg(c: mutable Rig::Clip&, op: RigOp, side: i64, s: mutable Summary&) -> void:
+            leg: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, side)
+            return if leg.upper < 0 or leg.hinge < 0 or leg.end < 0 or c.frames < 3
+            mutable pos: darray[MotionQuat::V] = []
+            mutable rot: darray[MotionQuat::Q] = []
+            ankle_path(c, leg.end, &pos, &rot)
+            mutable w: Rig::World = Rig::empty_world()
+            Rig::solve_world(c, 0, &w)
+            length: f64 = Rig::vlen(Rig::vsub(w.pos[leg.hinge.usize()], w.pos[leg.upper.usize()])) + Rig::vlen(Rig::vsub(w.pos[leg.end.usize()], w.pos[leg.hinge.usize()]))
+            return if length <= 0.000001
+            # Lowest point of the foot (ankle or toe) per frame, and the floor.
+            mutable lows: darray[i64] = []
+            for f in 0..<c.frames:
+                Rig::solve_world(c, f, &w)
+                y: f64 = w.pos[leg.end.usize()].y
+                low: f64 = w.pos[leg.toe.usize()].y if leg.toe >= 0 and w.pos[leg.toe.usize()].y < y else y
+                lows.push(Limb::micro(low))
+            mutable floor: i64 = lows[0]
+            for h in lows:
+                floor <- h if h < floor
+            mutable heights: darray[i64] = []
+            for h in lows:
+                heights.push(Order::clamp(h - floor, 0, Hinge::LIMIT))
+            span: f64 = c.times[c.times.count - 1] - c.times[0]
+            fps: f64 = (c.frames - 1).f64() / span if span > 0.0 else 30.0
+            mutable xs: darray[i64] = []
+            mutable ys: darray[i64] = []
+            mutable zs: darray[i64] = []
+            mutable speeds: darray[i64] = []
+            for k in 0..<pos.count:
+                xs.push(Limb::micro(pos[k].x))
+                ys.push(Limb::micro(pos[k].y))
+                zs.push(Limb::micro(pos[k].z))
+                if k == 0:
+                    speeds.push(0)
+                else:
+                    dx: f64 = pos[k].x - pos[k - 1].x
+                    dz: f64 = pos[k].z - pos[k - 1].z
+                    speeds.push(Limb::micro((dx * dx + dz * dz).sqrt() * fps))
+            enter: i64 = Limb::micro(length * 0.05)
+            leave: i64 = Limb::micro(length * 0.08)
+            max_speed: i64 = Limb::micro(length * 0.5)
+            return if not Contact::valid_thresholds(enter, leave, max_speed)
+            flags: darray[bool] = Track::contacts(&heights, &speeds, enter, leave, max_speed)
+            s.slide_before <- s.slide_before + slide(&xs, &zs, &flags)
+            blend: i64 = Order::clamp(op.edge, 1, Fade::MAX_EDGE)
+            lx: darray[i64] = Track::lock(&xs, &flags, blend)
+            ly: darray[i64] = Track::lock(&ys, &flags, blend)
+            lz: darray[i64] = Track::lock(&zs, &flags, blend)
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                weight: i64 = range_weight(op, f, c.frames)
+                nx: i64 = Gate::apply(xs[k], lx[k], weight)
+                ny: i64 = Gate::apply(ys[k], ly[k], weight)
+                nz: i64 = Gate::apply(zs[k], lz[k], weight)
+                continue if nx == xs[k] and ny == ys[k] and nz == zs[k]
+                _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz)), rot[k], &w)
+            ankle_path(c, leg.end, &pos, &rot)
+            mutable ax: darray[i64] = []
+            mutable az: darray[i64] = []
+            for p in pos:
+                ax.push(Limb::micro(p.x))
+                az.push(Limb::micro(p.z))
+            s.slide_after <- s.slide_after + slide(&ax, &az, &flags)
+
+        # ---- Pin ------------------------------------------------------------
+
+        def pin_effector(c: mutable Rig::Clip&, op: RigOp) -> void:
+            hinge_role: i64 = Roles::effector_hinge(op.role) if Roles::role_valid(op.role) else Roles::NONE
+            return if hinge_role < 0 or c.frames < 1
+            upper: i64 = Rig::node_of(c, Roles::hinge_upper(hinge_role))
+            hinge: i64 = Rig::node_of(c, hinge_role)
+            end: i64 = Rig::node_of(c, op.role)
+            return if upper < 0 or hinge < 0 or end < 0
+            first: i64 = Order::clamp(op.first, 0, c.frames - 1)
+            mutable w: Rig::World = Rig::empty_world()
+            Rig::solve_world(c, first, &w)
+            anchor: MotionQuat::V = w.pos[end.usize()]
+            anchor_rot: MotionQuat::Q = w.rot[end.usize()]
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                continue if weight == 0
+                Rig::solve_world(c, f, &w)
+                p: MotionQuat::V = w.pos[end.usize()]
+                target: MotionQuat::V = Rig::v(Limb::unmicro(Gate::apply(Limb::micro(p.x), Limb::micro(anchor.x), weight)), Limb::unmicro(Gate::apply(Limb::micro(p.y), Limb::micro(anchor.y), weight)), Limb::unmicro(Gate::apply(Limb::micro(p.z), Limb::micro(anchor.z), weight)))
+                rot: MotionQuat::Q = MotionQuat::slerp(w.rot[end.usize()], anchor_rot, weight.f64() / 1000.0)
+                _ = Limb::solve_chain(c, f, upper, hinge, end, target, rot, &w)
+
+        # ---- Offset layer ---------------------------------------------------
+
+        def offset_layer(c: mutable Rig::Clip&, op: RigOp) -> void:
+            node: i64 = Rig::node_of(c, op.role) if Roles::role_valid(op.role) else -1
+            return if node < 0 or not Rig::rot_writable(c, node)
+            axis: MotionQuat::V = Rig::v(1.0, 0.0, 0.0) if op.axis == 0 else (Rig::v(0.0, 1.0, 0.0) if op.axis == 1 else Rig::v(0.0, 0.0, 1.0))
+            delta: i64 = Order::clamp(op.amount, -Offset::LIMIT, Offset::LIMIT)
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                amount: i64 = Offset::offset_amount(delta, weight)
+                continue if amount == 0
+                _ = Rig::set_local_rot(c, f, node, MotionQuat::mul(Rig::local_rot(c, f, node), MotionQuat::axis_angle(axis, Limb::unmicro(amount))))
+
+        # ---- Stack ----------------------------------------------------------
+
+        def hinge_roles() -> darray[i64]:
+            return [Roles::LEFT_LEG, Roles::RIGHT_LEG, Roles::LEFT_FOREARM, Roles::RIGHT_FOREARM]
+
+        # Run the rig ops on one clip (pins last, so they hold over every fix).
+        def run_clip(c: mutable Rig::Clip&, ops: darray[RigOp]&, threshold: i64) -> Summary:
+            mutable s: Summary = empty_summary()
+            for round in 0..<2:
+                for op in ops:
+                    continue if not op.enabled
+                    is_pin: bool = op.kind == RigKind.PinEffector
+                    continue if (round == 0) == is_pin
+                    s.ops <- s.ops + 1
+                    match op.kind:
+                        RigKind.Twist:
+                            for r in hinge_roles():
+                                twist_limb(c, op, r, &s) if role_selected(op, r)
+                        RigKind.Pole:
+                            for r in hinge_roles():
+                                pole_limb(c, op, r, threshold, &s) if role_selected(op, r)
+                        RigKind.PelvisPath:
+                            pelvis_path(c, op, threshold, &s)
+                        RigKind.FootLock:
+                            lock_leg(c, op, 0, &s) if role_selected(op, Roles::LEFT_FOOT)
+                            lock_leg(c, op, 1, &s) if role_selected(op, Roles::RIGHT_FOOT)
+                        RigKind.PinEffector:
+                            pin_effector(c, op)
+                        RigKind.OffsetLayer:
+                            offset_layer(c, op)
+            return s
+
+        def run(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[RigOp]&, threshold: i64) -> Summary:
+            return empty_summary() if ops.count == 0
+            mutable c: Rig::Clip = Rig::load(doc, animation)
+            mutable s: Summary = run_clip(&c, ops, threshold)
+            s.changed <- Rig::store(doc, &c)
+            return s

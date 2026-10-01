@@ -1,0 +1,63 @@
+include "../src/io/rig.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def name_role(text: sview) -> i64:
+    mutable bytes: darray[u8] = []
+    for c in text:
+        bytes.push(c)
+    return RigMap::role_of_name(bytes)
+
+def main() -> i32:
+    # Retarget name map: Mixamo, plain, other namespaces and Rokoko-style names.
+    return 20 if name_role("mixamorig:LeftLeg") != Roles::LEFT_LEG
+    return 21 if name_role("LeftLeg") != Roles::LEFT_LEG
+    return 22 if name_role("Armature|RightShin") != Roles::RIGHT_LEG
+    return 23 if name_role("mixamorig1:LeftToeBase") != Roles::LEFT_TOE
+    return 24 if name_role("LeftThigh") != Roles::LEFT_UPLEG
+    return 25 if name_role("RightForeArmTwist") != Roles::RIGHT_FOREARM_ROLL
+    return 26 if name_role("LeftLegs") != Roles::NONE
+    return 27 if name_role("mixamorig:") != Roles::NONE
+    return 28 if name_role("Spine1") != Roles::SPINE1
+    return 29 if Roles::role_group(name_role("rokoko:LeftUpperArm")) != Roles::GROUP_ARM
+
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    mutable doc: GlbDocument::Document = load_or_empty(path)
+    anim: i64 = GlbDocument::find_animation(&doc, "jab")
+    return 1 if anim < 0
+    mutable clip: Rig::Clip = Rig::load(&doc, anim.usize())
+    return 2 if clip.frames < 10
+    for role in [Roles::HIPS, Roles::LEFT_UPLEG, Roles::LEFT_LEG, Roles::LEFT_FOOT, Roles::RIGHT_FOOT, Roles::LEFT_HAND, Roles::RIGHT_FOREARM]:
+        return 3 if Rig::node_of(&clip, role) < 0
+    return 4 if not Rig::rot_writable(&clip, Rig::node_of(&clip, Roles::LEFT_LEG))
+    # FK keeps bone lengths constant over the clip.
+    mutable w: Rig::World = Rig::empty_world()
+    hip: usize = Rig::node_of(&clip, Roles::LEFT_UPLEG).usize()
+    knee: usize = Rig::node_of(&clip, Roles::LEFT_LEG).usize()
+    Rig::solve_world(&clip, 0, &w)
+    first: f64 = Rig::vlen(Rig::vsub(w.pos[knee], w.pos[hip]))
+    return 5 if first <= 0.0
+    Rig::solve_world(&clip, clip.frames - 1, &w)
+    last: f64 = Rig::vlen(Rig::vsub(w.pos[knee], w.pos[hip]))
+    return 6 if last - first > first * 0.001 or first - last > first * 0.001
+    # Setting a world rotation round-trips through the local one.
+    q: MotionQuat::Q = MotionQuat::mul(MotionQuat::axis_angle(Rig::v(0.0, 1.0, 0.0), 0.3), w.rot[knee])
+    return 7 if not Rig::set_world_rot(&clip, clip.frames - 1, knee.i64(), q, &w)
+    Rig::solve_world(&clip, clip.frames - 1, &w)
+    return 8 if MotionQuat::dot(w.rot[knee], q) < 0.999999 and MotionQuat::dot(w.rot[knee], q) > -0.999999
+    # Storing an untouched clip changes nothing.
+    fresh: Rig::Clip = Rig::load(&doc, anim.usize())
+    return 10 if Rig::store(&doc, &fresh) != 0
+    return 11 if GlbDocument::edit_count(&doc) != 0
+    return 12 if Rig::store(&doc, &clip) == 0
+    return 0

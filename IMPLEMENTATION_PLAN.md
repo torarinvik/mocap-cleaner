@@ -77,6 +77,13 @@ Each tool comes with its detector.
 | **Twist cleanup** | Off-axis twist on hinge joints (knee, elbow) | Rebuild from the hinge plane, move twist to the roll bones |
 | **Loop seam** | Position and velocity jump from last frame to first | Cross-fade the seam over N frames |
 
+Status (headless, `src/ops/rig_stack.elisa`, CLI `--op twist|pole|pelvis|lock`):
+twist cleanup, knee/elbow pole stability, pelvis path with leg re-solve, and
+foot lock are implemented on the rig view (`src/io/rig.elisa`, whole
+quaternions plus hierarchy). Foot contacts are detected, not yet hand-editable;
+the lock holds the ankle position and keeps the foot's source rotation (no
+heel/ball pivot yet).
+
 ### Phase 2: The studio UI
 Everything above works headless first; the UI puts it in front of the user.
 - [ ] Main window: a viewport (engine M01) with perspective, front and side
@@ -94,10 +101,12 @@ Everything above works headless first; the UI puts it in front of the user.
 ### Phase 3: Direct manipulation
 - [ ] Gizmos (M04): rotate and translate a bone and key it as a correction
       layer that fades in and out over a range.
-- [ ] Pin tool: pin any end effector (foot, hand, head) over a range. IK
-      holds it while other fixes run.
-- [ ] Offset layer: an additive correction curve per bone, e.g. to push the
-      knees out.
+- [x] Pin tool: pin any end effector (foot, hand, head) over a range. IK
+      holds it while other fixes run. (Headless: hands and feet via
+      `--pin ROLE:FIRST:LAST[:BLEND]`, run after every other fix; head not yet.)
+- [x] Offset layer: an additive correction curve per bone, e.g. to push the
+      knees out. (Headless: constant angle about a local axis with fade in/out,
+      `--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]`; keyed curves wait for the studio.)
 
 ### Phase 4: Physics-aware cleanup (the Cascadeur part)
 - [ ] Centre of mass and support polygon overlay, flagging frames where
@@ -107,9 +116,10 @@ Everything above works headless first; the UI puts it in front of the user.
 - [ ] Momentum smoothing: cap angular momentum spikes on the torso.
 
 ### Phase 5: Batch and pipeline
-- [ ] Presets per source, e.g. "Mixamo boxing" or "Rokoko raw".
+- [x] Presets per source, e.g. "Mixamo boxing" or "Rokoko raw". (`boxing`, `raw`, `rokoko`.)
 - [ ] Batch folder processing with an HTML report.
-- [ ] Retarget-aware import: map several skeletons to a common rig.
+- [x] Retarget-aware import: map several skeletons to a common rig.
+      (`src/io/rig_map.elisa`: Mixamo, plain, Rokoko/Unity spellings onto `src/core/roles.elisa`.)
 
 ## Proofs (elisa-proof)
 

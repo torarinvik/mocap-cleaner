@@ -1,0 +1,143 @@
+# Retarget-aware import: map a source skeleton's joint names onto the common
+# rig roles (src/core/roles.elisa). Any namespace prefix up to the last ':'
+# or '|' is ignored, so "mixamorig:LeftLeg", "mixamorig1:LeftLeg",
+# "Armature|LeftLeg" and a plain "LeftLeg" all map to the same role. Each
+# role also accepts the common alternative spellings of Rokoko, Unity
+# humanoid and similar rigs ("LeftThigh", "LeftShin", "LeftUpperArm", ...).
+#
+# The engine's AnimationRetarget::Map pairs at most 16 bone indices between
+# two loaded skeletons; this is a name-level import map onto a fixed role
+# set, so it lives here rather than there.
+include "../../../elisa-engine-mocap/src/assets/glb_document.elisa"
+include "../core/roles.elisa"
+
+module RigMap:
+    public:
+        # Spelling `variant` of a role, or "" when the role has no more.
+        def role_name(role: i64, variant: i64) -> sview:
+            if role == Roles::HIPS:
+                return "Hips" if variant == 0
+                return "Pelvis" if variant == 1
+                return "pelvis" if variant == 2
+            if role == Roles::SPINE:
+                return "Spine" if variant == 0
+            if role == Roles::SPINE1:
+                return "Spine1" if variant == 0
+                return "Chest" if variant == 1
+            if role == Roles::SPINE2:
+                return "Spine2" if variant == 0
+                return "UpperChest" if variant == 1
+            if role == Roles::NECK:
+                return "Neck" if variant == 0
+            if role == Roles::HEAD:
+                return "Head" if variant == 0
+            if role == Roles::LEFT_SHOULDER:
+                return "LeftShoulder" if variant == 0
+                return "LeftCollar" if variant == 1
+            if role == Roles::RIGHT_SHOULDER:
+                return "RightShoulder" if variant == 0
+                return "RightCollar" if variant == 1
+            if role == Roles::LEFT_ARM:
+                return "LeftArm" if variant == 0
+                return "LeftUpperArm" if variant == 1
+            if role == Roles::RIGHT_ARM:
+                return "RightArm" if variant == 0
+                return "RightUpperArm" if variant == 1
+            if role == Roles::LEFT_FOREARM:
+                return "LeftForeArm" if variant == 0
+                return "LeftLowerArm" if variant == 1
+            if role == Roles::RIGHT_FOREARM:
+                return "RightForeArm" if variant == 0
+                return "RightLowerArm" if variant == 1
+            if role == Roles::LEFT_HAND:
+                return "LeftHand" if variant == 0
+            if role == Roles::RIGHT_HAND:
+                return "RightHand" if variant == 0
+            if role == Roles::LEFT_UPLEG:
+                return "LeftUpLeg" if variant == 0
+                return "LeftThigh" if variant == 1
+                return "LeftUpperLeg" if variant == 2
+            if role == Roles::RIGHT_UPLEG:
+                return "RightUpLeg" if variant == 0
+                return "RightThigh" if variant == 1
+                return "RightUpperLeg" if variant == 2
+            if role == Roles::LEFT_LEG:
+                return "LeftLeg" if variant == 0
+                return "LeftShin" if variant == 1
+                return "LeftLowerLeg" if variant == 2
+            if role == Roles::RIGHT_LEG:
+                return "RightLeg" if variant == 0
+                return "RightShin" if variant == 1
+                return "RightLowerLeg" if variant == 2
+            if role == Roles::LEFT_FOOT:
+                return "LeftFoot" if variant == 0
+            if role == Roles::RIGHT_FOOT:
+                return "RightFoot" if variant == 0
+            if role == Roles::LEFT_TOE:
+                return "LeftToeBase" if variant == 0
+                return "LeftToe" if variant == 1
+                return "LeftToes" if variant == 2
+            if role == Roles::RIGHT_TOE:
+                return "RightToeBase" if variant == 0
+                return "RightToe" if variant == 1
+                return "RightToes" if variant == 2
+            if role == Roles::LEFT_FOREARM_ROLL:
+                return "LeftForeArmRoll" if variant == 0
+                return "LeftForeArmTwist" if variant == 1
+                return "LeftLowerArmTwist" if variant == 2
+            if role == Roles::RIGHT_FOREARM_ROLL:
+                return "RightForeArmRoll" if variant == 0
+                return "RightForeArmTwist" if variant == 1
+                return "RightLowerArmTwist" if variant == 2
+            if role == Roles::LEFT_LEG_ROLL:
+                return "LeftLegRoll" if variant == 0
+                return "LeftLegTwist" if variant == 1
+                return "LeftLowerLegTwist" if variant == 2
+            if role == Roles::RIGHT_LEG_ROLL:
+                return "RightLegRoll" if variant == 0
+                return "RightLegTwist" if variant == 1
+                return "RightLowerLegTwist" if variant == 2
+            return ""
+
+        # Bytes from `start` to the end equal `text`.
+        def tail_is(bytes: darray[u8]&, start: usize, text: sview) -> bool:
+            mutable at: usize = start
+            for c in text:
+                return false if at >= bytes.count or bytes[at] != c
+                at <- at + 1
+            return at == bytes.count
+
+        # Start of the bare joint name: after the last ':' or '|'.
+        def bare_start(bytes: darray[u8]&) -> usize:
+            mutable start: usize = 0
+            for k in 0..<bytes.count:
+                start <- k + 1 if bytes[k] == 58 or bytes[k] == 124
+            return start
+
+        def role_of_name(bytes: darray[u8]&) -> i64:
+            start: usize = bare_start(bytes)
+            return Roles::NONE if start >= bytes.count
+            for r in 0..<Roles::COUNT.usize():
+                role: i64 = r.i64()
+                for variant in 0..<3:
+                    name: sview = role_name(role, variant.i64())
+                    return role if name != "" and tail_is(bytes, start, name)
+            return Roles::NONE
+
+        # The role of a node, or Roles::NONE.
+        def role_of(doc: GlbDocument::Document&, node: usize) -> i64:
+            mutable bytes: darray[u8] = []
+            _ = GlbDocument::node_name(doc, node, &bytes)
+            return role_of_name(bytes)
+
+        # Node of every role (Roles::COUNT entries, -1 when absent). The first
+        # node in file order wins when a skeleton repeats a role.
+        def nodes_by_role(doc: GlbDocument::Document&) -> darray[i64]:
+            mutable out: darray[i64] = []
+            for r in 0..<Roles::COUNT.usize():
+                out.push(-1)
+            for n in 0..<GlbDocument::node_count(doc):
+                role: i64 = role_of(doc, n)
+                if role >= 0 and role < Roles::COUNT and out[role.usize()] < 0:
+                    out[role.usize()] <- n.i64()
+            return out

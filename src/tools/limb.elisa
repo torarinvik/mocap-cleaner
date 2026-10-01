@@ -1,0 +1,86 @@
+# Limb tools over the rig view: two-bone re-solve of a leg or arm onto an end
+# target, and the pole angle of a hinge. Reach decisions go through the
+# proved Reach kernel; the knee or elbow is placed by the engine's two-bone
+# IK in the limb's current pole plane, so a re-solve never flips the joint.
+include "../../../elisa-engine-mocap/src/animation/ik.elisa"
+include "../io/rig.elisa"
+include "../core/reach.elisa"
+include "../core/hinge.elisa"
+
+module Limb:
+    public:
+        const MICRO: f64 = 1000000.0
+
+        # World value in micro-units, clamped to the kernels' range.
+        def micro(value: f64) -> i64:
+            scaled: f64 = value * MICRO
+            return 1000000000 if scaled >= 1000000000.0
+            return -1000000000 if scaled <= -1000000000.0
+            return scaled.round().i64()
+
+        def unmicro(value: i64) -> f64:
+            return value.f64() / MICRO
+
+        def g(a: MotionQuat::V) -> Geometry::Vec3:
+            return Geometry::Vec3{x: a.x.f32(), y: a.y.f32(), z: a.z.f32()}
+
+        def ungeo(a: Geometry::Vec3) -> MotionQuat::V:
+            return Rig::v(a.x.f64(), a.y.f64(), a.z.f64())
+
+        # Re-solve upper/hinge so `end` reaches `target` (clamped to the
+        # limb's reach) and give `end` the world rotation `end_rot`.
+        def solve_chain(c: mutable Rig::Clip&, frame: i64, upper: i64, hinge: i64, end: i64, target: MotionQuat::V, end_rot: MotionQuat::Q, w: mutable Rig::World&) -> bool:
+            return false if upper < 0 or hinge < 0 or end < 0
+            return false if not Rig::rot_writable(c, upper) or not Rig::rot_writable(c, hinge)
+            Rig::solve_world(c, frame, w)
+            pu: MotionQuat::V = w.pos[upper.usize()]
+            ph: MotionQuat::V = w.pos[hinge.usize()]
+            pe: MotionQuat::V = w.pos[end.usize()]
+            a: i64 = micro(Rig::vlen(Rig::vsub(ph, pu)))
+            b: i64 = micro(Rig::vlen(Rig::vsub(pe, ph)))
+            offset: MotionQuat::V = Rig::vsub(target, pu)
+            d: f64 = Rig::vlen(offset)
+            return false if a <= 0 or b <= 0 or d <= 0.0000001 or a > 1000000000 or b > 1000000000
+            reach: i64 = Reach::limb_reach(micro(d), a, b)
+            goal: MotionQuat::V = Rig::vadd(pu, Rig::vscale(offset, unmicro(reach) / d))
+            knee: MotionQuat::V = ungeo(Ik::two_bone_knee(g(pu), g(goal), unmicro(a).f32(), unmicro(b).f32(), g(Rig::vsub(ph, pu))))
+            turn_upper: MotionQuat::Q = MotionQuat::between(Rig::vsub(ph, pu), Rig::vsub(knee, pu))
+            _ = Rig::set_world_rot(c, frame, upper, MotionQuat::mul(turn_upper, w.rot[upper.usize()]), w)
+            Rig::solve_world(c, frame, w)
+            ph2: MotionQuat::V = w.pos[hinge.usize()]
+            turn_lower: MotionQuat::Q = MotionQuat::between(Rig::vsub(w.pos[end.usize()], ph2), Rig::vsub(goal, ph2))
+            _ = Rig::set_world_rot(c, frame, hinge, MotionQuat::mul(turn_lower, w.rot[hinge.usize()]), w)
+            Rig::solve_world(c, frame, w)
+            _ = Rig::set_world_rot(c, frame, end, end_rot, w)
+            Rig::solve_world(c, frame, w)
+            return true
+
+        # Signed pole angle (radians) of the hinge about the upper-to-end
+        # line, measured from world +Z (or +X when the line is along Z).
+        def pole_angle(w: Rig::World&, upper: i64, hinge: i64, end: i64) -> f64:
+            pu: MotionQuat::V = w.pos[upper.usize()]
+            n: MotionQuat::V = MotionQuat::vnormalize(Rig::vsub(w.pos[end.usize()], pu))
+            k: MotionQuat::V = Rig::vsub(w.pos[hinge.usize()], pu)
+            kp: MotionQuat::V = Rig::vsub(k, Rig::vscale(n, MotionQuat::vdot(k, n)))
+            z: MotionQuat::V = Rig::v(0.0, 0.0, 1.0)
+            zp: MotionQuat::V = Rig::vsub(z, Rig::vscale(n, MotionQuat::vdot(z, n)))
+            x: MotionQuat::V = Rig::v(1.0, 0.0, 0.0)
+            ref: MotionQuat::V = zp if Rig::vlen(zp) > 0.1 else Rig::vsub(x, Rig::vscale(n, MotionQuat::vdot(x, n)))
+            return ElisaMath::atan2(MotionQuat::vdot(n, MotionQuat::cross(ref, kp)), MotionQuat::vdot(ref, kp))
+
+        # Unwrapped pole track of a limb over the clip, in micro-radians.
+        def pole_track(c: Rig::Clip&, upper: i64, hinge: i64, end: i64) -> darray[i64]:
+            mutable out: darray[i64] = []
+            mutable w: Rig::World = Rig::empty_world()
+            mutable raw_prev: i64 = 0
+            for f in 0..<c.frames:
+                Rig::solve_world(c, f, &w)
+                mutable raw: i64 = micro(pole_angle(&w, upper, hinge, end))
+                raw <- 3141593 if raw > 3141593
+                raw <- -3141593 if raw < -3141593
+                if out.count == 0:
+                    out.push(raw)
+                else:
+                    out.push(out[out.count - 1] + Hinge::unwrap_step(raw_prev, raw))
+                raw_prev <- raw
+            return out

@@ -1,0 +1,282 @@
+# Rotation-aware view of one GLB animation: every node's local translation,
+# rotation and scale sampled on the clip's frame grid, the node hierarchy
+# with rest transforms, and forward kinematics. Tools edit whole local
+# quaternions here and `store` writes edited bones back into the document.
+#
+# The frame grid is the key times of the densest TRS channel. A channel with
+# exactly those keys is "dense" and writable in place; sparser channels are
+# sampled (linear, nlerp for rotations; STEP holds) and read-only, so a tool
+# that needs to change such a bone skips it. Cubic-spline channels are read
+# as their rest pose and never written.
+include "../../../elisa-engine-mocap/src/animation/motion_quat.elisa"
+include "rig_map.elisa"
+
+module Rig:
+    public:
+        struct Joint:
+            parent: i64
+            role: i64
+            rest_t: MotionQuat::V
+            rest_r: MotionQuat::Q
+            rest_s: MotionQuat::V
+            # Animation slots (-1 when the path is not animated).
+            rot_in: i64
+            rot_out: i64
+            rot_step: bool
+            pos_in: i64
+            pos_out: i64
+            pos_step: bool
+            scl_in: i64
+            scl_out: i64
+            scl_step: bool
+
+        affine struct Clip:
+            joints: mutable darray[Joint]
+            # Node of each role (-1 absent).
+            roles: mutable darray[i64]
+            # Nodes ordered parents first.
+            order: mutable darray[i64]
+            frames: mutable i64
+            times: mutable darray[f64]
+            # Local TRS, index frame * node_count + node.
+            rot: mutable darray[MotionQuat::Q]
+            pos: mutable darray[MotionQuat::V]
+            scl: mutable darray[MotionQuat::V]
+            rot_dirty: mutable darray[bool]
+            pos_dirty: mutable darray[bool]
+
+        # World transforms of every node at one frame.
+        affine struct World:
+            pos: mutable darray[MotionQuat::V]
+            rot: mutable darray[MotionQuat::Q]
+            scl: mutable darray[MotionQuat::V]
+
+        def v(x: f64, y: f64, z: f64) -> MotionQuat::V:
+            return MotionQuat::V{x: x, y: y, z: z}
+
+        def vadd(a: MotionQuat::V, b: MotionQuat::V) -> MotionQuat::V:
+            return MotionQuat::V{x: a.x + b.x, y: a.y + b.y, z: a.z + b.z}
+
+        def vsub(a: MotionQuat::V, b: MotionQuat::V) -> MotionQuat::V:
+            return MotionQuat::V{x: a.x - b.x, y: a.y - b.y, z: a.z - b.z}
+
+        def vscale(a: MotionQuat::V, s: f64) -> MotionQuat::V:
+            return MotionQuat::V{x: a.x * s, y: a.y * s, z: a.z * s}
+
+        def vlen(a: MotionQuat::V) -> f64:
+            return MotionQuat::vdot(a, a).sqrt()
+
+        def node_count(c: Clip&) -> i64:
+            return c.joints.count.i64()
+
+        def node_of(c: Clip&, role: i64) -> i64:
+            return -1 if role < 0 or role >= c.roles.count.i64()
+            return c.roles[role.usize()]
+
+        def at(c: Clip&, frame: i64, node: i64) -> usize:
+            return (frame * c.joints.count.i64() + node).usize()
+
+        def local_rot(c: Clip&, frame: i64, node: i64) -> MotionQuat::Q:
+            return c.rot[at(c, frame, node)]
+
+        def local_pos(c: Clip&, frame: i64, node: i64) -> MotionQuat::V:
+            return c.pos[at(c, frame, node)]
+
+        def rot_writable(c: Clip&, node: i64) -> bool:
+            return node >= 0 and node < node_count(c) and c.joints[node.usize()].rot_out >= 0
+
+        def pos_writable(c: Clip&, node: i64) -> bool:
+            return node >= 0 and node < node_count(c) and c.joints[node.usize()].pos_out >= 0
+
+        # Replace a local rotation. Bones without a dense rotation channel
+        # are left alone (false).
+        def set_local_rot(c: mutable Clip&, frame: i64, node: i64, q: MotionQuat::Q) -> bool:
+            return false if not rot_writable(c, node) or frame < 0 or frame >= c.frames
+            c.rot[at(c, frame, node)] <- MotionQuat::normalize(q)
+            c.rot_dirty[node.usize()] <- true
+            return true
+
+        def set_local_pos(c: mutable Clip&, frame: i64, node: i64, p: MotionQuat::V) -> bool:
+            return false if not pos_writable(c, node) or frame < 0 or frame >= c.frames
+            c.pos[at(c, frame, node)] <- p
+            c.pos_dirty[node.usize()] <- true
+            return true
+
+        # Key index and blend for time t in a key-time track.
+        def locate(doc: GlbDocument::Document&, input: usize, t: f64) -> (key: usize, u: f64):
+            n: usize = GlbDocument::key_count(doc, input)
+            return (0, 0.0) if n < 2
+            mutable k: usize = 0
+            while k + 2 < n and GlbDocument::track_value(doc, input, k + 1, 0).f64() <= t:
+                k <- k + 1
+            t0: f64 = GlbDocument::track_value(doc, input, k, 0).f64()
+            t1: f64 = GlbDocument::track_value(doc, input, k + 1, 0).f64()
+            return (k, 0.0) if t1 <= t0 or t <= t0
+            return (k, 1.0) if t >= t1
+            return (k, (t - t0) / (t1 - t0))
+
+        def sample_v(doc: GlbDocument::Document&, input: i64, output: i64, step: bool, t: f64, fallback: MotionQuat::V) -> MotionQuat::V:
+            return fallback if input < 0 or output < 0 or GlbDocument::key_count(doc, output.usize()) == 0
+            o: usize = output.usize()
+            hit: (key: usize, u: f64) = locate(doc, input.usize(), t)
+            k: usize = hit.key
+            a: MotionQuat::V = v(GlbDocument::track_value(doc, o, k, 0).f64(), GlbDocument::track_value(doc, o, k, 1).f64(), GlbDocument::track_value(doc, o, k, 2).f64())
+            return a if step or hit.u <= 0.0 or k + 1 >= GlbDocument::key_count(doc, o)
+            b: MotionQuat::V = v(GlbDocument::track_value(doc, o, k + 1, 0).f64(), GlbDocument::track_value(doc, o, k + 1, 1).f64(), GlbDocument::track_value(doc, o, k + 1, 2).f64())
+            return vadd(a, vscale(vsub(b, a), hit.u))
+
+        def key_q(doc: GlbDocument::Document&, o: usize, k: usize) -> MotionQuat::Q:
+            return MotionQuat::Q{x: GlbDocument::track_value(doc, o, k, 0).f64(), y: GlbDocument::track_value(doc, o, k, 1).f64(), z: GlbDocument::track_value(doc, o, k, 2).f64(), w: GlbDocument::track_value(doc, o, k, 3).f64()}
+
+        def sample_q(doc: GlbDocument::Document&, input: i64, output: i64, step: bool, t: f64, fallback: MotionQuat::Q) -> MotionQuat::Q:
+            return fallback if input < 0 or output < 0 or GlbDocument::key_count(doc, output.usize()) == 0
+            o: usize = output.usize()
+            hit: (key: usize, u: f64) = locate(doc, input.usize(), t)
+            k: usize = hit.key
+            a: MotionQuat::Q = key_q(doc, o, k)
+            return MotionQuat::normalize(a) if step or hit.u <= 0.0 or k + 1 >= GlbDocument::key_count(doc, o)
+            b: MotionQuat::Q = key_q(doc, o, k + 1)
+            sign: f64 = -1.0 if MotionQuat::dot(a, b) < 0.0 else 1.0
+            u: f64 = hit.u
+            return MotionQuat::normalize(MotionQuat::Q{x: a.x + (b.x * sign - a.x) * u, y: a.y + (b.y * sign - a.y) * u, z: a.z + (b.z * sign - a.z) * u, w: a.w + (b.w * sign - a.w) * u})
+
+        # A channel is dense when it has one key per frame at the grid times.
+        def dense(doc: GlbDocument::Document&, input: i64, c: Clip&) -> bool:
+            return false if input < 0
+            n: usize = GlbDocument::key_count(doc, input.usize())
+            return false if n.i64() != c.frames or n == 0
+            first: f64 = GlbDocument::track_value(doc, input.usize(), 0, 0).f64() - c.times[0]
+            last: f64 = GlbDocument::track_value(doc, input.usize(), n - 1, 0).f64() - c.times[n - 1]
+            return first < 0.000001 and first > -0.000001 and last < 0.000001 and last > -0.000001
+
+        def empty_clip() -> Clip:
+            return Clip{joints: [], roles: [], order: [], frames: 0, times: [], rot: [], pos: [], scl: [], rot_dirty: [], pos_dirty: []}
+
+        # Build the rig view of animation `animation`.
+        def load(doc: GlbDocument::Document&, animation: usize) -> Clip:
+            mutable c: Clip = empty_clip()
+            n: usize = GlbDocument::node_count(doc)
+            for k in 0..<n:
+                rest: Geometry::Transform = GlbDocument::node_rest(doc, k)
+                c.joints.push(Joint{parent: GlbDocument::node_parent(doc, k), role: RigMap::role_of(doc, k), rest_t: v(rest.position.x.f64(), rest.position.y.f64(), rest.position.z.f64()), rest_r: MotionQuat::normalize(MotionQuat::from_geometry(rest.rotation)), rest_s: v(rest.scale.x.f64(), rest.scale.y.f64(), rest.scale.z.f64()), rot_in: -1, rot_out: -1, rot_step: false, pos_in: -1, pos_out: -1, pos_step: false, scl_in: -1, scl_out: -1, scl_step: false})
+                c.rot_dirty.push(false)
+                c.pos_dirty.push(false)
+            c.roles <- RigMap::nodes_by_role(doc)
+            # Parents before children: repeatedly take nodes whose parent is placed.
+            mutable placed: darray[bool] = []
+            for k in 0..<n:
+                placed.push(false)
+            mutable progress: bool = true
+            while progress:
+                progress <- false
+                for k in 0..<n:
+                    p: i64 = c.joints[k].parent
+                    if not placed[k] and (p < 0 or placed[p.usize()]):
+                        placed[k] <- true
+                        c.order.push(k.i64())
+                        progress <- true
+            # Channels, and the densest key-time track as the frame grid.
+            mutable grid: i64 = -1
+            mutable grid_keys: usize = 0
+            for ch in 0..<GlbDocument::channel_count(doc, animation):
+                held: GlbDocument::Channel = GlbDocument::channel(doc, animation, ch)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline or held.node >= n
+                continue if held.path == GlbDocument::TargetPath.Weights
+                j: Joint = c.joints[held.node]
+                step: bool = held.interpolation == GlbDocument::Interpolation.Step
+                if held.path == GlbDocument::TargetPath.Rotation:
+                    c.joints[held.node] <- Joint{parent: j.parent, role: j.role, rest_t: j.rest_t, rest_r: j.rest_r, rest_s: j.rest_s, rot_in: held.input.i64(), rot_out: held.output.i64(), rot_step: step, pos_in: j.pos_in, pos_out: j.pos_out, pos_step: j.pos_step, scl_in: j.scl_in, scl_out: j.scl_out, scl_step: j.scl_step}
+                elif held.path == GlbDocument::TargetPath.Translation:
+                    c.joints[held.node] <- Joint{parent: j.parent, role: j.role, rest_t: j.rest_t, rest_r: j.rest_r, rest_s: j.rest_s, rot_in: j.rot_in, rot_out: j.rot_out, rot_step: j.rot_step, pos_in: held.input.i64(), pos_out: held.output.i64(), pos_step: step, scl_in: j.scl_in, scl_out: j.scl_out, scl_step: j.scl_step}
+                else:
+                    c.joints[held.node] <- Joint{parent: j.parent, role: j.role, rest_t: j.rest_t, rest_r: j.rest_r, rest_s: j.rest_s, rot_in: j.rot_in, rot_out: j.rot_out, rot_step: j.rot_step, pos_in: j.pos_in, pos_out: j.pos_out, pos_step: j.pos_step, scl_in: held.input.i64(), scl_out: held.output.i64(), scl_step: step}
+                keys: usize = GlbDocument::key_count(doc, held.input)
+                if keys > grid_keys:
+                    grid <- held.input.i64()
+                    grid_keys <- keys
+            return move c if grid < 0
+            for k in 0..<grid_keys:
+                c.times.push(GlbDocument::track_value(doc, grid.usize(), k, 0).f64())
+            c.frames <- grid_keys.i64()
+            # Sample every node on the grid; then drop write slots of sparse channels.
+            for f in 0..<grid_keys:
+                t: f64 = c.times[f]
+                for k in 0..<n:
+                    j: Joint = c.joints[k]
+                    c.rot.push(sample_q(doc, j.rot_in, j.rot_out, j.rot_step, t, j.rest_r))
+                    c.pos.push(sample_v(doc, j.pos_in, j.pos_out, j.pos_step, t, j.rest_t))
+                    c.scl.push(sample_v(doc, j.scl_in, j.scl_out, j.scl_step, t, j.rest_s))
+            for k in 0..<n:
+                j: Joint = c.joints[k]
+                rot_ok: bool = dense(doc, j.rot_in, &c)
+                pos_ok: bool = dense(doc, j.pos_in, &c)
+                c.joints[k] <- Joint{parent: j.parent, role: j.role, rest_t: j.rest_t, rest_r: j.rest_r, rest_s: j.rest_s, rot_in: j.rot_in, rot_out: j.rot_out if rot_ok else -1, rot_step: j.rot_step, pos_in: j.pos_in, pos_out: j.pos_out if pos_ok else -1, pos_step: j.pos_step, scl_in: j.scl_in, scl_out: j.scl_out, scl_step: j.scl_step}
+            return move c
+
+        def empty_world() -> World:
+            return World{pos: [], rot: [], scl: []}
+
+        # Forward kinematics at one frame (into `w`, resized as needed).
+        def solve_world(c: Clip&, frame: i64, w: mutable World&) -> void:
+            n: usize = c.joints.count
+            if w.pos.count != n:
+                w.pos.clear()
+                w.rot.clear()
+                w.scl.clear()
+                for k in 0..<n:
+                    w.pos.push(v(0.0, 0.0, 0.0))
+                    w.rot.push(MotionQuat::identity())
+                    w.scl.push(v(1.0, 1.0, 1.0))
+            return if frame < 0 or frame >= c.frames
+            for node in c.order:
+                k: usize = node.usize()
+                p: i64 = c.joints[k].parent
+                lr: MotionQuat::Q = c.rot[at(c, frame, node)]
+                lp: MotionQuat::V = c.pos[at(c, frame, node)]
+                ls: MotionQuat::V = c.scl[at(c, frame, node)]
+                if p < 0:
+                    w.pos[k] <- lp
+                    w.rot[k] <- lr
+                    w.scl[k] <- ls
+                else:
+                    pk: usize = p.usize()
+                    ps: MotionQuat::V = w.scl[pk]
+                    w.pos[k] <- vadd(w.pos[pk], MotionQuat::rotate(w.rot[pk], v(lp.x * ps.x, lp.y * ps.y, lp.z * ps.z)))
+                    w.rot[k] <- MotionQuat::normalize(MotionQuat::mul(w.rot[pk], lr))
+                    w.scl[k] <- v(ps.x * ls.x, ps.y * ls.y, ps.z * ls.z)
+
+        # Give `node` the world rotation `target` by changing its local one.
+        def set_world_rot(c: mutable Clip&, frame: i64, node: i64, target: MotionQuat::Q, w: World&) -> bool:
+            return false if node < 0 or node >= node_count(c)
+            p: i64 = c.joints[node.usize()].parent
+            local: MotionQuat::Q = target if p < 0 else MotionQuat::mul(MotionQuat::conjugate(w.rot[p.usize()]), target)
+            return set_local_rot(c, frame, node, local)
+
+        # Write edited bones back; the number of key values changed.
+        # Quaternions keep the hemisphere of the key they replace.
+        def store(doc: mutable GlbDocument::Document&, c: Clip&) -> i64:
+            mutable changed: i64 = 0
+            n: i64 = node_count(c)
+            for k in 0..<c.joints.count:
+                j: Joint = c.joints[k]
+                if c.rot_dirty[k] and j.rot_out >= 0:
+                    o: usize = j.rot_out.usize()
+                    for f in 0..<c.frames.usize():
+                        q: MotionQuat::Q = c.rot[f * n.usize() + k]
+                        old: MotionQuat::Q = key_q(doc, o, f)
+                        s: f64 = -1.0 if MotionQuat::dot(old, q) < 0.0 else 1.0
+                        values: f64[4] = [q.x * s, q.y * s, q.z * s, q.w * s]
+                        for comp in 0..<4:
+                            value: f32 = values[comp].f32()
+                            if value != GlbDocument::track_value(doc, o, f, comp):
+                                changed <- changed + 1 if GlbDocument::set_track_value(doc, o, f, comp, value)
+                if c.pos_dirty[k] and j.pos_out >= 0:
+                    o: usize = j.pos_out.usize()
+                    for f in 0..<c.frames.usize():
+                        p: MotionQuat::V = c.pos[f * n.usize() + k]
+                        values: f64[3] = [p.x, p.y, p.z]
+                        for comp in 0..<3:
+                            value: f32 = values[comp].f32()
+                            if value != GlbDocument::track_value(doc, o, f, comp):
+                                changed <- changed + 1 if GlbDocument::set_track_value(doc, o, f, comp, value)
+            return changed
