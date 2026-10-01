@@ -7,6 +7,7 @@ include "../core/span.elisa"
 include "../core/gate.elisa"
 include "../core/seam.elisa"
 include "../core/smooth.elisa"
+include "../core/lock.elisa"
 include "../detect/contact.elisa"
 include "../detect/spike.elisa"
 
@@ -114,4 +115,28 @@ module Track:
             bound: i64 = Order::clamp(limit, 0, Stability::LIMIT)
             for v in values |out, guard, bound|:
                 out.push(Stability::limit_wring(Order::clamp(v, -Stability::LIMIT / 2, Stability::LIMIT / 2), Order::clamp(guard, -Stability::LIMIT / 2, Stability::LIMIT / 2), bound))
+            return out
+
+        # Foot-slide lock: hold each planted run of a foot channel at its value
+        # on the plant frame, ramping in and out over `blend` frames.
+        def lock(values: darray[i64]&, flags: darray[bool]&, blend: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for v in values |out|:
+                out.push(v)
+            count: i64 = values.count.i64()
+            return out if count == 0 or count > Fade::MAX_FRAMES or blend < 1 or blend > Fade::MAX_EDGE
+            start: mutable i64 = 0
+            while start < count |start, count, values, flags, out, blend|:
+                planted: bool = flags[start.usize()] if start < flags.count.i64() else false
+                if not planted:
+                    start <- start + 1
+                    continue
+                finish: mutable i64 = start
+                while finish + 1 < count and finish + 1 < flags.count.i64() and flags[(finish + 1).usize()] |finish, count, flags|:
+                    finish <- finish + 1
+                anchor: i64 = Order::clamp(values[start.usize()], -Lock::LIMIT, Lock::LIMIT)
+                for f in start..<(finish + 1) |f, start, finish, values, out, anchor, blend|:
+                    v: i64 = Order::clamp(values[f.usize()], -Lock::LIMIT, Lock::LIMIT)
+                    out[f.usize()] <- Lock::locked(v, anchor, f - start, finish - f, blend)
+                start <- finish + 1
             return out
