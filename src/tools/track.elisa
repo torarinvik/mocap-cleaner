@@ -8,12 +8,25 @@ include "../core/gate.elisa"
 include "../core/seam.elisa"
 include "../core/smooth.elisa"
 include "../core/lock.elisa"
+include "../core/window.elisa"
 include "../detect/contact.elisa"
 include "../detect/spike.elisa"
 
 module Track:
     public:
         const LIMIT: i64 = 1000000000
+
+        # Odd-reflection sample: off-clip frames mirror through the end value,
+        # so symmetric filters keep the end frames exactly.
+        def odd_sample(values: darray[i64]&, frame: i64) -> i64:
+            count: i64 = values.count.i64()
+            return 0 if count == 0
+            return values[frame.usize()] if frame >= 0 and frame < count
+            return values[Span::clamp(frame, count).usize()] if frame <= -count or frame >= 2 * count - 1 or count > Window::MAX_FRAMES
+            at: i64 = Window::mirror(frame, count)
+            end: i64 = values[0] if frame < 0 else values[(count - 1).usize()]
+            return values[at.usize()] if end < -LIMIT or end > LIMIT or values[at.usize()] < -LIMIT or values[at.usize()] > LIMIT
+            return Window::reflect(end, values[at.usize()], LIMIT)
 
         def sample(values: darray[i64]&, frame: i64, looping: bool) -> i64:
             count: i64 = values.count.i64()
@@ -43,6 +56,32 @@ module Track:
                 out.push(Gate::apply(values[i], current[i], w))
             return out
 
+        # Wide running median over 2*radius+1 frames (clamped at clip ends),
+        # faded to the source at clip edges. Removes long jitter runs that a
+        # median-of-3 cannot.
+        def median(values: darray[i64]&, radius: i64, edge: i64) -> darray[i64]:
+            count: i64 = values.count.i64()
+            out: mutable darray[i64] = []
+            for v in values |out|:
+                out.push(v)
+            return out if count < 3 or radius < 1 or radius > Window::MAX_RADIUS or count >= Window::MAX_FRAMES
+            window: mutable darray[i64] = []
+            for i in 0..<values.count |i, values, out, window, count, radius, edge|:
+                f: i64 = i.i64()
+                window.clear()
+                for d in 0..<(2 * radius + 1).usize() |d, values, window, f, radius|:
+                    v: i64 = odd_sample(values, f - radius + d.i64())
+                    window.push(v)
+                    j: mutable usize = window.count - 1
+                    while j > 0 and window[j - 1] > v |j, window, v|:
+                        window[j] <- window[j - 1]
+                        j <- j - 1
+                    window[j] <- v
+                m: i64 = Window::middle(window.count.i64())
+                w: i64 = Fade::eased_weight(f, count - 1, edge, false)
+                out[i] <- Gate::apply(values[i], window[m.usize()], w)
+            return out
+
         # Repeated 1-2-1 smoothing, faded to the source at clip edges.
         def smooth(values: darray[i64]&, passes: i64, edge: i64, looping: bool) -> darray[i64]:
             count: i64 = values.count.i64()
@@ -55,12 +94,14 @@ module Track:
                 next: mutable darray[i64] = []
                 for i in 0..<current.count |i, current, next, looping|:
                     f: i64 = i.i64()
-                    next.push(Smooth::binomial(sample(current, f - 1, looping), current[i], sample(current, f + 1, looping)))
+                    before: i64 = sample(current, f - 1, true) if looping else odd_sample(current, f - 1)
+                    after: i64 = sample(current, f + 1, true) if looping else odd_sample(current, f + 1)
+                    next.push(Smooth::binomial(before, current[i], after))
                 current <- next
                 round <- round + 1
             out: mutable darray[i64] = []
             for i in 0..<values.count |i, values, current, out, count, edge, looping|:
-                w: i64 = Fade::weight(i.i64(), count - 1, edge, looping)
+                w: i64 = Fade::eased_weight(i.i64(), count - 1, edge, looping)
                 out.push(Gate::apply(values[i], current[i], w))
             return out
 
