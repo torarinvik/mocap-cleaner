@@ -1,7 +1,12 @@
-# Balance and ballistic checks on fixed-point floor-plane coordinates (0.1 mm).
+# Balance and ballistic checks on fixed-point coordinates. The kernels are
+# unit-agnostic; the rig tools (src/physics/rig_physics.elisa) pass
+# micrometres, as Limb::micro does for every other rig kernel.
 module Balance:
     public:
-        const LIMIT: i64 = 1000000000   # 100 km in 0.1 mm; products stay far below i64 range
+        const LIMIT: i64 = 1000000000   # 1 km in micrometres; products stay far below i64 range
+        const MAX_FLIGHT: i64 = 10000   # frames in one airborne run (83 s at 120 Hz)
+        const MAX_GRAVITY: i64 = 1000000   # gravity step g*dt^2 (1 m per frame^2 in micrometres)
+        const SEGMENTS: i64 = 16
 
         # Twice the signed area of triangle (a, b, p): > 0 when p is left of a->b.
         def side(ax: i64, ay: i64, bx: i64, by: i64, px: i64, py: i64) -> i64:
@@ -83,3 +88,169 @@ module Balance:
             return origin + cap if goal - origin > cap
             return origin - cap if origin - goal > cap
             return goal
+
+        # Support test in either winding: inside triangle (a, b, c) or (a, c, b).
+        def supported_any(ax: i64, ay: i64, bx: i64, by: i64, cx: i64, cy: i64, px: i64, py: i64) -> bool:
+            requires ax >= -LIMIT
+            requires ax <= LIMIT
+            requires ay >= -LIMIT
+            requires ay <= LIMIT
+            requires bx >= -LIMIT
+            requires bx <= LIMIT
+            requires by >= -LIMIT
+            requires by <= LIMIT
+            requires cx >= -LIMIT
+            requires cx <= LIMIT
+            requires cy >= -LIMIT
+            requires cy <= LIMIT
+            requires px >= -LIMIT
+            requires px <= LIMIT
+            requires py >= -LIMIT
+            requires py <= LIMIT
+            return supported(ax, ay, bx, by, cx, cy, px, py) or supported(ax, ay, cx, cy, bx, by, px, py)
+
+        # Within a square margin of a support point (a foot point has width).
+        def near(ax: i64, ay: i64, px: i64, py: i64, margin: i64) -> bool:
+            requires ax >= -LIMIT
+            requires ax <= LIMIT
+            requires ay >= -LIMIT
+            requires ay <= LIMIT
+            requires px >= -LIMIT
+            requires px <= LIMIT
+            requires py >= -LIMIT
+            requires py <= LIMIT
+            requires margin >= 0
+            requires margin <= LIMIT
+            ensure not result or px - ax <= margin
+            ensure not result or ax - px <= margin
+            ensure not result or py - ay <= margin
+            ensure not result or ay - py <= margin
+            ensure px - ax > margin or ax - px > margin or py - ay > margin or ay - py > margin or result
+            return px - ax <= margin and ax - px <= margin and py - ay <= margin and ay - py <= margin
+
+        # Balance is impossible at a frame when a foot is planted and both the
+        # centre of mass and its extrapolation (position plus velocity over
+        # the pendulum frequency, the "capture point") fall outside support.
+        def unbalanced(planted: bool, com_inside: bool, capture_inside: bool) -> bool:
+            ensure planted or not result
+            ensure not com_inside or not result
+            ensure not capture_inside or not result
+            ensure not planted or com_inside or capture_inside or result
+            return false if not planted
+            return false if com_inside
+            return false if capture_inside
+            return true
+
+        # Length of the flagged run ending at this frame.
+        def run_length(previous: i64, flagged: bool) -> i64:
+            requires previous >= 0
+            requires previous < LIMIT
+            ensure flagged or result == 0
+            ensure not flagged or result == previous + 1
+            ensure result >= 0
+            return previous + 1 if flagged
+            return 0
+
+        # Free-flight height at step k of an n-step airborne span from y0
+        # (k = 0) to y1 (k = n) under a per-frame gravity step g = g*dt^2:
+        # the chord plus the parabola's bulge g*k*(n-k)/2. Its second
+        # difference is -g, the only path a body in flight can take.
+        def parabola(y0: i64, y1: i64, k: i64, n: i64, g: i64) -> i64:
+            requires y0 >= -LIMIT
+            requires y0 <= LIMIT
+            requires y1 >= -LIMIT
+            requires y1 <= LIMIT
+            requires n >= 1
+            requires n <= MAX_FLIGHT
+            requires k >= 0
+            requires k <= n
+            requires g >= 0
+            requires g <= MAX_GRAVITY
+            ensure k != 0 or result == y0
+            ensure k != n or result == y1
+            return y0 if k == 0
+            return y1 if k == n
+            rise: i64 = (y1 - y0) * k / n
+            bulge: i64 = g * k * (n - k) / 2
+            return y0 + rise + bulge
+
+        # Chord part of the parabola: a level span with no gravity stays level.
+        def chord(y0: i64, y1: i64, k: i64, n: i64) -> i64:
+            requires y0 >= -LIMIT
+            requires y0 <= LIMIT
+            requires y1 >= -LIMIT
+            requires y1 <= LIMIT
+            requires n >= 1
+            requires n <= MAX_FLIGHT
+            requires k >= 0
+            requires k <= n
+            ensure k != 0 or result == y0
+            ensure k != n or result == y1
+            ensure y0 != y1 or result == y0
+            return y0 if k == 0 or y0 == y1
+            return y1 if k == n
+            return y0 + (y1 - y0) * k / n
+
+        # Segment masses in permille of body mass (Dempster-style table).
+        const MASS_PELVIS: i64 = 142
+        const MASS_TRUNK: i64 = 355
+        const MASS_HEAD: i64 = 81
+        const MASS_UPPER_ARM: i64 = 28
+        const MASS_FOREARM: i64 = 16
+        const MASS_HAND: i64 = 6
+        const MASS_THIGH: i64 = 100
+        const MASS_SHANK: i64 = 47
+        const MASS_FOOT: i64 = 14
+
+        # The whole body: one pelvis, trunk and head, two of each limb segment.
+        def mass_total() -> i64:
+            ensure result == 1000
+            return MASS_PELVIS + MASS_TRUNK + MASS_HEAD + 2 * (MASS_UPPER_ARM + MASS_FOREARM + MASS_HAND + MASS_THIGH + MASS_SHANK + MASS_FOOT)
+
+        # Kind of a segment: 0 pelvis, 1 trunk, 2 head, then one kind per
+        # left/right pair (3 upper arm, 4 forearm, 5 hand, 6 thigh, 7 shank,
+        # 8 foot), 9 spare. Segments 3..14 alternate left, right.
+        def segment_kind(segment: i64) -> i64:
+            requires segment >= 0
+            requires segment < SEGMENTS
+            ensure result >= 0
+            ensure result <= 9
+            ensure segment >= 3 or result == segment
+            ensure segment < 15 or result == 9
+            ensure segment < 3 or segment >= 15 or 2 * result >= segment + 2
+            ensure segment < 3 or segment >= 15 or 2 * result <= segment + 3
+            return segment if segment < 3
+            return 3 if segment <= 4
+            return 4 if segment <= 6
+            return 5 if segment <= 8
+            return 6 if segment <= 10
+            return 7 if segment <= 12
+            return 8 if segment <= 14
+            return 9
+
+        def kind_mass(kind: i64) -> i64:
+            requires kind >= 0
+            requires kind <= 9
+            ensure result >= 0
+            ensure result <= MASS_TRUNK
+            return MASS_PELVIS if kind == 0
+            return MASS_TRUNK if kind == 1
+            return MASS_HEAD if kind == 2
+            return MASS_UPPER_ARM if kind == 3
+            return MASS_FOREARM if kind == 4
+            return MASS_HAND if kind == 5
+            return MASS_THIGH if kind == 6
+            return MASS_SHANK if kind == 7
+            return MASS_FOOT if kind == 8
+            return 0
+
+        # Segment mass in permille. Segments: 0 pelvis, 1 trunk, 2 head,
+        # 3/4 upper arms, 5/6 forearms, 7/8 hands, 9/10 thighs, 11/12 shanks,
+        # 13/14 feet, 15 spare (zero). Left and right share a kind, so they
+        # weigh the same.
+        def segment_mass(segment: i64) -> i64:
+            requires segment >= 0
+            requires segment < SEGMENTS
+            ensure result >= 0
+            ensure result <= MASS_TRUNK
+            return kind_mass(segment_kind(segment))

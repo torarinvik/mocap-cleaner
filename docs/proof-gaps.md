@@ -104,3 +104,24 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
 - `pass` is reserved in stage1.
 - New kernels and laws fully proved: roles 8/8, hinge 11/11, reach 1/1, pin 17/17,
   offset 8/8; roles_laws, hinge_laws, reach_laws, pin_laws all proved.
+
+## Physics and batch (phase4-5, 2026-10-01)
+
+No prover changes were needed; these limits were worked around in our code.
+
+- G23: partial functions (with `requires`) cannot be called inside `ensure`
+  or `requires`. Laws call them in the body instead.
+- G24: a mutable accumulator in a proved function fails with
+  `resource-write-readonly`, so `mass_total` is a single sum expression.
+- G25: many disjunctive ensures on one callee time out its callers.
+  `segment_kind` uses two linear bounds instead of one case per segment.
+- G26: integer division by a constant inside a callee is not unfolded for
+  callers (`(s - 3) / 2`). Workaround: explicit branches.
+- G27: returning an `and` chain of comparisons fails where the same test
+  written as early returns proves (`Balance::unbalanced`).
+- Not provable modularly, so tested at runtime instead: winding-free
+  support triangles, counter-clockwise support kept, the weightless chord
+  law, and roll conservation across hinge and roll bone (G10/G12 family).
+- `proof/flight_laws.elisa`: 615/0 proved. Impure files (`rig_physics`,
+  `folder`, `report`, `main`) are `unsupported` like every `src/io` file was
+  at baseline.

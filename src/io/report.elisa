@@ -15,6 +15,25 @@ module Report:
             before: i64
             after: i64
 
+        # Rig and physics columns of a take (see RigOps::Summary, Physics::Findings).
+        struct Detail:
+            animations: i64
+            rig_changed: i64
+            pole_before: i64
+            pole_after: i64
+            slide_before: i64
+            slide_after: i64
+            planted: i64
+            unbalanced: i64
+            unbalanced_runs: i64
+            airborne: i64
+            flights: i64
+            momentum_before: i64
+            momentum_after: i64
+
+        def empty_detail() -> Detail:
+            return Detail{animations: 0, rig_changed: 0, pole_before: 0, pole_after: 0, slide_before: 0, slide_after: 0, planted: 0, unbalanced: 0, unbalanced_runs: 0, airborne: 0, flights: 0, momentum_before: 0, momentum_after: 0}
+
         def push_text(out: mutable darray[u8]&, s: sview):
             for c in s:
                 out.push(c)
@@ -25,6 +44,8 @@ module Report:
                 c: u8 = s[i]
                 if c == 60:
                     push_text(out, "&lt;")
+                elif c == 62:
+                    push_text(out, "&gt;")
                 elif c == 38:
                     push_text(out, "&amp;")
                 else:
@@ -65,6 +86,54 @@ module Report:
             cell(out, r.changed)
             cell(out, r.before)
             cell(out, r.after)
+            push_text(out, "</tr>")
+
+        def pair(out: mutable darray[u8]&, before: i64, after: i64):
+            if after > before:
+                push_text(out, "<td class=bad>")
+            else:
+                push_text(out, "<td>")
+            push_number(out, before)
+            push_text(out, " &rarr; ")
+            push_number(out, after)
+            push_text(out, "</td>")
+
+        # Full report: curve cleanup, rig fixes and physics checks per take.
+        def begin_detail(out: mutable darray[u8]&):
+            push_text(out, "<!doctype html><meta charset=utf-8><title>Mocap cleanup report</title>")
+            push_text(out, "<style>body{font:14px system-ui;margin:24px}table{border-collapse:collapse}td,th{padding:4px 10px;text-align:right;border-bottom:1px solid #ddd}td:first-child,th:first-child{text-align:left}.bad{color:#b00}.warn{background:#fff3cd}</style>")
+            push_text(out, "<h1>Mocap cleanup report</h1>")
+            push_text(out, "<p>Spikes, pole flips, foot slide and torso momentum spikes are shown as before &rarr; after. Unbalanced frames: a planted body whose centre of mass and capture point both leave the support region for at least 12 frames. Flights: airborne runs checked against a gravity parabola.</p>")
+            push_text(out, "<table><tr><th>Take</th><th>Status</th><th>Clips</th><th>Tracks</th><th>Values changed</th><th>Spikes</th><th>Rig values changed</th><th>Pole flips</th><th>Foot slide (&micro;m)</th><th>Planted frames</th><th>Unbalanced frames (runs)</th><th>Airborne frames (flights)</th><th>Momentum spikes</th></tr>")
+
+        def row_detail(out: mutable darray[u8]&, name: cstr, r: Row, d: Detail):
+            if d.unbalanced > 0:
+                push_text(out, "<tr class=warn><td>")
+            else:
+                push_text(out, "<tr><td>")
+            push_cstr(out, name)
+            if r.ok:
+                push_text(out, "</td><td>ok</td>")
+            else:
+                push_text(out, "</td><td class=bad>failed</td>")
+            cell(out, d.animations)
+            cell(out, r.tracks)
+            cell(out, r.changed)
+            pair(out, r.before, r.after)
+            cell(out, d.rig_changed)
+            pair(out, d.pole_before, d.pole_after)
+            pair(out, d.slide_before, d.slide_after)
+            cell(out, d.planted)
+            push_text(out, "<td>")
+            push_number(out, d.unbalanced)
+            push_text(out, " (")
+            push_number(out, d.unbalanced_runs)
+            push_text(out, ")</td><td>")
+            push_number(out, d.airborne)
+            push_text(out, " (")
+            push_number(out, d.flights)
+            push_text(out, ")</td>")
+            pair(out, d.momentum_before, d.momentum_after)
             push_text(out, "</tr>")
 
         def finish(out: mutable darray[u8]&):

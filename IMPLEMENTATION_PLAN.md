@@ -53,15 +53,19 @@ algorithmic spec for phase 1:
 ### Phase 0: Skeleton of the app (headless first)
 - [ ] Project setup: `elisa.project.json`, build script via Elisa-engine's
       `scripts/elisa_build_run.py`, README, AGENTS.md.
-- [ ] Data model: `Skeleton` (hierarchy, rest pose, hinge axes), `Clip`
+- [x] Data model: `Skeleton` (hierarchy, rest pose, hinge axes), `Clip`
       (per-bone tracks resampled to a fixed rate), `Pose`.
-- [ ] GLB import into the model, and GLB export that leaves untouched nodes,
+- [x] GLB import into the model, and GLB export that leaves untouched nodes,
       meshes and skins byte-identical (engine M06).
 - [ ] Operation stack: `Operation { kind, params, bones, range, enabled }`,
       evaluated in order and cached per operation.
-- [ ] Headless CLI: `mocap-cleaner clean in.glb --preset boxing -o out.glb --report r.json`.
-- [ ] Gate: the CLI reproduces the boxing leg-cleanup metrics within
+- [x] Headless CLI: `mocap-cleaner clean in.glb --preset boxing -o out.glb --report r.json`.
+- [x] Gate: the CLI reproduces the boxing leg-cleanup metrics within
       tolerance on the boxing GLBs.
+
+Phase 0 audit (2026-10-01): project setup stays open (no `elisa_build_run.py`
+build; tests use stage1 directly); the operation stack stays open (no
+per-operation cache).
 
 ### Phase 1: The immediately useful tools
 Each tool comes with its detector.
@@ -111,13 +115,19 @@ Everything above works headless first; the UI puts it in front of the user.
 ### Phase 4: Physics-aware cleanup (the Cascadeur part)
 - [ ] Centre of mass and support polygon overlay, flagging frames where
       balance is impossible.
-- [ ] Ballistic check: airborne phases should follow a parabola; fix the
-      pelvis path to match.
-- [ ] Momentum smoothing: cap angular momentum spikes on the torso.
+- [x] Ballistic check: airborne phases should follow a parabola; fix the
+      pelvis path to match. (`--op ballistic`, opt-in; the boxing clips' "flights"
+      are mostly contact-detection gaps.)
+- [x] Momentum smoothing: cap angular momentum spikes on the torso.
+      (`--op momentum`: tapered local smoothing, drift capped at 10°.)
+
+Status: CoM and support-region flagging is headless (`--op balance`,
+`src/physics/rig_physics.elisa`, reported in the CLI, JSON and HTML report);
+the overlay waits for the studio, so that item stays open.
 
 ### Phase 5: Batch and pipeline
 - [x] Presets per source, e.g. "Mixamo boxing" or "Rokoko raw". (`boxing`, `raw`, `rokoko`.)
-- [ ] Batch folder processing with an HTML report.
+- [x] Batch folder processing with an HTML report. (`batch OUTDIR [--op ...] IN.glb|FOLDER...`; macOS dirent layout.)
 - [x] Retarget-aware import: map several skeletons to a common rig.
       (`src/io/rig_map.elisa`: Mixamo, plain, Rokoko/Unity spellings onto `src/core/roles.elisa`.)
 

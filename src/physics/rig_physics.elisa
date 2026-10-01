@@ -1,0 +1,527 @@
+# Physics-aware cleanup on the rig view (Phase 4):
+#   balance   centre of mass and support polygon; flags runs of frames where
+#             a planted body cannot be balanced (detector only)
+#   ballistic airborne phases follow a parabola under gravity; the fix moves
+#             the hips so the centre of mass takes that parabola
+#   momentum  caps angular-acceleration spikes of the torso; the fix is a
+#             rate-limited follower of the source rotation, faded to the
+#             source at the clip edges
+# Every per-frame decision goes through a proved kernel in Balance (support,
+# near, unbalanced, run_length, parabola, ballistic_residual, limit_step,
+# segment_mass) or Pin::pin_weight. Lengths are micrometres (Limb::micro),
+# angles micro-radians, y is up (glTF).
+include "../ops/rig_stack.elisa"
+include "balance.elisa"
+
+module Physics:
+    public:
+        const GRAVITY: f64 = 9.81
+        const MIN_FLIGHT: i64 = 3        # airborne frames before a run counts as flight
+        const MIN_UNBALANCED: i64 = 12   # flagged frames before a run is reported (0.1 s at 120 Hz)
+        const MOMENTUM_RADIUS: i64 = 6   # frames smoothed each side of a torso spike
+        const MOMENTUM_PASSES: i64 = 12  # local smoothing passes per round
+        const MOMENTUM_ROUNDS: i64 = 3   # detect-and-smooth rounds
+        const MAX_DRIFT: i64 = 175000    # largest torso change of the momentum fix (micro-rad, 10 deg)
+
+        enum PhysKind:
+            Balance
+            Ballistic
+            Momentum
+
+        # `fix` false runs the detector only. `amount`: Momentum cap in
+        # micro-rad per frame^2 (0 = automatic). `edge`: fade frames.
+        struct PhysOp:
+            kind: PhysKind
+            fix: bool
+            amount: i64
+            edge: i64
+
+        struct Findings:
+            ops: mutable i64
+            frames: mutable i64
+            planted: mutable i64
+            unbalanced: mutable i64
+            unbalanced_runs: mutable i64
+            stepped: mutable i64
+            worst_run: mutable i64
+            worst_first: mutable i64
+            airborne: mutable i64
+            flights: mutable i64
+            ballistic_before: mutable i64
+            ballistic_after: mutable i64
+            momentum_cap: mutable i64
+            momentum_before: mutable i64
+            momentum_after: mutable i64
+            momentum_drift: mutable i64
+            changed: mutable i64
+
+        def balance(fix: bool) -> PhysOp:
+            return PhysOp{kind: PhysKind.Balance, fix: false, amount: 0, edge: 8}
+
+        def ballistic(fix: bool) -> PhysOp:
+            return PhysOp{kind: PhysKind.Ballistic, fix: fix, amount: 0, edge: 8}
+
+        def momentum(fix: bool, cap: i64) -> PhysOp:
+            return PhysOp{kind: PhysKind.Momentum, fix: fix, amount: cap, edge: 8}
+
+        def empty_findings() -> Findings:
+            return Findings{ops: 0, frames: 0, planted: 0, unbalanced: 0, unbalanced_runs: 0, stepped: 0, worst_run: 0, worst_first: -1, airborne: 0, flights: 0, ballistic_before: 0, ballistic_after: 0, momentum_cap: 0, momentum_before: 0, momentum_after: 0, momentum_drift: 0, changed: 0}
+
+        def add(total: mutable Findings&, f: Findings&):
+            total.ops <- total.ops + f.ops
+            total.frames <- total.frames + f.frames
+            total.planted <- total.planted + f.planted
+            total.unbalanced <- total.unbalanced + f.unbalanced
+            total.unbalanced_runs <- total.unbalanced_runs + f.unbalanced_runs
+            total.stepped <- total.stepped + f.stepped
+            if f.worst_run > total.worst_run:
+                total.worst_run <- f.worst_run
+                total.worst_first <- f.worst_first
+            total.airborne <- total.airborne + f.airborne
+            total.flights <- total.flights + f.flights
+            total.ballistic_before <- total.ballistic_before + f.ballistic_before
+            total.ballistic_after <- total.ballistic_after + f.ballistic_after
+            total.momentum_cap <- f.momentum_cap if f.momentum_cap > total.momentum_cap
+            total.momentum_before <- total.momentum_before + f.momentum_before
+            total.momentum_after <- total.momentum_after + f.momentum_after
+            total.momentum_drift <- f.momentum_drift if f.momentum_drift > total.momentum_drift
+            total.changed <- total.changed + f.changed
+
+        # ---- Centre of mass -------------------------------------------------
+
+        def mid(c: Rig::Clip&, w: Rig::World&, a: i64, b: i64) -> (ok: bool, p: MotionQuat::V):
+            na: i64 = Rig::node_of(c, a)
+            nb: i64 = Rig::node_of(c, b)
+            return (false, Rig::v(0.0, 0.0, 0.0)) if na < 0
+            return (true, w.pos[na.usize()]) if nb < 0
+            return (true, Rig::vscale(Rig::vadd(w.pos[na.usize()], w.pos[nb.usize()]), 0.5))
+
+        # The point standing for segment `k` (see Balance::segment_mass).
+        def segment_point(c: Rig::Clip&, w: Rig::World&, k: i64) -> (ok: bool, p: MotionQuat::V):
+            return mid(c, w, Roles::HIPS, Roles::SPINE) if k == 0
+            return mid(c, w, Roles::SPINE, Roles::NECK) if k == 1
+            return mid(c, w, Roles::HEAD, Roles::NONE) if k == 2
+            return mid(c, w, Roles::LEFT_ARM, Roles::LEFT_FOREARM) if k == 3
+            return mid(c, w, Roles::RIGHT_ARM, Roles::RIGHT_FOREARM) if k == 4
+            return mid(c, w, Roles::LEFT_FOREARM, Roles::LEFT_HAND) if k == 5
+            return mid(c, w, Roles::RIGHT_FOREARM, Roles::RIGHT_HAND) if k == 6
+            return mid(c, w, Roles::LEFT_HAND, Roles::NONE) if k == 7
+            return mid(c, w, Roles::RIGHT_HAND, Roles::NONE) if k == 8
+            return mid(c, w, Roles::LEFT_UPLEG, Roles::LEFT_LEG) if k == 9
+            return mid(c, w, Roles::RIGHT_UPLEG, Roles::RIGHT_LEG) if k == 10
+            return mid(c, w, Roles::LEFT_LEG, Roles::LEFT_FOOT) if k == 11
+            return mid(c, w, Roles::RIGHT_LEG, Roles::RIGHT_FOOT) if k == 12
+            return mid(c, w, Roles::LEFT_FOOT, Roles::LEFT_TOE) if k == 13
+            return mid(c, w, Roles::RIGHT_FOOT, Roles::RIGHT_TOE) if k == 14
+            return (false, Rig::v(0.0, 0.0, 0.0))
+
+        # Mass-weighted centre of the segments present (after solve_world).
+        def com(c: Rig::Clip&, w: Rig::World&) -> MotionQuat::V:
+            mutable sum: MotionQuat::V = Rig::v(0.0, 0.0, 0.0)
+            mutable mass: i64 = 0
+            for k in 0..<Balance::SEGMENTS:
+                m: i64 = Balance::segment_mass(k)
+                continue if m == 0
+                point: (ok: bool, p: MotionQuat::V) = segment_point(c, w, k)
+                continue if not point.ok
+                sum <- Rig::vadd(sum, Rig::vscale(point.p, m.f64()))
+                mass <- mass + m
+            return Rig::v(0.0, 0.0, 0.0) if mass == 0
+            return Rig::vscale(sum, 1.0 / mass.f64())
+
+        def com_track(c: Rig::Clip&) -> darray[MotionQuat::V]:
+            mutable out: darray[MotionQuat::V] = []
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                Rig::solve_world(c, f, &w)
+                out.push(com(c, &w))
+            return out
+
+        def frame_rate(c: Rig::Clip&) -> f64:
+            return 30.0 if c.frames < 2
+            span: f64 = c.times[c.times.count - 1] - c.times[0]
+            return (c.frames - 1).f64() / span if span > 0.0 else 30.0
+
+        # ---- Contacts -------------------------------------------------------
+
+        # Lowest point (ankle or toe) of a foot per frame, micrometres.
+        def foot_lows(c: Rig::Clip&, side: i64) -> darray[i64]:
+            mutable out: darray[i64] = []
+            ankle: i64 = Rig::node_of(c, Roles::LEFT_FOOT if side == 0 else Roles::RIGHT_FOOT)
+            toe: i64 = Rig::node_of(c, Roles::LEFT_TOE if side == 0 else Roles::RIGHT_TOE)
+            return out if ankle < 0
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                Rig::solve_world(c, f, &w)
+                y: f64 = w.pos[ankle.usize()].y
+                low: f64 = w.pos[toe.usize()].y if toe >= 0 and w.pos[toe.usize()].y < y else y
+                out.push(Limb::micro(low))
+            return out
+
+        def leg_length(c: Rig::Clip&) -> f64:
+            leg: (upper: i64, hinge: i64, end: i64, toe: i64) = RigOps::leg_nodes(c, 0)
+            return 0.0 if leg.upper < 0 or leg.hinge < 0 or leg.end < 0 or c.frames < 1
+            mutable w: Rig::World = Rig::empty_world()
+            Rig::solve_world(c, 0, &w)
+            return Rig::vlen(Rig::vsub(w.pos[leg.hinge.usize()], w.pos[leg.upper.usize()])) + Rig::vlen(Rig::vsub(w.pos[leg.end.usize()], w.pos[leg.hinge.usize()]))
+
+        # Planted flags of one foot, from height over the shared floor and
+        # horizontal ankle speed (the foot-lock thresholds).
+        def foot_flags(c: Rig::Clip&, side: i64, floor: i64, length: f64) -> darray[bool]:
+            mutable flags: darray[bool] = []
+            lows: darray[i64] = foot_lows(c, side)
+            ankle: i64 = Rig::node_of(c, Roles::LEFT_FOOT if side == 0 else Roles::RIGHT_FOOT)
+            if ankle < 0 or lows.count.i64() != c.frames or length <= 0.000001:
+                for f in 0..<c.frames:
+                    flags.push(false)
+                return flags
+            fps: f64 = frame_rate(c)
+            mutable heights: darray[i64] = []
+            mutable speeds: darray[i64] = []
+            mutable w: Rig::World = Rig::empty_world()
+            mutable last: MotionQuat::V = Rig::v(0.0, 0.0, 0.0)
+            for f in 0..<c.frames:
+                heights.push(Order::clamp(lows[f.usize()] - floor, 0, Hinge::LIMIT))
+                Rig::solve_world(c, f, &w)
+                p: MotionQuat::V = w.pos[ankle.usize()]
+                if f == 0:
+                    speeds.push(0)
+                else:
+                    dx: f64 = p.x - last.x
+                    dz: f64 = p.z - last.z
+                    speeds.push(Limb::micro((dx * dx + dz * dz).sqrt() * fps))
+                last <- p
+            enter: i64 = Limb::micro(length * 0.05)
+            leave: i64 = Limb::micro(length * 0.08)
+            max_speed: i64 = Limb::micro(length * 0.5)
+            if not Contact::valid_thresholds(enter, leave, max_speed):
+                for f in 0..<c.frames:
+                    flags.push(false)
+                return flags
+            return Track::contacts(&heights, &speeds, enter, leave, max_speed)
+
+        def floor_of(c: Rig::Clip&) -> i64:
+            mutable floor: i64 = Hinge::LIMIT
+            for side in 0..<2:
+                for h in foot_lows(c, side.i64()):
+                    floor <- h if h < floor
+            return floor
+
+        # ---- Balance --------------------------------------------------------
+
+        # Support corners: each planted foot's ankle and toe on the floor plane.
+        def support_points(c: Rig::Clip&, w: Rig::World&, left: bool, right: bool, xs: mutable darray[i64]&, zs: mutable darray[i64]&):
+            xs.clear()
+            zs.clear()
+            for side in 0..<2:
+                continue if (side == 0 and not left) or (side == 1 and not right)
+                for role in [Roles::LEFT_FOOT + side.i64() * 4, Roles::LEFT_TOE + side.i64() * 4]:
+                    node: i64 = Rig::node_of(c, role)
+                    continue if node < 0
+                    p: MotionQuat::V = w.pos[node.usize()]
+                    xs.push(Limb::micro(p.x))
+                    zs.push(Limb::micro(p.z))
+
+        # A floor point is inside the support region grown by `margin` (the
+        # heel and foot width the ankle/toe corners leave out): within
+        # `margin` of a corner, or inside a triangle of corners after
+        # stepping `margin` toward their centroid.
+        def inside(xs: darray[i64]&, zs: darray[i64]&, px: i64, pz: i64, margin: i64) -> bool:
+            n: usize = xs.count
+            return false if n == 0
+            mutable cx: i64 = 0
+            mutable cz: i64 = 0
+            for i in 0..<n:
+                return true if Balance::near(xs[i], zs[i], px, pz, margin)
+                cx <- cx + xs[i]
+                cz <- cz + zs[i]
+            cx <- cx / n.i64()
+            cz <- cz / n.i64()
+            dx: f64 = (cx - px).f64()
+            dz: f64 = (cz - pz).f64()
+            span: f64 = (dx * dx + dz * dz).sqrt()
+            return true if span <= margin.f64()
+            qx: i64 = px + (dx * margin.f64() / span).i64()
+            qz: i64 = pz + (dz * margin.f64() / span).i64()
+            for i in 0..<n:
+                for j in (i + 1)..<n:
+                    for k in (j + 1)..<n:
+                        return true if Balance::supported_any(xs[i], zs[i], xs[j], zs[j], xs[k], zs[k], qx, qz)
+            return false
+
+        def balance_check(c: Rig::Clip&, left: darray[bool]&, right: darray[bool]&, floor: i64, length: f64, out: mutable Findings&):
+            return if c.frames < 3 or length <= 0.000001
+            coms: darray[MotionQuat::V] = com_track(c)
+            fps: f64 = frame_rate(c)
+            margin: i64 = Limb::micro(length * 0.06)
+            mutable xs: darray[i64] = []
+            mutable zs: darray[i64] = []
+            mutable w: Rig::World = Rig::empty_world()
+            mutable flags: darray[bool] = []
+            mutable held: darray[bool] = []
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                planted: bool = left[k] or right[k]
+                mutable com_held: bool = false
+                out.planted <- out.planted + 1 if planted
+                mutable flagged: bool = false
+                if planted:
+                    Rig::solve_world(c, f, &w)
+                    support_points(c, &w, left[k], right[k], &xs, &zs)
+                    p: MotionQuat::V = coms[k]
+                    a: MotionQuat::V = coms[(f - 1).usize()] if f > 0 else p
+                    b: MotionQuat::V = coms[(f + 1).usize()] if f + 1 < c.frames else p
+                    height: f64 = p.y - Limb::unmicro(floor)
+                    omega: f64 = (GRAVITY / height).sqrt() if height > 0.05 else 14.0
+                    span: f64 = 2.0 if f > 0 and f + 1 < c.frames else 1.0
+                    vx: f64 = (b.x - a.x) * fps / span
+                    vz: f64 = (b.z - a.z) * fps / span
+                    com_in: bool = inside(&xs, &zs, Limb::micro(p.x), Limb::micro(p.z), margin)
+                    cap_in: bool = inside(&xs, &zs, Limb::micro(p.x + vx / omega), Limb::micro(p.z + vz / omega), margin)
+                    flagged <- Balance::unbalanced(planted, com_in, cap_in)
+                    com_held <- com_in
+                flags.push(flagged)
+                held.push(com_held)
+            # A flagged run is a step, not a fall, when a foot touches down
+            # within it or within MIN_UNBALANCED frames after it and the
+            # centre of mass is over the new support at that frame.
+            mutable run: i64 = 0
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                run <- Balance::run_length(Order::clamp(run, 0, Balance::LIMIT - 1), flags[k])
+                ends: bool = run > 0 and (f + 1 == c.frames or not flags[k + 1])
+                continue if not ends or run < MIN_UNBALANCED
+                first: i64 = f - run + 1
+                last: i64 = f + MIN_UNBALANCED if f + MIN_UNBALANCED < c.frames else c.frames - 1
+                mutable stepped: bool = false
+                for t in (first + 1)..=last:
+                    u: usize = t.usize()
+                    touchdown: bool = (left[u] and not left[u - 1]) or (right[u] and not right[u - 1])
+                    stepped <- true if touchdown and held[u]
+                out.stepped <- out.stepped + run if stepped
+                continue if stepped
+                out.unbalanced_runs <- out.unbalanced_runs + 1
+                out.unbalanced <- out.unbalanced + run
+                if run > out.worst_run:
+                    out.worst_run <- run
+                    out.worst_first <- first
+
+        # ---- Ballistic ------------------------------------------------------
+
+        def gravity_step(c: Rig::Clip&) -> i64:
+            fps: f64 = frame_rate(c)
+            return Order::clamp(Limb::micro(GRAVITY / (fps * fps)), 0, Balance::MAX_GRAVITY)
+
+        def residual(ys: darray[i64]&, first: i64, last: i64, g: i64) -> i64:
+            mutable total: i64 = 0
+            for k in first..=last:
+                continue if k < 1 or k + 1 >= ys.count.i64()
+                total <- total + Balance::ballistic_residual(ys[(k - 1).usize()], ys[k.usize()], ys[(k + 1).usize()], g)
+            return total
+
+        def com_heights(c: Rig::Clip&) -> darray[i64]:
+            mutable ys: darray[i64] = []
+            for p in com_track(c):
+                ys.push(Limb::micro(p.y))
+            return ys
+
+        def ballistic_fix(c: mutable Rig::Clip&, op: PhysOp, left: darray[bool]&, right: darray[bool]&, out: mutable Findings&):
+            return if c.frames < MIN_FLIGHT + 2
+            hips: i64 = Rig::node_of(c, Roles::HIPS)
+            g: i64 = gravity_step(c)
+            ys: darray[i64] = com_heights(c)
+            mutable runs_first: darray[i64] = []
+            mutable runs_last: darray[i64] = []
+            mutable start: i64 = -1
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                air: bool = not left[k] and not right[k]
+                out.airborne <- out.airborne + 1 if air
+                if air and start < 0:
+                    start <- f
+                if (not air or f + 1 == c.frames) and start >= 0:
+                    stop: i64 = f - 1 if not air else f
+                    # Only runs bounded by contact frames on both sides.
+                    if start >= 1 and stop + 1 < c.frames and stop - start + 1 >= MIN_FLIGHT and stop - start + 2 <= Balance::MAX_FLIGHT:
+                        runs_first.push(start)
+                        runs_last.push(stop)
+                    start <- -1
+            out.flights <- out.flights + runs_first.count.i64()
+            for r in 0..<runs_first.count:
+                out.ballistic_before <- out.ballistic_before + residual(&ys, runs_first[r], runs_last[r], g)
+            if op.fix and hips >= 0 and Rig::pos_writable(c, hips):
+                mutable w: Rig::World = Rig::empty_world()
+                for r in 0..<runs_first.count:
+                    a: i64 = runs_first[r] - 1
+                    b: i64 = runs_last[r] + 1
+                    n: i64 = b - a
+                    y0: i64 = Order::clamp(ys[a.usize()], -Balance::LIMIT, Balance::LIMIT)
+                    y1: i64 = Order::clamp(ys[b.usize()], -Balance::LIMIT, Balance::LIMIT)
+                    for k in 1..<n:
+                        f: i64 = a + k
+                        delta: i64 = Balance::parabola(y0, y1, k, n, g) - ys[f.usize()]
+                        continue if delta == 0
+                        Rig::solve_world(c, f, &w)
+                        parent: i64 = c.joints[hips.usize()].parent
+                        mutable shift: MotionQuat::V = Rig::v(0.0, Limb::unmicro(delta), 0.0)
+                        if parent >= 0:
+                            ps: MotionQuat::V = w.scl[parent.usize()]
+                            local: MotionQuat::V = MotionQuat::rotate(MotionQuat::conjugate(w.rot[parent.usize()]), shift)
+                            shift <- Rig::v(local.x / ps.x if ps.x != 0.0 else 0.0, local.y / ps.y if ps.y != 0.0 else 0.0, local.z / ps.z if ps.z != 0.0 else 0.0)
+                        _ = Rig::set_local_pos(c, f, hips, Rig::vadd(Rig::local_pos(c, f, hips), shift))
+            after: darray[i64] = com_heights(c)
+            for r in 0..<runs_first.count:
+                out.ballistic_after <- out.ballistic_after + residual(&after, runs_first[r], runs_last[r], g)
+
+        # ---- Momentum -------------------------------------------------------
+
+        def torso(c: Rig::Clip&) -> i64:
+            spine: i64 = Rig::node_of(c, Roles::SPINE)
+            return spine if spine >= 0 else Rig::node_of(c, Roles::HIPS)
+
+        def world_rots(c: Rig::Clip&, node: i64) -> darray[MotionQuat::Q]:
+            mutable out: darray[MotionQuat::Q] = []
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                Rig::solve_world(c, f, &w)
+                out.push(w.rot[node.usize()])
+            return out
+
+        # Angular velocity per frame (micro-rad per frame, world axes).
+        def velocities(rots: darray[MotionQuat::Q]&) -> darray[MotionQuat::V]:
+            mutable out: darray[MotionQuat::V] = []
+            for k in 0..<rots.count:
+                if k == 0:
+                    out.push(Rig::v(0.0, 0.0, 0.0))
+                else:
+                    out.push(RigOps::rotvec(MotionQuat::mul(rots[k], MotionQuat::conjugate(rots[k - 1]))))
+            return out
+
+        # Angular acceleration magnitude per frame (micro-rad per frame^2).
+        def accelerations(rots: darray[MotionQuat::Q]&) -> darray[i64]:
+            vel: darray[MotionQuat::V] = velocities(rots)
+            mutable out: darray[i64] = []
+            for k in 0..<vel.count:
+                out.push(0 if k < 2 else Limb::micro(Rig::vlen(Rig::vsub(vel[k], vel[k - 1]))))
+            return out
+
+        def count_over(values: darray[i64]&, cap: i64) -> i64:
+            mutable n: i64 = 0
+            for v in values:
+                n <- n + 1 if v > cap
+            return n
+
+        # Automatic cap: four times the clip's median angular acceleration,
+        # at least 2000 micro-rad per frame^2 (about 29 rad/s^2 at 120 Hz).
+        def auto_cap(acc: darray[i64]&) -> i64:
+            mutable sorted: darray[i64] = []
+            for v in acc:
+                sorted.push(v)
+            for i in 1..<sorted.count:
+                mutable j: usize = i
+                while j > 0 and sorted[j - 1] > sorted[j]:
+                    t: i64 = sorted[j]
+                    sorted[j] <- sorted[j - 1]
+                    sorted[j - 1] <- t
+                    j <- j - 1
+            m: i64 = sorted[sorted.count / 2] if sorted.count > 0 else 0
+            return Order::clamp(m * 4, 2000, Balance::LIMIT)
+
+        # Spikes are smoothed locally: each frame whose angular acceleration
+        # exceeds the cap opens a window of MOMENTUM_RADIUS frames each side
+        # with a smoothstep taper (1 at the spike, 0 past the edges); the
+        # torso's world rotation is pulled toward its neighbours' mean by the
+        # taper over MOMENTUM_PASSES passes. The change at any frame is capped
+        # at MAX_DRIFT micro-rad (Balance::limit_step), so a real fast turn
+        # is softened, never lost.
+        def momentum_fix(c: mutable Rig::Clip&, op: PhysOp, out: mutable Findings&):
+            node: i64 = torso(c)
+            return if node < 0 or c.frames < 3
+            rots0: darray[MotionQuat::Q] = world_rots(c, node)
+            acc0: darray[i64] = accelerations(&rots0)
+            cap: i64 = Order::clamp(op.amount, 1, Balance::LIMIT) if op.amount > 0 else auto_cap(&acc0)
+            out.momentum_cap <- cap if cap > out.momentum_cap
+            out.momentum_before <- out.momentum_before + count_over(&acc0, cap)
+            if op.fix and Rig::rot_writable(c, node):
+                # Rounds re-detect on the result; each round's change is capped
+                # against the source, so the total drift stays within MAX_DRIFT.
+                for round in 0..<MOMENTUM_ROUNDS:
+                    smooth_round(c, node, cap, &rots0, out)
+            after_rots: darray[MotionQuat::Q] = world_rots(c, node)
+            after: darray[i64] = accelerations(&after_rots)
+            out.momentum_after <- out.momentum_after + count_over(&after, cap)
+
+        def smooth_round(c: mutable Rig::Clip&, node: i64, cap: i64, source: darray[MotionQuat::Q]&, out: mutable Findings&):
+            rots: darray[MotionQuat::Q] = world_rots(c, node)
+            acc: darray[i64] = accelerations(&rots)
+            # Taper: full strength at a spike, fading to zero at the
+            # window edges, so smoothing adds no new kink at the seams.
+            mutable taper: darray[f64] = []
+            for f in 0..<c.frames:
+                taper.push(0.0)
+            for k in 2..<c.frames:
+                continue if acc[k.usize()] <= cap
+                centre: i64 = k - 1
+                for d in (0 - MOMENTUM_RADIUS)..=MOMENTUM_RADIUS:
+                    g: i64 = centre + d
+                    continue if g < 1 or g + 1 >= c.frames
+                    dist: i64 = d if d >= 0 else -d
+                    x: f64 = 1.0 - dist.f64() / (MOMENTUM_RADIUS + 1).f64()
+                    weight: f64 = x * x * (3.0 - 2.0 * x)
+                    taper[g.usize()] <- weight if weight > taper[g.usize()]
+            mutable cur: darray[MotionQuat::Q] = []
+            for q in rots:
+                cur.push(q)
+            for pass_index in 0..<MOMENTUM_PASSES:
+                mutable next: darray[MotionQuat::Q] = []
+                for q in cur:
+                    next.push(q)
+                for g in 1..<(c.frames - 1):
+                    k: usize = g.usize()
+                    continue if taper[k] <= 0.0
+                    mid: MotionQuat::Q = MotionQuat::slerp(cur[k - 1], cur[k + 1], 0.5)
+                    next[k] <- MotionQuat::slerp(cur[k], mid, 0.5 * taper[k])
+                cur <- next
+            mutable w: Rig::World = Rig::empty_world()
+            for g in 1..<(c.frames - 1):
+                k: usize = g.usize()
+                continue if taper[k] <= 0.0
+                gap: i64 = Order::clamp(Limb::micro(MotionQuat::angle(MotionQuat::mul(MotionQuat::conjugate(source[k]), cur[k]))), 0, Balance::LIMIT)
+                continue if gap == 0
+                allowed: i64 = Balance::limit_step(0, gap, MAX_DRIFT)
+                target: MotionQuat::Q = MotionQuat::slerp(source[k], cur[k], allowed.f64() / gap.f64())
+                out.momentum_drift <- allowed if allowed > out.momentum_drift
+                Rig::solve_world(c, g, &w)
+                _ = Rig::set_world_rot(c, g, node, target, &w)
+
+        # ---- Stack ----------------------------------------------------------
+
+        def run_clip(c: mutable Rig::Clip&, ops: darray[PhysOp]&) -> Findings:
+            mutable out: Findings = empty_findings()
+            return out if ops.count == 0 or c.frames < 1
+            out.frames <- c.frames
+            length: f64 = leg_length(c)
+            floor: i64 = floor_of(c)
+            # Ballistic and momentum fixes first; balance looks at the result.
+            for pass_index in 0..<2:
+                for op in ops:
+                    is_balance: bool = op.kind == PhysKind.Balance
+                    continue if (pass_index == 0) == is_balance
+                    out.ops <- out.ops + 1
+                    left: darray[bool] = foot_flags(c, 0, floor, length)
+                    right: darray[bool] = foot_flags(c, 1, floor, length)
+                    match op.kind:
+                        PhysKind.Balance:
+                            balance_check(c, &left, &right, floor, length, &out)
+                        PhysKind.Ballistic:
+                            ballistic_fix(c, op, &left, &right, &out)
+                        PhysKind.Momentum:
+                            momentum_fix(c, op, &out)
+            return out
+
+        def run(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[PhysOp]&) -> Findings:
+            return empty_findings() if ops.count == 0
+            mutable c: Rig::Clip = Rig::load(doc, animation)
+            mutable out: Findings = run_clip(&c, ops)
+            out.changed <- Rig::store(doc, &c)
+            return out

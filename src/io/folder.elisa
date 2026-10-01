@@ -1,0 +1,112 @@
+# Folder listing for batch runs: the sorted .glb files of a directory.
+# readdir's dirent is copied out byte by byte with memcpy (Elisa has no
+# struct view of it). Layout is the macOS one (64-bit inodes):
+#   offset 16 u16 d_reclen, offset 18 u16 d_namlen, offset 21 d_name.
+@link_name("opendir")
+extern f_opendir(path: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+@link_name("readdir")
+extern f_readdir(dir: mutable heap void&) -> mutable heap void&? can[Blocking.IO]
+@link_name("closedir")
+extern f_closedir(dir: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
+@link_name("memcpy")
+extern f_memcpy(dst: mutable u8&, src: mutable heap void&, n: usize) -> mutable u8& can[Memory.Allocate]
+
+module Folder:
+    public:
+        const NAME_OFFSET: usize = 21
+        const HEADER: usize = 24
+        const MAX_RECORD: usize = 1048
+
+        def is_dir(path: cstr) -> bool:
+            mutable ok: bool = false
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                d: mutable heap void&? = f_opendir(path.cast[u8&])
+                if d != null:
+                    h: mutable heap void& = d
+                    _ = f_closedir(h)
+                    ok <- true
+            return ok
+
+        # Name ends in ".glb" (any case) and is not hidden.
+        def is_glb(name: darray[u8]&) -> bool:
+            n: usize = name.count
+            return false if n < 5 or name[0] == 46
+            return name[n - 4] == 46 and (name[n - 3] | 32) == 103 and (name[n - 2] | 32) == 108 and (name[n - 1] | 32) == 98
+
+        # Byte order (shorter prefix first).
+        def before(a: darray[u8]&, b: darray[u8]&) -> bool:
+            mutable i: usize = 0
+            while i < a.count and i < b.count:
+                return a[i] < b[i] if a[i] != b[i]
+                i <- i + 1
+            return a.count < b.count
+
+        # Sorted copy (insertion sort over an index array).
+        def sorted(names: darray[darray[u8]]&) -> darray[darray[u8]]:
+            mutable order: darray[usize] = []
+            for i in 0..<names.count:
+                order.push(i)
+            for i in 1..<order.count:
+                mutable j: usize = i
+                while j > 0 and before(&names[order[j]], &names[order[j - 1]]):
+                    t: usize = order[j]
+                    order[j] <- order[j - 1]
+                    order[j - 1] <- t
+                    j <- j - 1
+            mutable out: darray[darray[u8]] = []
+            for k in order:
+                mutable copy: darray[u8] = []
+                for c in names[k]:
+                    copy.push(c)
+                out.push(copy)
+            return out
+
+        # Entry names of a directory (without "." and ".."), unsorted.
+        def entries(dir: cstr) -> darray[darray[u8]]:
+            mutable out: darray[darray[u8]] = []
+            mutable buf: darray[u8] = []
+            for k in 0..<MAX_RECORD:
+                buf.push(0)
+            can Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast:
+                d: mutable heap void&? = f_opendir(dir.cast[u8&])
+                if d != null:
+                    h: mutable heap void& = d
+                    mutable going: bool = true
+                    while going:
+                        e: mutable heap void&? = f_readdir(h)
+                        going <- false
+                        if e != null:
+                            going <- true
+                            ent: mutable heap void& = e
+                            _ = f_memcpy((&buf[0]).cast[mutable u8&], ent, HEADER)
+                            reclen: usize = buf[16].usize() + buf[17].usize() * 256
+                            namlen: usize = buf[18].usize() + buf[19].usize() * 256
+                            if reclen >= HEADER and reclen <= MAX_RECORD and NAME_OFFSET + namlen <= reclen:
+                                _ = f_memcpy((&buf[0]).cast[mutable u8&], ent, reclen)
+                                mutable name: darray[u8] = []
+                                for i in 0..<namlen:
+                                    name.push(buf[NAME_OFFSET + i])
+                                dot: bool = namlen == 1 and name[0] == 46
+                                dotdot: bool = namlen == 2 and name[0] == 46 and name[1] == 46
+                                out.push(name) if not dot and not dotdot
+                    _ = f_closedir(h)
+            return out
+
+        # Sorted "<dir>/<name>" paths (NUL-terminated) of the .glb files.
+        def glb_files(dir: cstr) -> darray[darray[u8]]:
+            mutable names: darray[darray[u8]] = []
+            for name in entries(dir):
+                names.push(name) if is_glb(&name)
+            mutable out: darray[darray[u8]] = []
+            for name in sorted(&names):
+                mutable path: darray[u8] = []
+                mutable i: usize = 0
+                while dir[i] != 0:
+                    path.push(dir[i])
+                    i <- i + 1
+                path.push(47) if i > 0 and dir[i - 1] != 47
+                for c in name:
+                    path.push(c)
+                path.push(0)
+                out.push(path)
+            return out
