@@ -27,7 +27,11 @@ def capture(c: StudioModel::Clip&, projection: i32, path: cstr, flags: i64) -> i
     frame: i64 = c.frames / 2
     pts: darray[Geometry::Vec3] = StudioScene::points(c, frame)
     _ = ViewportCamera::frame_points(&cam, &pts, 1.15)
-    list: ViewportDraw::List = StudioScene::build(cam, c, frame, flags, StudioModel::default_bone(c))
+    mesh: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(PATH):
+        value: value
+        error failure: GlbSkinMesh::empty()
+    skinned: darray[Geometry::Vec3] = StudioScene::pose_mesh(c, &mesh, frame)
+    list: ViewportDraw::List = StudioScene::build(cam, c, &mesh, &skinned, frame, flags, StudioModel::default_bone(c))
     background: u32 = ViewportDraw::rgba(24, 26, 32, 255)
     mutable img: ViewportRaster::Image = ViewportRaster::create(w, h)
     ViewportRaster::clear(&img, background)
@@ -43,6 +47,10 @@ def views(c: StudioModel::Clip&) -> i32:
     f: i64 = capture(c, ViewportCamera::FRONT, "build/studio_front.png", flags)
     s: i64 = capture(c, ViewportCamera::SIDE, "build/studio_side.png", flags)
     return 10 if p < 500 or f < 500 or s < 500
+    # The skinned mesh adds a body under the skeleton.
+    m: i64 = capture(c, ViewportCamera::FRONT, "build/studio_mesh_front.png", flags + StudioScene::MESH)
+    return 12 if m <= f + 5000
+    _ = puts("studio_capture: mesh view inks more than the bare skeleton")
     # Picking at the projected hips finds a joint.
     mutable cam: ViewportCamera::Camera = ViewportCamera::create_ortho(480, 360, ViewportCamera::FRONT)
     frame: i64 = c.frames / 2
@@ -67,7 +75,8 @@ def curves(c: StudioModel::Clip&) -> i32:
 
 def main() -> i32:
     initial: StackState::Stack = StudioModel::initial_stack()
-    mutable history: HistoryState::History = HistoryState::create(initial)
+    mutable history: HistoryState::History = zeroed
+    HistoryState::reset(&history, initial)
     built: StudioModel::Clip? = StudioModel::build(PATH, "jab", initial)
     if built is c:
         r: i32 = views(c)

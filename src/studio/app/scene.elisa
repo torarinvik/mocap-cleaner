@@ -7,6 +7,8 @@
 include "model.elisa"
 include "../../../../elisa-engine-mocap/src/viewport/skeleton_overlay.elisa"
 include "../../../../elisa-engine-mocap/src/viewport/motion_overlay.elisa"
+include "../../../../elisa-engine-mocap/src/viewport/mesh_overlay.elisa"
+include "../../../../elisa-engine-mocap/src/viewport/gizmo.elisa"
 
 module StudioScene:
     public:
@@ -34,8 +36,7 @@ module StudioScene:
         def style(flags: i64) -> SkeletonOverlay::Style:
             mutable s: SkeletonOverlay::Style = SkeletonOverlay::default_style()
             s.xray <- on(flags, XRAY)
-            # Stored for when the engine mesh backdrop lands on this branch
-            # (ViewportScene is engine-main only); the overlay ignores it now.
+            # The mesh itself is drawn by `build` (MeshOverlay).
             s.show_mesh <- on(flags, MESH)
             return s
 
@@ -57,11 +58,18 @@ module StudioScene:
         # Everything one view draws at `frame`. `selected` is a rig slot
         # (-1 for none). Returns the list; drawing failures (vertex budget)
         # drop that overlay only.
-        def build(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, frame: i64, flags: i64, selected: i64) -> ViewportDraw::List:
+        # `skinned` is `mesh` posed at `frame` (pose_mesh); the mesh is drawn
+        # when MESH is on and it has vertices.
+        def build(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, mesh: GlbSkinMesh::Mesh&, skinned: darray[Geometry::Vec3]&, frame: i64, flags: i64, selected: i64) -> ViewportDraw::List:
             mutable list: ViewportDraw::List = ViewportDraw::create()
             _ = catch ViewportDraw::grid(&list, 0.25, 12, ViewportDraw::rgba(70, 74, 84, 255)):
                 value: 0
                 error failure: 1
+            if on(flags, MESH) and skinned.count > 0 and skinned.count == mesh.positions.count:
+                light: Geometry::Vec3 = Geometry::Vec3{x: 0.4, y: 0.8, z: 0.6}
+                _ = catch MeshOverlay::draw(&list, mesh, skinned, light, MeshOverlay::default_style()):
+                    value: value
+                    error failure: 0
             r: PoseOverride::Rig = StudioModel::rig(c)
             if on(flags, GHOST):
                 raw: darray[Geometry::Transform] = StudioModel::models(c, r, frame, true)
@@ -91,6 +99,37 @@ module StudioScene:
                 value: value
                 error failure: 0
             return move list
+
+        # `mesh` skinned by the cleaned pose at `frame`. Skin joints outside
+        # the rig keep the identity transform. Empty on any mismatch.
+        def pose_mesh(c: StudioModel::Clip&, mesh: GlbSkinMesh::Mesh&, frame: i64) -> darray[Geometry::Vec3]:
+            mutable out: darray[Geometry::Vec3] = []
+            return out if GlbSkinMesh::vertex_count(mesh) == 0
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+            mutable joints: darray[Geometry::Transform] = []
+            for j in 0..<GlbSkinMesh::joint_count(mesh) |j, joints, mesh, c, models|:
+                node: i64 = GlbSkinMesh::joint_node(mesh, j)
+                s: i64 = c.slot[node.usize()] if node >= 0 and node.usize() < c.slot.count else -1
+                if s >= 0 and s.usize() < models.count:
+                    joints.push(models[s.usize()])
+                else:
+                    joints.push(Geometry::transform_identity())
+            _ = catch MeshOverlay::skin(mesh, &joints, &out):
+                value: value
+                error failure: 0
+            return out
+
+        # Rig slot `bone`'s model transform at `frame` (identity when out of range).
+        def bone_model(c: StudioModel::Clip&, frame: i64, bone: i64) -> Geometry::Transform:
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+            return Geometry::transform_identity() if bone < 0 or bone.usize() >= models.count
+            return models[bone.usize()]
+
+        # The gizmo (GizmoPolicy mode) on the selected bone, local axes.
+        def gizmo_for(c: StudioModel::Clip&, frame: i64, bone: i64, mode: i64) -> Gizmo::Gizmo:
+            return Gizmo::create(mode, Gizmo::LOCAL, bone_model(c, frame, bone))
 
         # Joint positions of the cleaned pose at `frame` (for framing).
         def points(c: StudioModel::Clip&, frame: i64) -> darray[Geometry::Vec3]:

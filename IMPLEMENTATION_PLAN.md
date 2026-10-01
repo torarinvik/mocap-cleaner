@@ -96,11 +96,18 @@ Everything above works headless first; the UI puts it in front of the user.
       live preview through engine pose override (M02).
 - [ ] Overlays (M05): foot and hand motion trails, contact markers,
       acceleration heat on bones, onion skins, before/after ghost.
-- [ ] Undo and redo over the operation stack.
+- [x] Undo and redo over the operation stack. (History of whole stacks,
+      corrections included; Cmd-Z / Cmd-Shift-Z through the proved
+      `src/studio/shortcuts.elisa`; tests `studio_shortcuts`, `studio_capture`.)
 
 ### Phase 3: Direct manipulation
-- [ ] Gizmos (M04): rotate and translate a bone and key it as a correction
-      layer that fades in and out over a range.
+- [x] Gizmos (M04): rotate and translate a bone and key it as a correction
+      layer that fades in and out over a range. (R / V show the engine gizmo
+      on the selected bone; releasing a drag keys `src/ops/corrections.elisa`
+      at the current frame, faded over 12 frames each side by the proved
+      `KeyWeight` ramp, into the stack and history. Applied on release, no
+      live drag preview yet. Translation needs a translation channel on the
+      bone. Test `studio_correction`.)
 - [x] Pin tool: pin any end effector (foot, hand, head) over a range. IK
       holds it while other fixes run. (Headless: hands and feet via
       `--pin ROLE:FIRST:LAST[:BLEND]`, run after every other fix; head not yet.)
