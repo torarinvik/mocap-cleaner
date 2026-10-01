@@ -11,6 +11,7 @@ include "../../../../elisa-ui-mocap-viewport/src/platform/appkit/ui_appkit_canva
 include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "scene.elisa"
 include "panels.elisa"
+include "../shortcuts.elisa"
 
 extern puts(text: cstr) -> i64
 
@@ -21,7 +22,8 @@ module Studio:
         global mutable path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
         global mutable anim_name: cstr = "jab"
         global mutable clip: StudioModel::Clip? = null
-        global mutable history: HistoryState::History? = null
+        global mutable history: HistoryState::History = zeroed
+        global mutable history_ready: bool = false
         global mutable timeline: TimelineState::State? = null
         global mutable flags: i64 = StudioScene::DEFAULT_FLAGS
         global mutable bone: i64 = 0
@@ -29,6 +31,18 @@ module Studio:
         global mutable drawn_frame: i64 = -1
         global mutable revision: i64 = 0
         global mutable status: sview = "ready"
+        # Skinned mesh of the clip's character, loaded once, and its pose
+        # cached per (frame, revision).
+        global mutable mesh: GlbSkinMesh::Mesh? = null
+        global mutable skinned: darray[Geometry::Vec3]? = null
+        global mutable skinned_frame: i64 = -1
+        global mutable skinned_revision: i64 = -1
+        # Gizmo: GizmoPolicy mode, or -1 when hidden; the drag and its view.
+        global mutable gizmo_mode: i64 = -1
+        global mutable gizmo_drag: Gizmo::Drag? = null
+        global mutable gizmo_view: i64 = -1
+        # Held modifiers (StudioShortcuts mask).
+        global mutable modifiers: i64 = 0
 
         global mutable view0: Viewport::Viewport? = null
         global mutable view1: Viewport::Viewport? = null
@@ -110,8 +124,8 @@ module Studio:
             1
 
         def current_stack() -> StackState::Stack:
-            if history is h:
-                return HistoryState::current(h)
+            if history_ready:
+                return HistoryState::current(&history)
             StackState::empty()
 
         def touch() -> void:
@@ -131,27 +145,21 @@ module Studio:
         # Record an edited stack and preview it; selection-only edits are
         # recorded too so undo restores the row the user was on.
         def commit(s: StackState::Stack, preview: bool) -> void:
-            if history is h:
-                mutable hh: HistoryState::History = h
-                changed: bool = HistoryState::record(&hh, s)
-                history <- hh
+            if history_ready:
+                changed: bool = HistoryState::record(&history, s)
                 if changed and preview:
                     rebuild()
                 touch()
 
         def undo() -> void:
-            if history is h:
-                mutable hh: HistoryState::History = h
-                if HistoryState::undo(&hh):
-                    history <- hh
+            if history_ready:
+                if HistoryState::undo(&history):
                     rebuild()
                     status <- "undo"
 
         def redo() -> void:
-            if history is h:
-                mutable hh: HistoryState::History = h
-                if HistoryState::redo(&hh):
-                    history <- hh
+            if history_ready:
+                if HistoryState::redo(&history):
                     rebuild()
                     status <- "redo"
 
@@ -268,7 +276,15 @@ module Studio:
                     Viewport::invalidate(&vp, ViewportPolicy::DIRTY_SCENE)
                     put_seen(i, revision)
                 if clip is c:
-                    list: ViewportDraw::List = StudioScene::build(&vp.camera, c, frame_now(), flags, bone)
+                    refresh_skin(c)
+                    empty_mesh: GlbSkinMesh::Mesh = GlbSkinMesh::empty()
+                    no_points: darray[Geometry::Vec3] = []
+                    mutable list: ViewportDraw::List = draw_list(&vp.camera, c, &empty_mesh, &no_points)
+                    if gizmo_mode >= 0 and bone >= 0:
+                        g: Gizmo::Gizmo = StudioScene::gizmo_for(c, frame_now(), bone, gizmo_mode)
+                        _ = catch Gizmo::draw(&list, &vp.camera, &g, GizmoPolicy::NONE, active_handle()):
+                            value: value
+                            error failure: 0
                     _ = catch Viewport::tick(&vp, &list):
                         value: value
                         error failure: false
@@ -278,6 +294,22 @@ module Studio:
                 if vp.dirty != 0:
                     UiCore::request_frame_after(0.016)
                 put_view(i, vp)
+
+        # Re-skin the mesh when the frame or the clip changed (MESH on only).
+        def refresh_skin(c: StudioModel::Clip&) -> void:
+            return if not StudioScene::on(flags, StudioScene::MESH)
+            return if skinned_frame == frame_now() and skinned_revision == revision
+            if mesh is m:
+                posed: darray[Geometry::Vec3] = StudioScene::pose_mesh(c, m, frame_now())
+                skinned <- posed
+                skinned_frame <- frame_now()
+                skinned_revision <- revision
+
+        def draw_list(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, empty_mesh: GlbSkinMesh::Mesh&, no_points: darray[Geometry::Vec3]&) -> ViewportDraw::List:
+            if mesh is m:
+                if skinned is p:
+                    return StudioScene::build(cam, c, m, p, frame_now(), flags, bone)
+            return StudioScene::build(cam, c, empty_mesh, no_points, frame_now(), flags, bone)
 
         def present(i: i64, vp: Viewport::Viewport&, rect: UiHostedSurface::Rect) -> i32:
             w: f32 = UiCore::viewport_width()
@@ -292,7 +324,13 @@ module Studio:
         def init() -> void:
             UiHandles::reset()
             initial: StackState::Stack = StudioModel::initial_stack()
-            history <- HistoryState::create(initial)
+            HistoryState::reset(&history, initial)
+            history_ready <- true
+            loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
+                value: value
+                error failure: GlbSkinMesh::empty()
+            if GlbSkinMesh::vertex_count(&loaded) > 0:
+                mesh <- loaded
             rebuild()
             if clip is c:
                 timeline <- TimelineState::create(c.frames)
@@ -334,11 +372,11 @@ module Studio:
             mutable count: i64 = 1
             mutable can_undo: bool = false
             mutable can_redo: bool = false
-            if history is hist:
-                cursor <- hist.cursor
-                count <- hist.count
-                can_undo <- HistoryPolicy::can_undo(hist.cursor)
-                can_redo <- HistoryPolicy::can_redo(hist.cursor, hist.count)
+            if history_ready:
+                cursor <- history.cursor
+                count <- history.count
+                can_undo <- HistoryPolicy::can_undo(history.cursor)
+                can_redo <- HistoryPolicy::can_redo(history.cursor, history.count)
             if timeline is t:
                 StudioPanels::toolbar(t, flags, can_undo, can_redo)
                 StudioDraw::text(StudioPanels::button_x(StudioPanels::BUTTONS) + 8.0, 16.0, 12.0, status, StudioDraw::muted())
@@ -422,7 +460,7 @@ module Studio:
                 toggle_flag(StudioScene::XRAY)
             elif a == StudioPanels::A_MESH:
                 toggle_flag(StudioScene::MESH)
-                status <- "mesh backdrop needs engine ViewportScene (not on mocap-track)"
+                status <- ("mesh on" if StudioScene::on(flags, StudioScene::MESH) else "mesh off") if mesh != null else "mesh: no skinned mesh in this file"
             elif a == StudioPanels::A_FRAME:
                 frame_all()
             elif a == StudioPanels::A_EXPORT:
@@ -452,11 +490,17 @@ module Studio:
                     row_action(hit)
                 return
             v: i64 = view_at(x, y)
+            if v >= 0 and button == 0 and gizmo_mode >= 0:
+                return if gizmo_press(v, x, y)
             if v >= 0:
                 drag_view <- v
                 drag_button <- button
 
         def pointer_move(x: f32, y: f32) -> void:
+            if gizmo_view >= 0:
+                last_x <- x
+                last_y <- y
+                return
             if scrubbing:
                 tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
                 scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
@@ -466,6 +510,9 @@ module Studio:
             last_y <- y
 
         def pointer_up(x: f32, y: f32) -> void:
+            if gizmo_view >= 0:
+                gizmo_release(x, y)
+                return
             if drag_view >= 0 and drag_button == 0:
                 moved: f32 = (x - down_x) * (x - down_x) + (y - down_y) * (y - down_y)
                 if moved < 9.0:
@@ -474,8 +521,83 @@ module Studio:
             drag_button <- -1
             scrubbing <- false
 
+        # ---- gizmo (Phase 3 corrections) ---------------------------------
+        def active_handle() -> i64:
+            if gizmo_drag is d:
+                return d.handle
+            GizmoPolicy::NONE
+
+        def set_gizmo(mode: i64) -> void:
+            gizmo_mode <- -1 if gizmo_mode == mode else mode
+            gizmo_view <- -1
+            gizmo_drag <- null
+            status <- ("gizmo: rotate (drag a ring)" if gizmo_mode == GizmoPolicy::ROTATE else "gizmo: translate (drag an arrow)") if gizmo_mode >= 0 else "gizmo off"
+            touch()
+
+        # Pixel of window point (x, y) in view `i`.
+        def view_px(i: i64, x: f32) -> f32:
+            b: StudioPanels::Box = view_box(i)
+            (x - b.x) * UiAppKitCanvas::backing_scale()
+
+        def view_py(i: i64, y: f32) -> f32:
+            b: StudioPanels::Box = view_box(i)
+            (y - b.y) * UiAppKitCanvas::backing_scale()
+
+        # Start a gizmo drag when (x, y) hits a handle of the selected bone.
+        def gizmo_press(i: i64, x: f32, y: f32) -> bool:
+            if view(i) is opened:
+                if clip is c:
+                    return false if bone < 0
+                    g: Gizmo::Gizmo = StudioScene::gizmo_for(c, frame_now(), bone, gizmo_mode)
+                    handle: i64 = Gizmo::pick(&opened.camera, &g, view_px(i, x), view_py(i, y))
+                    return false if handle == GizmoPolicy::NONE
+                    r: PoseOverride::Rig = StudioModel::rig(c)
+                    held: PoseOverride::Overrides = PoseOverride::overrides(&r)
+                    mutable d: Gizmo::Drag = Gizmo::idle()
+                    ok: bool = catch Gizmo::begin(&d, &opened.camera, &g, handle, view_px(i, x), view_py(i, y), &held, &r, bone.usize(), StudioScene::bone_model(c, frame_now(), bone)):
+                        value: value
+                        error failure: false
+                    return false if not ok
+                    gizmo_drag <- d
+                    gizmo_view <- i
+                    status <- "gizmo drag"
+                    touch()
+                    return true
+            false
+
+        # Key the dragged pose at the current frame as a correction.
+        def gizmo_release(x: f32, y: f32) -> void:
+            i: i64 = gizmo_view
+            gizmo_view <- -1
+            if gizmo_drag is d:
+                if view(i) is opened:
+                    if clip is c:
+                        goal: Geometry::Transform = Gizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
+                        r: PoseOverride::Rig = StudioModel::rig(c)
+                        fix: Corrections::Correction = StudioModel::correction_for(c, r, bone, frame_now(), goal)
+                        mutable s: StackState::Stack = current_stack()
+                        if StackState::add_fix(&s, fix):
+                            commit(s, true)
+                            status <- "correction keyed"
+                        else:
+                            status <- "corrections full (16)"
+            gizmo_drag <- null
+            touch()
+
+        def gizmo_cancel() -> void:
+            gizmo_view <- -1
+            gizmo_drag <- null
+            status <- "gizmo drag cancelled"
+            touch()
+
         def key(code: UiCore::Key) -> void:
-            if code == UiCore::Key.Space:
+            if code == UiCore::Key.R:
+                set_gizmo(GizmoPolicy::ROTATE)
+            elif code == UiCore::Key.V:
+                set_gizmo(GizmoPolicy::TRANSLATE)
+            elif code == UiCore::Key.Escape:
+                gizmo_cancel()
+            elif code == UiCore::Key.Space:
                 toggle_play()
             elif code == UiCore::Key.Left:
                 step_frames(-1)
@@ -542,6 +664,28 @@ module Studio:
             elif code == UiCore::Key.Digit5:
                 add_op(4)
 
+        # Track Cmd/Ctrl and Shift; true when `code` was a modifier.
+        def modifier(code: UiCore::Key, down: bool) -> bool:
+            command: bool = code == UiCore::Key.LeftSuper or code == UiCore::Key.RightSuper or code == UiCore::Key.LeftControl or code == UiCore::Key.RightControl
+            shift: bool = code == UiCore::Key.LeftShift or code == UiCore::Key.RightShift
+            if command:
+                modifiers <- StudioShortcuts::command_down(modifiers) if down else StudioShortcuts::command_up(modifiers)
+            elif shift:
+                modifiers <- StudioShortcuts::shift_down(modifiers) if down else StudioShortcuts::shift_up(modifiers)
+            return command or shift
+
+        # Cmd-Z undo, Cmd-Shift-Z redo; other Cmd chords are ignored and
+        # plain keys go to the single-key bindings.
+        def key_down(code: UiCore::Key) -> void:
+            return if modifier(code, true)
+            action: i64 = StudioShortcuts::z_chord(modifiers) if code == UiCore::Key.Z else StudioShortcuts::other_chord(modifiers)
+            if action == StudioShortcuts::UNDO:
+                undo()
+            elif action == StudioShortcuts::REDO:
+                redo()
+            elif action == StudioShortcuts::PLAIN:
+                key(code)
+
         def toggle_action_mesh() -> void:
             toolbar_action(StudioPanels::A_MESH)
 
@@ -558,7 +702,11 @@ module Studio:
                     if v >= 0:
                         zoom(v, 1 if delta.y > 0.0 else (-1 if delta.y < 0.0 else 0))
                 UiCore::KeyEvent.Down(code):
-                    key(code)
+                    key_down(code)
+                UiCore::KeyEvent.Up(code):
+                    modifier(code, false)
+                UiCore::Event.FocusLost:
+                    modifiers <- 0
                 _:
                     pass
             UiCore::request_frame_after(0.001)

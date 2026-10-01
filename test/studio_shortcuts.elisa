@@ -1,0 +1,71 @@
+# Headless test of the studio's Cmd-Z / Cmd-Shift-Z chords: a key event
+# stream (modifier downs/ups and Z presses) is decoded through the proved
+# StudioShortcuts kernels and drives HistoryState the way the app's
+# key_down/modifier handlers do.
+include "../src/studio/shortcuts.elisa"
+include "../src/studio/state/history_state.elisa"
+
+extern puts(text: cstr) -> i64
+
+const CMD_DOWN: i64 = 1
+const CMD_UP: i64 = 2
+const SHIFT_DOWN: i64 = 3
+const SHIFT_UP: i64 = 4
+const Z: i64 = 5
+const OTHER: i64 = 6
+
+# Feed one event; returns the action taken (StudioShortcuts code) or -1 for
+# a modifier event.
+def feed(mask: mutable i64&, h: mutable HistoryState::History&, event: i64) -> i64:
+    if event == CMD_DOWN:
+        mask <- StudioShortcuts::command_down(mask)
+        return -1
+    if event == CMD_UP:
+        mask <- StudioShortcuts::command_up(mask)
+        return -1
+    if event == SHIFT_DOWN:
+        mask <- StudioShortcuts::shift_down(mask)
+        return -1
+    if event == SHIFT_UP:
+        mask <- StudioShortcuts::shift_up(mask)
+        return -1
+    action: i64 = StudioShortcuts::z_chord(mask) if event == Z else StudioShortcuts::other_chord(mask)
+    if action == StudioShortcuts::UNDO:
+        _ = HistoryState::undo(h)
+    if action == StudioShortcuts::REDO:
+        _ = HistoryState::redo(h)
+    return action
+
+def main() -> i32:
+    base: StackState::Stack = StackState::empty()
+    mutable h: HistoryState::History = zeroed
+    HistoryState::reset(&h, base)
+    mutable one: StackState::Stack = base
+    _ = StackState::add(&one, Ops::despike(0, 10, -1, 2))
+    _ = HistoryState::record(&h, one)
+    mutable two: StackState::Stack = one
+    _ = StackState::add(&two, Ops::median(0, 10, -1, 2))
+    _ = HistoryState::record(&h, two)
+    mutable mask: i64 = 0
+    # Plain Z is not undo.
+    return 1 if feed(&mask, &h, Z) != StudioShortcuts::PLAIN
+    return 2 if HistoryState::current(h).count != 2
+    # Cmd-Z twice undoes both edits.
+    _ = feed(&mask, &h, CMD_DOWN)
+    return 3 if feed(&mask, &h, Z) != StudioShortcuts::UNDO
+    _ = feed(&mask, &h, Z)
+    return 4 if HistoryState::current(h).count != 0
+    # Cmd-Shift-Z redoes one.
+    _ = feed(&mask, &h, SHIFT_DOWN)
+    return 5 if feed(&mask, &h, Z) != StudioShortcuts::REDO
+    return 6 if HistoryState::current(h).count != 1
+    # Another chord key is swallowed.
+    return 7 if feed(&mask, &h, OTHER) != StudioShortcuts::SWALLOW
+    # Releasing Cmd (Shift still held) returns Z to its plain binding.
+    _ = feed(&mask, &h, CMD_UP)
+    return 8 if feed(&mask, &h, Z) != StudioShortcuts::PLAIN
+    _ = feed(&mask, &h, SHIFT_UP)
+    return 9 if mask != 0
+    return 10 if HistoryState::current(h).count != 1
+    _ = puts("studio_shortcuts: Cmd-Z undo, Cmd-Shift-Z redo, chords swallowed, plain keys pass")
+    return 0

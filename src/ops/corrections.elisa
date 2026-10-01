@@ -1,0 +1,75 @@
+# Keyed pose corrections (studio Phase 3): a bone's local rotation and
+# translation offset, keyed at one frame and faded to nothing at the scope
+# ends by the proved KeyWeight ramp. Corrections run after the operation
+# stack, on the cleaned document, so the CLI export and the studio preview
+# see the same clip. Key index is the frame, as for every other operation.
+include "../io/glb_tracks.elisa"
+include "../core/key_weight.elisa"
+
+module Corrections:
+    public:
+        const MAX: i64 = 16
+
+        struct Correction:
+            enabled: bool
+            # Document node of the corrected bone.
+            node: i64
+            key: i64
+            first: i64
+            last: i64
+            # Local offset at the key: rotation pre-multiplied onto the
+            # bone's local rotation, translation added to its local position.
+            rotation: Geometry::Quat
+            translation: Geometry::Vec3
+
+        # The correction that takes local transform `current` of `node` to
+        # `wanted` at frame `key`, faded over [first, last].
+        def keyed(node: i64, key: i64, first: i64, last: i64, current: Geometry::Transform, wanted: Geometry::Transform) -> Correction:
+            mutable d: Geometry::Quat = Geometry::quat_normalize(Geometry::quat_mul(wanted.rotation, Geometry::quat_conjugate(current.rotation)))
+            if d.w < 0.0:
+                d <- Geometry::Quat{x: 0.0 - d.x, y: 0.0 - d.y, z: 0.0 - d.z, w: 0.0 - d.w}
+            lo: i64 = first if first <= key else key
+            hi: i64 = last if last >= key else key
+            Correction{enabled: true, node: node, key: key, first: lo if lo >= 0 else 0, last: hi, rotation: d, translation: Geometry::vec3_sub(wanted.position, current.position)}
+
+        def same(a: Correction&, b: Correction&) -> bool:
+            return false if a.enabled != b.enabled or a.node != b.node or a.key != b.key or a.first != b.first or a.last != b.last
+            return false if a.rotation.x != b.rotation.x or a.rotation.y != b.rotation.y or a.rotation.z != b.rotation.z or a.rotation.w != b.rotation.w
+            return a.translation.x == b.translation.x and a.translation.y == b.translation.y and a.translation.z == b.translation.z
+
+        # Rotation offset scaled to `weight` permille (normalised lerp from
+        # identity; the offset is kept on the short arc by `keyed`).
+        def partial(d: Geometry::Quat, weight: i64) -> Geometry::Quat:
+            t: f32 = weight.f32() / KeyWeight::FULL.f32()
+            s: f32 = 1.0 - t
+            Geometry::quat_normalize(Geometry::Quat{x: d.x * t, y: d.y * t, z: d.z * t, w: s + d.w * t})
+
+        # Apply one correction to animation `anim`; the number of keys moved.
+        def apply(doc: mutable GlbDocument::Document&, anim: usize, c: Correction&) -> i64:
+            return 0 if not c.enabled or c.node < 0 or c.first < 0 or c.first > c.key or c.key > c.last or c.last > KeyWeight::MAX_FRAMES
+            mutable moved: i64 = 0
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, c, moved|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                continue if held.node.i64() != c.node
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                rotation: bool = held.path == GlbDocument::TargetPath.Rotation
+                translation: bool = held.path == GlbDocument::TargetPath.Translation
+                continue if not rotation and not translation
+                keys: usize = GlbDocument::key_count(doc, held.output)
+                for k in 0..<keys |k, doc, held, c, moved, rotation|:
+                    w: i64 = KeyWeight::weight(k.i64(), c.first, c.key, c.last)
+                    if w > 0:
+                        if rotation:
+                            q: Geometry::Quat = Geometry::Quat{x: GlbDocument::track_value(doc, held.output, k, 0), y: GlbDocument::track_value(doc, held.output, k, 1), z: GlbDocument::track_value(doc, held.output, k, 2), w: GlbDocument::track_value(doc, held.output, k, 3)}
+                            r: Geometry::Quat = Geometry::quat_normalize(Geometry::quat_mul(partial(c.rotation, w), q))
+                            _ = GlbDocument::set_track_value(doc, held.output, k, 0, r.x)
+                            _ = GlbDocument::set_track_value(doc, held.output, k, 1, r.y)
+                            _ = GlbDocument::set_track_value(doc, held.output, k, 2, r.z)
+                            _ = GlbDocument::set_track_value(doc, held.output, k, 3, r.w)
+                        else:
+                            t: f32 = w.f32() / KeyWeight::FULL.f32()
+                            _ = GlbDocument::set_track_value(doc, held.output, k, 0, GlbDocument::track_value(doc, held.output, k, 0) + c.translation.x * t)
+                            _ = GlbDocument::set_track_value(doc, held.output, k, 1, GlbDocument::track_value(doc, held.output, k, 1) + c.translation.y * t)
+                            _ = GlbDocument::set_track_value(doc, held.output, k, 2, GlbDocument::track_value(doc, held.output, k, 2) + c.translation.z * t)
+                        moved <- moved + 1
+            return moved
