@@ -4,6 +4,7 @@
 # ../stack_policy.elisa; this module only moves values around.
 include "../../ops/stack.elisa"
 include "../stack_policy.elisa"
+include "../../ops/corrections.elisa"
 
 module StackState:
     public:
@@ -14,9 +15,25 @@ module StackState:
             ops: mutable Ops::Operation[16]
             count: mutable i64
             selected: mutable i64
+            # Keyed gizmo corrections, applied after the operations.
+            fixes: mutable Corrections::Correction[16]
+            fix_count: mutable i64
 
         def empty() -> Stack:
-            return Stack{ops: zeroed, count: 0, selected: -1}
+            return Stack{ops: zeroed, count: 0, selected: -1, fixes: zeroed, fix_count: 0}
+
+        # Append a keyed correction (ignored when full).
+        def add_fix(s: mutable Stack&, fix: Corrections::Correction) -> bool:
+            return false if s.fix_count < 0 or s.fix_count >= Corrections::MAX
+            s.fixes[s.fix_count] <- fix
+            s.fix_count <- s.fix_count + 1
+            return true
+
+        # Drop the newest correction.
+        def drop_fix(s: mutable Stack&) -> bool:
+            return false if s.fix_count <= 0
+            s.fix_count <- s.fix_count - 1
+            return true
 
         def valid(s: Stack&, at: i64) -> bool:
             return at >= 0 and at < s.count and s.count <= StackPolicy::MAX_OPS
@@ -102,7 +119,11 @@ module StackState:
             return s
 
         def same(a: Stack&, b: Stack&) -> bool:
-            return false if a.count != b.count
+            return false if a.count != b.count or a.fix_count != b.fix_count
+            for i in 0..<a.fix_count |a, b|:
+                p: Corrections::Correction = a.fixes[i]
+                q: Corrections::Correction = b.fixes[i]
+                return false if not Corrections::same(&p, &q)
             for i in 0..<a.count |a, b|:
                 x: Ops::Operation = a.ops[i]
                 y: Ops::Operation = b.ops[i]

@@ -93,6 +93,9 @@ module StudioModel:
                     mutable cleaned: GlbDocument::Document = copy
                     ops: darray[Ops::Operation] = StackState::operations(s)
                     result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation(&cleaned, anim, ops, threshold)
+                    for i in 0..<s.fix_count |i, s, cleaned, anim|:
+                        fix: Corrections::Correction = s.fixes[i]
+                        _ = Corrections::apply(&cleaned, anim, &fix)
                     frames: i64 = StudioClip::frame_count(src, anim)
                     nodes: darray[i64] = StudioClip::order(src)
                     slot: darray[i64] = StudioClip::slots(src, nodes)
@@ -134,6 +137,22 @@ module StudioModel:
             rot: i64 = StudioClip::channel_of(c.source, c.anim, node, GlbDocument::TargetPath.Rotation)
             return rot if rot >= 0
             return StudioClip::channel_of(c.source, c.anim, node, GlbDocument::TargetPath.Translation)
+
+        # Frames each side of the key a gizmo correction fades over.
+        const FIX_REACH: i64 = 12
+
+        # The correction that moves rig slot `bone` to model transform `goal`
+        # at `frame`, faded over FIX_REACH frames each side.
+        def correction_for(c: Clip&, r: PoseOverride::Rig&, bone: i64, frame: i64, goal: Geometry::Transform) -> Corrections::Correction:
+            models: darray[Geometry::Transform] = models(c, r, frame, false)
+            b: usize = bone.usize()
+            parent: i64 = PoseOverride::rig_parent(r, b)
+            current: Geometry::Transform = Geometry::transform_apply_inverse(models[parent.usize()], models[b]) if parent >= 0 else models[b]
+            wanted: Geometry::Transform = Geometry::transform_apply_inverse(models[parent.usize()], goal) if parent >= 0 else goal
+            last: i64 = c.frames - 1 if c.frames > 0 else 0
+            first: i64 = frame - FIX_REACH if frame > FIX_REACH else 0
+            end: i64 = frame + FIX_REACH if frame + FIX_REACH < last else last
+            return Corrections::keyed(c.nodes[b], frame, first, end, current, wanted)
 
         # Save the cleaned document.
         def save_cleaned(c: Clip&, path: cstr) -> bool:

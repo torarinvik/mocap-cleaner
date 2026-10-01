@@ -1,0 +1,139 @@
+# Headless test of Phase 3 keyed corrections: rotate the left forearm with
+# the engine gizmo (ring drag through Gizmo::begin/goal in a front view), key
+# it as a correction in the stack through history, rebuild the cleaned clip
+# and check that the key frame reaches the gizmo's goal, frames outside the
+# correction's scope are untouched, and undo restores the clip.
+include "../src/studio/app/scene.elisa"
+include "../../elisa-engine-mocap/src/viewport/gizmo.elisa"
+
+extern puts(text: cstr) -> i64
+
+const PATH: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+
+def distance(a: Geometry::Vec3, b: Geometry::Vec3) -> f32:
+    Geometry::vec3_length(Geometry::vec3_sub(a, b))
+
+def quat_dot(a: Geometry::Quat, b: Geometry::Quat) -> f32:
+    a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w
+
+def position(c: StudioModel::Clip&, slot: i64, frame: i64) -> Geometry::Vec3:
+    r: PoseOverride::Rig = StudioModel::rig(c)
+    m: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+    return m[slot.usize()].position
+
+def model(c: StudioModel::Clip&, slot: i64, frame: i64) -> Geometry::Transform:
+    r: PoseOverride::Rig = StudioModel::rig(c)
+    m: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+    return m[slot.usize()]
+
+# The gizmo goal for dragging the Z ring a quarter turn (front view).
+def ring_goal(c: StudioModel::Clip&, slot: i64, frame: i64) -> Geometry::Transform:
+    start: Geometry::Transform = model(c, slot, frame)
+    mutable cam: ViewportCamera::Camera = ViewportCamera::create_ortho(480, 360, ViewportCamera::FRONT)
+    pts: darray[Geometry::Vec3] = StudioScene::points(c, frame)
+    _ = ViewportCamera::frame_points(&cam, &pts, 1.15)
+    g: Gizmo::Gizmo = Gizmo::create(GizmoPolicy::ROTATE, Gizmo::WORLD, start)
+    radius: f32 = Gizmo::length(&cam, &g)
+    a: ViewportCamera::ScreenPoint = ViewportCamera::project(&cam, Geometry::vec3_add(start.position, Geometry::Vec3{x: radius, y: 0.0, z: 0.0}))
+    b: ViewportCamera::ScreenPoint = ViewportCamera::project(&cam, Geometry::vec3_add(start.position, Geometry::Vec3{x: 0.0, y: radius, z: 0.0}))
+    r: PoseOverride::Rig = StudioModel::rig(c)
+    held: PoseOverride::Overrides = PoseOverride::overrides(&r)
+    mutable drag: Gizmo::Drag = Gizmo::idle()
+    ok: bool = catch Gizmo::begin(&drag, &cam, &g, GizmoPolicy::AXIS_Z, a.x, a.y, &held, &r, slot.usize(), start):
+        value: value
+        error failure: false
+    return start if not ok
+    goal: Geometry::Transform = Gizmo::goal(&drag, &cam, b.x, b.y)
+    Gizmo::commit(&drag)
+    return goal
+
+# The gizmo goal for dragging the X arrow by a quarter of its length.
+def arrow_goal(c: StudioModel::Clip&, slot: i64, frame: i64) -> Geometry::Transform:
+    start: Geometry::Transform = model(c, slot, frame)
+    mutable cam: ViewportCamera::Camera = ViewportCamera::create_ortho(480, 360, ViewportCamera::FRONT)
+    pts: darray[Geometry::Vec3] = StudioScene::points(c, frame)
+    _ = ViewportCamera::frame_points(&cam, &pts, 1.15)
+    g: Gizmo::Gizmo = Gizmo::create(GizmoPolicy::TRANSLATE, Gizmo::WORLD, start)
+    arm: f32 = Gizmo::length(&cam, &g)
+    a: ViewportCamera::ScreenPoint = ViewportCamera::project(&cam, Geometry::vec3_add(start.position, Geometry::Vec3{x: arm * 0.75, y: 0.0, z: 0.0}))
+    b: ViewportCamera::ScreenPoint = ViewportCamera::project(&cam, Geometry::vec3_add(start.position, Geometry::Vec3{x: arm, y: 0.0, z: 0.0}))
+    picked: i64 = Gizmo::pick(&cam, &g, a.x, a.y)
+    return start if picked != GizmoPolicy::AXIS_X
+    r: PoseOverride::Rig = StudioModel::rig(c)
+    held: PoseOverride::Overrides = PoseOverride::overrides(&r)
+    mutable drag: Gizmo::Drag = Gizmo::idle()
+    ok: bool = catch Gizmo::begin(&drag, &cam, &g, picked, a.x, a.y, &held, &r, slot.usize(), start):
+        value: value
+        error failure: false
+    return start if not ok
+    goal: Geometry::Transform = Gizmo::goal(&drag, &cam, b.x, b.y)
+    Gizmo::commit(&drag)
+    return goal
+
+# Translate the hips with the X arrow and key it; the key reaches the goal.
+def translate_case(c: StudioModel::Clip&) -> i32:
+    hips: i64 = StudioModel::default_bone(c)
+    key: i64 = c.frames / 3
+    goal: Geometry::Transform = arrow_goal(c, hips, key)
+    start: Geometry::Transform = model(c, hips, key)
+    return 40 if distance(goal.position, start.position) < 0.01
+    r: PoseOverride::Rig = StudioModel::rig(c)
+    fix: Corrections::Correction = StudioModel::correction_for(c, r, hips, key, goal)
+    mutable s: StackState::Stack = StudioModel::initial_stack()
+    _ = StackState::add_fix(&s, fix)
+    moved: StudioModel::Clip? = StudioModel::build(PATH, "jab", s)
+    if moved is m:
+        return 41 if distance(model(m, hips, key).position, goal.position) > 0.0001
+        far: i64 = key + StudioModel::FIX_REACH + 1
+        return 42 if distance(model(m, hips, far).position, model(c, hips, far).position) > 0.000001
+        return 0
+    return 43
+
+def main() -> i32:
+    initial: StackState::Stack = StudioModel::initial_stack()
+    mutable history: HistoryState::History = HistoryState::create(initial)
+    built: StudioModel::Clip? = StudioModel::build(PATH, "jab", initial)
+    if built is c:
+        forearm: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, Roles::LEFT_FOREARM)
+        hand: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, Roles::LEFT_HAND)
+        return 1 if forearm < 0 or hand < 0
+        key: i64 = c.frames / 2
+        before_key: Geometry::Vec3 = position(c, hand, key)
+        outside: i64 = key - StudioModel::FIX_REACH - 1
+        before_out: Geometry::Vec3 = position(c, hand, outside)
+        goal: Geometry::Transform = ring_goal(c, forearm, key)
+        start: Geometry::Transform = model(c, forearm, key)
+        turned: f32 = quat_dot(Geometry::quat_normalize(goal.rotation), Geometry::quat_normalize(start.rotation))
+        return 2 if turned > 0.95 or turned < -0.95
+        r: PoseOverride::Rig = StudioModel::rig(c)
+        fix: Corrections::Correction = StudioModel::correction_for(c, r, forearm, key, goal)
+        mutable s: StackState::Stack = HistoryState::current(history)
+        return 3 if not StackState::add_fix(&s, fix)
+        return 4 if not HistoryState::record(&history, s)
+        fixed: StudioModel::Clip? = StudioModel::build(PATH, "jab", HistoryState::current(history))
+        if fixed is f:
+            reached: Geometry::Transform = model(f, forearm, key)
+            agree: f32 = quat_dot(Geometry::quat_normalize(reached.rotation), Geometry::quat_normalize(goal.rotation))
+            return 5 if agree < 0.9999 and agree > -0.9999
+            return 6 if distance(reached.position, goal.position) > 0.0001
+            return 7 if distance(position(f, hand, key), before_key) < 0.05
+            return 8 if distance(position(f, hand, outside), before_out) > 0.000001
+            return 9 if distance(position(f, hand, key + StudioModel::FIX_REACH + 1), position(c, hand, key + StudioModel::FIX_REACH + 1)) > 0.000001
+        else:
+            return 10
+        return 11 if not HistoryState::undo(&history)
+        back: StackState::Stack = HistoryState::current(history)
+        return 12 if not StackState::same(back, initial)
+        undone: StudioModel::Clip? = StudioModel::build(PATH, "jab", back)
+        if undone is u:
+            return 13 if distance(position(u, hand, key), before_key) > 0.000001
+        else:
+            return 14
+        return 15 if not HistoryState::redo(&history)
+        return 16 if HistoryState::current(history).fix_count != 1
+        t: i32 = translate_case(c)
+        return t if t != 0
+        _ = puts("studio_correction: gizmo ring and arrow drags keyed, key reaches goal, outside scope untouched, undo/redo")
+        return 0
+    _ = puts("studio_correction: no boxing clip, skipped")
+    return 0
