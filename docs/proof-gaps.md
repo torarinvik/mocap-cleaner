@@ -89,15 +89,18 @@ Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
   module makes unrelated linear goals fail with `ambiguous-constant-fact`.
   Repro: scratch `amb_neg_const.elisa` (one constant `NONE = -1`, `f` returns
   `role`, `role + 4` or `role - 4` under `role <= 5` / `role <= 9`; ensure
-  `result < 26`). Workaround: `const NONE: i64 = 0 - 1`.
+  `result < 26`). Workaround: `const NONE: i64 = 0 - 1`. Fixed in
+  elisa-proof-mocap 41f7322 (the premise is dropped, so a goal that needs
+  `NONE`'s value still wants the `0 - 1` spelling).
 - G22 (new): a goal that folds to literals under an equality path fact is
   refused with `ambiguous-constant-goal`, even with no constants in scope.
   Repro: `ensure result < 0 or result >= 22`, body `return role + 14 if
-  role == 8`, `return -1`. Workaround: `Roles::hinge_roll` has no contract;
-  `RolesLaws::mirror_involution` covers roles 0..21 only.
+  role == 8`, `return -1`. Fixed in elisa-proof-mocap ae85975;
+  `Roles::hinge_roll` now carries the contract.
 - C3 (compiler): an `enum Kind` in a second module (`RigOps`) is picked up by
   unqualified `Kind.X` patterns in another module's `match` (`Ops::candidate`),
   which then fails as non-exhaustive ("may fall through"). Renamed to `RigKind`.
+  Fixed in Elisa-compiler 61ca4e25 (branch fix/local-shadows-global).
 - `pass` is reserved in stage1.
 - New kernels and laws fully proved: roles 8/8, hinge 11/11, reach 1/1, pin 17/17,
   offset 8/8; roles_laws, hinge_laws, reach_laws, pin_laws all proved.
