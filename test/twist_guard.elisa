@@ -1,0 +1,54 @@
+# Twist cleanup removes a one-frame lateral twitch at the elbow but keeps a
+# sustained lateral (a carrying angle or a deliberate hook): the guard is the
+# joint's own running median, not zero.
+include "../src/ops/rig_stack.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def cross(a: MotionQuat::V, b: MotionQuat::V) -> MotionQuat::V:
+    return Rig::v(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
+
+def turned(a: MotionQuat::Q, b: MotionQuat::Q) -> f64:
+    return MotionQuat::angle(MotionQuat::mul(MotionQuat::conjugate(a), b))
+
+def main() -> i32:
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    doc: GlbDocument::Document = load_or_empty(path)
+    anim: i64 = GlbDocument::find_animation(&doc, "jab")
+    return 1 if anim < 0
+    mutable c: Rig::Clip = Rig::load(&doc, anim.usize())
+    elbow: i64 = Rig::node_of(&c, Roles::LEFT_FOREARM)
+    hand: i64 = Rig::node_of(&c, Roles::LEFT_HAND)
+    return 2 if elbow < 0 or hand < 0 or c.frames < 90
+    bone: MotionQuat::V = MotionQuat::vnormalize(c.joints[hand.usize()].rest_t)
+    axis: MotionQuat::V = RigOps::hinge_axis(&c, elbow)
+    across: MotionQuat::V = Rig::vsub(axis, Rig::vscale(bone, MotionQuat::vdot(axis, bone)))
+    lateral: MotionQuat::V = MotionQuat::vnormalize(cross(MotionQuat::vnormalize(across), bone))
+    rest: MotionQuat::Q = c.joints[elbow.usize()].rest_r
+    kick: MotionQuat::Q = MotionQuat::axis_angle(lateral, 0.7)
+    for f in 0..<c.frames:
+        continue if f != 30 and (f < 50 or f > 85)
+        local: MotionQuat::Q = Rig::local_rot(&c, f, elbow)
+        d: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(rest), local)
+        _ = Rig::set_local_rot(&c, f, elbow, MotionQuat::mul(rest, MotionQuat::mul(kick, d)))
+    twitch: MotionQuat::Q = Rig::local_rot(&c, 30, elbow)
+    held: MotionQuat::Q = Rig::local_rot(&c, 67, elbow)
+    plain: MotionQuat::Q = Rig::local_rot(&c, 10, elbow)
+    ops: darray[RigOps::RigOp] = [RigOps::twist(Roles::LEFT_FOREARM, 280000, 500)]
+    _ = RigOps::run_clip(&c, &ops, 20000)
+    # The twitch loses most of its 40 degrees (all beyond the 16 degree tolerance).
+    return 3 if turned(twitch, Rig::local_rot(&c, 30, elbow)) < 0.35
+    # The sustained lateral and an untouched frame stay within half a degree.
+    return 4 if turned(held, Rig::local_rot(&c, 67, elbow)) > 0.009
+    return 5 if turned(plain, Rig::local_rot(&c, 10, elbow)) > 0.009
+    return 0

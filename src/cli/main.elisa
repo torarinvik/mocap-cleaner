@@ -1,22 +1,29 @@
 # Headless CLI.
-#   mocap-cleaner clean <in.glb> <out.glb> [--preset boxing|raw|rokoko] [--anim NAME]
-#       [--op twist|pole|pelvis|lock|pivot]... [--pin ROLE:FIRST:LAST[:BLEND]]...
+#   mocap-cleaner clean <in.glb> (<out.glb> | -o <out.glb>) [--preset boxing|raw|rokoko]
+#       [--anim NAME] [--report r.json] [--op OP]... [--pin ROLE:FIRST:LAST[:BLEND]]...
 #       [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]...
 #       [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES[:FRAME:DEGREES...]]...
 #       [--contact FOOT:FIRST:LAST:on|off]... [--ops FILE]... [--save-ops FILE]
+#   mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP]... <in.glb|folder>...
+# OP: twist|pole|pelvis|lock|pivot (rig fixes), balance (centre-of-mass check),
+#     ballistic (fit airborne phases to a parabola), momentum (cap torso
+#     angular-acceleration spikes).
 # --pin takes a hand, a foot or the head. --contact hand-edits a foot's
 # contact track (FOOT is LeftFoot, RightFoot or all). --ops appends the
 # operations of an ops file; --save-ops writes the user stack (every --op,
 # --pin, --offset, --keyed, --contact and --ops operation) to FILE.
-#   mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] <in.glb>...
 # ROLE is a bare joint name in any supported naming (LeftHand, LeftFoot,
 # LeftShin, ...); AXIS is x, y or z (the bone's local axis).
-# Batch writes each cleaned take to <outdir>/<basename> and <outdir>/report.html.
+# Batch expands folders to their sorted .glb files, writes each cleaned take
+# to <outdir>/<basename> and <outdir>/report.html; it always runs the
+# balance, ballistic and momentum detectors for the report.
 include "../io/glb_tracks.elisa"
 include "../io/console.elisa"
 include "../io/report.elisa"
+include "../io/folder.elisa"
 include "../ops/presets.elisa"
 include "../io/ops_file.elisa"
+include "../physics/rig_physics.elisa"
 
 def same(arg: cstr, text: cstr) -> bool:
     mutable i: usize = 0
@@ -45,7 +52,7 @@ def preset_of(name: cstr) -> Presets::Preset:
     return Presets::Preset.Unknown
 
 # Clean one take. `only` is an animation name, or empty for all.
-def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, rig: mutable RigOps::Summary&) -> Report::Row:
+def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, phys: darray[Physics::PhysOp]&, rig: mutable RigOps::Summary&, found: mutable Physics::Findings&) -> Report::Row:
     failed: Report::Row = Report::Row{ok: false, tracks: 0, changed: 0, before: 0, after: 0}
     opened: i32 = catch GlbDocument::load(input):
         value: 0
@@ -70,6 +77,8 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, e
         after <- after + result.after
         summary: RigOps::Summary = RigOps::run(&doc, a, &rig_ops, threshold)
         add_summary(rig, summary)
+        clip_found: Physics::Findings = Physics::run(&doc, a, phys)
+        Physics::add(found, &clip_found)
     saved: i32 = catch GlbDocument::save(&doc, output):
         value: 0
         error failure: 1
@@ -101,6 +110,88 @@ def print_rig(s: RigOps::Summary&):
     Out::field("foot slide after (um): ", s.slide_after)
     Out::field("pivot sink before (um): ", s.sink_before)
     Out::field("pivot sink after (um): ", s.sink_after)
+
+def print_physics(f: Physics::Findings&):
+    return if f.ops == 0
+    Out::field("physics ops: ", f.ops)
+    Out::field("physics values changed: ", f.changed)
+    Out::field("planted frames: ", f.planted)
+    Out::field("unbalanced frames: ", f.unbalanced)
+    Out::field("unbalanced runs: ", f.unbalanced_runs)
+    Out::field("stepping frames (recovered): ", f.stepped)
+    Out::field("airborne frames: ", f.airborne)
+    Out::field("flights: ", f.flights)
+    Out::field("ballistic residual before (um): ", f.ballistic_before)
+    Out::field("ballistic residual after (um): ", f.ballistic_after)
+    Out::field("momentum cap (urad/frame^2): ", f.momentum_cap)
+    Out::field("momentum spikes before: ", f.momentum_before)
+    Out::field("momentum spikes after: ", f.momentum_after)
+    Out::field("momentum max drift (urad): ", f.momentum_drift)
+
+def detail_of(clips: i64, s: RigOps::Summary&, f: Physics::Findings&) -> Report::Detail:
+    mutable d: Report::Detail = Report::empty_detail()
+    d.animations <- clips
+    d.rig_changed <- s.changed + f.changed
+    d.pole_before <- s.pole_before
+    d.pole_after <- s.pole_after
+    d.slide_before <- s.slide_before
+    d.slide_after <- s.slide_after
+    d.planted <- f.planted
+    d.unbalanced <- f.unbalanced
+    d.unbalanced_runs <- f.unbalanced_runs
+    d.airborne <- f.airborne
+    d.flights <- f.flights
+    d.momentum_before <- f.momentum_before
+    d.momentum_after <- f.momentum_after
+    return d
+
+def json_field(out: mutable darray[u8]&, name: sview, value: i64, last: bool):
+    Report::push_text(out, "  \"")
+    Report::push_text(out, name)
+    Report::push_text(out, "\": ")
+    Report::push_number(out, value)
+    if last:
+        Report::push_text(out, "\n")
+    else:
+        Report::push_text(out, ",\n")
+
+# Machine-readable report of one `clean` run.
+def json_report(row: Report::Row, s: RigOps::Summary&, f: Physics::Findings&) -> darray[u8]:
+    mutable out: darray[u8] = []
+    Report::push_text(&out, "{\n  \"ok\": ")
+    if row.ok:
+        Report::push_text(&out, "true,\n")
+    else:
+        Report::push_text(&out, "false,\n")
+    json_field(&out, "tracks", row.tracks, false)
+    json_field(&out, "values_changed", row.changed, false)
+    json_field(&out, "spikes_before", row.before, false)
+    json_field(&out, "spikes_after", row.after, false)
+    json_field(&out, "rig_ops", s.ops, false)
+    json_field(&out, "rig_values_changed", s.changed, false)
+    json_field(&out, "twist_removed_max_urad", s.twist_max, false)
+    json_field(&out, "pole_before", s.pole_before, false)
+    json_field(&out, "pole_after", s.pole_after, false)
+    json_field(&out, "pelvis_before", s.pelvis_before, false)
+    json_field(&out, "pelvis_after", s.pelvis_after, false)
+    json_field(&out, "slide_before_um", s.slide_before, false)
+    json_field(&out, "slide_after_um", s.slide_after, false)
+    json_field(&out, "physics_ops", f.ops, false)
+    json_field(&out, "physics_values_changed", f.changed, false)
+    json_field(&out, "planted_frames", f.planted, false)
+    json_field(&out, "unbalanced_frames", f.unbalanced, false)
+    json_field(&out, "unbalanced_runs", f.unbalanced_runs, false)
+    json_field(&out, "stepping_frames", f.stepped, false)
+    json_field(&out, "airborne_frames", f.airborne, false)
+    json_field(&out, "flights", f.flights, false)
+    json_field(&out, "ballistic_before_um", f.ballistic_before, false)
+    json_field(&out, "ballistic_after_um", f.ballistic_after, false)
+    json_field(&out, "momentum_cap_urad", f.momentum_cap, false)
+    json_field(&out, "momentum_before", f.momentum_before, false)
+    json_field(&out, "momentum_after", f.momentum_after, false)
+    json_field(&out, "momentum_drift_urad", f.momentum_drift, true)
+    Report::push_text(&out, "}\n")
+    return out
 
 # Fields of "A:B:C" split at ':' (each NUL-free byte run).
 def split_fields(text: cstr) -> darray[darray[u8]]:
@@ -242,6 +333,32 @@ def parse_op(name: cstr) -> (ok: bool, op: RigOps::RigOp):
     return (true, RigOps::foot_pivot(4)) if same(name, "pivot".cast[cstr])
     return (false, RigOps::pelvis(1))
 
+# Physics op by name.
+def parse_phys(name: cstr) -> (ok: bool, op: Physics::PhysOp):
+    return (true, Physics::balance(false)) if same(name, "balance".cast[cstr])
+    return (true, Physics::ballistic(true)) if same(name, "ballistic".cast[cstr])
+    return (true, Physics::momentum(true, 0)) if same(name, "momentum".cast[cstr])
+    return (false, Physics::balance(false))
+
+def has_kind(ops: darray[Physics::PhysOp]&, kind: Physics::PhysKind) -> bool:
+    for op in ops:
+        return true if op.kind == kind
+    return false
+
+# Batch reports always carry the physics detectors.
+def with_detectors(ops: darray[Physics::PhysOp]&) -> darray[Physics::PhysOp]:
+    mutable out: darray[Physics::PhysOp] = []
+    for op in ops:
+        out.push(op)
+    out.push(Physics::balance(false)) if not has_kind(ops, Physics::PhysKind.Balance)
+    out.push(Physics::ballistic(false)) if not has_kind(ops, Physics::PhysKind.Ballistic)
+    out.push(Physics::momentum(false, 0)) if not has_kind(ops, Physics::PhysKind.Momentum)
+    return out
+
+def count_clips(input: cstr) -> i64:
+    doc: GlbDocument::Document = load_or_empty(input)
+    return GlbDocument::animation_count(&doc).i64()
+
 def print_row(row: Report::Row):
     if row.ok:
         Out::line("ok")
@@ -253,12 +370,13 @@ def print_row(row: Report::Row):
     Out::field("spikes after: ", row.after)
 
 def usage() -> i64:
-    Out::line("usage: mocap-cleaner clean <in.glb> <out.glb> [--preset boxing|raw|rokoko] [--anim NAME]")
-    Out::line("           [--op twist|pole|pelvis|lock|pivot] [--pin ROLE:FIRST:LAST[:BLEND]]")
+    Out::line("usage: mocap-cleaner clean <in.glb> (<out.glb> | -o <out.glb>) [--preset boxing|raw|rokoko]")
+    Out::line("           [--anim NAME] [--report r.json] [--op OP] [--pin ROLE:FIRST:LAST[:BLEND]]")
     Out::line("           [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]")
     Out::line("           [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES...]")
     Out::line("           [--contact FOOT:FIRST:LAST:on|off] [--ops FILE] [--save-ops FILE]")
-    Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] <in.glb>...")
+    Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP] <in.glb|folder>...")
+    Out::line("  OP: twist pole pelvis lock pivot balance ballistic momentum")
     return 2
 
 # <dir>/<basename of path>, NUL-terminated.
@@ -285,28 +403,46 @@ def join(dir: cstr, path: cstr, name: cstr) -> darray[u8]:
     out.push(0)
     return out
 
+# Rig (`--op twist`...) or physics (`--op balance`...) op into the lists.
+def push_op(value: cstr, rig: mutable darray[RigOps::RigOp]&, phys: mutable darray[Physics::PhysOp]&) -> bool:
+    parsed: (ok: bool, op: RigOps::RigOp) = parse_op(value)
+    if parsed.ok:
+        rig.push(parsed.op)
+        return true
+    p: (ok: bool, op: Physics::PhysOp) = parse_phys(value)
+    phys.push(p.op) if p.ok
+    return p.ok
+
 def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Release, Abort.Panic, Unsafe.PointerCast, Console, Blocking.IO]:
     return usage() if argc < 3
     slots: mutable cstr&& = argv.cast[mutable cstr&&]
     command: cstr = slots[1].cast[cstr]
     mutable preset: Presets::Preset = Presets::Preset.Boxing
+    mutable extra: darray[RigOps::RigOp] = []
+    mutable phys: darray[Physics::PhysOp] = []
     if same(command, "clean".cast[cstr]):
-        return usage() if argc < 4
+        input: cstr = slots[2].cast[cstr]
+        mutable output: cstr = "".cast[cstr]
+        mutable report: cstr = "".cast[cstr]
         mutable only: cstr = "".cast[cstr]
-        mutable extra: darray[RigOps::RigOp] = []
         mutable save_ops: cstr = "".cast[cstr]
-        mutable k: i64 = 4
+        mutable k: i64 = 3
+        if argc > 3 and slots[3].cast[cstr][0] != 45:
+            output <- slots[3].cast[cstr]
+            k <- 4
         while k + 1 < argc:
             flag: cstr = slots[k.usize()].cast[cstr]
             value: cstr = slots[(k + 1).usize()].cast[cstr]
             if same(flag, "--preset".cast[cstr]):
                 preset <- preset_of(value)
+            elif same(flag, "-o".cast[cstr]):
+                output <- value
+            elif same(flag, "--report".cast[cstr]):
+                report <- value
             elif same(flag, "--anim".cast[cstr]):
                 only <- value
             elif same(flag, "--op".cast[cstr]):
-                parsed: (ok: bool, op: RigOps::RigOp) = parse_op(value)
-                return usage() if not parsed.ok
-                extra.push(parsed.op)
+                return usage() if not push_op(value, &extra, &phys)
             elif same(flag, "--pin".cast[cstr]):
                 parsed: (ok: bool, op: RigOps::RigOp) = parse_pin(value)
                 return usage() if not parsed.ok
@@ -330,42 +466,77 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
             else:
                 return usage()
             k <- k + 2
-        return usage() if k < argc or preset == Presets::Preset.Unknown
+        return usage() if k < argc or preset == Presets::Preset.Unknown or output[0] == 0
         if save_ops[0] != 0 and not OpsFile::save(&extra, save_ops):
             Out::line("error: cannot write ops file")
             return 1
         mutable rig: RigOps::Summary = RigOps::empty_summary()
-        row: Report::Row = clean_take(slots[2].cast[cstr], slots[3].cast[cstr], preset, only, &extra, &rig)
+        mutable found: Physics::Findings = Physics::empty_findings()
+        row: Report::Row = clean_take(input, output, preset, only, &extra, &phys, &rig, &found)
         print_row(row)
         print_rig(&rig)
+        print_physics(&found)
+        if report[0] != 0:
+            json: darray[u8] = json_report(row, &rig, &found)
+            if not Report::save(&json, report):
+                Out::line("error: cannot write report")
+                return 1
         return 1 if not row.ok
         return 0 if row.after <= row.before
         return 3
     if same(command, "batch".cast[cstr]):
         outdir: cstr = slots[2].cast[cstr]
-        mutable first: i64 = 3
-        if argc > 4 and same(slots[3].cast[cstr], "--preset".cast[cstr]):
-            preset <- preset_of(slots[4].cast[cstr])
-            first <- 5
-        return usage() if first >= argc or preset == Presets::Preset.Unknown
-        mutable html: darray[u8] = []
-        Report::begin(&html)
-        mutable failures: i64 = 0
-        mutable k: i64 = first
+        mutable k: i64 = 3
+        mutable flags: bool = true
+        while flags and k + 1 < argc:
+            flag: cstr = slots[k.usize()].cast[cstr]
+            value: cstr = slots[(k + 1).usize()].cast[cstr]
+            if same(flag, "--preset".cast[cstr]):
+                preset <- preset_of(value)
+                k <- k + 2
+            elif same(flag, "--op".cast[cstr]):
+                return usage() if not push_op(value, &extra, &phys)
+                k <- k + 2
+            else:
+                flags <- false
+        return usage() if k >= argc or preset == Presets::Preset.Unknown
+        # Expand folders into their sorted .glb files.
+        mutable inputs: darray[darray[u8]] = []
         while k < argc:
-            input: cstr = slots[k.usize()].cast[cstr]
+            arg: cstr = slots[k.usize()].cast[cstr]
             k <- k + 1
+            if Folder::is_dir(arg):
+                for path in Folder::glb_files(arg):
+                    inputs.push(path)
+            else:
+                mutable path: darray[u8] = []
+                mutable i: usize = 0
+                while arg[i] != 0:
+                    path.push(arg[i])
+                    i <- i + 1
+                path.push(0)
+                inputs.push(path)
+        if inputs.count == 0:
+            Out::line("error: no .glb inputs")
+            return 1
+        checks: darray[Physics::PhysOp] = with_detectors(&phys)
+        mutable html: darray[u8] = []
+        Report::begin_detail(&html)
+        mutable failures: i64 = 0
+        for path in inputs:
+            input: cstr = (&path[0]).cast[cstr]
             target: darray[u8] = join(outdir, input, "".cast[cstr])
             output: cstr = (&target[0]).cast[cstr]
-            none: darray[RigOps::RigOp] = []
             mutable rig: RigOps::Summary = RigOps::empty_summary()
-            row: Report::Row = clean_take(input, output, preset, "".cast[cstr], &none, &rig)
+            mutable found: Physics::Findings = Physics::empty_findings()
+            row: Report::Row = clean_take(input, output, preset, "".cast[cstr], &extra, &checks, &rig, &found)
             failures <- failures + 1 if not row.ok
-            Report::row(&html, input, row)
+            Report::row_detail(&html, input, row, detail_of(count_clips(input), &rig, &found))
             Out::c_text(input)
             Out::text(": ")
             print_row(row)
             print_rig(&rig)
+            print_physics(&found)
         Report::finish(&html)
         report_path: darray[u8] = join(outdir, "".cast[cstr], "report.html".cast[cstr])
         if not Report::save(&html, (&report_path[0]).cast[cstr]):

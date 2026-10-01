@@ -1,0 +1,281 @@
+# Phase 4 laws: centre of mass, support region, balance flags, flight and
+# momentum, plus the roll a hinge keeps. These are the integer kernels every
+# per-frame decision in src/physics/rig_physics.elisa goes through.
+include "../src/physics/balance.elisa"
+include "../src/core/hinge.elisa"
+
+module FlightLaws:
+    public:
+        const L: i64 = 1000000000
+
+        # ---- Centre of mass -------------------------------------------------
+
+        # The mass table covers the whole body: it sums to 1000 permille.
+        def mass_is_whole_body() -> i64:
+            ensure result == 1000
+            return Balance::mass_total()
+
+        # Left and right segments of a pair (3+2m, 4+2m) are the same kind,
+        # so they weigh the same and a mirrored pose has a mirrored centre.
+        def pairs_share_kind(m: i64) -> i64:
+            requires m >= 0
+            requires m <= 5
+            ensure result == 0
+            return Balance::segment_kind(3 + 2 * m) - Balance::segment_kind(4 + 2 * m)
+
+        # Kinds of the limb pairs are distinct per pair.
+        def pair_kind(m: i64) -> i64:
+            requires m >= 0
+            requires m <= 5
+            ensure result == 3 + m
+            return Balance::segment_kind(3 + 2 * m)
+
+        # No segment outweighs the trunk.
+        def trunk_heaviest(segment: i64) -> bool:
+            requires segment >= 0
+            requires segment < Balance::SEGMENTS
+            ensure result
+            return Balance::segment_mass(segment) <= Balance::MASS_TRUNK
+
+        # Every segment has non-negative mass.
+        def mass_non_negative(segment: i64) -> i64:
+            requires segment >= 0
+            requires segment < Balance::SEGMENTS
+            ensure result >= 0
+            return Balance::segment_mass(segment)
+
+        # ---- Support region -------------------------------------------------
+
+        # A support point is near itself at any margin.
+        def corner_is_near(ax: i64, ay: i64, margin: i64) -> bool:
+            requires ax >= -L
+            requires ax <= L
+            requires ay >= -L
+            requires ay <= L
+            requires margin >= 0
+            requires margin <= L
+            ensure result
+            return Balance::near(ax, ay, ax, ay, margin)
+
+        # Nearness is symmetric: a point within the margin of a corner has
+        # that corner within the margin of it.
+        def near_symmetric(ax: i64, ay: i64, px: i64, py: i64, margin: i64) -> bool:
+            requires ax >= -L
+            requires ax <= L
+            requires ay >= -L
+            requires ay <= L
+            requires px >= -L
+            requires px <= L
+            requires py >= -L
+            requires py <= L
+            requires margin >= 0
+            requires margin <= L
+            requires px - ax <= margin
+            requires ax - px <= margin
+            requires py - ay <= margin
+            requires ay - py <= margin
+            ensure result
+            return Balance::near(px, py, ax, ay, margin)
+
+        # A wider margin accepts what a narrower one does.
+        def near_monotone(ax: i64, ay: i64, px: i64, py: i64, small: i64, large: i64) -> bool:
+            requires ax >= -L
+            requires ax <= L
+            requires ay >= -L
+            requires ay <= L
+            requires px >= -L
+            requires px <= L
+            requires py >= -L
+            requires py <= L
+            requires small >= 0
+            requires small <= large
+            requires large <= L
+            requires px - ax <= small
+            requires ax - px <= small
+            requires py - ay <= small
+            requires ay - py <= small
+            ensure result
+            return Balance::near(ax, ay, px, py, large)
+
+        # A point farther than the margin along x is never near.
+        def far_is_not_near(ax: i64, ay: i64, px: i64, py: i64, margin: i64) -> bool:
+            requires ax >= -L
+            requires ax <= L
+            requires ay >= -L
+            requires ay <= L
+            requires px >= -L
+            requires px <= L
+            requires py >= -L
+            requires py <= L
+            requires margin >= 0
+            requires margin <= L
+            requires px - ax > margin
+            ensure not result
+            return Balance::near(ax, ay, px, py, margin)
+
+        # ---- Balance flags --------------------------------------------------
+
+        # A body in the air is never flagged (flight is the ballistic check's job).
+        def airborne_never_unbalanced(com_inside: bool, capture_inside: bool) -> bool:
+            ensure not result
+            return Balance::unbalanced(false, com_inside, capture_inside)
+
+        # A centre of mass over the support is balanced, wherever it is heading.
+        def supported_com_is_balanced(planted: bool, capture_inside: bool) -> bool:
+            ensure not result
+            return Balance::unbalanced(planted, true, capture_inside)
+
+        # A capture point inside the support can still be caught.
+        def catchable_is_balanced(planted: bool, com_inside: bool) -> bool:
+            ensure not result
+            return Balance::unbalanced(planted, com_inside, true)
+
+        # Planted with both points outside is the one flagged case.
+        def lost_is_flagged() -> bool:
+            ensure result
+            return Balance::unbalanced(true, false, false)
+
+        # A clean frame resets the run.
+        def clean_resets_run(previous: i64) -> i64:
+            requires previous >= 0
+            requires previous < Balance::LIMIT
+            ensure result == 0
+            return Balance::run_length(previous, false)
+
+        # Consecutive flags count up one by one.
+        def run_counts_up(previous: i64) -> i64:
+            requires previous >= 0
+            requires previous < Balance::LIMIT - 1
+            ensure result == previous + 2
+            once: i64 = Balance::run_length(previous, true)
+            return Balance::run_length(once, true)
+
+        # A run that starts from zero has the length of its flags.
+        def fresh_run(previous: i64) -> i64:
+            requires previous >= 0
+            requires previous < Balance::LIMIT
+            ensure result == 1
+            reset: i64 = Balance::run_length(previous, false)
+            return Balance::run_length(reset, true)
+
+        # ---- Flight ---------------------------------------------------------
+
+        # The fitted parabola leaves from the take-off height.
+        def flight_starts_at_takeoff(y0: i64, y1: i64, n: i64, g: i64) -> i64:
+            requires y0 >= -Balance::LIMIT
+            requires y0 <= Balance::LIMIT
+            requires y1 >= -Balance::LIMIT
+            requires y1 <= Balance::LIMIT
+            requires n >= 1
+            requires n <= Balance::MAX_FLIGHT
+            requires g >= 0
+            requires g <= Balance::MAX_GRAVITY
+            ensure result == y0
+            return Balance::parabola(y0, y1, 0, n, g)
+
+        # ... and lands at the landing height, so the fix joins the contacts
+        # on both sides without a seam.
+        def flight_ends_at_landing(y0: i64, y1: i64, n: i64, g: i64) -> i64:
+            requires y0 >= -Balance::LIMIT
+            requires y0 <= Balance::LIMIT
+            requires y1 >= -Balance::LIMIT
+            requires y1 <= Balance::LIMIT
+            requires n >= 1
+            requires n <= Balance::MAX_FLIGHT
+            requires g >= 0
+            requires g <= Balance::MAX_GRAVITY
+            ensure result == y1
+            return Balance::parabola(y0, y1, n, n, g)
+
+        # A level, weightless span stays level.
+        def level_span_stays_level(y: i64, k: i64, n: i64) -> i64:
+            requires y >= -Balance::LIMIT
+            requires y <= Balance::LIMIT
+            requires n >= 1
+            requires n <= Balance::MAX_FLIGHT
+            requires k >= 0
+            requires k <= n
+            ensure result == y
+            return Balance::chord(y, y, k, n)
+
+        # Free fall from rest: the second difference of a free fall is -g,
+        # which the residual reads as zero.
+        def drop_is_ballistic(y: i64, g: i64) -> i64:
+            requires y >= 3 * Balance::MAX_GRAVITY - Balance::LIMIT
+            requires y <= Balance::LIMIT
+            requires g >= 0
+            requires g <= Balance::MAX_GRAVITY
+            ensure result == 0
+            return Balance::ballistic_residual(y, y - g, y - 3 * g, g)
+
+        # A hover in mid-air (no fall) is off-ballistic by exactly g.
+        def hover_is_off_by_gravity(y: i64, g: i64) -> i64:
+            requires y >= -Balance::LIMIT
+            requires y <= Balance::LIMIT
+            requires g >= 0
+            requires g <= Balance::MAX_GRAVITY
+            ensure result == g
+            return Balance::ballistic_residual(y, y, y, g)
+
+        # ---- Momentum -------------------------------------------------------
+
+        # The rate-limited follower never moves away from its goal.
+        def follower_moves_toward_goal(origin: i64, goal: i64, cap: i64) -> i64:
+            requires origin >= -L
+            requires origin <= L
+            requires goal >= -L
+            requires goal <= L
+            requires cap >= 0
+            requires cap <= L
+            requires origin <= goal
+            ensure result >= origin
+            ensure result <= goal
+            return Balance::limit_step(origin, goal, cap)
+
+        # ... from above as well.
+        def follower_moves_down_to_goal(origin: i64, goal: i64, cap: i64) -> i64:
+            requires origin >= -L
+            requires origin <= L
+            requires goal >= -L
+            requires goal <= L
+            requires cap >= 0
+            requires cap <= L
+            requires origin >= goal
+            ensure result <= origin
+            ensure result >= goal
+            return Balance::limit_step(origin, goal, cap)
+
+        # A follower already on its goal stays there.
+        def follower_at_goal_stays(goal: i64, cap: i64) -> i64:
+            requires goal >= -L
+            requires goal <= L
+            requires cap >= 0
+            requires cap <= L
+            ensure result == goal
+            return Balance::limit_step(goal, goal, cap)
+
+        # ---- Twist roll -----------------------------------------------------
+
+        # With the whole roll moved to the roll bone the hinge keeps none.
+        def full_share_keeps_none(roll: i64) -> i64:
+            requires roll >= -1000000000
+            requires roll <= 1000000000
+            ensure result == 0
+            return Hinge::kept_roll(roll, 1000)
+
+        # Without a roll bone the hinge keeps all of its roll.
+        def no_roll_bone_keeps_roll(roll: i64) -> i64:
+            requires roll >= -1000000000
+            requires roll <= 1000000000
+            ensure result == roll
+            return Hinge::kept_roll(roll, 0)
+
+        # The kept roll never changes sign.
+        def kept_roll_keeps_sign(roll: i64, share: i64) -> i64:
+            requires roll >= 0
+            requires roll <= 1000000000
+            requires share >= 0
+            requires share <= 1000
+            ensure result >= 0
+            ensure result <= roll
+            return Hinge::kept_roll(roll, share)

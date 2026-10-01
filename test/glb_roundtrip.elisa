@@ -1,0 +1,70 @@
+# GLB round trip: an unedited save is byte-identical, and a full clean
+# (boxing preset curves plus rig fixes) changes only animation output values;
+# the JSON chunk, nodes, meshes, skins and key times stay byte-identical.
+include "../src/io/glb_tracks.elisa"
+include "../src/ops/presets.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def main() -> i32:
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    source: GlbDocument::Document = load_or_empty(path)
+
+    # Unedited save reproduces the file exactly.
+    mutable same: GlbDocument::Document = load_or_empty(path)
+    saved: i32 = catch GlbDocument::save(&same, "build/roundtrip-same.glb"):
+        value: 0
+        error failure: 1
+    return 1 if saved != 0
+    again: GlbDocument::Document = load_or_empty("build/roundtrip-same.glb")
+    return 2 if GlbDocument::first_difference(&source, &again) != -1
+
+    # Clean every animation, save, reload.
+    mutable doc: GlbDocument::Document = load_or_empty(path)
+    preset: Presets::Preset = Presets::Preset.Rokoko
+    ops: darray[Ops::Operation] = Presets::operations(preset)
+    rig_ops: darray[RigOps::RigOp] = Presets::rig_operations(preset)
+    threshold: i64 = Presets::spike_threshold(preset)
+    for a in 0..<GlbDocument::animation_count(&doc):
+        _ = GlbTracks::clean_animation(&doc, a, ops, threshold)
+        _ = RigOps::run(&doc, a, &rig_ops, threshold)
+    written: i32 = catch GlbDocument::save(&doc, "build/roundtrip-clean.glb"):
+        value: 0
+        error failure: 1
+    return 3 if written != 0
+    cleaned: GlbDocument::Document = load_or_empty("build/roundtrip-clean.glb")
+    n: usize = GlbDocument::byte_count(&source)
+    return 4 if GlbDocument::byte_count(&cleaned) != n
+    first: i64 = GlbDocument::first_difference(&source, &cleaned)
+    return 5 if first < 0
+    # The JSON chunk (node, mesh, skin, accessor definitions) is untouched.
+    return 6 if first < GlbDocument::bin_start(&source).i64()
+
+    # Every changed byte lies inside an animation's output values.
+    mutable editable: darray[bool] = []
+    for i in 0..<n:
+        editable.push(false)
+    for a in 0..<GlbDocument::animation_count(&source):
+        for k in 0..<GlbDocument::channel_count(&source, a):
+            ch: GlbDocument::Channel = GlbDocument::channel(&source, a, k)
+            t: GlbDocument::Track = GlbDocument::track(&source, ch.output)
+            stop: usize = t.byte_start + t.count * t.components * 4
+            for i in t.byte_start..<stop:
+                editable[i] <- true if i < n
+    mutable changed: i64 = 0
+    for i in 0..<n:
+        continue if GlbDocument::byte_at(&source, i) == GlbDocument::byte_at(&cleaned, i)
+        return 7 if not editable[i]
+        changed <- changed + 1
+    return 8 if changed == 0
+    return 0

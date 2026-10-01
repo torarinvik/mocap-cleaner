@@ -5,6 +5,7 @@ A Cascadeur-style tool that does one thing: clean motion capture. See
 
 - `src/core`: fixed-point kernels, namely fade, order statistics, spans, gating and the loop seam.
 - `src/detect`: detectors for contacts and spikes.
+- `src/physics`: centre of mass, support region, ballistic and momentum checks.
 - `proof/`: elisa-proof obligations. Kernels in `src/` also carry their contracts inline.
 - `test/`: runtime tests, where each `main` returns 0 on pass.
 - `docs/proof-gaps.md`: prover limits found by this project, and their fixes.
@@ -15,3 +16,10 @@ A Cascadeur-style tool that does one thing: clean motion capture. See
 scripts/check.sh
 ```
 It builds and runs every test, then runs elisa-proof on every source and proof file.
+
+## CLI
+
+```
+mocap-cleaner clean in.glb --preset boxing -o out.glb --report r.json [--op balance|ballistic|momentum|...]
+mocap-cleaner batch OUTDIR [--preset P] [--op ...] IN.glb|FOLDER...   # writes OUTDIR/report.html
+```

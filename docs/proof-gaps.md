@@ -131,3 +131,23 @@ prove fully. Gaps found on the way (worked around, not fixed in the prover):
 - `ensure result == (A and B)` on a bool function is not usable by callers
   for `not result` goals; split into implications (`Codec::kind_ok`).
 
+## Physics and batch (phase4-5, 2026-10-01)
+
+No prover changes were needed; these limits were worked around in our code.
+
+- G27: partial functions (with `requires`) cannot be called inside `ensure`
+  or `requires`. Laws call them in the body instead.
+- G28: a mutable accumulator in a proved function fails with
+  `resource-write-readonly`, so `mass_total` is a single sum expression.
+- G29: many disjunctive ensures on one callee time out its callers.
+  `segment_kind` uses two linear bounds instead of one case per segment.
+- G30: integer division by a constant inside a callee is not unfolded for
+  callers (`(s - 3) / 2`). Workaround: explicit branches.
+- G31: returning an `and` chain of comparisons fails where the same test
+  written as early returns proves (`Balance::unbalanced`).
+- Not provable modularly, so tested at runtime instead: winding-free
+  support triangles, counter-clockwise support kept, the weightless chord
+  law, and roll conservation across hinge and roll bone (G10/G12 family).
+- `proof/flight_laws.elisa`: 615/0 proved. Impure files (`rig_physics`,
+  `folder`, `report`, `main`) are `unsupported` like every `src/io` file was
+  at baseline.
