@@ -319,6 +319,11 @@ now prove completely with every certificate replayed.
   capture by `Knee::MIN_SPEED = 2000`. `Retime`'s bounds are now
   `MIN_RATE` / `MAX_RATE`; writing `Retime::MAX_SPEED` inside the module
   did not help.
+  Constant half resolved in elisa-proof-mocap 0c1a6df: module constants are
+  owned by their module, bare names resolve to the function's own module, and
+  `Q::NAME` (including nested modules) to `Q`. The capture caused wrongful
+  rejection, never a false proof; no corpus file relied on it. The function
+  half (unqualified calls) is still open.
 - G69: contract bounds written as `frame * 1000` fail; callers pass
   pre-scaled milli-frame times (`Retime::time_of`).
 - G70: ensures that reconstruct a time through division
