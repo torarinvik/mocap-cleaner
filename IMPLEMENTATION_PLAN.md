@@ -232,6 +232,7 @@ and almost all of that is the prover.
 - [x] First-run and load-failure screens; status bar (frame, time, fps,
       selection, last clean gain).
 - [x] Session save/load (Cmd-S / Cmd-O, ops + contact edits), undoable.
+- [x] Session version 2 saves gizmo corrections; version 1 files still load.
 - [x] One-click clean with the boxing preset (A / Auto) with before/after
       slide and spike reduction.
 - [ ] Native file-open dialog (needs an engine/ui bridge).

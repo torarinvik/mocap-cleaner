@@ -2,7 +2,9 @@
 # with operations, the foot fix and contact edits saves and loads back the
 # same; a session saved on a longer take is clamped into this take; damaged
 # or unknown lines are skipped; a file without the header is refused. Then
-# the Escape chain, the help sheet toggle and the first-run screen.
+# gizmo corrections round-trip within a millionth; version 1 files still
+# load; corrections on missing nodes are dropped; future versions refused.
+# Then the Escape chain, the help sheet toggle and the first-run screen.
 include "../src/studio/state/session_state.elisa"
 
 extern puts(text: cstr) -> i64
@@ -11,6 +13,15 @@ def text_of(body: sview) -> darray[u8]:
     mutable out: darray[u8] = []
     Report::push_text(&out, body)
     return move out
+
+def near(a: f32, b: f32) -> bool:
+    d: f32 = a - b
+    return d < 0.000002 and d > 0.0 - 0.000002
+
+def fix_near(a: Corrections::Correction, b: Corrections::Correction) -> bool:
+    return false if a.enabled != b.enabled or a.node != b.node or a.key != b.key or a.first != b.first or a.last != b.last
+    return false if not near(a.rotation.x, b.rotation.x) or not near(a.rotation.y, b.rotation.y) or not near(a.rotation.z, b.rotation.z) or not near(a.rotation.w, b.rotation.w)
+    return near(a.translation.x, b.translation.x) and near(a.translation.y, b.translation.y) and near(a.translation.z, b.translation.z)
 
 def main() -> i32:
     mutable s: StackState::Stack = StackState::empty()
@@ -21,14 +32,43 @@ def main() -> i32:
     _ = StackState::nudge_blend(&s, true)
     _ = StackState::add_edit(&s, StackState::LEFT, 20, 30, true)
     _ = StackState::add_edit(&s, StackState::RIGHT, 40, 41, false)
-    text: darray[u8] = SessionState::encode_session(&s)
-    back: StackState::Stack? = SessionState::decode_session(&text, 100)
+    fix: Corrections::Correction = Corrections::Correction{enabled: true, node: 17, key: 60, first: 50, last: 70, rotation: Geometry::Quat{x: 0.0, y: 0.0, z: 0.130526, w: 0.991445}, translation: Geometry::Vec3{x: 0.0125, y: -0.5, z: 0.0}}
+    _ = StackState::add_fix(&s, fix)
+    mutable text: darray[u8] = SessionState::encode_session(&s)
+    if SessionState::decode_session(&text, 100, 30) is withfix:
+        return 30 if withfix.fix_count != 1 or not fix_near(fix, withfix.fixes[0])
+        # The take has only 10 nodes: the correction on node 17 is dropped.
+        if SessionState::decode_session(&text, 100, 10) is fewer:
+            return 31 if fewer.fix_count != 0 or fewer.count != 2
+        else:
+            return 32
+    else:
+        return 33
+    _ = StackState::drop_fix(&s)
+    text <- SessionState::encode_session(&s)
+    # A version 1 file (no corrections) still loads; version 3 is refused.
+    old: darray[u8] = text_of("mocap-studio session 1\n1 1 6\n2 0 1 0 39 -1 2 8\n3 0 4 9 1\n")
+    if SessionState::decode_session(&old, 40, 30) is v1:
+        return 34 if v1.count != 1 or not v1.feet or v1.edit_count != 1 or v1.fix_count != 0
+    else:
+        return 35
+    future: darray[u8] = text_of("mocap-studio session 3\n1 1 6\n")
+    return 36 if SessionState::decode_session(&future, 40, 30) != null
+    # A huge saved rotation is clamped and re-normalised to a unit quaternion.
+    wild: darray[u8] = text_of("mocap-studio session 2\n4 1 3 5 0 9 0 0 9000000000 9000000000 1500000000 0 0\n")
+    if SessionState::decode_session(&wild, 40, 30) is w:
+        return 37 if w.fix_count != 1
+        r: Geometry::Quat = w.fixes[0].rotation
+        return 38 if not near(r.z, 0.707107) or not near(r.w, 0.707107) or w.fixes[0].translation.x < 999.99 or w.fixes[0].translation.x > 1000.01
+    else:
+        return 39
+    back: StackState::Stack? = SessionState::decode_session(&text, 100, 30)
     if back is b:
         return 2 if not StackState::same(&s, &b)
     else:
         return 1
     # Saved on a 100-frame take, loaded on a 40-frame one: scopes clamp.
-    if SessionState::decode_session(&text, 40) is short:
+    if SessionState::decode_session(&text, 40, 30) is short:
         return 3 if short.count != 2
         return 4 if short.ops[0].last != 39 or short.ops[1].last != 39
         return 5 if short.edits[0].last != 30 or short.edits[1].first != 39
@@ -36,7 +76,7 @@ def main() -> i32:
         return 6
     # Damaged lines are skipped, values brought into range.
     bad: darray[u8] = text_of("mocap-studio session 1\n1 1 999\n2 9 1 0 5 -1 2 8\n2 0 1 7 3 77 500 -4\nnot numbers\n3 5 1 2 1\n")
-    if SessionState::decode_session(&bad, 50) is d:
+    if SessionState::decode_session(&bad, 50, 30) is d:
         return 7 if d.count != 1 or not d.feet
         return 8 if d.blend != StudioFoot::DEFAULT_BLEND
         op: Ops::Operation = d.ops[0]
@@ -47,11 +87,11 @@ def main() -> i32:
         return 12
     # No header: refused.
     nohead: darray[u8] = text_of("2 0 1 0 5 -1 2 8\n")
-    return 13 if SessionState::decode_session(&nohead, 50) != null
+    return 13 if SessionState::decode_session(&nohead, 50, 30) != null
     # Save to disk and load back.
     path: cstr = "build/test/studio_session.txt"
     return 14 if not SessionState::save_session(&s, path)
-    if SessionState::load_session(path, 100) is disk:
+    if SessionState::load_session(path, 100, 30) is disk:
         return 15 if not StackState::same(&s, &disk)
     else:
         return 16

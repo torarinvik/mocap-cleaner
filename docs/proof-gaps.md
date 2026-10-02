@@ -249,3 +249,14 @@ gap below was worked around in our code.
   `or not result` clauses with explicit `true`/`false` returns prove. A
   disjunctive requires over five flags times out (`escape_never_idle`,
   replaced by one `lone_*` law per layer).
+- G57: `session_clamp` cannot also ensure `value + bound >= 0 or result +
+  bound == 0` (the low saturation), although the upper one proves; the law
+  `small_quat_saturates` was dropped and the low side is covered by
+  `result + bound >= 0` plus the session test. An idempotence law
+  (`clamp_settles`, clamp of a clamp) did not prove either and was replaced
+  by `zero_stays_zero`.
+- G58: the Part A additions to `rig_stack.elisa` add 198 proven and 22
+  unproven obligations to each driver file that includes it (main, ops_file,
+  presets, rig_cache, rig_stack, rig_physics). Those files were already
+  "unsupported" in the baseline and stay so; the stack and corrections
+  kernels themselves improved.
