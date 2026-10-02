@@ -11,11 +11,13 @@ include "../state/clip_state.elisa"
 include "../state/foot_state.elisa"
 include "../state/history_state.elisa"
 include "../state/timeline_state.elisa"
+include "../state/retime_state.elisa"
 include "../view.elisa"
 include "../../ops/presets.elisa"
 include "../../physics/rig_physics.elisa"
 include "../overlay_policy.elisa"
 include "../state/perf_state.elisa"
+include "../../ops/retime_apply.elisa"
 
 extern clock() -> i64
 
@@ -81,6 +83,11 @@ module StudioModel:
             worst_frame: i64
             worst_slide: i64
             worst_side: i64
+            # Retime (applied last): source time (milli-frames) of every
+            # output frame, the source's frame count, and the CLI's report.
+            times: mutable darray[i64]
+            source_frames: i64
+            retimed: bool
 
         def open(path: cstr) -> GlbDocument::Document?:
             d: GlbDocument::Document = catch GlbDocument::load(path):
@@ -164,7 +171,7 @@ module StudioModel:
         # `build` for the same stack when `w` covers what changed.
         def build_with(m: mutable Memo&, s: StackState::Stack&, prev_points: darray[Geometry::Vec3]&, prev_problems: darray[i64]&, prev_peaks: darray[i64]&, w: StudioPerf::Window) -> Clip?:
             anim: usize = m.anim
-            frames: i64 = m.frames
+            source_frames: i64 = m.frames
             threshold: i64 = m.threshold
             t0: i64 = clock()
             before_runs: i64 = GlbTracks::bank_evaluations(&m.bank)
@@ -179,13 +186,23 @@ module StudioModel:
             if s.feet:
                 rops: darray[RigOps::RigOp] = foot_ops(s)
                 foot <- RigOps::run(&cleaned, anim, rops, threshold)
+            # Retime last: contacts and pins baked into the keys move with it.
+            rt_ops: darray[RigOps::RigOp] = retime_ops(s)
+            mutable rt: RetimeApply::Report = RetimeApply::empty_report()
+            if rt_ops.count > 0:
+                retimed_doc: GlbDocument::Document = RetimeApply::apply(&cleaned, anim, &rt_ops, &rt)
+                cleaned <- move retimed_doc
+            ranges: darray[RetimeApply::Range] = RetimeApply::ranges_of(&rt_ops, source_frames) if rt.applied else []
+            times: darray[i64] = RetimeApply::source_times(source_frames, &ranges)
+            frames: i64 = times.count.i64()
+            win: StudioPerf::Window = StudioPerf::full(frames) if rt.applied else w
             t1: i64 = clock()
             ops_run: i64 = GlbTracks::bank_evaluations(&m.bank) - before_runs
             nodes: darray[i64] = copy_ints(&m.nodes)
             slot: darray[i64] = copy_ints(&m.slot)
             rig: PoseOverride::Rig = StudioClip::rig(cleaned, nodes, slot)
             bones: darray[i64] = [StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_HAND), StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_HAND), StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_FOOT), StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_FOOT)]
-            tracks: StudioPerf::Tracks = StudioPerf::joint_tracks(rig, cleaned, anim, frames, nodes, slot, bones, prev_points, w)
+            tracks: StudioPerf::Tracks = StudioPerf::joint_tracks(rig, cleaned, anim, frames, nodes, slot, bones, prev_points, win)
             lh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 0, frames)
             rh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 1, frames)
             lf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 2, frames)
@@ -195,9 +212,9 @@ module StudioModel:
             fs: darray[i64] = foot_slide(lf, rf, lc, rc)
             worst: (frame: i64, value: i64) = worst_of(fs)
             worst_side: i64 = side_at(lf, rf, lc, rc, worst.frame)
-            edge: StudioPerf::Window = StudioPerf::margin(w, StudioPerf::DETECT_EDGE, frames)
+            edge: StudioPerf::Window = StudioPerf::margin(win, StudioPerf::DETECT_EDGE, frames)
             problems: darray[i64] = StudioPerf::problems(cleaned, anim, frames, threshold, prev_problems, edge)
-            source_problems: darray[i64] = copy_ints(&m.source_problems)
+            source_problems: darray[i64] = remap_ints(&m.source_problems, &times)
             peaks: darray[i64] = StudioPerf::peaks(cleaned, anim, frames, prev_peaks, edge)
             ground: f32 = lowest(lf, rf)
             before: i64 = total(source_problems)
@@ -206,7 +223,7 @@ module StudioModel:
             balance_of(&cleaned, anim, frames, &bal)
             t2: i64 = clock()
             src: GlbDocument::Document = GlbDocument::copy(&m.pristine)
-            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side}
+            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side, times: times, source_frames: source_frames, retimed: rt.applied}
             return move c
 
         def copy_ints(v: darray[i64]&) -> darray[i64]:
@@ -214,6 +231,33 @@ module StudioModel:
             for x in v |out|:
                 out.push(x)
             return out
+
+        # Per output frame, the value at its nearest source frame.
+        def remap_ints(v: darray[i64]&, times: darray[i64]&) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for k in 0..<times.count |k, out, v, times|:
+                f: i64 = RetimeApply::source_frame_of(times, k.i64())
+                out.push(v[f.usize()] if f >= 0 and f < v.count.i64() else 0)
+            return out
+
+        # The stack's enabled retime bands as RigOps.
+        def retime_ops(s: StackState::Stack&) -> darray[RigOps::RigOp]:
+            mutable out: darray[RigOps::RigOp] = []
+            for i in 0..<s.band_count |i, s, out|:
+                b: StackState::Band = s.bands[i]
+                if b.enabled:
+                    out.push(RigOps::retime(b.first, b.last, b.speed, b.blend))
+            return out
+
+        # Source frame shown at output frame `frame` (identity unretimed).
+        def source_frame(c: Clip&, frame: i64) -> i64:
+            return frame if not c.retimed
+            return RetimeApply::source_frame_of(c.times, frame)
+
+        # Output frame nearest source frame `frame`.
+        def output_frame(c: Clip&, frame: i64) -> i64:
+            return frame if not c.retimed
+            return RetimeApply::output_frame_of(c.times, frame)
 
         # The stack's contact edits as RigOps (role per foot).
         def edit_ops(s: StackState::Stack&) -> darray[RigOps::RigOp]:
@@ -341,7 +385,7 @@ module StudioModel:
 
         # Model transforms of the cleaned (or, `source`, the raw) clip.
         def models(c: Clip&, r: PoseOverride::Rig&, frame: i64, source: bool) -> darray[Geometry::Transform]:
-            return StudioClip::models_at(r, c.source, c.anim, frame, c.nodes, c.slot) if source
+            return StudioClip::models_at(r, c.source, c.anim, source_frame(c, frame), c.nodes, c.slot) if source
             return StudioClip::models_at(r, c.cleaned, c.anim, frame, c.nodes, c.slot)
 
         # Rig slot of the default curve bone (hips; slot 0 when unmapped).

@@ -12,6 +12,7 @@ include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 include "scene.elisa"
 include "panels.elisa"
+include "retime_panel.elisa"
 include "../shortcuts.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
@@ -113,6 +114,17 @@ module Studio:
         global mutable shown_slide: i64 = 0
         global mutable shown_sink: i64 = 0
         global mutable readout_start: f64 = 0.0
+        # Retiming: Shift-drag selection (output frames), band edge drag,
+        # focused band (Delete removes it), slider and typed speed.
+        global mutable selection: RetimeState::Selection = RetimeState::Selection{active: false, anchor: -1, head: -1}
+        global mutable selecting: bool = false
+        global mutable edge_drag: RetimeState::EdgeDrag = RetimeState::EdgeDrag{band: -1, last_edge: false}
+        global mutable band_focus: i64 = -1
+        global mutable slider_drag: bool = false
+        global mutable retime_speed: i64 = 1000
+        global mutable typing: bool = false
+        global mutable typed: u8[8] = zeroed
+        global mutable typed_len: i64 = 0
         const READOUT_MS: i64 = 250
 
         def set_path(p: cstr) -> void:
@@ -221,9 +233,84 @@ module Studio:
                 return
             load_failed <- false
             clip <- result
+            sync_count()
             built_stack <- s
             built <- built + 1
             touch()
+
+        # A retime changes the clip length: keep the playhead on the same
+        # source frame.
+        def sync_count() -> void:
+            if timeline is t:
+                n: i64 = frames()
+                if t.count != n:
+                    mutable u: TimelineState::State = TimelineState::create(n)
+                    u.looping <- t.looping
+                    u.divisor <- t.divisor
+                    set_timeline(TimelineState::scrub(u, t.frame * n / t.count))
+
+        # ---- retiming ------------------------------------------------------
+        # Speed for the selection (a new band or the band under it), else for
+        # the focused band.
+        def retime_to(speed: i64) -> void:
+            retime_speed <- Retime::clamp_speed(speed)
+            if clip is c:
+                mutable s: StackState::Stack = current_stack()
+                mutable ok: bool = false
+                if RetimeState::ready(&selection):
+                    first: i64 = StudioModel::source_frame(c, RetimeState::lo(&selection))
+                    last: i64 = StudioModel::source_frame(c, RetimeState::hi(&selection))
+                    ok <- RetimeState::apply_speed(&s, first, last, retime_speed, c.source_frames)
+                    band_focus <- StackState::band_at(&s, first)
+                elif band_focus >= 0:
+                    ok <- StackState::set_band_speed(&s, band_focus, retime_speed)
+                if ok:
+                    selection <- RetimeState::none()
+                    commit(s, true)
+                    status <- StudioText::number("retime permille ", retime_speed)
+                else:
+                    status <- "retime: Shift-drag a range (no overlap with a band)"
+                touch()
+
+        def typed_view() -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            StudioText::put("speed: ")
+            for i in 0..<typed_len.usize():
+                StudioText::byte(typed[i])
+            StudioText::byte(95)
+            return StudioText::view()
+
+        def typed_speed() -> i64:
+            StudioText::begin()
+            for i in 0..<typed_len.usize():
+                StudioText::byte(typed[i])
+            return RetimeState::parse_speed(StudioText::view())
+
+        def text_input(text: sview) -> void:
+            return if not typing or text.len <= 0 or text.data == null
+            for i in 0..<text.len.usize():
+                if typed_len < 8 and text.data[i] != 61:
+                    typed[typed_len.usize()] <- text.data[i]
+                    typed_len <- typed_len + 1
+            touch()
+
+        # Shift-1..7: speed presets 0.5x .. 2x.
+        def preset_key(code: UiCore::Key) -> i64:
+            return 0 if code == UiCore::Key.Digit1
+            return 1 if code == UiCore::Key.Digit2
+            return 2 if code == UiCore::Key.Digit3
+            return 3 if code == UiCore::Key.Digit4
+            return 4 if code == UiCore::Key.Digit5
+            return 5 if code == UiCore::Key.Digit6
+            return 6 if code == UiCore::Key.Digit7
+            return -1
+
+        def remove_band() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::remove_band(&s, band_focus):
+                band_focus <- -1
+                commit(s, true)
+                status <- "retime band removed"
 
         # Record an edited stack and preview it; selection-only edits are
         # recorded too so undo restores the row the user was on.
@@ -704,6 +791,8 @@ module Studio:
                     perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
                     StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
+                    StudioRetime::overlay(StudioPanels::timeline_box(w, h), c, &s, &selection, t.frame)
+                    StudioRetime::controls(StudioPanels::curve_box(w, h), RetimeState::ready(&selection) or band_focus >= 0, retime_speed, typing, typed_view())
                     StudioPanels::foot_readout(StudioPanels::sidebar_box(w, h), c, readout_value(c.slide_after), StudioFoot::mix(shown_sink, c.sink_after, readout_progress()) if shown_sink >= -StudioFoot::LIMIT and shown_sink <= StudioFoot::LIMIT and c.sink_after >= -StudioFoot::LIMIT and c.sink_after <= StudioFoot::LIMIT else c.sink_after, s.blend)
                     UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
                     drawn_frame <- t.frame
@@ -841,6 +930,8 @@ module Studio:
                 toolbar_action(a)
                 return
             tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+            if button == 0:
+                return if retime_down(tb, StudioPanels::curve_box(w, h), x, y)
             if StudioPanels::inside(tb, x, y) and button == 0:
                 return if foot_down(x, y)
             if StudioPanels::inside(tb, x, y) or StudioPanels::inside(StudioPanels::curve_box(w, h), x, y):
@@ -861,11 +952,53 @@ module Studio:
                 drag_view <- v
                 drag_button <- button
 
+        # Shift-drag selects, a band edge drags, a band click focuses it,
+        # presets and the slider set the speed.
+        def retime_down(tb: StudioPanels::Box, cb: StudioPanels::Box, x: f32, y: f32) -> bool:
+            k: i64 = StudioRetime::preset_hit(cb, x, y)
+            if k >= 0:
+                retime_to(RetimeState::preset(k))
+                return true
+            if StudioPanels::inside(StudioRetime::slider_box(cb), x, y):
+                slider_drag <- true
+                retime_speed <- StudioRetime::slider_speed(cb, x)
+                touch()
+                return true
+            return false if not StudioPanels::inside(tb, x, y)
+            f: i64 = StudioPanels::timeline_frame(tb, x, frames())
+            if StudioShortcuts::shift(modifiers):
+                selection <- RetimeState::begin(f)
+                selecting <- true
+                touch()
+                return true
+            if clip is c:
+                if StudioRetime::band_row(tb, y):
+                    s: StackState::Stack = current_stack()
+                    src: i64 = StudioModel::source_frame(c, f)
+                    reach: i64 = 1 + c.source_frames / 200
+                    edge_drag <- RetimeState::edge_near(&s, src, reach)
+                    band_focus <- edge_drag.band if edge_drag.band >= 0 else StackState::band_at(&s, src)
+                    if band_focus >= 0:
+                        retime_speed <- s.bands[band_focus].speed
+                        status <- "retime band (Del removes, presets set speed)"
+                        touch()
+                        return true
+            return false
+
         def pointer_move(x: f32, y: f32) -> void:
             over: i64 = StudioPanels::toolbar_hit(x, y)
             if over != hover_button:
                 hover_button <- over
                 touch()
+            if selecting or slider_drag:
+                w: f32 = UiCore::viewport_width()
+                h: f32 = UiCore::viewport_height()
+                if selecting:
+                    selection <- RetimeState::drag(selection, StudioPanels::timeline_frame(StudioPanels::timeline_box(w, h), x, frames()))
+                else:
+                    retime_speed <- StudioRetime::slider_speed(StudioPanels::curve_box(w, h), x)
+                touch()
+                return
             tbh: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
             row: i64 = StudioPanels::contact_row(tbh, y) if StudioPanels::inside(tbh, x, y) else -1
             if row != hover_row:
@@ -885,6 +1018,26 @@ module Studio:
             last_y <- y
 
         def pointer_up(x: f32, y: f32) -> void:
+            if selecting:
+                selecting <- false
+                selection <- RetimeState::none() if not RetimeState::ready(&selection) else selection
+                status <- "range selected: preset, slider or = to set speed, Esc cancels" if selection.active else status
+                touch()
+                return
+            if slider_drag:
+                slider_drag <- false
+                retime_to(retime_speed)
+                return
+            if edge_drag.band >= 0:
+                if clip is c:
+                    tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+                    src: i64 = StudioModel::source_frame(c, StudioPanels::timeline_frame(tb, x, frames()))
+                    mutable s: StackState::Stack = current_stack()
+                    if StackState::move_band_edge(&s, edge_drag.band, edge_drag.last_edge, src, c.source_frames):
+                        commit(s, true)
+                        status <- "retime band edge moved"
+                edge_drag <- RetimeState::no_drag()
+                return
             if FootState::active(&foot_press):
                 foot_up(x)
                 return
@@ -1022,10 +1175,36 @@ module Studio:
             touch()
 
         def key(code: UiCore::Key) -> void:
-            if code == UiCore::Key.R:
+            if typing and code == UiCore::Key.Enter:
+                typing <- false
+                v: i64 = typed_speed()
+                if v > 0:
+                    retime_to(v)
+                else:
+                    status <- "speed must be 0.1 to 4"
+                touch()
+            elif typing and code == UiCore::Key.Backspace:
+                typed_len <- typed_len - 1 if typed_len > 0 else 0
+                touch()
+            elif typing and code != UiCore::Key.Escape:
+                pass
+            elif code == UiCore::Key.Equal:
+                typing <- true
+                typed_len <- 0
+                touch()
+            elif StudioShortcuts::shift(modifiers) and preset_key(code) >= 0:
+                retime_to(RetimeState::preset(preset_key(code)))
+            elif band_focus >= 0 and (code == UiCore::Key.Delete or code == UiCore::Key.Backspace):
+                remove_band()
+            elif code == UiCore::Key.R:
                 set_gizmo(GizmoPolicy::ROTATE)
             elif code == UiCore::Key.V:
                 set_gizmo(GizmoPolicy::TRANSLATE)
+            elif code == UiCore::Key.Escape and (typing or selection.active):
+                typing <- false
+                selection <- RetimeState::none()
+                status <- "retime selection cancelled"
+                touch()
             elif code == UiCore::Key.Escape:
                 escape()
             elif code == UiCore::Key.A:
@@ -1198,7 +1377,7 @@ def app_event(event: UiCore::Event) -> void:
     Studio::event(event)
 
 def app_text_input(text: sview) -> void:
-    pass
+    Studio::text_input(text)
 
 def app_validate() -> void:
     pass

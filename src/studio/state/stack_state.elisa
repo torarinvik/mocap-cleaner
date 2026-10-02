@@ -6,6 +6,7 @@ include "../../ops/stack.elisa"
 include "../stack_policy.elisa"
 include "../../ops/corrections.elisa"
 include "../foot_policy.elisa"
+include "../../core/retime.elisa"
 
 module StackState:
     public:
@@ -24,6 +25,17 @@ module StackState:
             last: i64
             planted: bool
 
+        # One retime band: source frames [first, last] played at `speed`
+        # permille, eased over `blend` frames. Bands never overlap.
+        struct Band:
+            first: mutable i64
+            last: mutable i64
+            speed: mutable i64
+            blend: mutable i64
+            enabled: mutable bool
+
+        const MAX_BANDS: i64 = 8
+
         struct Stack:
             ops: mutable Ops::Operation[16]
             count: mutable i64
@@ -37,9 +49,12 @@ module StackState:
             blend: mutable i64
             edits: mutable FootEdit[32]
             edit_count: mutable i64
+            # Retime bands (source frames, speed in permille), applied last.
+            bands: mutable Band[8]
+            band_count: mutable i64
 
         def empty() -> Stack:
-            return Stack{ops: zeroed, count: 0, selected: -1, fixes: zeroed, fix_count: 0, feet: false, blend: StudioFoot::DEFAULT_BLEND, edits: zeroed, edit_count: 0}
+            return Stack{ops: zeroed, count: 0, selected: -1, fixes: zeroed, fix_count: 0, feet: false, blend: StudioFoot::DEFAULT_BLEND, edits: zeroed, edit_count: 0, bands: zeroed, band_count: 0}
 
         def set_feet(s: mutable Stack&, on: bool) -> bool:
             return false if s.feet == on
@@ -77,6 +92,67 @@ module StackState:
                     f: i64 = k.i64()
                     flags[k] <- e.planted if f >= e.first and f <= e.last else flags[k]
             return
+
+        # Index of the band holding source frame `frame`, or -1.
+        def band_at(s: Stack&, frame: i64) -> i64:
+            for i in 0..<s.band_count |i, s, frame|:
+                b: Band = s.bands[i]
+                return i if frame >= b.first and frame <= b.last
+            return -1
+
+        # Whether [first, last] fits in a clip of `frames` frames without
+        # overlapping any band but `skip`.
+        def band_fits(s: Stack&, first: i64, last: i64, frames: i64, skip: i64) -> bool:
+            return false if frames < 0 or frames > Retime::MAX_FRAMES
+            return false if not Retime::range_ok(first, last, frames)
+            for i in 0..<s.band_count |i, s, first, last, skip|:
+                b: Band = s.bands[i]
+                return false if i != skip and not Retime::disjoint(b.first, b.last, first, last)
+            return true
+
+        # Add a band (speed clamped); false when full, malformed or overlapping.
+        def add_band(s: mutable Stack&, first: i64, last: i64, speed: i64, frames: i64) -> bool:
+            return false if s.band_count < 0 or s.band_count >= MAX_BANDS
+            return false if not band_fits(s, first, last, frames, -1)
+            s.bands[s.band_count] <- Band{first: first, last: last, speed: Retime::clamp_speed(speed), blend: Retime::DEFAULT_BLEND, enabled: true}
+            s.band_count <- s.band_count + 1
+            return true
+
+        def set_band_speed(s: mutable Stack&, at: i64, speed: i64) -> bool:
+            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            mutable b: Band = s.bands[at]
+            v: i64 = Retime::clamp_speed(speed)
+            return false if v == b.speed
+            b.speed <- v
+            s.bands[at] <- b
+            return true
+
+        # Move a band's start (`last_edge` false) or end edge to `frame`.
+        def move_band_edge(s: mutable Stack&, at: i64, last_edge: bool, frame: i64, frames: i64) -> bool:
+            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            mutable b: Band = s.bands[at]
+            first: i64 = b.first if last_edge else frame
+            last: i64 = frame if last_edge else b.last
+            return false if first == b.first and last == b.last
+            return false if not band_fits(s, first, last, frames, at)
+            b.first <- first
+            b.last <- last
+            s.bands[at] <- b
+            return true
+
+        def toggle_band(s: mutable Stack&, at: i64) -> bool:
+            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            mutable b: Band = s.bands[at]
+            b.enabled <- not b.enabled
+            s.bands[at] <- b
+            return true
+
+        def remove_band(s: mutable Stack&, at: i64) -> bool:
+            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            for i in at..<(s.band_count - 1) |i, s|:
+                s.bands[i] <- s.bands[i + 1]
+            s.band_count <- s.band_count - 1
+            return true
 
         # Append a keyed correction (ignored when full).
         def add_fix(s: mutable Stack&, fix: Corrections::Correction) -> bool:
@@ -177,6 +253,11 @@ module StackState:
         def same(a: Stack&, b: Stack&) -> bool:
             return false if a.count != b.count or a.fix_count != b.fix_count
             return false if a.feet != b.feet or a.blend != b.blend or a.edit_count != b.edit_count
+            return false if a.band_count != b.band_count
+            for i in 0..<a.band_count |a, b|:
+                u: Band = a.bands[i]
+                v: Band = b.bands[i]
+                return false if u.first != v.first or u.last != v.last or u.speed != v.speed or u.blend != v.blend or u.enabled != v.enabled
             for i in 0..<a.edit_count |a, b|:
                 e: FootEdit = a.edits[i]
                 g: FootEdit = b.edits[i]

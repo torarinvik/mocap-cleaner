@@ -1,0 +1,109 @@
+# Studio retiming: the Shift-drag timeline selection (in output frames),
+# the speed presets, and turning a selection plus a speed into a stack
+# edit (a new band, or a new speed for the band under the selection).
+# Band edges and the overlap rule go through StackState (Retime kernel).
+include "stack_state.elisa"
+
+module RetimeState:
+    public:
+        struct Selection:
+            active: mutable bool
+            anchor: mutable i64
+            head: mutable i64
+
+        # Band edge being dragged: band index and which edge, or band -1.
+        struct EdgeDrag:
+            band: mutable i64
+            last_edge: mutable bool
+
+        const PRESET_COUNT: i64 = 7
+
+        def none() -> Selection:
+            return Selection{active: false, anchor: -1, head: -1}
+
+        def no_drag() -> EdgeDrag:
+            return EdgeDrag{band: -1, last_edge: false}
+
+        def begin(frame: i64) -> Selection:
+            return Selection{active: true, anchor: frame, head: frame}
+
+        def drag(s: Selection, frame: i64) -> Selection:
+            mutable out: Selection = s
+            out.head <- frame if s.active else s.head
+            return out
+
+        def lo(s: Selection&) -> i64:
+            return s.anchor if s.anchor <= s.head else s.head
+
+        def hi(s: Selection&) -> i64:
+            return s.head if s.anchor <= s.head else s.anchor
+
+        # A usable selection spans at least two frames.
+        def ready(s: Selection&) -> bool:
+            return s.active and hi(s) > lo(s) and lo(s) >= 0
+
+        # Speed preset `k` in permille (0.5, 0.68, 0.75, 1, 1.25, 1.5, 2).
+        def preset(k: i64) -> i64:
+            return 500 if k <= 0
+            return 680 if k == 1
+            return 750 if k == 2
+            return 1000 if k == 3
+            return 1250 if k == 4
+            return 1500 if k == 5
+            return 2000
+
+        def preset_label(k: i64) -> sview:
+            return "0.5x" if k <= 0
+            return "0.68x" if k == 1
+            return "0.75x" if k == 2
+            return "1x" if k == 3
+            return "1.25x" if k == 4
+            return "1.5x" if k == 5
+            return "2x"
+
+        # Typed speed "0.68" / "1.5x" / "2" in permille, or -1 when not a
+        # speed in [0.1, 4].
+        def parse_speed(text: sview) -> i64:
+            mutable whole: i64 = 0
+            mutable part: i64 = 0
+            mutable scale: i64 = 0
+            mutable digits: i64 = 0
+            return -1 if text.len <= 0 or text.data == null
+            for i in 0..<text.len.usize() |i, text, whole, part, scale, digits|:
+                c: u8 = text.data[i]
+                if c >= 48 and c <= 57:
+                    d: i64 = (c - 48).i64()
+                    digits <- digits + 1
+                    if scale == 0:
+                        whole <- whole * 10 + d if whole < 100 else whole
+                    elif scale < 1000:
+                        scale <- scale * 10
+                        part <- part * 10 + d
+                elif c == 46 and scale == 0:
+                    scale <- 1
+                elif c == 120 or c == 88 or c == 32:
+                    pass
+                else:
+                    return -1
+            return -1 if digits == 0
+            frac: i64 = 0 if scale <= 1 else part * 1000 / scale
+            v: i64 = whole * 1000 + frac
+            return v if Retime::speed_ok(v) else -1
+
+        # Apply `speed` to the selection: set the speed of the band holding
+        # its first source frame when it has one, else add a new band over
+        # the selection's source frames. `first`/`last` are source frames.
+        def apply_speed(st: mutable StackState::Stack&, first: i64, last: i64, speed: i64, frames: i64) -> bool:
+            at: i64 = StackState::band_at(st, first)
+            return StackState::set_band_speed(st, at, speed) if at >= 0
+            return StackState::add_band(st, first, last, speed, frames)
+
+        # Which band edge sits within `reach` source frames of `frame`.
+        def edge_near(st: StackState::Stack&, frame: i64, reach: i64) -> EdgeDrag:
+            for i in 0..<st.band_count |i, st, frame, reach|:
+                b: StackState::Band = st.bands[i]
+                if frame >= b.first - reach and frame <= b.first + reach:
+                    return EdgeDrag{band: i, last_edge: false}
+                if frame >= b.last - reach and frame <= b.last + reach:
+                    return EdgeDrag{band: i, last_edge: true}
+            return no_drag()
