@@ -82,11 +82,17 @@ module GlbTracks:
         # an edit reruns only the ops after the first changed one. Output is
         # identical to clean_animation (Ops::evaluate_cached == evaluate).
         def clean_animation_cached(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[Ops::Operation]&, threshold: i64, bank: mutable darray[Ops::Cache]&) -> (tracks: i64, changed: i64, before: i64, after: i64):
+            unused: mutable darray[i64] = []
+            return clean_animation_timed(doc, animation, ops, threshold, bank, &unused, false)
+
+        # clean_animation_cached that adds each op's CPU time to times[i]
+        # (see Ops::evaluate_timed) when `timed`; the result is the same.
+        def clean_animation_timed(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[Ops::Operation]&, threshold: i64, bank: mutable darray[Ops::Cache]&, times: mutable darray[i64]&, timed: bool) -> (tracks: i64, changed: i64, before: i64, after: i64):
             tracks: mutable i64 = 0
             changed: mutable i64 = 0
             before: mutable i64 = 0
             after: mutable i64 = 0
-            for at in 0..<GlbDocument::channel_count(doc, animation) |at, doc, animation, ops, threshold, tracks, changed, before, after, bank|:
+            for at in 0..<GlbDocument::channel_count(doc, animation) |at, doc, animation, ops, threshold, tracks, changed, before, after, bank, times, timed|:
                 held: GlbDocument::Channel = GlbDocument::channel(doc, animation, at)
                 continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
                 continue if held.path == GlbDocument::TargetPath.Weights
@@ -96,7 +102,7 @@ module GlbTracks:
                 ordinal: i64 = at.i64() if at.i64() < PerfCache::MAX_TRACKS else -1
                 while ordinal >= 0 and PerfCache::grows(bank.count.i64(), PerfCache::bank_size(ordinal)):
                     bank.push(Ops::new_cache())
-                for component in 0..<track.components |component, doc, held, ops, bone, threshold, changed, before, after, bank, ordinal|:
+                for component in 0..<track.components |component, doc, held, ops, bone, threshold, changed, before, after, bank, ordinal, times, timed|:
                     source: darray[i64] = read(doc, held.output, component)
                     before <- before + Track::spike_count(source, threshold, false)
                     at_slot: i64 = PerfCache::slot(ordinal, component.i64()) if ordinal >= 0 else PerfCache::NONE
@@ -104,7 +110,7 @@ module GlbTracks:
                     if at_slot < 0:
                         cleaned <- Ops::evaluate(ops, bone, source, false)
                     else:
-                        result: darray[i64] = Ops::evaluate_cached(ops, bone, source, false, &bank[at_slot.usize()])
+                        result: darray[i64] = Ops::evaluate_timed(ops, bone, source, false, &bank[at_slot.usize()], times, timed)
                         for v in result |cleaned|:
                             cleaned.push(v)
                     after <- after + Track::spike_count(cleaned, threshold, false)

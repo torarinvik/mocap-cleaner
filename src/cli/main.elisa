@@ -5,7 +5,7 @@
 #       [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES[:FRAME:DEGREES...]]...
 #       [--contact FOOT:FIRST:LAST:on|off]... [--hand-contact HAND:FIRST:LAST:on|off]...
 #       [--ops FILE]... [--save-ops FILE]
-#   mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP]... <in.glb|folder>...
+#   mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP]... [--jobs N] <in.glb|folder>...
 #   mocap-cleaner diff <a.json> <b.json> [--tolerance PERCENT] [--floor N] [--html out.html]
 # OP: twist|pole|pelvis|lock|pivot|hands (rig fixes; hands is opt-in), balance (centre-of-mass check),
 #     ballistic (fit airborne phases to a parabola), momentum (cap torso
@@ -19,7 +19,10 @@
 # LeftShin, ...); AXIS is x, y or z (the bone's local axis).
 # Batch expands folders to their sorted .glb files, writes each cleaned take
 # to <outdir>/<basename> and <outdir>/report.html; it always runs the
-# balance, ballistic and momentum detectors for the report.
+# balance, ballistic and momentum detectors for the report. --jobs N cleans
+# up to N takes at once in worker processes; output and report keep input
+# order. Both reports carry per-stage CPU times (load, each curve op, rig,
+# physics, save) in microseconds.
 include "../io/glb_tracks.elisa"
 include "../io/console.elisa"
 include "../io/report.elisa"
@@ -28,6 +31,7 @@ include "../ops/presets.elisa"
 include "../io/ops_file.elisa"
 include "../physics/rig_physics.elisa"
 include "../io/report_diff.elisa"
+include "../io/workers.elisa"
 
 def same(arg: cstr, text: cstr) -> bool:
     mutable i: usize = 0
@@ -55,15 +59,45 @@ def preset_of(name: cstr) -> Presets::Preset:
     return Presets::Preset.Rokoko if same(name, "rokoko".cast[cstr])
     return Presets::Preset.Unknown
 
-# Clean one take. `only` is an animation name, or empty for all.
-def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, phys: darray[Physics::PhysOp]&, rig: mutable RigOps::Summary&, found: mutable Physics::Findings&, bank: mutable darray[Ops::Cache]&) -> Report::Row:
+# Profile slots of `clean_take` (CPU clock units, microseconds): the stages,
+# then one slot per curve op of the preset from TIME_OPS on.
+const TIME_LOAD: usize = 0
+const TIME_TRACKS: usize = 1
+const TIME_RIG: usize = 2
+const TIME_PHYSICS: usize = 3
+const TIME_SAVE: usize = 4
+const TIME_OPS: usize = 5
+
+def op_name(kind: Ops::Kind) -> sview:
+    match kind:
+        Ops::Kind.Despike:
+            return "despike"
+        Ops::Kind.SmoothPath:
+            return "smooth_path"
+        Ops::Kind.LimitWring:
+            return "limit_wring"
+        Ops::Kind.Median:
+            return "median"
+        Ops::Kind.CloseSeam:
+            return "close_seam"
+        Ops::Kind.PinContacts:
+            return "pin_contacts"
+
+# Clean one take. `only` is an animation name, or empty for all. The GLB is
+# parsed once; `clips` gets its animation count and `times` the profile.
+def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, phys: darray[Physics::PhysOp]&, rig: mutable RigOps::Summary&, found: mutable Physics::Findings&, bank: mutable darray[Ops::Cache]&, clips: mutable i64&, times: mutable darray[i64]&) -> Report::Row:
     failed: Report::Row = Report::Row{ok: false, tracks: 0, changed: 0, before: 0, after: 0}
-    opened: i32 = catch GlbDocument::load(input):
-        value: 0
-        error failure: 1
-    return failed if opened != 0
-    mutable doc: GlbDocument::Document = load_or_empty(input)
     ops: darray[Ops::Operation] = Presets::operations(preset)
+    times.clear()
+    for slot in 0..<(TIME_OPS + ops.count) |times|:
+        times.push(0)
+    mutable op_times: darray[i64] = []
+    start: i64 = s_clock()
+    mutable doc: GlbDocument::Document = catch GlbDocument::load(input):
+        value: value
+        error failure: return failed
+    times[TIME_LOAD] <- s_clock() - start
+    clips <- GlbDocument::animation_count(&doc).i64()
     threshold: i64 = Presets::spike_threshold(preset)
     mutable rig_ops: darray[RigOps::RigOp] = Presets::rig_operations(preset)
     for op in extra:
@@ -74,19 +108,42 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, e
     mutable after: i64 = 0
     for a in 0..<GlbDocument::animation_count(&doc):
         continue if only[0] != 0 and not animation_matches(&doc, a, only)
-        result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation_cached(&doc, a, ops, threshold, bank)
+        t0: i64 = s_clock()
+        result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation_timed(&doc, a, ops, threshold, bank, &op_times, true)
+        t1: i64 = s_clock()
         tracks <- tracks + result.tracks
         changed <- changed + result.changed
         before <- before + result.before
         after <- after + result.after
         summary: RigOps::Summary = RigOps::run(&doc, a, &rig_ops, threshold)
         add_summary(rig, summary)
+        t2: i64 = s_clock()
         clip_found: Physics::Findings = Physics::run(&doc, a, phys)
         Physics::add(found, &clip_found)
+        t3: i64 = s_clock()
+        times[TIME_TRACKS] <- times[TIME_TRACKS] + t1 - t0
+        times[TIME_RIG] <- times[TIME_RIG] + t2 - t1
+        times[TIME_PHYSICS] <- times[TIME_PHYSICS] + t3 - t2
+    for i in 0..<op_times.count |op_times, times|:
+        times[TIME_OPS + i] <- op_times[i]
+    t4: i64 = s_clock()
     saved: i32 = catch GlbDocument::save(&doc, output):
         value: 0
         error failure: 1
+    times[TIME_SAVE] <- s_clock() - t4
     return Report::Row{ok: saved == 0, tracks: tracks, changed: changed, before: before, after: after}
+
+# Column names of a profile (see TIME_*), for the reports.
+def time_names(preset: Presets::Preset) -> darray[sview]:
+    mutable names: darray[sview] = []
+    names.push("load")
+    names.push("tracks")
+    names.push("rig")
+    names.push("physics")
+    names.push("save")
+    for op in Presets::operations(preset) |names|:
+        names.push(op_name(op.kind))
+    return names
 
 def add_summary(total: mutable RigOps::Summary&, s: RigOps::Summary):
     total.ops <- total.ops + s.ops
@@ -164,7 +221,7 @@ def json_field(out: mutable darray[u8]&, name: sview, value: i64, last: bool):
         Report::push_text(out, ",\n")
 
 # Machine-readable report of one `clean` run.
-def json_report(row: Report::Row, s: RigOps::Summary&, f: Physics::Findings&) -> darray[u8]:
+def json_report(row: Report::Row, s: RigOps::Summary&, f: Physics::Findings&, names: darray[sview]&, times: darray[i64]&) -> darray[u8]:
     mutable out: darray[u8] = []
     Report::push_text(&out, "{\n  \"ok\": ")
     if row.ok:
@@ -199,8 +256,18 @@ def json_report(row: Report::Row, s: RigOps::Summary&, f: Physics::Findings&) ->
     json_field(&out, "momentum_cap_urad", f.momentum_cap, false)
     json_field(&out, "momentum_before", f.momentum_before, false)
     json_field(&out, "momentum_after", f.momentum_after, false)
-    json_field(&out, "momentum_drift_urad", f.momentum_drift, true)
-    Report::push_text(&out, "}\n")
+    json_field(&out, "momentum_drift_urad", f.momentum_drift, false)
+    # CPU microseconds per stage; "tracks" includes the curve ops listed
+    # after it (each op's own time).
+    Report::push_text(&out, "  \"time_us\": [")
+    for i in 0..<times.count |out, names, times|:
+        Report::push_text(&out, ", ") if i > 0
+        Report::push_text(&out, "{\"stage\": \"")
+        Report::push_text(&out, names[i]) if i < names.count
+        Report::push_text(&out, "\", \"us\": ")
+        Report::push_number(&out, times[i])
+        Report::push_text(&out, "}")
+    Report::push_text(&out, "]\n}\n")
     return out
 
 # Fields of "A:B:C" split at ':' (each NUL-free byte run).
@@ -380,10 +447,6 @@ def with_detectors(ops: darray[Physics::PhysOp]&) -> darray[Physics::PhysOp]:
     out.push(Physics::momentum(false, 0)) if not has_kind(ops, Physics::PhysKind.Momentum)
     return out
 
-def count_clips(input: cstr) -> i64:
-    doc: GlbDocument::Document = load_or_empty(input)
-    return GlbDocument::animation_count(&doc).i64()
-
 def print_row(row: Report::Row):
     if row.ok:
         Out::line("ok")
@@ -401,7 +464,7 @@ def usage() -> i64:
     Out::line("           [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES...]")
     Out::line("           [--contact FOOT:FIRST:LAST:on|off] [--hand-contact HAND:FIRST:LAST:on|off]")
     Out::line("           [--ops FILE] [--save-ops FILE]")
-    Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP] <in.glb|folder>...")
+    Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP] [--jobs N] <in.glb|folder>...")
     Out::line("       mocap-cleaner diff <a.json> <b.json> [--tolerance PERCENT] [--floor N] [--html out.html]")
     Out::line("  OP: twist pole pelvis lock pivot hands balance ballistic momentum")
     return 2
@@ -439,6 +502,54 @@ def push_op(value: cstr, rig: mutable darray[RigOps::RigOp]&, phys: mutable darr
     p: (ok: bool, op: Physics::PhysOp) = parse_phys(value)
     phys.push(p.op) if p.ok
     return p.ok
+
+# Clean one batch take and append its report rows; false when it failed.
+def take_row(input: cstr, outdir: cstr, preset: Presets::Preset, extra: darray[RigOps::RigOp]&, checks: darray[Physics::PhysOp]&, bank: mutable darray[Ops::Cache]&, html: mutable darray[u8]&, profile: mutable darray[u8]&) -> bool can[Memory.Allocate, Memory.Release, Abort.Panic, Unsafe.PointerCast, Console, Blocking.IO]:
+    target: darray[u8] = join(outdir, input, "".cast[cstr])
+    output: cstr = (&target[0]).cast[cstr]
+    mutable rig: RigOps::Summary = RigOps::empty_summary()
+    mutable found: Physics::Findings = Physics::empty_findings()
+    mutable clips: i64 = 0
+    mutable times: darray[i64] = []
+    row: Report::Row = clean_take(input, output, preset, "".cast[cstr], extra, checks, &rig, &found, bank, &clips, &times)
+    Report::row_detail(html, input, row, detail_of(clips, &rig, &found))
+    Report::time_row(profile, input, &times)
+    Out::c_text(input)
+    Out::text(": ")
+    print_row(row)
+    print_rig(&rig)
+    print_physics(&found)
+    return row.ok
+
+# <outdir>/.mc-part-<index>.<kind>, NUL-terminated (a worker's output).
+def part_path(outdir: cstr, index: usize, kind: sview) -> darray[u8]:
+    mutable out: darray[u8] = []
+    mutable i: usize = 0
+    while outdir[i] != 0:
+        out.push(outdir[i])
+        i <- i + 1
+    Report::push_text(&out, "/.mc-part-")
+    Report::push_number(&out, index.i64())
+    out.push(46)
+    Report::push_text(&out, kind)
+    out.push(0)
+    return out
+
+# Bytes of a worker's part file, which is then removed.
+def take_part(outdir: cstr, index: usize, kind: sview) -> darray[u8] can[Memory.Allocate, Memory.Release, Abort.Panic, Unsafe.PointerCast, Blocking.IO]:
+    path: darray[u8] = part_path(outdir, index, kind)
+    bytes: darray[u8] = Workers::read_all((&path[0]).cast[cstr])
+    Workers::remove((&path[0]).cast[cstr])
+    return bytes
+
+# Positive decimal count (1..1024).
+def parse_count(text: cstr) -> (ok: bool, value: i64):
+    mutable value: i64 = 0
+    mutable i: usize = 0
+    while text[i] >= 48 and text[i] <= 57 and value <= 1024:
+        value <- value * 10 + (text[i] - 48).i64()
+        i <- i + 1
+    return (text[i] == 0 and i > 0 and value >= 1 and value <= 1024, value)
 
 def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Release, Abort.Panic, Unsafe.PointerCast, Console, Blocking.IO]:
     return usage() if argc < 3
@@ -531,12 +642,15 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
             return 1
         mutable rig: RigOps::Summary = RigOps::empty_summary()
         mutable found: Physics::Findings = Physics::empty_findings()
-        row: Report::Row = clean_take(input, output, preset, only, &extra, &phys, &rig, &found, &bank)
+        mutable clips: i64 = 0
+        mutable times: darray[i64] = []
+        row: Report::Row = clean_take(input, output, preset, only, &extra, &phys, &rig, &found, &bank, &clips, &times)
         print_row(row)
         print_rig(&rig)
         print_physics(&found)
         if report[0] != 0:
-            json: darray[u8] = json_report(row, &rig, &found)
+            names: darray[sview] = time_names(preset)
+            json: darray[u8] = json_report(row, &rig, &found, &names, &times)
             if not Report::save(&json, report):
                 Out::line("error: cannot write report")
                 return 1
@@ -547,6 +661,7 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
         outdir: cstr = slots[2].cast[cstr]
         mutable k: i64 = 3
         mutable flags: bool = true
+        mutable jobs: i64 = 1
         while flags and k + 1 < argc:
             flag: cstr = slots[k.usize()].cast[cstr]
             value: cstr = slots[(k + 1).usize()].cast[cstr]
@@ -555,6 +670,11 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 k <- k + 2
             elif same(flag, "--op".cast[cstr]):
                 return usage() if not push_op(value, &extra, &phys)
+                k <- k + 2
+            elif same(flag, "--jobs".cast[cstr]):
+                parsed: (ok: bool, value: i64) = parse_count(value)
+                return usage() if not parsed.ok
+                jobs <- parsed.value
                 k <- k + 2
             else:
                 flags <- false
@@ -579,24 +699,55 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
             Out::line("error: no .glb inputs")
             return 1
         checks: darray[Physics::PhysOp] = with_detectors(&phys)
+        names: darray[sview] = time_names(preset)
         mutable html: darray[u8] = []
         Report::begin_detail(&html)
+        mutable profile: darray[u8] = []
+        Report::begin_times(&profile, &names)
         mutable failures: i64 = 0
-        for path in inputs:
-            input: cstr = (&path[0]).cast[cstr]
-            target: darray[u8] = join(outdir, input, "".cast[cstr])
-            output: cstr = (&target[0]).cast[cstr]
-            mutable rig: RigOps::Summary = RigOps::empty_summary()
-            mutable found: Physics::Findings = Physics::empty_findings()
-            row: Report::Row = clean_take(input, output, preset, "".cast[cstr], &extra, &checks, &rig, &found, &bank)
-            failures <- failures + 1 if not row.ok
-            Report::row_detail(&html, input, row, detail_of(count_clips(input), &rig, &found))
-            Out::c_text(input)
-            Out::text(": ")
-            print_row(row)
-            print_rig(&rig)
-            print_physics(&found)
+        if jobs <= 1 or inputs.count < 2:
+            for path in inputs:
+                input: cstr = (&path[0]).cast[cstr]
+                failures <- failures + 1 if not take_row(input, outdir, preset, &extra, &checks, &bank, &html, &profile)
+        else:
+            # Workers clean takes into part files; the parent waits for a free
+            # slot before each fork, then replays the parts in input order.
+            mutable running: i64 = 0
+            for i in 0..<inputs.count |i, inputs, outdir, preset, extra, checks, bank, running, jobs, failures|:
+                if running >= jobs:
+                    failures <- failures + 1 if not Workers::wait_any()
+                    running <- running - 1
+                pid: i32 = Workers::spawn()
+                if pid == 0:
+                    mutable part_html: darray[u8] = []
+                    mutable part_time: darray[u8] = []
+                    out_path: darray[u8] = part_path(outdir, i, "txt")
+                    ok_redirect: bool = Workers::redirect_stdout((&out_path[0]).cast[cstr])
+                    input: cstr = (&inputs[i][0]).cast[cstr]
+                    ok: bool = take_row(input, outdir, preset, &extra, &checks, &bank, &part_html, &part_time)
+                    html_path: darray[u8] = part_path(outdir, i, "html")
+                    time_path: darray[u8] = part_path(outdir, i, "time")
+                    saved: bool = Report::save(&part_html, (&html_path[0]).cast[cstr]) and Report::save(&part_time, (&time_path[0]).cast[cstr])
+                    Workers::finish(0 if ok and ok_redirect and saved else 1)
+                if pid < 0:
+                    Out::line("error: cannot start a worker")
+                    return 1
+                running <- running + 1
+            while running > 0 |running, failures|:
+                failures <- failures + 1 if not Workers::wait_any()
+                running <- running - 1
+            for i in 0..<inputs.count |i, outdir, html, profile|:
+                text: darray[u8] = take_part(outdir, i, "txt")
+                for c in text:
+                    Out::byte(c)
+                rows: darray[u8] = take_part(outdir, i, "html")
+                for c in rows |html|:
+                    html.push(c)
+                timing: darray[u8] = take_part(outdir, i, "time")
+                for c in timing |profile|:
+                    profile.push(c)
         Report::finish(&html)
+        Report::finish_times(&html, &profile)
         report_path: darray[u8] = join(outdir, "".cast[cstr], "report.html".cast[cstr])
         if not Report::save(&html, (&report_path[0]).cast[cstr]):
             Out::line("error: cannot write report.html")

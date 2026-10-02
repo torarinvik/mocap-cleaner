@@ -279,3 +279,11 @@ gap below was worked around in our code.
   the budget with case-wise `x > MIN or result == MIN` ensures.
 - G64: `src/io/report_diff.elisa` (JSON scanner, file I/O) is unsupported
   like the other io modules; its verdicts go through the proved `Regress`.
+
+- G65 (Phase 6, `slide`): callee summaries are dropped when the callee's ensures
+  use `2*result`, disjunctions or parity, so state bounds directly. A
+  requires `x + c < y` fails where `x < y - c` proves; `result == frame +
+  reach` proves where `result - frame == reach` does not. Modulo laws over
+  sums and large bounds with division time out (`Slide::flip`, and
+  `SEARCH_MAX = 2001`). Finding line numbers refer to the concatenated
+  include unit, not the source file.

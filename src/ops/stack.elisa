@@ -3,6 +3,10 @@
 include "../tools/track.elisa"
 include "../core/stack_cache.elisa"
 
+# Process CPU clock (microseconds on macOS and Linux) for per-op profiling.
+@link_name("clock")
+extern s_clock() -> i64
+
 module Ops:
     public:
         enum Kind:
@@ -141,6 +145,15 @@ module Ops:
         # unchanged prefix and running only the ops after it. The output is
         # identical to `evaluate`.
         def evaluate_cached(ops: darray[Operation]&, bone: i64, source: darray[i64]&, looping: bool, cache: mutable Cache&) -> darray[i64]:
+            unused: mutable darray[i64] = []
+            return evaluate_timed(ops, bone, source, looping, cache, &unused, false)
+
+        # evaluate_cached that also adds each op's CPU time (clock units) to
+        # times[i] when `timed` (times grows to ops.count as needed). Timing
+        # never changes the result.
+        def evaluate_timed(ops: darray[Operation]&, bone: i64, source: darray[i64]&, looping: bool, cache: mutable Cache&, times: mutable darray[i64]&, timed: bool) -> darray[i64]:
+            while timed and times.count < ops.count |times|:
+                times.push(0)
             count: i64 = ops.count.i64()
             if count >= StackCache::MAX_OPS:
                 cache.keys.clear()
@@ -161,12 +174,14 @@ module Ops:
             reuse: i64 = StackCache::reusable(cached, prefix, count)
             current: mutable darray[i64] = copy(source)
             evaluated: mutable i64 = 0
-            for i in 0..<ops.count |i, ops, bone, looping, reuse, current, cache, evaluated, frames|:
+            for i in 0..<ops.count |i, ops, bone, looping, reuse, current, cache, evaluated, frames, times, timed|:
                 index: i64 = i.i64()
                 if StackCache::needs_eval(index, reuse):
                     if ops[i].enabled:
+                        start: i64 = s_clock() if timed else 0
                         current <- apply(ops[i], bone, current, looping)
                         evaluated <- evaluated + 1
+                        times[i] <- times[i] + s_clock() - start if timed
                     base: i64 = index * frames
                     for f in 0..<current.count |f, base, current, cache|:
                         at: i64 = base + f.i64()

@@ -1,0 +1,82 @@
+# Worker processes for `batch --jobs N` (POSIX fork/waitpid). A worker
+# sends its stdout to a part file, so the parent can print every take's
+# output in input order once the workers finish.
+@link_name("fork")
+extern w_fork() -> i32 can[Blocking.IO]
+@link_name("waitpid")
+extern w_waitpid(pid: i32, status: mutable i32&, options: i32) -> i32 can[Blocking.IO]
+@link_name("_exit")
+extern w_exit(code: i32) -> void can[Blocking.IO]
+@link_name("fflush")
+extern w_fflush(file: mutable heap void&?) -> i32 can[Blocking.IO]
+@link_name("fopen")
+extern w_fopen(path: u8&, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+@link_name("fileno")
+extern w_fileno(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("dup2")
+extern w_dup2(old_fd: i32, new_fd: i32) -> i32 can[Blocking.IO]
+@link_name("fgetc")
+extern w_fgetc(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("fclose")
+extern w_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
+@link_name("remove")
+extern w_remove(path: u8&) -> i32 can[Blocking.IO]
+
+module Workers:
+    public:
+        # Flush every stdio stream (before a fork, so buffers are not doubled,
+        # and before a worker exits).
+        def flush_all():
+            can Blocking.IO:
+                _ = w_fflush(null)
+
+        # Fork: 0 in the worker, the worker's pid in the parent, -1 on error.
+        def spawn() -> i32:
+            flush_all()
+            mutable pid: i32 = -1
+            can Blocking.IO:
+                pid <- w_fork()
+            return pid
+
+        # Wait for any worker; true when it exited with status 0.
+        def wait_any() -> bool:
+            mutable status: i32 = 1
+            mutable pid: i32 = -1
+            can Blocking.IO:
+                pid <- w_waitpid(-1, &status, 0)
+            return pid > 0 and status == 0
+
+        # End a worker with `code` after flushing its output.
+        def finish(code: i32):
+            flush_all()
+            can Blocking.IO:
+                w_exit(code)
+
+        # Send this process's stdout to `path` (created or truncated).
+        def redirect_stdout(path: cstr) -> bool:
+            mutable ok: bool = false
+            flush_all()
+            can Blocking.IO, Memory.Allocate:
+                file: mutable heap void&? = w_fopen(path.cast[u8&], "wb".cast[u8&])
+                if file != null:
+                    handle: mutable heap void& = file
+                    ok <- w_dup2(w_fileno(handle), 1) >= 0
+            return ok
+
+        # Bytes of the file at `path` (empty when it cannot be read).
+        def read_all(path: cstr) -> darray[u8]:
+            mutable out: darray[u8] = []
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                file: mutable heap void&? = w_fopen(path.cast[u8&], "rb".cast[u8&])
+                if file != null:
+                    handle: mutable heap void& = file
+                    mutable c: i32 = w_fgetc(handle)
+                    while c >= 0:
+                        out.push(c.u8())
+                        c <- w_fgetc(handle)
+                    _ = w_fclose(handle)
+            return out
+
+        def remove(path: cstr):
+            can Blocking.IO:
+                _ = w_remove(path.cast[u8&])

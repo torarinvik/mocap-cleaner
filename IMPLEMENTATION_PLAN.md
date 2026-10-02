@@ -259,8 +259,14 @@ and almost all of that is the prover.
       Status: done 2026-10-02. Verified headless only; the app compiles but was not run on screen. Knee-pop gate is tolerant, an open trade-off in `docs/foot-workflow.md`.
 
 **Kernels and batch (throughput).**
-- [ ] Profile the CLI on the boxing clips; publish a per-op time table in
+- [x] Profile the CLI on the boxing clips; publish a per-op time table in
       the report.
+      Status: `Ops::evaluate_timed` / `GlbTracks::clean_animation_timed`
+      time each op (CPU µs); `clean --report` adds `"time_us"` (load, tracks,
+      rig, physics, save, then each op) and batch `report.html` gets a "Time
+      per stage" table. Dual-stance take: load ~650 ms, tracks ~440 ms
+      (median ~105, smooth ~140, despike ~77 ms), physics ~920 ms, save
+      ~20 ms, rig <1 ms. GLB output unchanged.
 - [x] Running median in O(log w) per sample (two heaps or an order-statistic
       window) instead of re-sorting each window.
       Status: `Track::median` keeps one sorted window and slides it (binary
@@ -279,10 +285,19 @@ and almost all of that is the prover.
       A precomputed wide Gaussian kernel was skipped: the repeated 1-2-1
       passes floor-divide each pass and reflect oddly at the edges, so a
       single kernel would not stay byte-identical.
-- [ ] Batch: process files in parallel worker processes (`--jobs N`), and
+- [x] Batch: process files in parallel worker processes (`--jobs N`), and
       parse the GLB once per file for all ops.
+      Status: `src/io/workers.elisa` (fork/waitpid); each worker writes its
+      stdout, HTML row and times to part files the parent replays in input
+      order, so stdout and report match `--jobs 1`. Each take is loaded once
+      (the clip count comes from that load). 6 boxing takes, 10-core Mac:
+      before 17.0-23.3 s, `--jobs 1` 10.4-10.7 s, `--jobs 4` 2.9-3.2 s,
+      `--jobs 8` 3.1 s; all GLBs byte-identical.
 - [ ] Structure-of-arrays tracks (contiguous per-channel floats) so the
       filters stream through memory.
+      Status: skipped. The profile shows the filters are ~15% of a take
+      (tracks ~440 ms of ~2 s) and are not memory-bound after the sliding
+      median; load and physics dominate, so SoA would not pay for the churn.
 
 **Product (non-performance, high ROI).**
 - [x] Hand contacts (planted hands on ropes and floor) reuse the foot

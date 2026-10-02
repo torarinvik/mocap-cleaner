@@ -34,5 +34,10 @@ It builds and runs every test, then runs elisa-proof on every source and proof f
 
 ```
 mocap-cleaner clean in.glb --preset boxing -o out.glb --report r.json [--op balance|ballistic|momentum|...]
-mocap-cleaner batch OUTDIR [--preset P] [--op ...] IN.glb|FOLDER...   # writes OUTDIR/report.html
+mocap-cleaner batch OUTDIR [--preset P] [--op ...] [--jobs N] IN.glb|FOLDER...   # writes OUTDIR/report.html
 ```
+
+`--jobs N` cleans up to N takes at once in worker processes (output order
+and report are the same as `--jobs 1`; 6 boxing takes: ~10.5 s serial,
+~3 s with `--jobs 4`). Reports include CPU time per stage and per op
+(`"time_us"` in JSON, a table in `report.html`).
