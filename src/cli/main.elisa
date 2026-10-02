@@ -4,7 +4,7 @@
 #       [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]...
 #       [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES[:FRAME:DEGREES...]]...
 #       [--contact FOOT:FIRST:LAST:on|off]... [--hand-contact HAND:FIRST:LAST:on|off]...
-#       [--ops FILE]... [--save-ops FILE]
+#       [--retime FIRST:LAST:SPEED[:BLEND]]... [--ops FILE]... [--save-ops FILE]
 #   mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP]... [--jobs N] <in.glb|folder>...
 #   mocap-cleaner diff <a.json> <b.json> [--tolerance PERCENT] [--floor N] [--html out.html]
 # OP: twist|pole|pelvis|lock|pivot|hands (rig fixes; hands is opt-in), balance (centre-of-mass check),
@@ -12,7 +12,9 @@
 #     angular-acceleration spikes).
 # --pin takes a hand, a foot or the head. --contact hand-edits a foot's
 # contact track (FOOT is LeftFoot, RightFoot or all); --hand-contact marks
-# a planted hand (HAND is LeftHand or RightHand) for --op hands. --ops appends the
+# a planted hand (HAND is LeftHand or RightHand) for --op hands. --retime plays source
+# frames FIRST..LAST at SPEED (0.1 to 4, eased over BLEND frames, default 4);
+# it runs last and changes the clip's length. --ops appends the
 # operations of an ops file; --save-ops writes the user stack (every --op,
 # --pin, --offset, --keyed, --contact and --ops operation) to FILE.
 # ROLE is a bare joint name in any supported naming (LeftHand, LeftFoot,
@@ -32,6 +34,7 @@ include "../io/ops_file.elisa"
 include "../physics/rig_physics.elisa"
 include "../io/report_diff.elisa"
 include "../io/workers.elisa"
+include "../ops/retime_apply.elisa"
 
 def same(arg: cstr, text: cstr) -> bool:
     mutable i: usize = 0
@@ -120,6 +123,11 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, e
         t2: i64 = s_clock()
         clip_found: Physics::Findings = Physics::run(&doc, a, phys)
         Physics::add(found, &clip_found)
+        # Retime runs last, on the finished pose.
+        mutable timed: RetimeApply::Report = RetimeApply::empty_report()
+        retimed: GlbDocument::Document = RetimeApply::apply(&doc, a, &rig_ops, &timed)
+        doc <- move retimed
+        print_retime(&timed)
         t3: i64 = s_clock()
         times[TIME_TRACKS] <- times[TIME_TRACKS] + t1 - t0
         times[TIME_RIG] <- times[TIME_RIG] + t2 - t1
@@ -144,6 +152,18 @@ def time_names(preset: Presets::Preset) -> darray[sview]:
     for op in Presets::operations(preset) |names|:
         names.push(op_name(op.kind))
     return names
+
+def print_retime(r: RetimeApply::Report&):
+    return if r.ranges.count == 0
+    Out::field("retime frames before: ", r.frames_before)
+    Out::field("retime frames after: ", r.frames_after)
+    Out::field("retime status: ", r.status)
+    for g in r.ranges:
+        Out::field("retime range first: ", g.first)
+        Out::field("  last: ", g.last)
+        Out::field("  speed permille: ", g.speed)
+        Out::field("  source frames: ", g.source_frames)
+        Out::field("  output frames: ", g.output_frames)
 
 def add_summary(total: mutable RigOps::Summary&, s: RigOps::Summary):
     total.ops <- total.ops + s.ops
@@ -388,6 +408,21 @@ def bytes_are(bytes: darray[u8]&, text: sview) -> bool:
         return false if t[k] != bytes[k]
     return true
 
+# --retime FIRST:LAST:SPEED[:BLEND] (SPEED as a decimal, 0.5 = half speed)
+def parse_retime(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+    f: darray[darray[u8]] = split_fields(text)
+    bad: RigOps::RigOp = RigOps::retime(0, 0, 1000, 0)
+    return (false, bad) if f.count < 3 or f.count > 4
+    first: (ok: bool, value: i64) = parse_scaled(&f[0], 1)
+    last: (ok: bool, value: i64) = parse_scaled(&f[1], 1)
+    speed: (ok: bool, value: i64) = parse_scaled(&f[2], 1000)
+    mutable blend: (ok: bool, value: i64) = (true, Retime::DEFAULT_BLEND)
+    blend <- parse_scaled(&f[3], 1) if f.count == 4
+    return (false, bad) if not first.ok or not last.ok or not speed.ok or not blend.ok
+    return (false, bad) if first.value < 0 or last.value <= first.value or blend.value < 0
+    return (false, bad) if not Retime::speed_ok(speed.value)
+    return (true, RigOps::retime(first.value, last.value, speed.value, blend.value))
+
 # --contact FOOT:FIRST:LAST:on|off
 def parse_contact(text: cstr) -> (ok: bool, op: RigOps::RigOp):
     f: darray[darray[u8]] = split_fields(text)
@@ -463,6 +498,7 @@ def usage() -> i64:
     Out::line("           [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]")
     Out::line("           [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES...]")
     Out::line("           [--contact FOOT:FIRST:LAST:on|off] [--hand-contact HAND:FIRST:LAST:on|off]")
+    Out::line("           [--retime FIRST:LAST:SPEED[:BLEND]]")
     Out::line("           [--ops FILE] [--save-ops FILE]")
     Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP] [--jobs N] <in.glb|folder>...")
     Out::line("       mocap-cleaner diff <a.json> <b.json> [--tolerance PERCENT] [--floor N] [--html out.html]")
@@ -625,6 +661,10 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 extra.push(parsed.op)
             elif same(flag, "--hand-contact".cast[cstr]):
                 parsed: (ok: bool, op: RigOps::RigOp) = parse_hand_contact(value)
+                return usage() if not parsed.ok
+                extra.push(parsed.op)
+            elif same(flag, "--retime".cast[cstr]):
+                parsed: (ok: bool, op: RigOps::RigOp) = parse_retime(value)
                 return usage() if not parsed.ok
                 extra.push(parsed.op)
             elif same(flag, "--ops".cast[cstr]):

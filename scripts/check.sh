@@ -37,6 +37,10 @@ if ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1; then
         cmp -s build/cli-test/out.glb build/cli-test/hands.glb || rc=9
         build/mocap-cleaner diff build/cli-test/r.json build/cli-test/h.json --html build/cli-test/diff.html >/dev/null || rc=8
         echo "cli   hands + diff: rc=$rc"; [ $rc -eq 0 ] || status=1
+        build/mocap-cleaner clean "$boxer" --preset raw --anim jab --retime 10:40:0.5 --save-ops build/cli-test/rt.ops -o build/cli-test/rt.glb >build/cli-test/rt.txt; rc=$?
+        grep -q "^9 1 10 40 " build/cli-test/rt.ops 2>/dev/null || rc=9
+        grep -q "retime frames after: 123" build/cli-test/rt.txt || rc=8
+        echo "cli   clean --retime: rc=$rc"; [ $rc -eq 0 ] || status=1
     fi
 else
     echo "cli   BUILD FAILED (build/test/cli.log)"; status=1
