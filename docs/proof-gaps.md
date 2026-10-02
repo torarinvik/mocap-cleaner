@@ -287,3 +287,9 @@ gap below was worked around in our code.
   sums and large bounds with division time out (`Slide::flip`, and
   `SEARCH_MAX = 2001`). Finding line numbers refer to the concatenated
   include unit, not the source file.
+
+- G66: file chords were first one two-argument kernel (`file_chord(mask, letter)`);
+  its per-case laws timed out, so the chords are three one-argument kernels
+  (`o_chord`, `s_chord`, `e_chord`). A disjunctive ensure such as
+  `(mask != 1 and mask != 3) or ...` also failed and is split into two
+  ensures (G13). `load_take` and the panel calls are app driver code (G58).

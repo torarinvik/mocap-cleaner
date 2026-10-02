@@ -9,6 +9,7 @@
 # is moved into the global whole.
 include "../../../../elisa-ui/src/platform/appkit/ui_appkit_canvas_flat.elisa"
 include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
+include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 include "scene.elisa"
 include "panels.elisa"
 include "../shortcuts.elisa"
@@ -40,6 +41,12 @@ module Studio:
         global mutable readout_angle: i64 = -1
         global mutable readout_mm: i64 = -1
         global mutable nudged_row: i64 = -1
+        # File the status line names (appended after `status`), or null.
+        global mutable status_file: cstr? = null
+        # Where Cmd-S saves the session and E exports; Save As / Export As
+        # (native panels) change them.
+        global mutable session_path: cstr = "build/studio_session.txt"
+        global mutable export_path: cstr = "build/studio_export.glb"
         # Chrome: the "?" sheet, whether the take failed to load, and the
         # toolbar button under the pointer (for its tooltip).
         global mutable help_open: bool = false
@@ -209,6 +216,7 @@ module Studio:
             if result == null:
                 status <- "clip failed to load"
                 nudged_row <- -1
+                status_file <- null
                 load_failed <- true
                 return
             load_failed <- false
@@ -232,6 +240,7 @@ module Studio:
                     rebuild()
                     status <- "undo"
                     nudged_row <- -1
+                    status_file <- null
 
         def redo() -> void:
             if history_ready:
@@ -239,6 +248,7 @@ module Studio:
                     rebuild()
                     status <- "redo"
                     nudged_row <- -1
+                    status_file <- null
 
         # ---- foot cleanup ------------------------------------------------
         # Readout transition progress (StudioFoot::FULL when settled).
@@ -259,6 +269,7 @@ module Studio:
                 commit(s, true)
                 status <- "feet fixed" if s.feet else "feet off"
                 nudged_row <- -1
+                status_file <- null
 
         # , and .: shorter or longer carry blend.
         def nudge_blend(up: bool) -> void:
@@ -287,6 +298,7 @@ module Studio:
                             put_view(i, vp)
                 status <- "worst slide"
                 nudged_row <- -1
+                status_file <- null
                 touch()
 
         # A press on a contact row; true when it was one.
@@ -310,6 +322,7 @@ module Studio:
                 commit(s, true)
                 status <- "contact edited"
                 nudged_row <- -1
+                status_file <- null
 
         def set_timeline(t: TimelineState::State) -> void:
             timeline <- t
@@ -350,6 +363,7 @@ module Studio:
                 commit(s, true)
                 status <- "operation added"
                 nudged_row <- -1
+                status_file <- null
 
         def edit_selected(kind: i64, amount: i64) -> void:
             mutable s: StackState::Stack = current_stack()
@@ -401,34 +415,120 @@ module Studio:
                 gain_spikes <- gain(c.spikes_before, c.spikes_after)
             status <- "cleaned with boxing preset (Cmd-Z to undo)"
             nudged_row <- -1
+            status_file <- null
             touch()
 
         def gain(before: i64, after: i64) -> i64:
             return 0 if before < 0 or after < 0 or before > StudioChrome::CHROME_SIZE or after > StudioChrome::CHROME_SIZE
             StudioChrome::clean_gain(before, after)
 
-        def save_session() -> void:
-            ok: bool = SessionState::save_session(current_stack(), SESSION_PATH)
-            status <- "session saved to build/studio_session.txt" if ok else "session save failed"
+        # Status line naming a file: "<s> <file name>".
+        def say_file(s: sview, file: cstr) -> void:
+            status <- s
             nudged_row <- -1
+            status_file <- file
+
+        def save_session() -> void:
+            ok: bool = SessionState::save_session(current_stack(), session_path)
+            if ok:
+                say_file("session saved to", session_path)
+                FilePanel::note_recent(session_path)
+            else:
+                say_file("could not save the session to", session_path)
             touch()
 
         def load_session() -> void:
-            if SessionState::load_session(SESSION_PATH, frames(), node_total()) is loaded:
+            if SessionState::load_session(session_path, frames(), node_total()) is loaded:
                 commit(loaded, true)
-                status <- "session loaded (Cmd-Z to undo)"
-                nudged_row <- -1
+                say_file("session loaded (Cmd-Z to undo) from", session_path)
+                FilePanel::note_recent(session_path)
             else:
-                status <- "no saved session at build/studio_session.txt"
-                nudged_row <- -1
+                say_file("no readable session at", session_path)
             touch()
 
         def export_clip() -> void:
             if clip is c:
-                status <- "exported build/studio_export.glb" if StudioModel::save_cleaned(c, EXPORT_PATH) else "export failed"
-                nudged_row <- -1
-                _ = puts(EXPORT_PATH)
+                if StudioModel::save_cleaned(c, export_path):
+                    say_file("exported", export_path)
+                    FilePanel::note_recent(export_path)
+                else:
+                    say_file("export failed for", export_path)
+                _ = puts(export_path)
                 touch()
+
+        # ---- native file panels (modal) --------------------------------
+        def save_session_as() -> void:
+            if FilePanel::save("txt", session_path, "Save the operation stack and contacts as a session") is chosen:
+                session_path <- chosen
+                save_session()
+
+        def open_session() -> void:
+            if FilePanel::open("txt", "Open a saved session for this take") is chosen:
+                session_path <- chosen
+                load_session()
+
+        def export_as() -> void:
+            return if clip == null
+            if FilePanel::save("glb", export_path, "Export the cleaned take") is chosen:
+                export_path <- chosen
+                export_clip()
+
+        def open_take() -> void:
+            if FilePanel::open("glb", "Open a motion-capture take") is chosen:
+                load_take(chosen)
+
+        # Swap in another take. The file is read first; if it holds no
+        # usable animation the current take stays untouched. Otherwise every
+        # per-take cache, the playhead, the gizmo and the undo history start
+        # fresh (undo never reaches back into a different take).
+        def load_take(p: cstr) -> void:
+            fresh: StudioModel::Memo? = StudioModel::load(p, anim_name)
+            if fresh == null:
+                say_file("no animation could be read from", p)
+                touch()
+                return
+            path <- p
+            memo <- fresh
+            clip <- null
+            built_stack <- null
+            built <- built + 1
+            curve_memo <- zeroed
+            base_frame <- -1
+            base_built <- -1
+            skinned <- null
+            skinned_frame <- -1
+            skinned_revision <- -1
+            mesh <- null
+            loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
+                value: value
+                error failure: GlbSkinMesh::empty()
+            if GlbSkinMesh::vertex_count(&loaded) > 0:
+                mesh <- loaded
+            gizmo_drag <- null
+            gizmo_goal <- null
+            gizmo_view <- -1
+            readout_angle <- -1
+            readout_mm <- -1
+            gain_slide <- -1
+            gain_spikes <- -1
+            drag_view <- -1
+            drag_button <- -1
+            scrubbing <- false
+            foot_press <- FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
+            hover_row <- -1
+            drawn_frame <- -1
+            HistoryState::reset(&history, StudioModel::initial_stack())
+            history_ready <- true
+            rebuild()
+            if clip is c:
+                timeline <- TimelineState::create(c.frames)
+                bone <- StudioModel::default_bone(c)
+                framed <- false
+                say_file("opened (undo history starts fresh)", path)
+                FilePanel::note_recent(path)
+            else:
+                timeline <- TimelineState::create(1)
+            touch()
 
         # ---- views -----------------------------------------------------
         def frame_all() -> void:
@@ -539,6 +639,7 @@ module Studio:
             if view0 == null:
                 status <- "no Metal device"
                 nudged_row <- -1
+                status_file <- null
             last_time <- UiAppKitCanvas::monotonic_time()
 
         def advance() -> void:
@@ -643,6 +744,12 @@ module Studio:
                 StudioText::put(": ")
                 StudioPanels::param_put(op)
                 return StudioText::view()
+            if status_file is file:
+                StudioText::begin()
+                StudioText::put(status)
+                StudioText::put(" ")
+                StudioPanels::file_name_put(file)
+                return StudioText::view()
             return status
 
         def camera_input(i: i64, dx: f32, dy: f32) -> void:
@@ -676,6 +783,7 @@ module Studio:
                         bone <- hit
                         status <- "bone selected"
                         nudged_row <- -1
+                        status_file <- null
                         touch()
 
         def toolbar_action(a: i64) -> void:
@@ -709,6 +817,7 @@ module Studio:
                 toggle_flag(StudioScene::MESH)
                 status <- ("mesh on" if StudioScene::on(flags, StudioScene::MESH) else "mesh off") if mesh != null else "mesh: no skinned mesh in this file"
                 nudged_row <- -1
+                status_file <- null
             elif a == StudioPanels::A_FRAME:
                 frame_all()
             elif a == StudioPanels::A_EXPORT:
@@ -718,6 +827,7 @@ module Studio:
                 if clip is c:
                     status <- StudioText::number("balance impossible frames: ", c.impossible_frames)
                     nudged_row <- -1
+                    status_file <- null
 
         def pointer_down(x: f32, y: f32, button: i32) -> void:
             w: f32 = UiCore::viewport_width()
@@ -801,6 +911,7 @@ module Studio:
             gizmo_drag <- null
             status <- ("gizmo: rotate (drag a ring)" if gizmo_mode == GizmoPolicy::ROTATE else "gizmo: translate (drag an arrow)") if gizmo_mode >= 0 else "gizmo off"
             nudged_row <- -1
+            status_file <- null
             touch()
 
         # Pixel of window point (x, y) in view `i`.
@@ -831,6 +942,7 @@ module Studio:
                     gizmo_view <- i
                     status <- "gizmo drag"
                     nudged_row <- -1
+                    status_file <- null
                     touch()
                     return true
             false
@@ -864,9 +976,11 @@ module Studio:
                             commit(s, true)
                             status <- "correction keyed"
                             nudged_row <- -1
+                            status_file <- null
                         else:
                             status <- "corrections full (16)"
                             nudged_row <- -1
+                            status_file <- null
             gizmo_drag <- null
             gizmo_goal <- null
             readout_angle <- -1
@@ -881,6 +995,7 @@ module Studio:
             gizmo_goal <- null
             status <- "gizmo drag cancelled"
             nudged_row <- -1
+            status_file <- null
             touch()
 
         # Escape peels one layer: the sheet, a drag, a contact press, the
@@ -896,12 +1011,14 @@ module Studio:
                 foot_press <- FootState::idle()
                 status <- "contact edit cancelled"
                 nudged_row <- -1
+                status_file <- null
             elif layer == StudioChrome::ESC_GIZMO:
                 set_gizmo(gizmo_mode)
             elif layer == StudioChrome::ESC_SELECT:
                 select_row(-1)
                 status <- "selection cleared"
                 nudged_row <- -1
+                status_file <- null
             touch()
 
         def key(code: UiCore::Key) -> void:
@@ -945,6 +1062,7 @@ module Studio:
                 curve_mode <- StudioOverlay::next_mode(curve_mode)
                 status <- "curves: position" if curve_mode == StudioOverlay::POSITION else "curves: rotation"
                 nudged_row <- -1
+                status_file <- null
                 touch()
             elif code == UiCore::Key.K:
                 toggle_feet()
@@ -960,6 +1078,7 @@ module Studio:
                 perf_overlay <- not perf_overlay
                 status <- "frame times on" if perf_overlay else "frame times off"
                 nudged_row <- -1
+                status_file <- null
                 touch()
             elif code == UiCore::Key.F:
                 frame_all()
@@ -1015,11 +1134,20 @@ module Studio:
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
             command: bool = StudioShortcuts::command(modifiers)
-            if command and code == UiCore::Key.S:
-                save_session()
-                return
-            if command and code == UiCore::Key.O:
-                load_session()
+            mutable file: i64 = StudioShortcuts::FILE_NONE
+            if code == UiCore::Key.O:
+                file <- StudioShortcuts::o_chord(modifiers)
+            elif code == UiCore::Key.S:
+                file <- StudioShortcuts::s_chord(modifiers)
+            elif code == UiCore::Key.E:
+                file <- StudioShortcuts::e_chord(modifiers)
+            if file != StudioShortcuts::FILE_NONE:
+                modifiers <- 0
+                open_take() if file == StudioShortcuts::OPEN_TAKE
+                open_session() if file == StudioShortcuts::OPEN_SESSION
+                save_session() if file == StudioShortcuts::SAVE
+                save_session_as() if file == StudioShortcuts::SAVE_AS
+                export_as() if file == StudioShortcuts::EXPORT_AS
                 return
             if code == UiCore::Key.Slash and not command:
                 help_open <- StudioChrome::help_after(help_open, true, false)

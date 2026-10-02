@@ -240,11 +240,13 @@ and almost all of that is the prover.
 - [x] `?` shortcut sheet; toolbar tooltips with shortcuts.
 - [x] First-run and load-failure screens; status bar (frame, time, fps,
       selection, last clean gain).
-- [x] Session save/load (Cmd-S / Cmd-O, ops + contact edits), undoable.
+- [x] Session save/load (Cmd-S / Cmd-Shift-O, ops + contact edits), undoable.
 - [x] Session version 2 saves gizmo corrections; version 1 files still load.
 - [x] One-click clean with the boxing preset (A / Auto) with before/after
       slide and spike reduction.
-- [ ] Native file-open dialog (needs an engine/ui bridge).
+- [x] Native open/save panels (engine `FilePanel`): Cmd-O take, Cmd-Shift-O session,
+      Cmd-Shift-S save as, Cmd-E export as; take swap resets caches and history.
+- [ ] Drag-and-drop a take onto the window (needs an elisa-ui AppKit drop target).
 - [x] Toolbar icons: vendored Lucide (ISC) plus custom mocap SVGs,
       flattened to strokes by `tools/svg_icons.py` (`test/studio_icons`).
 - [x] Units and readable names on strength/edge controls.

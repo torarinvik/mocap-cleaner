@@ -34,13 +34,14 @@ python3 "$ROOT/tools/svg_icons.py" "$OUT/generated/studio_icon_paths.elisa"
 
 clang -c -fobjc-arc -O2 -o "$OUT/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
 clang -c -fobjc-arc -O2 -o "$OUT/studio_viewport_metal.o" "$ENGINE/native/viewport_metal.m"
+clang -c -fobjc-arc -O2 -o "$OUT/studio_file_panel.o" "$ENGINE/native/file_panel_appkit.m"
 clang++ -c -std=c++17 -O2 -o "$OUT/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
 bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$OUT/studio_main.o" "$ROOT/src/studio/app/main.elisa"
 clang -o "$OUT/mocap_studio" \
-  "$OUT/studio_main.o" "$OUT/studio_canvas_shim.o" "$OUT/studio_viewport_metal.o" \
+  "$OUT/studio_main.o" "$OUT/studio_canvas_shim.o" "$OUT/studio_viewport_metal.o" "$OUT/studio_file_panel.o" \
   "$OUT/studio_native_fallbacks.o" "$RUNTIME" \
   -framework Cocoa -framework CoreText -framework CoreGraphics -framework ImageIO \
-  -framework QuartzCore -framework IOSurface -framework Metal
+  -framework QuartzCore -framework IOSurface -framework Metal -framework UniformTypeIdentifiers
 echo "built $OUT/mocap_studio"
 
 [[ "${STUDIO_SKIP_CHECKS:-0}" == "1" ]] && exit 0
