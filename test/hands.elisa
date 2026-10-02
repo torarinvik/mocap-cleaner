@@ -1,0 +1,71 @@
+include "../src/io/ops_file.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def world_of(c: Rig::Clip&, frame: i64, node: i64) -> MotionQuat::V:
+    mutable w: Rig::World = Rig::empty_world()
+    Rig::solve_world(c, frame, &w)
+    return w.pos[node.usize()]
+
+def main() -> i32:
+    # Synthetic planted hand: a wrist far above the plane and moving, then
+    # resting on it (frames 10..29), then lifted; a 3-frame brush at 40..42.
+    mutable planted: bool = false
+    mutable flags: darray[bool] = []
+    for i in 0..<60 |flags|:
+        resting: bool = (i >= 10 and i < 30) or (i >= 40 and i < 43)
+        height: i64 = 20000 if resting else 400000
+        speed: i64 = 10000 if resting else 900000
+        planted <- Hand::step(planted, height, speed, 100000, 140000, 250000)
+        flags.push(planted)
+    for i in 0..<60 |flags|:
+        want: bool = (i >= 10 and i < 30) or (i >= 40 and i < 43)
+        return 1 if flags[i] != want
+    # Short-run drop keeps the long plant and removes the brush.
+    return 2 if not Hand::kept_flag(true, 20, Hand::HAND_MIN_RUN)
+    return 3 if Hand::kept_flag(true, 3, Hand::HAND_MIN_RUN)
+
+    # Ops file round trip of a hand lock and a hand edit.
+    ops: darray[RigOps::RigOp] = [RigOps::hand_lock(4), RigOps::contact_edit(Roles::RIGHT_HAND, 5, 9, true)]
+    text: darray[u8] = OpsFile::encode(&ops)
+    mutable back: darray[RigOps::RigOp] = []
+    return 4 if not OpsFile::decode(&text, &back)
+    return 5 if back.count != 2 or back[0].kind != RigOps::RigKind.HandLock or back[0].edge != 4
+    return 6 if back[1].kind != RigOps::RigKind.ContactEdit or back[1].role != Roles::RIGHT_HAND or back[1].amount != 1
+
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    mutable doc: GlbDocument::Document = load_or_empty(path)
+    for a in 0..<GlbDocument::animation_count(&doc):
+        # Boxing clips: no hand is ever detected planted, nothing changes.
+        mutable c: Rig::Clip = Rig::load(&doc, a)
+        none: darray[RigOps::RigOp] = []
+        for side in 0..<2:
+            found: darray[bool] = RigOps::hand_contacts(&c, side.i64(), &none)
+            for f in found:
+                return 10 if f
+        lock: darray[RigOps::RigOp] = [RigOps::hand_lock(4)]
+        s: RigOps::Summary = RigOps::run_clip(&c, &lock, 20000)
+        return 11 if s.changed != 0 or s.hand_before != 0 or s.hand_after != 0
+
+    # A marked span holds the left wrist: its slide shrinks.
+    anim: i64 = GlbDocument::find_animation(&doc, "jab")
+    return 12 if anim < 0
+    mutable j: Rig::Clip = Rig::load(&doc, anim.usize())
+    hand: i64 = Rig::node_of(&j, Roles::LEFT_HAND)
+    mutable marked: darray[RigOps::RigOp] = [RigOps::hand_lock(4), RigOps::contact_edit(Roles::LEFT_HAND, 20, 50, true)]
+    before: f64 = Rig::vlen(Rig::vsub(world_of(&j, 40, hand), world_of(&j, 28, hand)))
+    sm: RigOps::Summary = RigOps::run_clip(&j, &marked, 20000)
+    return 13 if sm.hand_before <= 0 or sm.hand_after >= sm.hand_before
+    after: f64 = Rig::vlen(Rig::vsub(world_of(&j, 40, hand), world_of(&j, 28, hand)))
+    return 14 if before > 0.002 and after > before * 0.2 + 0.001
+    return 0

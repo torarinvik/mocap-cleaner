@@ -262,11 +262,27 @@ and almost all of that is the prover.
       filters stream through memory.
 
 **Product (non-performance, high ROI).**
-- [ ] Hand contacts (planted hands on ropes and floor) reuse the foot
+- [x] Hand contacts (planted hands on ropes and floor) reuse the foot
       contact pipeline.
+      Status: done 2026-10-02. Opt-in `--op hands` (`HandLock`, ops-file kind 8) and
+      `--hand-contact HAND:FIRST:LAST:on|off`. Wrist height above the floor plane (lowest
+      foot point) plus speed, with Footing-style hysteresis, short-run drop, hold/ease and an
+      arm IK re-solve with knee-style elbow speed limit. Kernel `src/core/hand.elisa` and
+      `proof/hand_laws.elisa` are proved. `test/hands.elisa` covers a synthetic planted hand,
+      the ops-file round trip, zero detections on every boxer clip, and a held marked span.
+      `check.sh` confirms `--op hands` leaves the boxer byte-identical. Detection uses only
+      the floor plane; rope and wall planes come from user-marked spans.
+      Follow-up: studio integration (toggle, hand contact bars, hand slide readout).
 - [ ] One-click "Fix all" in the studio: apply the preset, then show
       before/after metrics per detector.
-- [ ] Report diff between two runs (regression check for preset changes).
+- [x] Report diff between two runs (regression check for preset changes).
+      Status: done 2026-10-02. `mocap-cleaner diff a.json b.json [--tolerance PCT] [--floor N]
+      [--html out.html]` compares lower-is-better metrics (`*_after`, `*_after_um`,
+      `unbalanced_*`) and `ok` per clip. The default clip is `total`, and named entries come from
+      a `clips` array. Exit codes: 0 clean, 1 regression, 2 unreadable input. Kernel
+      `src/core/regress.elisa` and `proof/regress_laws.elisa` are proved, and
+      `test/report_diff.elisa` covers it.
+      Follow-up: per-clip JSON in `clean --report` (today the report holds one total).
 
 ## Proofs (elisa-proof)
 

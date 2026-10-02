@@ -1,0 +1,107 @@
+# Hand-contact kernels. A planted hand (on the ropes, the floor or a wall)
+# reuses the foot contact pipeline: a hysteresis step on its height above a
+# plane and its speed, short runs dropped so a guard passing near the plane
+# never plants, user spans that name one hand exactly, and the elbow speed
+# budget of the knee kernel for the arm re-solve.
+include "../detect/contact.elisa"
+include "knee.elisa"
+
+module Hand:
+    public:
+        const HAND_BOUND: i64 = 500000000
+        const HAND_MIN_RUN: i64 = 6
+        const HAND_LEFT: i64 = 9
+        const HAND_RIGHT: i64 = 13
+
+        # Height of a point above a plane, never negative.
+        def plane_height(point: i64, plane: i64) -> i64:
+            requires point >= 0 - HAND_BOUND
+            requires point <= HAND_BOUND
+            requires plane >= 0 - HAND_BOUND
+            requires plane <= HAND_BOUND
+            ensure result >= 0
+            ensure point < plane or result == point - plane
+            ensure point > plane or result == 0
+            return 0 if point <= plane
+            return point - plane
+
+        # Hand thresholds are usable: enter below leave, all bounded.
+        def thresholds_ok(enter: i64, leave: i64, speed: i64) -> bool:
+            ensure not result or enter <= leave
+            ensure not result or enter >= 0
+            ensure not result or speed >= 0
+            return Contact::valid_thresholds(enter, leave, speed)
+
+        # One detection step of a hand: exactly the foot hysteresis step.
+        def step(planted: bool, height: i64, speed: i64, enter: i64, leave: i64, max_speed: i64) -> bool:
+            requires enter <= leave
+            ensure not result or height <= leave
+            ensure not result or speed <= max_speed
+            ensure planted or not result or height <= enter
+            ensure not planted or height > leave or speed > max_speed or result
+            ensure planted or height > enter or speed > max_speed or result
+            return Contact::step(planted, height, speed, enter, leave, max_speed)
+
+        # A detected run is kept only when it lasts `min_frames` or more.
+        def run_kept(length: i64, min_frames: i64) -> bool:
+            requires length >= 0
+            requires min_frames >= 1
+            ensure not result or length >= min_frames
+            ensure length < min_frames or result
+            return length >= min_frames
+
+        # A frame's flag after short runs are dropped: never plants a frame
+        # that detection left free.
+        def kept_flag(detected: bool, length: i64, min_frames: i64) -> bool:
+            requires length >= 0
+            requires min_frames >= 1
+            ensure detected or not result
+            ensure not result or length >= min_frames
+            ensure not detected or length < min_frames or result
+            return false if not detected
+            return run_kept(length, min_frames)
+
+        # Is `role` a hand role?
+        def is_hand(role: i64) -> bool:
+            ensure not result or role >= 0
+            ensure role != HAND_LEFT or result
+            ensure role != HAND_RIGHT or result
+            return true if role == HAND_LEFT
+            return role == HAND_RIGHT
+
+        # A contact edit applies to a hand only when it names that hand:
+        # "all" (negative) and foot edits never move a hand.
+        def edit_applies(op_role: i64, hand: i64) -> bool:
+            ensure not result or op_role == hand
+            ensure not result or op_role >= 0
+            ensure op_role != HAND_LEFT or hand != HAND_LEFT or result
+            ensure op_role != HAND_RIGHT or hand != HAND_RIGHT or result
+            return false if op_role != hand
+            return true if hand == HAND_LEFT
+            return hand == HAND_RIGHT
+
+        # Elbow speed budget from the source elbow's fastest frame step (the
+        # same rule as Knee::speed_budget, stated with case-wise ensures).
+        def elbow_budget(fastest: i64) -> i64:
+            requires fastest >= 0
+            requires fastest <= Knee::BOUND
+            ensure result >= Knee::MIN_SPEED
+            ensure result >= fastest
+            ensure fastest > Knee::MIN_SPEED or result == Knee::MIN_SPEED
+            ensure fastest <= Knee::MIN_SPEED or result == fastest
+            return fastest if fastest > Knee::MIN_SPEED
+            return Knee::MIN_SPEED
+
+        # A free elbow frame's deviation, moved at most `room` from the
+        # previous frame's.
+        def elbow_follow(previous: i64, want: i64, room: i64) -> i64:
+            requires room >= 0
+            requires room <= Knee::BOUND
+            requires previous >= 0 - Knee::BOUND
+            requires previous <= Knee::BOUND
+            requires want >= 0 - Knee::BOUND
+            requires want <= Knee::BOUND
+            ensure result <= previous + room
+            ensure result + room >= previous
+            ensure want > previous + room or want + room < previous or result == want
+            return Knee::follow(previous, want, room)

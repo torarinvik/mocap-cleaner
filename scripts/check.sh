@@ -30,6 +30,11 @@ if ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1; then
         build/mocap-cleaner batch build/cli-test/out build/cli-test/in >/dev/null; rc=$?
         grep -q "black-boxer.glb" build/cli-test/out/report.html 2>/dev/null || rc=9
         echo "cli   batch folder: rc=$rc"; [ $rc -eq 0 ] || status=1
+        # --op hands finds no planted hand on the boxer: output is byte-identical.
+        build/mocap-cleaner clean "$boxer" --preset boxing --op hands -o build/cli-test/hands.glb --report build/cli-test/h.json >/dev/null; rc=$?
+        cmp -s build/cli-test/out.glb build/cli-test/hands.glb || rc=9
+        build/mocap-cleaner diff build/cli-test/r.json build/cli-test/h.json --html build/cli-test/diff.html >/dev/null || rc=8
+        echo "cli   hands + diff: rc=$rc"; [ $rc -eq 0 ] || status=1
     fi
 else
     echo "cli   BUILD FAILED (build/test/cli.log)"; status=1

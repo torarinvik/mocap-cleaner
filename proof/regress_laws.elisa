@@ -1,0 +1,135 @@
+# Laws of the report-diff verdicts, stated as composed obligations over the
+# verified summaries of Regress. They are what `mocap-cleaner diff` relies
+# on: an unchanged or improved metric never regresses, growth inside the
+# floor never regresses, growth past every allowance always does, a lost ok
+# always does, and the exit code reflects exactly what was found.
+include "../src/core/regress.elisa"
+
+module RegressLaws:
+    public:
+        const RB: i64 = 1000000000
+
+        # An unchanged metric never regresses.
+        def unchanged_is_clean(value: i64, tol: i64, floor: i64) -> bool:
+            requires value >= 0 - RB
+            requires value <= RB
+            requires tol >= 0
+            requires tol <= Regress::REG_TOL_MAX
+            requires floor >= 0
+            requires floor <= RB
+            ensure not result
+            return Regress::metric_regressed(value, value, tol, floor)
+
+        # An improved (lower) metric never regresses.
+        def improvement_is_clean(before: i64, after: i64, tol: i64, floor: i64) -> bool:
+            requires before >= 0 - RB
+            requires before <= RB
+            requires after >= 0 - RB
+            requires after <= before
+            requires tol >= 0
+            requires tol <= Regress::REG_TOL_MAX
+            requires floor >= 0
+            requires floor <= RB
+            ensure not result
+            return Regress::metric_regressed(before, after, tol, floor)
+
+        # Growth no larger than the floor never regresses.
+        def growth_within_floor_is_clean(before: i64, after: i64, tol: i64, floor: i64) -> bool:
+            requires before >= 0 - RB
+            requires before <= RB
+            requires after >= 0 - RB
+            requires after <= RB
+            requires after <= before + floor
+            requires tol >= 0
+            requires tol <= Regress::REG_TOL_MAX
+            requires floor >= 0
+            requires floor <= RB
+            ensure not result
+            return Regress::metric_regressed(before, after, tol, floor)
+
+        # With no tolerance, any growth past the floor regresses.
+        def growth_past_floor_regresses(before: i64, after: i64, floor: i64) -> bool:
+            requires before >= 0 - RB
+            requires before <= RB
+            requires after >= 0 - RB
+            requires after <= RB
+            requires floor >= 0
+            requires floor <= RB
+            requires after > before + floor
+            ensure result
+            allow: i64 = Regress::allowance(before, 0, floor)
+            return Regress::regressed(before, after, allow)
+
+        # Growth past the largest possible allowance always regresses.
+        def growth_past_allowance_regresses(before: i64, after: i64, tol: i64, floor: i64) -> bool:
+            requires before >= 0 - RB
+            requires before <= RB
+            requires after >= 0 - RB
+            requires after <= RB
+            requires tol >= 0
+            requires tol <= Regress::REG_TOL_MAX
+            requires floor >= 0
+            requires floor <= RB
+            requires after > before + floor + RB
+            ensure result
+            allow: i64 = Regress::allowance(before, tol, floor)
+            return Regress::regressed(before, after, allow)
+
+        # The allowance never falls below the floor.
+        def allowance_covers_floor(before: i64, tol: i64, floor: i64) -> i64:
+            requires before >= 0 - RB
+            requires before <= RB
+            requires tol >= 0
+            requires tol <= Regress::REG_TOL_MAX
+            requires floor >= 0
+            requires floor <= RB
+            ensure result >= floor
+            return Regress::allowance(before, tol, floor)
+
+        # A magnitude is never negative.
+        def size_is_nonnegative(value: i64) -> i64:
+            requires value >= 0 - RB
+            requires value <= RB
+            ensure result >= 0
+            return Regress::size(value)
+
+        # Losing ok regresses; keeping or gaining it does not.
+        def ok_lost_regresses(lost: i64) -> bool:
+            requires lost == 1
+            ensure result
+            return Regress::ok_lost(lost == 1, lost == 0)
+
+        def ok_kept_is_clean(kept: i64) -> bool:
+            requires kept == 1
+            ensure not result
+            return Regress::ok_lost(kept == 1, kept == 1)
+
+        def never_ok_is_clean(after: bool) -> bool:
+            ensure not result
+            return Regress::ok_lost(false, after)
+
+        # A clean diff exits 0.
+        def clean_exits_zero(errors: i64) -> i64:
+            requires errors == 0
+            ensure result == 0
+            return Regress::verdict(0, errors)
+
+        # Any regression exits 1 when both reports were read.
+        def regression_exits_one(regressions: i64) -> i64:
+            requires regressions >= 1
+            ensure result == 1
+            return Regress::verdict(regressions, 0)
+
+        # An unreadable report exits 2 whatever else was found.
+        def read_error_exits_two(regressions: i64, errors: i64) -> i64:
+            requires regressions >= 0
+            requires errors >= 1
+            ensure result == 2
+            return Regress::verdict(regressions, errors)
+
+        # The exit code is never zero when a regression was found.
+        def regression_never_exits_zero(regressions: i64, errors: i64) -> i64:
+            requires regressions >= 1
+            requires errors >= 0
+            ensure result >= 1
+            return Regress::verdict(regressions, errors)

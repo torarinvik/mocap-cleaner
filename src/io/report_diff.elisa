@@ -1,0 +1,238 @@
+# Report diff: compare two JSON reports per clip and metric (Phase 6).
+# The reader is a flat scanner: every "key": number|true|false pair is a
+# metric of the current clip; a "name": "..." string switches the clip (so a
+# "clips" array of named objects works); a flat report is the clip "total".
+# Lower-is-better metrics: keys ending in _after or _after_um, plus
+# unbalanced_frames and unbalanced_runs. "ok" turning false regresses, and so
+# does a metric or clip missing from b. The verdict is Regress::verdict.
+include "../core/regress.elisa"
+include "report.elisa"
+include "console.elisa"
+
+@link_name("fgetc")
+extern d_fgetc(file: mutable heap void&) -> i32 can[Blocking.IO]
+
+module ReportDiff:
+    public:
+        struct Metric:
+            clip_at: i64
+            clip_len: i64
+            key_at: i64
+            key_len: i64
+            value: i64
+            flag: bool
+
+        def bounded(value: i64) -> i64:
+            ensure result >= 0 - Regress::REG_BOUND
+            ensure result <= Regress::REG_BOUND
+            return Regress::REG_BOUND if value > Regress::REG_BOUND
+            return 0 - Regress::REG_BOUND if value < 0 - Regress::REG_BOUND
+            return value
+
+        def tolerance(permille: i64) -> i64:
+            ensure result >= 0
+            ensure result <= Regress::REG_TOL_MAX
+            return Regress::REG_TOL_MAX if permille > Regress::REG_TOL_MAX
+            return 0 if permille < 0
+            return permille
+
+        def floor_of(value: i64) -> i64:
+            ensure result >= 0
+            ensure result <= Regress::REG_BOUND
+            return Regress::REG_BOUND if value > Regress::REG_BOUND
+            return 0 if value < 0
+            return value
+
+        def ends_with(pool: darray[u8]&, at: i64, len: i64, s: sview) -> bool:
+            mutable n: i64 = 0
+            for c in s:
+                n <- n + 1
+            return false if n > len
+            mutable i: i64 = 0
+            for c in s:
+                return false if pool[(at + len - n + i).usize()] != c
+                i <- i + 1
+            return true
+
+        def is_text(pool: darray[u8]&, at: i64, len: i64, s: sview) -> bool:
+            mutable n: i64 = 0
+            for c in s:
+                n <- n + 1
+            return false if n != len
+            return ends_with(pool, at, len, s)
+
+        def lower_better(pool: darray[u8]&, m: Metric) -> bool:
+            return true if ends_with(pool, m.key_at, m.key_len, "_after")
+            return true if ends_with(pool, m.key_at, m.key_len, "_after_um")
+            return true if is_text(pool, m.key_at, m.key_len, "unbalanced_frames")
+            return is_text(pool, m.key_at, m.key_len, "unbalanced_runs")
+
+        def same_span(pa: darray[u8]&, a_at: i64, a_len: i64, pb: darray[u8]&, b_at: i64, b_len: i64) -> bool:
+            return false if a_len != b_len
+            for i in 0..<a_len.usize():
+                return false if pa[a_at.usize() + i] != pb[b_at.usize() + i]
+            return true
+
+        def is_space(c: u8) -> bool:
+            return c == 32 or c == 10 or c == 13 or c == 9
+
+        # Parse `text` into metrics; key and clip bytes go into `pool`.
+        def parse(text: darray[u8]&, pool: mutable darray[u8]&, out: mutable darray[Metric]&):
+            mutable clip_at: i64 = pool.count.i64()
+            for c in "total":
+                pool.push(c)
+            mutable clip_len: i64 = 5
+            mutable i: usize = 0
+            mutable key_at: i64 = -1
+            mutable key_len: i64 = 0
+            while i < text.count:
+                c: u8 = text[i]
+                if c == 34:
+                    start: i64 = pool.count.i64()
+                    i <- i + 1
+                    while i < text.count and text[i] != 34:
+                        if text[i] == 92:
+                            i <- i + 1
+                        if i < text.count:
+                            pool.push(text[i])
+                            i <- i + 1
+                    i <- i + 1
+                    len: i64 = pool.count.i64() - start
+                    mutable j: usize = i
+                    while j < text.count and is_space(text[j]):
+                        j <- j + 1
+                    if j < text.count and text[j] == 58:
+                        key_at <- start
+                        key_len <- len
+                        i <- j + 1
+                    else:
+                        if key_at >= 0 and is_text(pool, key_at, key_len, "name"):
+                            clip_at <- start
+                            clip_len <- len
+                        key_at <- -1
+                elif key_at >= 0 and (c == 45 or (c >= 48 and c <= 57)):
+                    mutable negative: bool = c == 45
+                    if negative:
+                        i <- i + 1
+                    mutable value: i64 = 0
+                    while i < text.count and text[i] >= 48 and text[i] <= 57:
+                        if value < 100000000000:
+                            value <- value * 10 + (text[i] - 48).i64()
+                        i <- i + 1
+                    while i < text.count and (text[i] == 46 or text[i] == 101 or text[i] == 69 or text[i] == 43 or (text[i] >= 48 and text[i] <= 57)):
+                        i <- i + 1
+                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: -value if negative else value, flag: false})
+                    key_at <- -1
+                elif key_at >= 0 and (c == 116 or c == 102):
+                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: 1 if c == 116 else 0, flag: true})
+                    while i < text.count and text[i] >= 97 and text[i] <= 122:
+                        i <- i + 1
+                    key_at <- -1
+                else:
+                    if c == 123 or c == 91:
+                        key_at <- -1
+                    i <- i + 1
+
+        def read_bytes(path: cstr, out: mutable darray[u8]&) -> bool:
+            mutable ok: bool = false
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                file: mutable heap void&? = r_fopen(path.cast[u8&], "rb".cast[u8&])
+                if file != null:
+                    handle: mutable heap void& = file
+                    mutable c: i32 = d_fgetc(handle)
+                    while c >= 0:
+                        out.push(c.u8())
+                        c <- d_fgetc(handle)
+                    _ = r_fclose(handle)
+                    ok <- true
+            return ok
+
+        def find(pool: darray[u8]&, list: darray[Metric]&, pa: darray[u8]&, m: Metric) -> i64:
+            for k in 0..<list.count:
+                n: Metric = list[k]
+                if same_span(pool, n.clip_at, n.clip_len, pa, m.clip_at, m.clip_len) and same_span(pool, n.key_at, n.key_len, pa, m.key_at, m.key_len):
+                    return k.i64()
+            return -1
+
+        def push_span(out: mutable darray[u8]&, pool: darray[u8]&, at: i64, len: i64):
+            for i in 0..<len.usize():
+                c: u8 = pool[at.usize() + i]
+                if c == 60:
+                    Report::push_text(out, "&lt;")
+                elif c == 38:
+                    Report::push_text(out, "&amp;")
+                else:
+                    out.push(c)
+
+        def print_span(pool: darray[u8]&, at: i64, len: i64):
+            can Blocking.IO:
+                for i in 0..<len.usize():
+                    _ = c_putchar(pool[at.usize() + i].i32())
+
+        # Compare report files; returns the exit code (0 clean, 1 regression,
+        # 2 unreadable input).
+        def run(a_path: cstr, b_path: cstr, tol_permille: i64, floor: i64, html: cstr) -> i64 can[Memory.Allocate, Memory.Release, Blocking.IO]:
+            mutable a_text: darray[u8] = []
+            mutable b_text: darray[u8] = []
+            mutable errors: i64 = 0
+            if not read_bytes(a_path, &a_text):
+                errors <- errors + 1
+            if not read_bytes(b_path, &b_text):
+                errors <- errors + 1
+            mutable pa: darray[u8] = []
+            mutable pb: darray[u8] = []
+            mutable ma: darray[Metric] = []
+            mutable mb: darray[Metric] = []
+            parse(&a_text, &pa, &ma)
+            parse(&b_text, &pb, &mb)
+            if errors == 0 and ma.count == 0:
+                errors <- 1
+            tol: i64 = tolerance(tol_permille)
+            fl: i64 = floor_of(floor)
+            mutable regressions: i64 = 0
+            mutable page: darray[u8] = []
+            Report::push_text(&page, "<!doctype html><meta charset=utf-8><title>Report diff</title><table><tr><th>clip</th><th>metric</th><th>a</th><th>b</th><th>verdict</th></tr>")
+            for m in ma:
+                flagged: bool = m.flag and m.value == 1 and is_text(&pa, m.key_at, m.key_len, "ok")
+                if lower_better(&pa, m) or flagged:
+                    at: i64 = find(&pb, &mb, &pa, m)
+                    mutable bad: bool = at < 0
+                    mutable after: i64 = 0
+                    if at >= 0:
+                        other: Metric = mb[at.usize()]
+                        after <- other.value
+                        if flagged:
+                            bad <- Regress::ok_lost(true, other.value == 1)
+                        else:
+                            bad <- Regress::metric_regressed(bounded(m.value), bounded(other.value), tol, fl)
+                    if bad:
+                        regressions <- regressions + 1
+                        Out::text("regression ")
+                        print_span(&pa, m.clip_at, m.clip_len)
+                        Out::text(" ")
+                        print_span(&pa, m.key_at, m.key_len)
+                        Out::text(" ")
+                        Out::number(m.value)
+                        Out::text(" -> ")
+                        if at >= 0:
+                            Out::number(after)
+                            Out::line("")
+                        else:
+                            Out::line("missing")
+                    Report::push_text(&page, "<tr><td>")
+                    push_span(&page, &pa, m.clip_at, m.clip_len)
+                    Report::push_text(&page, "</td><td>")
+                    push_span(&page, &pa, m.key_at, m.key_len)
+                    Report::push_text(&page, "</td>")
+                    Report::cell(&page, m.value)
+                    if at >= 0:
+                        Report::cell(&page, after)
+                    else:
+                        Report::push_text(&page, "<td>missing</td>")
+                    Report::push_text(&page, "<td>regressed</td></tr>" if bad else "<td>ok</td></tr>")
+            Report::push_text(&page, "</table>")
+            if html[0] != 0:
+                _ = Report::save(&page, html)
+            Out::field("regressions ", regressions)
+            Out::field("errors ", errors)
+            return Regress::verdict(regressions, errors)

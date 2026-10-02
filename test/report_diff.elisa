@@ -1,0 +1,37 @@
+include "../src/io/report_diff.elisa"
+
+def write(path: cstr, text: sview):
+    mutable out: darray[u8] = []
+    Report::push_text(&out, text)
+    _ = Report::save(&out, path)
+
+def main() -> i32:
+    a: cstr = "build/test/diff-a.json".cast[cstr]
+    write(a, "{\"ok\": true, \"spikes_after\": 10, \"slide_after_um\": 1000, \"values_changed\": 5, \"clips\": [{\"name\": \"jab\", \"pole_after\": 2}]}")
+    same: cstr = "build/test/diff-same.json".cast[cstr]
+    write(same, "{\"ok\": true, \"spikes_after\": 10, \"slide_after_um\": 1005, \"values_changed\": 900, \"clips\": [{\"name\": \"jab\", \"pole_after\": 1}]}")
+    worse: cstr = "build/test/diff-worse.json".cast[cstr]
+    write(worse, "{\"ok\": true, \"spikes_after\": 10, \"slide_after_um\": 1000, \"values_changed\": 5, \"clips\": [{\"name\": \"jab\", \"pole_after\": 3}]}")
+    lost: cstr = "build/test/diff-lost.json".cast[cstr]
+    write(lost, "{\"ok\": false, \"spikes_after\": 10, \"slide_after_um\": 1000, \"clips\": [{\"name\": \"jab\", \"pole_after\": 2}]}")
+    gone: cstr = "build/test/diff-gone.json".cast[cstr]
+    write(gone, "{\"ok\": true, \"spikes_after\": 10, \"slide_after_um\": 1000, \"clips\": [{\"name\": \"hook\", \"pole_after\": 2}]}")
+    none: cstr = "".cast[cstr]
+    # Within 1% tolerance, improvements and non-metrics are clean.
+    return 1 if ReportDiff::run(a, same, 10, 0, none) != 0
+    # A clip's metric growing past the allowance regresses.
+    return 2 if ReportDiff::run(a, worse, 10, 0, none) != 1
+    # ... unless the absolute floor covers it.
+    return 3 if ReportDiff::run(a, worse, 10, 1, none) != 0
+    # Losing ok and a missing clip regress.
+    return 4 if ReportDiff::run(a, lost, 10, 0, none) != 1
+    return 5 if ReportDiff::run(a, gone, 10, 0, none) != 1
+    # Zero tolerance flags the 5 um slide growth.
+    return 6 if ReportDiff::run(a, same, 0, 0, none) != 1
+    # Unreadable input exits 2.
+    return 7 if ReportDiff::run(a, "build/test/no-such.json".cast[cstr], 10, 0, none) != 2
+    html: cstr = "build/test/diff.html".cast[cstr]
+    _ = ReportDiff::run(a, worse, 10, 0, html)
+    mutable page: darray[u8] = []
+    return 8 if not ReportDiff::read_bytes(html, &page) or page.count < 100
+    return 0

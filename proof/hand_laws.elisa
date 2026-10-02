@@ -1,0 +1,164 @@
+# Laws of the hand-contact kernels, stated as composed obligations over the
+# verified summaries of Hand. They are what the hand lock relies on: a hand
+# far from the plane or moving fast never plants, a short brush of the plane
+# is dropped, a planted hand stays planted while it rests, edits reach only
+# the hand they name, and the elbow never outruns its budget.
+include "../src/core/hand.elisa"
+
+module HandLaws:
+    public:
+        const HB: i64 = 500000000
+
+        # A hand at or below the plane has height zero.
+        def below_plane_is_zero(point: i64, plane: i64) -> i64:
+            requires plane >= 0 - HB
+            requires plane <= HB
+            requires point >= 0 - HB
+            requires point <= plane
+            ensure result == 0
+            return Hand::plane_height(point, plane)
+
+        # A hand above the plane has its exact clearance as height.
+        def above_plane_is_clearance(point: i64, plane: i64) -> i64:
+            requires plane >= 0 - HB
+            requires plane <= HB
+            requires point > plane
+            requires point <= HB
+            ensure result > 0
+            ensure result == point - plane
+            return Hand::plane_height(point, plane)
+
+        # A free hand above the enter height never plants.
+        def free_far_hand_stays_free(height: i64, speed: i64, enter: i64, leave: i64, max_speed: i64) -> bool:
+            requires enter <= leave
+            requires height > enter
+            ensure not result
+            return Hand::step(false, height, speed, enter, leave, max_speed)
+
+        # A hand above the leave height is free whatever it was.
+        def far_hand_never_plants(planted: bool, height: i64, speed: i64, enter: i64, leave: i64, max_speed: i64) -> bool:
+            requires enter <= leave
+            requires height > leave
+            ensure not result
+            return Hand::step(planted, height, speed, enter, leave, max_speed)
+
+        # A moving hand never plants, even on the plane.
+        def moving_hand_never_plants(planted: bool, height: i64, speed: i64, enter: i64, leave: i64, max_speed: i64) -> bool:
+            requires enter <= leave
+            requires speed > max_speed
+            ensure not result
+            return Hand::step(planted, height, speed, enter, leave, max_speed)
+
+        # A resting hand on the plane plants.
+        def resting_hand_plants(enter: i64, leave: i64, max_speed: i64) -> bool:
+            requires enter >= 0
+            requires enter <= leave
+            requires max_speed >= 0
+            ensure result
+            return Hand::step(false, 0, 0, enter, leave, max_speed)
+
+        # A planted hand stays planted while it rests between the heights.
+        def planted_hand_holds(height: i64, enter: i64, leave: i64, max_speed: i64) -> bool:
+            requires enter <= leave
+            requires height <= leave
+            requires max_speed >= 0
+            ensure result
+            return Hand::step(true, height, 0, enter, leave, max_speed)
+
+        # A brush shorter than the minimum run is dropped.
+        def short_brush_is_dropped(length: i64) -> bool:
+            requires length >= 0
+            requires length < Hand::HAND_MIN_RUN
+            ensure not result
+            return Hand::kept_flag(true, length, Hand::HAND_MIN_RUN)
+
+        # A run of the minimum length is kept.
+        def long_run_is_kept(length: i64) -> bool:
+            requires length >= Hand::HAND_MIN_RUN
+            ensure result
+            return Hand::kept_flag(true, length, Hand::HAND_MIN_RUN)
+
+        # Dropping short runs never plants a free frame.
+        def free_frame_stays_free(length: i64, min_frames: i64) -> bool:
+            requires length >= 0
+            requires min_frames >= 1
+            ensure not result
+            return Hand::kept_flag(false, length, min_frames)
+
+        # Both hand roles are hands.
+        def left_hand_is_hand() -> bool:
+            ensure result
+            return Hand::is_hand(Hand::HAND_LEFT)
+
+        def right_hand_is_hand() -> bool:
+            ensure result
+            return Hand::is_hand(Hand::HAND_RIGHT)
+
+        # An "all" edit (negative role) never reaches a hand.
+        def all_edit_skips_left(op_role: i64) -> bool:
+            requires op_role < 0
+            ensure not result
+            return Hand::edit_applies(op_role, Hand::HAND_LEFT)
+
+        def all_edit_skips_right(op_role: i64) -> bool:
+            requires op_role < 0
+            ensure not result
+            return Hand::edit_applies(op_role, Hand::HAND_RIGHT)
+
+        # A left-hand edit never reaches the right hand.
+        def left_edit_skips_right() -> bool:
+            ensure not result
+            return Hand::edit_applies(Hand::HAND_LEFT, Hand::HAND_RIGHT)
+
+        # An edit naming a hand reaches it.
+        def left_edit_reaches_left() -> bool:
+            ensure result
+            return Hand::edit_applies(Hand::HAND_LEFT, Hand::HAND_LEFT)
+
+        def right_edit_reaches_right(role: i64) -> bool:
+            requires role == Hand::HAND_RIGHT
+            ensure result
+            return Hand::edit_applies(role, role)
+
+        # An edit is decided by the hand's edit when it applies, otherwise
+        # detection stands.
+        def unnamed_edit_keeps_detection(detected: bool, op_role: i64, frame: i64, first: i64, last: i64, planted: bool) -> bool:
+            requires op_role != Hand::HAND_LEFT
+            ensure result == detected
+            return Contact::edited(detected, frame, first, last, planted) if Hand::edit_applies(op_role, Hand::HAND_LEFT)
+            return detected
+
+        # The elbow budget never stops a still source elbow from moving.
+        def still_elbow_budget(fastest: i64) -> i64:
+            requires fastest >= 0
+            requires fastest <= Knee::MIN_SPEED
+            ensure result == Knee::MIN_SPEED
+            return Hand::elbow_budget(fastest)
+
+        # A fast source elbow keeps its own speed as budget.
+        def fast_elbow_budget(fastest: i64) -> i64:
+            requires fastest > Knee::MIN_SPEED
+            requires fastest <= Knee::BOUND
+            ensure result == fastest
+            return Hand::elbow_budget(fastest)
+
+        # A limited elbow step is never larger than the room.
+        def elbow_step_within_room(previous: i64, want: i64, room: i64) -> i64:
+            requires room >= 0
+            requires room <= Knee::BOUND
+            requires previous >= 0 - Knee::BOUND
+            requires previous <= Knee::BOUND
+            requires want >= 0 - Knee::BOUND
+            requires want <= Knee::BOUND
+            ensure result <= previous + room
+            ensure result + room >= previous
+            return Hand::elbow_follow(previous, want, room)
+
+        # An elbow already at its wanted deviation stays there.
+        def settled_elbow_is_kept(previous: i64, room: i64) -> i64:
+            requires room >= 0
+            requires room <= Knee::BOUND
+            requires previous >= 0 - Knee::BOUND
+            requires previous <= Knee::BOUND
+            ensure result == previous
+            return Hand::elbow_follow(previous, previous, room)

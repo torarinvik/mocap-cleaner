@@ -265,3 +265,17 @@ gap below was worked around in our code.
   state those cases and prove, so the two laws were dropped. Laws fixing
   `wring_degrees` at literal values (200000 reads 23) do not prove through
   the division; the session/units test checks them instead.
+- G60: the G56 bool-literal gap is asymmetric: `edit_applies(HAND_LEFT,
+  HAND_LEFT)` proves `ensure result` but the identical RIGHT law does not;
+  binding the role through `requires role == HAND_RIGHT` proves
+  (`HandLaws::right_edit_reaches_right`).
+- G61: from a callee's `ensure result == point - plane` the caller cannot
+  conclude `result + plane == point`; the law states the subtraction form.
+- G62: bounds of `size * tol / 1000` (`>= 0`, `<= BOUND` for bounded
+  operands) are not derived (G2-like); `Regress::allowance` clamps the part
+  explicitly so callers get its upper bound.
+- G63: callers cannot use a callee's disjunctive ensure (G13 instance):
+  laws over `Knee::speed_budget` failed, so `Hand::elbow_budget` restates
+  the budget with case-wise `x > MIN or result == MIN` ensures.
+- G64: `src/io/report_diff.elisa` (JSON scanner, file I/O) is unsupported
+  like the other io modules; its verdicts go through the proved `Regress`.

@@ -3,13 +3,16 @@
 #       [--anim NAME] [--report r.json] [--op OP]... [--pin ROLE:FIRST:LAST[:BLEND]]...
 #       [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]...
 #       [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES[:FRAME:DEGREES...]]...
-#       [--contact FOOT:FIRST:LAST:on|off]... [--ops FILE]... [--save-ops FILE]
+#       [--contact FOOT:FIRST:LAST:on|off]... [--hand-contact HAND:FIRST:LAST:on|off]...
+#       [--ops FILE]... [--save-ops FILE]
 #   mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP]... <in.glb|folder>...
-# OP: twist|pole|pelvis|lock|pivot (rig fixes), balance (centre-of-mass check),
+#   mocap-cleaner diff <a.json> <b.json> [--tolerance PERCENT] [--floor N] [--html out.html]
+# OP: twist|pole|pelvis|lock|pivot|hands (rig fixes; hands is opt-in), balance (centre-of-mass check),
 #     ballistic (fit airborne phases to a parabola), momentum (cap torso
 #     angular-acceleration spikes).
 # --pin takes a hand, a foot or the head. --contact hand-edits a foot's
-# contact track (FOOT is LeftFoot, RightFoot or all). --ops appends the
+# contact track (FOOT is LeftFoot, RightFoot or all); --hand-contact marks
+# a planted hand (HAND is LeftHand or RightHand) for --op hands. --ops appends the
 # operations of an ops file; --save-ops writes the user stack (every --op,
 # --pin, --offset, --keyed, --contact and --ops operation) to FILE.
 # ROLE is a bare joint name in any supported naming (LeftHand, LeftFoot,
@@ -24,6 +27,7 @@ include "../io/folder.elisa"
 include "../ops/presets.elisa"
 include "../io/ops_file.elisa"
 include "../physics/rig_physics.elisa"
+include "../io/report_diff.elisa"
 
 def same(arg: cstr, text: cstr) -> bool:
     mutable i: usize = 0
@@ -96,6 +100,8 @@ def add_summary(total: mutable RigOps::Summary&, s: RigOps::Summary):
     total.pelvis_after <- total.pelvis_after + s.pelvis_after
     total.sink_before <- total.sink_before + s.sink_before
     total.sink_after <- total.sink_after + s.sink_after
+    total.hand_before <- total.hand_before + s.hand_before
+    total.hand_after <- total.hand_after + s.hand_after
 
 def print_rig(s: RigOps::Summary&):
     return if s.ops == 0
@@ -110,6 +116,8 @@ def print_rig(s: RigOps::Summary&):
     Out::field("foot slide after (um): ", s.slide_after)
     Out::field("pivot sink before (um): ", s.sink_before)
     Out::field("pivot sink after (um): ", s.sink_after)
+    Out::field("hand slide before (um): ", s.hand_before)
+    Out::field("hand slide after (um): ", s.hand_after)
 
 def print_physics(f: Physics::Findings&):
     return if f.ops == 0
@@ -176,6 +184,8 @@ def json_report(row: Report::Row, s: RigOps::Summary&, f: Physics::Findings&) ->
     json_field(&out, "pelvis_after", s.pelvis_after, false)
     json_field(&out, "slide_before_um", s.slide_before, false)
     json_field(&out, "slide_after_um", s.slide_after, false)
+    json_field(&out, "hand_slide_before_um", s.hand_before, false)
+    json_field(&out, "hand_slide_after_um", s.hand_after, false)
     json_field(&out, "physics_ops", f.ops, false)
     json_field(&out, "physics_values_changed", f.changed, false)
     json_field(&out, "planted_frames", f.planted, false)
@@ -325,12 +335,27 @@ def parse_contact(text: cstr) -> (ok: bool, op: RigOps::RigOp):
     return (false, bad) if not on and not bytes_are(&f[3], "off")
     return (true, RigOps::contact_edit(role, first.value, last.value, on))
 
+# --hand-contact HAND:FIRST:LAST:on|off (one named hand, never "all").
+def parse_hand_contact(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+    f: darray[darray[u8]] = split_fields(text)
+    bad: RigOps::RigOp = RigOps::contact_edit(Roles::NONE, 0, 0, false)
+    return (false, bad) if f.count != 4
+    role: i64 = role_field(&f[0])
+    return (false, bad) if role != Roles::LEFT_HAND and role != Roles::RIGHT_HAND
+    first: (ok: bool, value: i64) = parse_scaled(&f[1], 1)
+    last: (ok: bool, value: i64) = parse_scaled(&f[2], 1)
+    return (false, bad) if not first.ok or not last.ok or first.value < 0 or last.value < first.value
+    on: bool = bytes_are(&f[3], "on")
+    return (false, bad) if not on and not bytes_are(&f[3], "off")
+    return (true, RigOps::contact_edit(role, first.value, last.value, on))
+
 def parse_op(name: cstr) -> (ok: bool, op: RigOps::RigOp):
     return (true, RigOps::twist(RigOps::ALL, 280000, 500)) if same(name, "twist".cast[cstr])
     return (true, RigOps::pole(RigOps::ALL, 2, 0)) if same(name, "pole".cast[cstr])
     return (true, RigOps::pelvis(4)) if same(name, "pelvis".cast[cstr])
     return (true, RigOps::foot_lock(4)) if same(name, "lock".cast[cstr])
     return (true, RigOps::foot_pivot(4)) if same(name, "pivot".cast[cstr])
+    return (true, RigOps::hand_lock(4)) if same(name, "hands".cast[cstr])
     return (false, RigOps::pelvis(1))
 
 # Physics op by name.
@@ -374,9 +399,11 @@ def usage() -> i64:
     Out::line("           [--anim NAME] [--report r.json] [--op OP] [--pin ROLE:FIRST:LAST[:BLEND]]")
     Out::line("           [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]")
     Out::line("           [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES...]")
-    Out::line("           [--contact FOOT:FIRST:LAST:on|off] [--ops FILE] [--save-ops FILE]")
+    Out::line("           [--contact FOOT:FIRST:LAST:on|off] [--hand-contact HAND:FIRST:LAST:on|off]")
+    Out::line("           [--ops FILE] [--save-ops FILE]")
     Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP] <in.glb|folder>...")
-    Out::line("  OP: twist pole pelvis lock pivot balance ballistic momentum")
+    Out::line("       mocap-cleaner diff <a.json> <b.json> [--tolerance PERCENT] [--floor N] [--html out.html]")
+    Out::line("  OP: twist pole pelvis lock pivot hands balance ballistic momentum")
     return 2
 
 # <dir>/<basename of path>, NUL-terminated.
@@ -422,6 +449,32 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
     mutable phys: darray[Physics::PhysOp] = []
     # Op caches shared by every take this run cleans (Phase 6).
     mutable bank: darray[Ops::Cache] = []
+    if same(command, "diff".cast[cstr]):
+        return usage() if argc < 4
+        mutable tol: i64 = 10
+        mutable floor: i64 = 0
+        mutable html: cstr = "".cast[cstr]
+        mutable k: i64 = 4
+        while k + 1 < argc:
+            flag: cstr = slots[k.usize()].cast[cstr]
+            value: cstr = slots[(k + 1).usize()].cast[cstr]
+            if same(flag, "--tolerance".cast[cstr]):
+                tol_fields: darray[darray[u8]] = split_fields(value)
+                got_tol: (ok: bool, value: i64) = parse_scaled(&tol_fields[0], 10)
+                return usage() if not got_tol.ok
+                tol <- got_tol.value
+            elif same(flag, "--floor".cast[cstr]):
+                floor_fields: darray[darray[u8]] = split_fields(value)
+                got_floor: (ok: bool, value: i64) = parse_scaled(&floor_fields[0], 1)
+                return usage() if not got_floor.ok
+                floor <- got_floor.value
+            elif same(flag, "--html".cast[cstr]):
+                html <- value
+            else:
+                return usage()
+            k <- k + 2
+        return usage() if k != argc
+        return ReportDiff::run(slots[2].cast[cstr], slots[3].cast[cstr], tol, floor, html)
     if same(command, "clean".cast[cstr]):
         input: cstr = slots[2].cast[cstr]
         mutable output: cstr = "".cast[cstr]
@@ -457,6 +510,10 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 return usage() if not parse_keyed(value, &extra)
             elif same(flag, "--contact".cast[cstr]):
                 parsed: (ok: bool, op: RigOps::RigOp) = parse_contact(value)
+                return usage() if not parsed.ok
+                extra.push(parsed.op)
+            elif same(flag, "--hand-contact".cast[cstr]):
+                parsed: (ok: bool, op: RigOps::RigOp) = parse_hand_contact(value)
                 return usage() if not parsed.ok
                 extra.push(parsed.op)
             elif same(flag, "--ops".cast[cstr]):
