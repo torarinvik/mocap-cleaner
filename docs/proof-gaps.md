@@ -231,3 +231,13 @@ gap below was worked around in our code.
 - G52: callers get no overflow obligations, so the `LIMIT` requires are
   ours, not the prover's.
 
+- G53: constant and function names are global across included modules in
+  goals: a kernel declaring `ease`, `nearer`, `LIMIT` or `FULL` next to
+  `Fade`/`Order` breaks the other module's proofs (ambiguous-constant-goal).
+  Knee renamed its helpers.
+- G54: facts on a local built by subtraction (`kept: i64 = x - away`) refuse
+  with wrap-guard-fact even with bounded operands; a helper whose ensures
+  carry the bounds (`Knee::keep`) proves. Laws calling a kernel through a
+  local hit the same gate, so laws call the kernel inline.
+- G55: `start_is_gentle` (soft reach has slope one at the zone start) could
+  not be stated without a product of two variables; dropped.

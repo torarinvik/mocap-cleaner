@@ -12,6 +12,7 @@ include "../tools/track.elisa"
 include "../core/pin.elisa"
 include "../core/offset.elisa"
 include "../core/pivot.elisa"
+include "../core/knee.elisa"
 
 module RigOps:
     public:
@@ -428,6 +429,137 @@ module RigOps:
                     sink <- sink + (d if d >= 0 else 0 - d)
             return (slide(&xs, &zs, flags), sink)
 
+        # ---- Knee-smooth leg IK ---------------------------------------------
+        # MotionBuilder / Cascadeur style: a moved frame's hip-to-ankle reach
+        # is eased near full extension (Knee::soft_reach), and the knee angle
+        # it implies is held to the take's own fastest knee motion
+        # (Knee::follow): planted frames stay exact and the correction ramps
+        # in before a plant and out after it over the airborne frames.
+
+        # Interior knee angle (pi = straight) of a two-bone leg at reach d.
+        def knee_angle(a: f64, b: f64, d: f64) -> f64:
+            cosv: f64 = (a * a + b * b - d * d) / (2.0 * a * b)
+            mutable cl: f64 = cosv
+            if cosv > 1.0:
+                cl <- 1.0
+            if cosv < -1.0:
+                cl <- -1.0
+            return ElisaMath::atan2(ElisaMath::sqrt(1.0 - cl * cl), cl)
+
+        # Reach of a two-bone leg at interior knee angle phi.
+        def knee_reach(a: f64, b: f64, phi: f64) -> f64:
+            sq: f64 = a * a + b * b - 2.0 * a * b * ElisaMath::cos(phi)
+            return 0.0 if sq <= 0.0
+            return ElisaMath::sqrt(sq)
+
+        def knee_bound(value: i64) -> i64:
+            return Order::clamp(value, -Knee::BOUND, Knee::BOUND)
+
+        # One pass over the knee deviation `off` (wanted minus source angle):
+        # each free frame follows its own wanted deviation but moves at most
+        # the room the speed budget leaves beside the source knee, so a
+        # plant's correction ramps in before it and out after it. Planted
+        # frames keep their deviation exactly.
+        def limit_pass(off: mutable darray[i64]&, wanted: darray[i64]&, hard: darray[bool]&, source: darray[i64]&, speed: i64, forward: bool) -> void:
+            n: i64 = off.count.i64()
+            return if n < 2
+            for i in 1..<n:
+                mutable k: usize = i.usize()
+                mutable p: usize = (i - 1).usize()
+                if not forward:
+                    k <- (n - 1 - i).usize()
+                    p <- (n - i).usize()
+                continue if hard[k]
+                used: i64 = Order::clamp(Knee::magnitude(knee_bound(source[k]) - knee_bound(source[p])), 0, speed)
+                room: i64 = Knee::speed_budget(Order::clamp(speed - used, 0, Knee::BOUND))
+                off[k] <- Knee::follow(knee_bound(off[p]), knee_bound(wanted[k]), room)
+
+        # Replace each moved target by its knee-smooth version.
+        def smooth_targets(c: Rig::Clip&, leg: (upper: i64, hinge: i64, end: i64, toe: i64), targets: mutable darray[MotionQuat::V]&, moved: mutable darray[bool]&, planted: darray[bool]&) -> void:
+            mutable hip: darray[MotionQuat::V] = []
+            mutable hip_rot: darray[MotionQuat::Q] = []
+            mutable knee: darray[MotionQuat::V] = []
+            mutable knee_rot: darray[MotionQuat::Q] = []
+            mutable ankle: darray[MotionQuat::V] = []
+            mutable ankle_rot: darray[MotionQuat::Q] = []
+            ankle_path(c, leg.upper, &hip, &hip_rot)
+            ankle_path(c, leg.hinge, &knee, &knee_rot)
+            ankle_path(c, leg.end, &ankle, &ankle_rot)
+            n: usize = targets.count
+            return if n == 0 or hip.count != n or ankle.count != n or moved.count < n
+            a: f64 = Rig::vlen(Rig::vsub(knee[0], hip[0]))
+            b: f64 = Rig::vlen(Rig::vsub(ankle[0], knee[0]))
+            return if a <= 0.000001 or b <= 0.000001
+            length: i64 = Order::clamp(Limb::micro(a + b), 0, Knee::HALF)
+            mutable source: darray[i64] = []
+            mutable phi: darray[i64] = []
+            for k in 0..<n:
+                ds: i64 = Order::clamp(Limb::micro(Rig::vlen(Rig::vsub(ankle[k], hip[k]))), 0, Knee::HALF)
+                dt: i64 = Order::clamp(Limb::micro(Rig::vlen(Rig::vsub(targets[k], hip[k]))), 0, Knee::HALF)
+                start: i64 = Knee::soft_start(ds, length)
+                mutable soft: i64 = dt
+                # Every corrected frame eases into full extension instead of
+                # snapping straight (this costs a plant a few millimetres when
+                # the leg is pulled past its reach).
+                if moved[k]:
+                    soft <- Knee::soft_reach(dt, start, length)
+                source.push(Limb::micro(knee_angle(a, b, Limb::unmicro(ds))))
+                phi.push(Limb::micro(knee_angle(a, b, Limb::unmicro(soft))))
+            mutable fastest: i64 = 0
+            for k in 1..<n:
+                d: i64 = source[k] - source[k - 1]
+                d2: i64 = d if d >= 0 else 0 - d
+                if d2 > fastest:
+                    fastest <- d2
+            speed: i64 = Knee::speed_budget(Order::clamp(fastest, 0, Knee::BOUND))
+            # Planted frames are exact; every other frame's deviation from
+            # the source knee is limited forward and backward from them.
+            mutable wanted: darray[i64] = []
+            mutable hard: darray[bool] = []
+            for k in 0..<n:
+                wanted.push(knee_bound(phi[k] - source[k]))
+                hard.push(moved[k] and k < planted.count and planted[k])
+            mutable off: darray[i64] = wanted
+            for round in 0..<2:
+                limit_pass(&off, &wanted, &hard, &source, speed, true)
+                limit_pass(&off, &wanted, &hard, &source, speed, false)
+            for k in 0..<n:
+                phi[k] <- source[k] + off[k]
+                moved[k] <- moved[k] or off[k] != 0
+            for k in 0..<n:
+                continue if not moved[k]
+                dir: MotionQuat::V = Rig::vsub(targets[k], hip[k])
+                len: f64 = Rig::vlen(dir)
+                continue if len <= 0.000001
+                reach: f64 = knee_reach(a, b, Limb::unmicro(phi[k]))
+                targets[k] <- Rig::vadd(hip[k], Rig::vscale(dir, reach / len))
+
+        # Release blend per frame: a plant ending on a nearly straight leg
+        # eases out longer (Knee::release_blend).
+        def release_blends(c: Rig::Clip&, leg: (upper: i64, hinge: i64, end: i64, toe: i64), goals: darray[MotionQuat::V]&, flags: darray[bool]&, blend: i64) -> darray[i64]:
+            mutable hip: darray[MotionQuat::V] = []
+            mutable hip_rot: darray[MotionQuat::Q] = []
+            ankle_path(c, leg.upper, &hip, &hip_rot)
+            length: i64 = Order::clamp(Limb::micro(leg_length(c, leg)), 1, Knee::BOUND)
+            mutable out: darray[i64] = []
+            for k in 0..<goals.count:
+                planted: bool = k < flags.count and flags[k] and k < hip.count
+                if not planted:
+                    out.push(blend)
+                    continue
+                reach: i64 = Order::clamp(Limb::micro(Rig::vlen(Rig::vsub(goals[k], hip[k]))), 0, Knee::BOUND)
+                out.push(Knee::release_blend(blend, Knee::straightness(reach, length)))
+            return out
+
+        # Knee-smooth the moved targets, then solve each moved frame.
+        def solve_smooth(c: mutable Rig::Clip&, leg: (upper: i64, hinge: i64, end: i64, toe: i64), targets: mutable darray[MotionQuat::V]&, moved: mutable darray[bool]&, planted: darray[bool]&, rot: darray[MotionQuat::Q]&) -> void:
+            smooth_targets(c, leg, targets, moved, planted)
+            mutable w: Rig::World = Rig::empty_world()
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                continue if k >= targets.count or k >= rot.count or not moved[k]
+                _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, targets[k], rot[k], &w)
+
         # Heel/ball pivot: while planted, the lower of heel (ankle) and ball
         # (toe) is held at its plant position and settled on the floor; the
         # whole foot moves with it (source foot rotation) and the leg is
@@ -479,21 +611,29 @@ module RigOps:
                 height: i64 = Order::clamp(m(p.y) - floor, -Pivot::LIMIT, Pivot::LIMIT)
                 oy.push(0 - height)
             step: i64 = Order::clamp(Limb::micro(leg_length(c, leg) * STEP), 1, Footing::LIMIT)
-            cx: darray[i64] = Track::carried(&ox, flags, blend, step)
-            cy: darray[i64] = Track::carried(&oy, flags, blend, step)
-            cz: darray[i64] = Track::carried(&oz, flags, blend, step)
-            mutable w: Rig::World = Rig::empty_world()
+            mutable goals: darray[MotionQuat::V] = []
+            for k in 0..<pos.count:
+                goals.push(Rig::vadd(pos[k], Rig::v(Limb::unmicro(ox[k]), Limb::unmicro(oy[k]), Limb::unmicro(oz[k]))))
+            blends: darray[i64] = release_blends(c, leg, &goals, flags, blend)
+            cx: darray[i64] = Track::carried_blends(&ox, flags, &blends, step)
+            cy: darray[i64] = Track::carried_blends(&oy, flags, &blends, step)
+            cz: darray[i64] = Track::carried_blends(&oz, flags, &blends, step)
+            mutable targets: darray[MotionQuat::V] = []
+            mutable moved: darray[bool] = []
             for f in 0..<c.frames:
                 k: usize = f.usize()
+                continue if k >= pos.count
+                targets.push(pos[k])
+                moved.push(false)
                 continue if k >= cx.count
                 wt: i64 = range_weight(op, f, c.frames)
                 dx: i64 = Offset::offset_amount(Order::clamp(cx[k], -Footing::LIMIT, Footing::LIMIT), wt)
                 dy: i64 = Offset::offset_amount(Order::clamp(cy[k], -Footing::LIMIT, Footing::LIMIT), wt)
                 dz: i64 = Offset::offset_amount(Order::clamp(cz[k], -Footing::LIMIT, Footing::LIMIT), wt)
                 continue if dx == 0 and dy == 0 and dz == 0
-                wanted: MotionQuat::V = Rig::vadd(pos[k], Rig::v(Limb::unmicro(dx), Limb::unmicro(dy), Limb::unmicro(dz)))
-                target: MotionQuat::V = wanted
-                _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, target, rot[k], &w)
+                targets[k] <- Rig::vadd(pos[k], Rig::v(Limb::unmicro(dx), Limb::unmicro(dy), Limb::unmicro(dz)))
+                moved[k] <- true
+            solve_smooth(c, leg, &targets, &moved, flags, &rot)
             ankle_path(c, leg.end, &pos, &rot)
             ankle_path(c, leg.toe, &ball, &ball_rot)
             after_points: darray[MotionQuat::V] = pivot_points(&pos, &ball, &choices)
@@ -511,7 +651,6 @@ module RigOps:
             mutable pos: darray[MotionQuat::V] = []
             mutable rot: darray[MotionQuat::Q] = []
             ankle_path(c, leg.end, &pos, &rot)
-            mutable w: Rig::World = Rig::empty_world()
             mutable xs: darray[i64] = []
             mutable ys: darray[i64] = []
             mutable zs: darray[i64] = []
@@ -525,23 +664,33 @@ module RigOps:
             hy: darray[i64] = Track::hold_offsets(&ys, &flags)
             hz: darray[i64] = Track::hold_offsets(&zs, &flags)
             step: i64 = Order::clamp(Limb::micro(leg_length(c, leg) * STEP), 1, Footing::LIMIT)
-            cx: darray[i64] = Track::carried(&hx, &flags, blend, step)
+            mutable goals: darray[MotionQuat::V] = []
+            for k in 0..<pos.count:
+                goals.push(Rig::v(Limb::unmicro(xs[k] + hx[k]), Limb::unmicro(ys[k]), Limb::unmicro(zs[k] + hz[k])))
+            blends: darray[i64] = release_blends(c, leg, &goals, &flags, blend)
+            cx: darray[i64] = Track::carried_blends(&hx, &flags, &blends, step)
             # Height follows the source: a locked ankle may still roll up.
             mutable flat: darray[i64] = []
             for v in hy:
                 flat.push(0)
-            cy: darray[i64] = Track::carried(&flat, &flags, blend, step)
-            cz: darray[i64] = Track::carried(&hz, &flags, blend, step)
+            cy: darray[i64] = Track::carried_blends(&flat, &flags, &blends, step)
+            cz: darray[i64] = Track::carried_blends(&hz, &flags, &blends, step)
+            mutable targets: darray[MotionQuat::V] = []
+            mutable moved: darray[bool] = []
             for f in 0..<c.frames:
                 k: usize = f.usize()
+                continue if k >= pos.count
+                targets.push(pos[k])
+                moved.push(false)
                 continue if k >= cx.count
                 weight: i64 = range_weight(op, f, c.frames)
                 nx: i64 = xs[k] + Offset::offset_amount(Order::clamp(cx[k], -Footing::LIMIT, Footing::LIMIT), weight)
                 ny: i64 = ys[k] + Offset::offset_amount(Order::clamp(cy[k], -Footing::LIMIT, Footing::LIMIT), weight)
                 nz: i64 = zs[k] + Offset::offset_amount(Order::clamp(cz[k], -Footing::LIMIT, Footing::LIMIT), weight)
                 continue if nx == xs[k] and ny == ys[k] and nz == zs[k]
-                target: MotionQuat::V = Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz))
-                _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, target, rot[k], &w)
+                targets[k] <- Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz))
+                moved[k] <- true
+            solve_smooth(c, leg, &targets, &moved, &flags, &rot)
             ankle_path(c, leg.end, &pos, &rot)
             mutable ax: darray[i64] = []
             mutable az: darray[i64] = []

@@ -29,8 +29,11 @@ module Knee:
         const MIN_SPEED: i64 = 2000
         # Frames to reach the speed budget from rest.
         const RAMP: i64 = 2
-        # Knee-pop gate: after <= max(source, source * 11 / 10) + NOISE.
-        const NOISE: i64 = 1000
+        # Knee-pop gate: after <= source * 11 / 10 + NOISE. NOISE (7 mrad,
+        # 0.4 degrees per frame) is the documented allowance for exact plants:
+        # a planted foot is held exactly, so its knee may turn this much faster
+        # than the take where the plant itself moves fast.
+        const NOISE: i64 = 7000
 
         # Start of the soft zone for a leg of `length`: never below what the
         # source leg already reached, so untouched frames stay untouched.
@@ -217,6 +220,32 @@ module Knee:
             ensure result <= velocity + accel
             want: i64 = target - previous
             return limit_velocity(want, velocity, speed, accel)
+
+        # Size of a signed value within the bound.
+        def magnitude(value: i64) -> i64:
+            requires value >= 0 - BOUND - BOUND
+            requires value <= BOUND + BOUND
+            ensure result >= 0
+            ensure result >= value
+            ensure result + value >= 0
+            ensure value < 0 or result == value
+            return value if value >= 0
+            return 0 - value
+
+        # `want`, moved at most `room` from `previous`.
+        def follow(previous: i64, want: i64, room: i64) -> i64:
+            requires room >= 0
+            requires room <= BOUND
+            requires previous >= 0 - BOUND
+            requires previous <= BOUND
+            requires want >= 0 - BOUND
+            requires want <= BOUND
+            ensure result <= previous + room
+            ensure result + room >= previous
+            ensure want > previous + room or want + room < previous or result == want
+            return previous + room if want > previous + room
+            return previous - room if want + room < previous
+            return want
 
         # Knee-pop gate for a cleaned clip.
         def pop_allowed(source: i64) -> i64:

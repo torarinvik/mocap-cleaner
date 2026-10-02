@@ -188,17 +188,31 @@ module Track:
         # it and of the run after it, each eased out over at least `blend` frames
         # and slowly enough to move at most `step` per frame (Footing::span), so the catch-up happens in the air.
         def carried(offsets: darray[i64]&, flags: darray[bool]&, blend: i64, step: i64) -> darray[i64]:
+            valid: bool = blend >= 1 and blend <= Fade::MAX_EDGE
+            blends: mutable darray[i64] = []
+            for v in offsets |blends, valid, blend|:
+                blends.push(blend if valid else 0)
+            if not valid:
+                for k in 0..<blends.count |k, blends|:
+                    blends[k] <- 0
+                return blends
+            return carried_blends(offsets, flags, &blends, step)
+
+        # Carry with a blend per frame: a free stretch eases out over the
+        # blend of the plant it leaves and in over the blend of the plant it
+        # reaches (the adaptive release of a straight leg).
+        def carried_blends(offsets: darray[i64]&, flags: darray[bool]&, blends: darray[i64]&, step: i64) -> darray[i64]:
             out: mutable darray[i64] = []
             for v in offsets |out|:
                 out.push(0)
             count: i64 = offsets.count.i64()
-            return out if count == 0 or count > Fade::MAX_FRAMES or blend < 1 or blend > Fade::MAX_EDGE or flags.count.i64() < count or step < 1 or step > Footing::LIMIT
+            return out if count == 0 or count > Fade::MAX_FRAMES or blends.count.i64() < count or flags.count.i64() < count or step < 1 or step > Footing::LIMIT
             for f in 0..<count |f, offsets, flags, out|:
                 if flags[f.usize()]:
                     out[f.usize()] <- Order::clamp(offsets[f.usize()], -Footing::LIMIT, Footing::LIMIT)
             prev: mutable i64 = -1
             f: mutable i64 = 0
-            while f < count |f, count, offsets, flags, out, prev, blend|:
+            while f < count |f, count, offsets, flags, out, prev, blends|:
                 if flags[f.usize()]:
                     prev <- f
                     f <- f + 1
@@ -206,15 +220,17 @@ module Track:
                 next: mutable i64 = f + 1
                 while next < count and not flags[next.usize()] |next, count, flags|:
                     next <- next + 1
-                for g in f..<next |g, f, next, prev, count, offsets, out, blend|:
+                for g in f..<next |g, f, next, prev, count, offsets, out, blends|:
                     before: i64 = Order::clamp(offsets[prev.usize()], -Footing::LIMIT, Footing::LIMIT) if prev >= 0 else 0
                     after: i64 = Order::clamp(offsets[next.usize()], -Footing::LIMIT, Footing::LIMIT) if next < count else 0
                     since: i64 = g - prev if prev >= 0 else Fade::MAX_EDGE
                     until: i64 = next - g if next < count else Fade::MAX_EDGE
                     since_c: i64 = Order::clamp(since, 1, Fade::MAX_FRAMES)
                     until_c: i64 = Order::clamp(until, 1, Fade::MAX_FRAMES)
-                    first: i64 = Footing::carry(before, since_c, Footing::span(before, step, blend))
-                    second: i64 = Footing::carry(after, until_c, Footing::span(after, step, blend))
+                    release: i64 = Order::clamp(blends[prev.usize()], 1, Fade::MAX_EDGE) if prev >= 0 else 1
+                    approach: i64 = Order::clamp(blends[next.usize()], 1, Fade::MAX_EDGE) if next < count else 1
+                    first: i64 = Footing::carry(before, since_c, Footing::span(before, step, release))
+                    second: i64 = Footing::carry(after, until_c, Footing::span(after, step, approach))
                     out[g.usize()] <- first + second
                 f <- next
             return out
