@@ -267,7 +267,7 @@ and almost all of that is the prover.
       studio Shift-drag selection, presets, slider, typed speed, bands.
       Status: kernel `src/core/retime.elisa` + `proof/retime_laws.elisa`;
       tests `test/retime.elisa`, `test/studio_retime.elisa`. Studio verified
-      headless and by build only; gaps G67-G71 in `docs/proof-gaps.md`.
+      headless and by build only; gaps G67-G74 in `docs/proof-gaps.md`.
 
 **Kernels and batch (throughput).**
 - [x] Profile the CLI on the boxing clips; publish a per-op time table in

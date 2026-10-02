@@ -318,6 +318,21 @@ gap below was worked around in our code.
   unconditional move, so every later use of `out` is reported as a
   disproved use-after-move. `RetimeApply::ranges_of` / `source_times`
   return a fresh empty array from an `if` block instead.
+- G72: `range_step` (eight ensures over `range_weight` and `step`) hits
+  the prover's time budget on winpc although it proved on the Mac; moving
+  the in-range case into a helper made the helper time out instead, so the
+  single-function form is kept. Its callers in `retime_laws` lose its
+  summary whenever it times out.
+- G73: a product of two variables divided by a third (`done * span /
+  whole`) leaves the bounds of the local unknown even when clamped.
+  `rescale` goes through `rescale_fraction` (constant multiplier, like
+  `invert_between`) and `rescale_offset` (bounded parameter, like
+  `forward_between`), with an exact `return time if reached == stop` so 1x
+  stays byte-identical.
+- G74: the laws `apart_accepted` (`ensure result` of `disjoint` on
+  `other + 1`), `clamped_speed_ok` (`speed_ok` of a `clamp_speed` result)
+  and `advance_land_forward` (two-call composition `land(advance(...))`)
+  did not prove and were dropped; the retime tests cover those cases.
 - `src/ops/retime_apply.elisa` includes `rig_stack.elisa` and so inherits its
   state ("unsupported", the same class as `ops_file`, `rig_cache` and
   `rig_stack` on main, whose counts are unchanged). The time-map decisions it
