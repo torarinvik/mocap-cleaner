@@ -261,10 +261,24 @@ and almost all of that is the prover.
 **Kernels and batch (throughput).**
 - [ ] Profile the CLI on the boxing clips; publish a per-op time table in
       the report.
-- [ ] Running median in O(log w) per sample (two heaps or an order-statistic
+- [x] Running median in O(log w) per sample (two heaps or an order-statistic
       window) instead of re-sorting each window.
-- [ ] Separable Gaussian with precomputed kernels; reuse buffers across
+      Status: `Track::median` keeps one sorted window and slides it (binary
+      search via `Slide::probe`, one shift per insert/delete) instead of
+      rebuilding and insertion-sorting 2r+1 values per frame: O(log w + w)
+      memmove per sample against O(w^2). Index arithmetic in
+      `src/core/slide.elisa`, laws in `proof/slide_laws.elisa` (both proved);
+      `test/track_kernels.elisa` checks it equals the old kernel exactly.
+      CLI output is byte-identical (GLB and JSON) on the boxing clips.
+- [x] Separable Gaussian with precomputed kernels; reuse buffers across
       bones instead of allocating per track.
+      Status: smooth and despike now ping-pong between two buffers reused
+      across every pass (no per-pass allocation) and read interior
+      neighbours directly (`Slide::inner`); looping tracks keep `sample`,
+      since `Span::wrap` offsets in-range frames by MAX_FRAMES % count.
+      A precomputed wide Gaussian kernel was skipped: the repeated 1-2-1
+      passes floor-divide each pass and reflect oddly at the edges, so a
+      single kernel would not stay byte-identical.
 - [ ] Batch: process files in parallel worker processes (`--jobs N`), and
       parse the GLB once per file for all ops.
 - [ ] Structure-of-arrays tracks (contiguous per-channel floats) so the
