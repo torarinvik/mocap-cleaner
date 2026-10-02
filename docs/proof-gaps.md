@@ -163,3 +163,36 @@ No prover changes were needed; worked around in `src/core/stack_cache.elisa`.
   call; restated as one implication per case.
 - G34: `requires i + 1 < Module::CONST` does not establish `i < CONST` at a
   call; `requires i < Module::CONST - 1` does.
+
+## Studio caches (studio-perf, 2026-10-02)
+
+Prover: `../elisa-proof-mocap/build/elisa-proof` at d1f61d0, unchanged. The
+workarounds are in `src/core/perf_cache.elisa` and
+`proof/perf_cache_laws.elisa` (34 laws, all proved).
+
+- G35: a callee's `ensure result == e` cannot be used by a caller that passes
+  the result on to another call (`lo: i64 = h(x)` followed by `d(f, lo)` is
+  `unknown`). The same fact written as `result >= e` plus `result <= e`
+  proves.
+- G36: a `bool` callee with both `not result or P` and `result or Q` ensures
+  makes callers that compose it time out (`dirty` after `take_lo/take_hi`).
+  `dirty`, `memo_hit` and `on_chain` therefore return an i64 0/1 flag, and
+  callers compare it with `== 1`.
+- G37: once a callee has a `requires`, its ensures are often lost when its
+  result feeds a second call. This holds even when the precondition plainly
+  holds at the call: a one-line `h(x)` with `requires x >= 0` works without
+  the requires and fails with it. So the laws that composed `margin_lo`,
+  `margin_hi`, `empty_lo/empty_hi` and `memo_key` with `dirty`/`span`/
+  `memo_hit` are stated over the window bounds those callees ensure. Those
+  ensures are proved on the kernel itself.
+- G38: comparisons against a negative constant are brittle. `ensure result <
+  0` with `return -1` (or `0 - 1`) is `unknown`, while `result <= 0 - 1`
+  proves. `requires hi >= NONE` (NONE = -1) was not established from `hi >=
+  0` at a call. Written as `requires hi + 1 >= 0`; the empty-window laws take
+  `hi < 0` as a parameter.
+- G39: a law whose `requires` mentions `frames - 1` without a lower bound on
+  `frames` fails the callee precondition, even though nothing overflows.
+  `requires frames >= 1` and `hi < frames` prove.
+- G40: slot and memo-key distinctness (`slot(t, a) != slot(t, b)` for
+  `a != b`, which has constant multipliers) times out. It is stated as
+  ordering (`a < b` implies `slot(t, a) < slot(t, b)`), which proves.

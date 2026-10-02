@@ -1,0 +1,374 @@
+# Laws of the studio caches (src/core/perf_cache.elisa): bank slots never
+# collide, dirty windows cover every edited frame and nothing outside the
+# fade margins, memos never serve another revision or bone, contact edits
+# never invalidate the rig steps before the first contact reader, and a
+# gizmo drag never moves a bone outside the dragged bone's chain.
+include "../src/core/perf_cache.elisa"
+
+module PerfCacheLaws:
+    public:
+        # ---- Bank slots ----------------------------------------------------
+
+        # A later track's slots all lie after an earlier track's.
+        def tracks_ordered(s: i64, t: i64, a: i64, b: i64) -> bool:
+            requires s >= 0
+            requires t > s
+            requires t < PerfCache::MAX_TRACKS
+            requires a >= 0
+            requires a < PerfCache::STRIDE
+            requires b >= 0
+            requires b < PerfCache::STRIDE
+            ensure result
+            return PerfCache::slot(s, a) < PerfCache::slot(t, b)
+
+        # Every fitting slot is inside the bank sized for its track.
+        def slot_in_bank(t: i64, a: i64) -> bool:
+            requires t >= 0
+            requires t < PerfCache::MAX_TRACKS
+            requires a >= 0
+            requires a < PerfCache::STRIDE
+            ensure result
+            at: i64 = PerfCache::slot(t, a)
+            size: i64 = PerfCache::bank_size(t)
+            return at >= 0 and at < size
+
+        # A component past the stride takes the uncached path.
+        def wide_component_uncached(t: i64, a: i64) -> bool:
+            requires t >= 0
+            requires t < PerfCache::MAX_TRACKS
+            requires a >= PerfCache::STRIDE
+            ensure result
+            return PerfCache::slot(t, a) < 0
+
+        # Growth stops exactly at the needed size.
+        def grows_until_needed(n: i64) -> bool:
+            requires n >= 0
+            ensure result
+            return not PerfCache::grows(n, n)
+
+        def grows_when_short(n: i64) -> bool:
+            requires n >= 1
+            ensure result
+            return PerfCache::grows(n - 1, n)
+
+        # ---- Dirty windows -------------------------------------------------
+
+        # A frame taken into a window is dirty afterwards.
+        def taken_frame_dirty(lo: i64, hi: i64, f: i64) -> bool:
+            requires lo >= -1
+            requires lo <= PerfCache::MAX_FRAMES
+            requires hi >= -1
+            requires hi <= PerfCache::MAX_FRAMES
+            requires f >= -1
+            requires f <= PerfCache::MAX_FRAMES
+            ensure result
+            nlo: i64 = PerfCache::take_lo(lo, f)
+            nhi: i64 = PerfCache::take_hi(hi, f)
+            return PerfCache::dirty(f, nlo, nhi) == 1
+
+        # Taking a frame keeps every frame that was already dirty.
+        def take_keeps_dirty(lo: i64, hi: i64, f: i64, g: i64) -> bool:
+            requires lo >= -1
+            requires lo <= PerfCache::MAX_FRAMES
+            requires hi >= -1
+            requires hi <= PerfCache::MAX_FRAMES
+            requires f >= -1
+            requires f <= PerfCache::MAX_FRAMES
+            requires g >= -1
+            requires g <= PerfCache::MAX_FRAMES
+            requires g >= lo
+            requires g <= hi
+            ensure result
+            nlo: i64 = PerfCache::take_lo(lo, f)
+            nhi: i64 = PerfCache::take_hi(hi, f)
+            return PerfCache::dirty(g, nlo, nhi) == 1
+
+        # A window from edits inside [first, last] stays inside it.
+        def take_stays_in_scope(first: i64, last: i64, lo: i64, hi: i64, f: i64, g: i64) -> bool:
+            requires first >= -1
+            requires first <= PerfCache::MAX_FRAMES
+            requires last >= -1
+            requires last <= PerfCache::MAX_FRAMES
+            requires lo >= -1
+            requires lo <= PerfCache::MAX_FRAMES
+            requires hi >= -1
+            requires hi <= PerfCache::MAX_FRAMES
+            requires f >= -1
+            requires f <= PerfCache::MAX_FRAMES
+            requires g >= -1
+            requires g <= PerfCache::MAX_FRAMES
+            requires lo >= first
+            requires hi <= last
+            requires f >= first
+            requires f <= last
+            requires g < first
+            ensure result
+            nlo: i64 = PerfCache::take_lo(lo, f)
+            nhi: i64 = PerfCache::take_hi(hi, f)
+            return PerfCache::dirty(g, nlo, nhi) == 0
+
+        def take_stays_in_scope_after(first: i64, last: i64, lo: i64, hi: i64, f: i64, g: i64) -> bool:
+            requires first >= -1
+            requires first <= PerfCache::MAX_FRAMES
+            requires last >= -1
+            requires last <= PerfCache::MAX_FRAMES
+            requires lo >= -1
+            requires lo <= PerfCache::MAX_FRAMES
+            requires hi >= -1
+            requires hi <= PerfCache::MAX_FRAMES
+            requires f >= -1
+            requires f <= PerfCache::MAX_FRAMES
+            requires g >= -1
+            requires g <= PerfCache::MAX_FRAMES
+            requires lo >= first
+            requires hi <= last
+            requires f >= first
+            requires f <= last
+            requires g > last
+            ensure result
+            nlo: i64 = PerfCache::take_lo(lo, f)
+            nhi: i64 = PerfCache::take_hi(hi, f)
+            return PerfCache::dirty(g, nlo, nhi) == 0
+
+        # ---- Memoisation ---------------------------------------------------
+
+        # A memo serves the exact revision and key it was made for.
+        def memo_serves_own(revision: i64, key: i64) -> bool:
+            requires revision >= 0
+            requires revision < 1000000000
+            ensure result
+            return PerfCache::memo_hit(true, revision, revision, key, key) == 1
+
+        # Any edit (new revision) invalidates the memo.
+        def edit_invalidates(revision: i64, key: i64) -> bool:
+            requires revision >= 0
+            requires revision < 1000000000
+            ensure result
+            return PerfCache::memo_hit(true, revision, revision + 1, key, key) == 0
+
+        # Never a memo that was not filled.
+        def empty_memo_misses(revision: i64, key: i64) -> bool:
+            requires revision >= 0
+            requires revision < 1000000000
+            ensure result
+            return PerfCache::memo_hit(false, revision, revision, key, key) == 0
+
+        # ---- Rig-stack steps -----------------------------------------------
+
+        # A step that does not read contacts ignores the contact key.
+        def non_reader_ignores_contacts(base: i64, c: i64, d: i64) -> bool:
+            requires base >= 0
+            requires base < StackCache::MODULUS
+            requires c >= 0
+            requires c < StackCache::MODULUS
+            requires d >= 0
+            requires d < StackCache::MODULUS
+            ensure result
+            a: i64 = PerfCache::step_key(base, false, c)
+            b: i64 = PerfCache::step_key(base, false, d)
+            return a == b
+
+        # A non-reader's key is the plain chained key.
+        def non_reader_is_plain(previous: i64, params: i64, c: i64) -> bool:
+            requires previous >= 0
+            requires previous < StackCache::MODULUS
+            requires params >= 0
+            requires params < StackCache::MODULUS
+            requires c >= 0
+            requires c < StackCache::MODULUS
+            ensure result
+            b: i64 = PerfCache::plain_key(previous, params)
+            a: i64 = PerfCache::step_key(b, false, c)
+            return a == b
+
+        # Equal inputs give equal keys for readers too (determinism).
+        def reader_deterministic(previous: i64, params: i64, c: i64) -> bool:
+            requires previous >= 0
+            requires previous < StackCache::MODULUS
+            requires params >= 0
+            requires params < StackCache::MODULUS
+            requires c >= 0
+            requires c < StackCache::MODULUS
+            ensure result
+            base: i64 = PerfCache::plain_key(previous, params)
+            a: i64 = PerfCache::step_key(base, true, c)
+            b: i64 = PerfCache::step_key(base, true, c)
+            return a == b
+
+        # A contact edit reuses every step before the first contact reader.
+        def contact_edit_keeps_upstream(n: i64, k: i64) -> i64:
+            requires n >= 0
+            requires n <= StackCache::MAX_OPS
+            requires k >= 0
+            requires k <= n
+            ensure result == k
+            return PerfCache::boundary_reuse(n, k, n)
+
+        # ... and never the reader itself or anything after it.
+        def contact_edit_reruns_reader(n: i64, k: i64) -> bool:
+            requires n >= 1
+            requires n <= StackCache::MAX_OPS
+            requires k >= 0
+            requires k < n
+            ensure result
+            reuse: i64 = PerfCache::boundary_reuse(n, k, n)
+            return StackCache::needs_eval(k, reuse)
+
+        # A cold cache reuses nothing across the boundary.
+        def cold_rig_cache(k: i64, n: i64) -> i64:
+            requires k >= 0
+            requires n >= 0
+            requires n <= StackCache::MAX_OPS
+            ensure result == 0
+            return PerfCache::boundary_reuse(0, k, n)
+
+        # ---- Gizmo chain ---------------------------------------------------
+
+        # The dragged bone always moves.
+        def dragged_moves(bone: i64, parent: i64, moves: bool) -> bool:
+            requires bone >= 0
+            requires parent < bone
+            ensure result
+            return PerfCache::on_chain(bone, bone, parent, moves) == 1
+
+        # A child of a moving bone moves.
+        def child_follows(bone: i64, dragged: i64, parent: i64) -> bool:
+            requires bone >= 0
+            requires parent >= 0
+            requires parent < bone
+            ensure result
+            return PerfCache::on_chain(bone, dragged, parent, true) == 1
+
+        # A bone whose parent stays put, and that is not dragged, stays put.
+        def unrelated_stays(bone: i64, dragged: i64, parent: i64) -> bool:
+            requires bone >= 0
+            requires parent < bone
+            requires bone != dragged
+            ensure result
+            return PerfCache::on_chain(bone, dragged, parent, false) == 0
+
+        # Two components of one track use different slots (ordered by component).
+        def components_distinct(t: i64, a: i64, b: i64) -> bool:
+            requires t >= 0
+            requires t < PerfCache::MAX_TRACKS
+            requires a >= 0
+            requires a < b
+            requires b < PerfCache::STRIDE
+            ensure result
+            return PerfCache::slot(t, a) < PerfCache::slot(t, b)
+
+        # The empty window (lo = frames, hi = NONE) dirties no frame.
+        def empty_window_clean(frames: i64, hi: i64, f: i64) -> bool:
+            requires hi < 0
+            requires frames >= 0
+            requires frames <= PerfCache::MAX_FRAMES
+            requires f >= 0
+            requires f < frames
+            ensure result
+            return PerfCache::dirty(f, frames, hi) == 0
+
+        # ... and spans no frames.
+        def empty_window_span(frames: i64, hi: i64) -> i64:
+            requires hi < 0
+            requires hi >= PerfCache::NONE
+            requires frames >= 0
+            requires frames <= PerfCache::MAX_FRAMES
+            ensure result == 0
+            return PerfCache::span(frames, hi)
+
+        # A window holding frame a, widened by frame b, covers every frame
+        # between them (so successive takes never leave holes).
+        def take_covers_between(a: i64, b: i64, g: i64) -> bool:
+            requires a <= g
+            requires g <= b
+            ensure result
+            lo: i64 = PerfCache::take_lo(a, b)
+            hi: i64 = PerfCache::take_hi(a, b)
+            return PerfCache::dirty(g, lo, hi) == 1
+
+        # A margin window (lo <= first, hi >= last, as margin_lo/margin_hi
+        # ensure) covers every frame of the scope.
+        def margins_contain_scope(first: i64, last: i64, lo: i64, hi: i64, f: i64) -> bool:
+            requires lo <= first
+            requires first <= f
+            requires f <= last
+            requires last <= hi
+            ensure result
+            return PerfCache::dirty(f, lo, hi) == 1
+
+        # Frames before first - edge stay clean (margin_lo >= first - edge).
+        def outside_margin_before_clean(first: i64, edge: i64, lo: i64, hi: i64, g: i64) -> bool:
+            requires edge >= 0
+            requires edge <= PerfCache::MAX_FRAMES
+            requires first >= 0
+            requires first <= PerfCache::MAX_FRAMES
+            requires lo >= first - edge
+            requires g < first - edge
+            ensure result
+            return PerfCache::dirty(g, lo, hi) == 0
+
+        # Frames after last + edge stay clean (margin_hi <= last + edge).
+        def outside_margin_after_clean(last: i64, edge: i64, lo: i64, hi: i64, g: i64) -> bool:
+            requires edge >= 0
+            requires edge <= PerfCache::MAX_FRAMES
+            requires last >= 0
+            requires last <= PerfCache::MAX_FRAMES
+            requires hi <= last + edge
+            requires g > last + edge
+            ensure result
+            return PerfCache::dirty(g, lo, hi) == 0
+
+        # Without margins the window is exactly the scope.
+        def zero_margin_is_scope(first: i64, last: i64) -> i64:
+            requires first >= 0
+            requires first <= last
+            requires last <= PerfCache::MAX_FRAMES
+            ensure result == last - first + 1
+            return PerfCache::span(first, last)
+
+        # A clamped window spans 1..frames frames.
+        def window_within_clip(lo: i64, hi: i64, frames: i64) -> i64:
+            requires lo >= 0
+            requires frames >= 1
+            requires lo <= hi
+            requires hi < frames
+            requires hi <= PerfCache::MAX_FRAMES
+            requires lo <= PerfCache::MAX_FRAMES
+            requires frames <= PerfCache::MAX_FRAMES
+            ensure result >= 1
+            ensure result <= frames
+            return PerfCache::span(lo, hi)
+
+        # Distinct bones give distinct memo keys (ordered by bone).
+        def bone_keys_ordered(a: i64, b: i64, mode: i64) -> bool:
+            requires a >= PerfCache::NONE
+            requires a < b
+            requires b < PerfCache::MAX_TRACKS
+            requires mode >= 0
+            requires mode < 16
+            ensure result
+            return PerfCache::memo_key(a, mode) < PerfCache::memo_key(b, mode)
+
+        # Distinct modes give distinct memo keys.
+        def mode_keys_ordered(bone: i64, m: i64, n: i64) -> bool:
+            requires bone >= PerfCache::NONE
+            requires bone < PerfCache::MAX_TRACKS
+            requires m >= 0
+            requires m < n
+            requires n < 16
+            ensure result
+            return PerfCache::memo_key(bone, m) < PerfCache::memo_key(bone, n)
+
+        # Another bone's or mode's key (a different key) misses the memo.
+        def other_key_misses(revision: i64, ka: i64, kb: i64) -> bool:
+            requires ka != kb
+            ensure result
+            return PerfCache::memo_hit(true, revision, revision, ka, kb) == 0
+
+        # A root bone that is not dragged never moves.
+        def other_root_stays(bone: i64, dragged: i64, parent: i64, moves: bool) -> bool:
+            requires bone >= 0
+            requires bone != dragged
+            requires parent < 0
+            ensure result
+            return PerfCache::on_chain(bone, dragged, parent, moves) == 0
