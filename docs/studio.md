@@ -19,7 +19,7 @@ build/mocap_studio [clip.glb [animation]]    # default: boxing black-boxer.glb, 
 
 ## Keys
 
-The keys are Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O. They are listed in the sidebar. Shift-F toggles the frame-time overlay (evaluate, detectors and draw times in µs, poses evaluated, ops rerun, bones moved by a drag); plain F still frames the views.
+The keys are Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O, plus the foot keys K (fix feet on/off), W (jump to the worst slide), and `,` `.` (carry blend). They are listed in the sidebar. The timeline's foot rows are editable: drag a contact's ends, click it to lift it, click a gap to plant. See `docs/foot-workflow.md`. Shift-F toggles the frame-time overlay (evaluate, detectors and draw times in µs, poses evaluated, ops rerun, bones moved by a drag); plain F still frames the views.
 
 Export writes `build/studio_export.glb`.
 

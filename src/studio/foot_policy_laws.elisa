@@ -1,0 +1,388 @@
+# Laws of the studio's foot cleanup decisions: blend nudges round-trip and
+# stay in range, run-end drags never invert a run and their edits cover
+# exactly the frames that change, new spans fit the clip, cues agree with
+# the metric order, the worst-frame scan keeps the maximum, and the display
+# transition starts at the old value and ends at the new one.
+include "foot_policy.elisa"
+
+module StudioFootLaws:
+    public:
+        # ---- Blend ----------------------------------------------------------
+
+        # A valid blend is kept as is.
+        def blend_keeps_valid(v: i64) -> i64:
+            requires v >= StudioFoot::MIN_BLEND
+            requires v <= StudioFoot::MAX_BLEND
+            ensure result == v
+            return StudioFoot::blend(v)
+
+        # Garbage falls back to the default.
+        def blend_defaults(v: i64) -> i64:
+            requires v < StudioFoot::MIN_BLEND
+            ensure result == StudioFoot::DEFAULT_BLEND
+            return StudioFoot::blend(v)
+
+        def blend_defaults_high(v: i64) -> i64:
+            requires v > StudioFoot::MAX_BLEND
+            ensure result == StudioFoot::DEFAULT_BLEND
+            return StudioFoot::blend(v)
+
+        # Up then down returns to the start below the top.
+        def nudge_round_trip_up(v: i64) -> i64:
+            requires v >= StudioFoot::MIN_BLEND
+            requires v < StudioFoot::MAX_BLEND
+            ensure result == v
+            up: i64 = StudioFoot::nudge_blend(v, true)
+            return StudioFoot::nudge_blend(up, false)
+
+        # Down then up returns to the start above the bottom.
+        def nudge_round_trip_down(v: i64) -> i64:
+            requires v > StudioFoot::MIN_BLEND
+            requires v <= StudioFoot::MAX_BLEND
+            ensure result == v
+            down: i64 = StudioFoot::nudge_blend(v, false)
+            return StudioFoot::nudge_blend(down, true)
+
+        # The ends are sticky.
+        def nudge_top_sticks() -> i64:
+            ensure result == StudioFoot::MAX_BLEND
+            return StudioFoot::nudge_blend(StudioFoot::MAX_BLEND, true)
+
+        def nudge_bottom_sticks() -> i64:
+            ensure result == StudioFoot::MIN_BLEND
+            return StudioFoot::nudge_blend(StudioFoot::MIN_BLEND, false)
+
+        # The default blend is a valid one.
+        def default_is_valid() -> i64:
+            ensure result == StudioFoot::DEFAULT_BLEND
+            return StudioFoot::blend(StudioFoot::DEFAULT_BLEND)
+
+        # ---- Grabbing a run -------------------------------------------------
+
+        # A press far left of a run grabs nothing.
+        def grab_misses_left(x0: i64, x1: i64) -> i64:
+            requires x0 <= x1
+            requires x0 >= 0
+            requires x1 <= 100000
+            ensure result == StudioFoot::NONE
+            return StudioFoot::grab(x0 - StudioFoot::GRIP - 1, x0, x1)
+
+        # A press far right of a run grabs nothing.
+        def grab_misses_right(x0: i64, x1: i64) -> i64:
+            requires x0 <= x1
+            requires x0 >= 0
+            requires x1 <= 100000
+            ensure result == StudioFoot::NONE
+            return StudioFoot::grab(x1 + StudioFoot::GRIP + 1, x0, x1)
+
+        # A press exactly on the first pixel of a long run grabs its first end.
+        def grab_first_end(x0: i64) -> i64:
+            requires x0 >= 0
+            requires x0 <= 100000
+            ensure result == StudioFoot::FIRST
+            return StudioFoot::grab(x0, x0, x0 + 100)
+
+        # ... and on its last pixel the last end.
+        def grab_last_end(x0: i64) -> i64:
+            requires x0 >= 0
+            requires x0 <= 100000
+            ensure result == StudioFoot::LAST
+            return StudioFoot::grab(x0 + 100, x0, x0 + 100)
+
+        # The middle of a long run is its body.
+        def grab_middle(x0: i64) -> i64:
+            requires x0 >= 0
+            requires x0 <= 100000
+            ensure result == StudioFoot::BODY
+            return StudioFoot::grab(x0 + 50, x0, x0 + 100)
+
+        # A press anywhere on a run grabs something.
+        def grab_on_run_hits(x: i64, x0: i64, x1: i64) -> bool:
+            requires x0 <= x1
+            requires x0 >= 0
+            requires x1 <= 100000
+            requires x >= x0
+            requires x <= x1
+            ensure result
+            return StudioFoot::grab(x, x0, x1) != StudioFoot::NONE
+
+        # ---- Dragging ends --------------------------------------------------
+
+        # A dragged first end never passes the last frame.
+        def drag_first_keeps_order(target: i64, last: i64) -> bool:
+            requires last >= 0
+            requires last < StudioFoot::MAX_FRAMES
+            ensure result
+            return StudioFoot::drag_first(target, last) <= last
+
+        # A dragged last end never passes the first frame or the clip end.
+        def drag_last_keeps_order(target: i64, first: i64, frames: i64) -> bool:
+            requires first >= 0
+            requires frames <= StudioFoot::MAX_FRAMES
+            requires first < frames
+            ensure result
+            v: i64 = StudioFoot::drag_last(target, first, frames)
+            return v >= first and v < frames
+
+        # Dragging past the start pins the first end at frame 0.
+        def drag_first_floor(last: i64) -> i64:
+            requires last >= 0
+            requires last < StudioFoot::MAX_FRAMES
+            ensure result == 0
+            return StudioFoot::drag_first(-5, last)
+
+        # Dragging past the end pins the last end at the final frame.
+        def drag_last_ceiling(first: i64, frames: i64) -> i64:
+            requires first >= 0
+            requires frames <= StudioFoot::MAX_FRAMES
+            requires first < frames
+            ensure result == frames - 1
+            return StudioFoot::drag_last(frames + 10, first, frames)
+
+        # ---- Edits ----------------------------------------------------------
+
+        # Extending a run's start plants frames next..old-1 (planted)
+        def extend_first_planted(old: i64, next: i64) -> bool:
+            requires next >= 0
+            requires next < old
+            requires old < StudioFoot::MAX_FRAMES
+            ensure result
+            return StudioFoot::first_planted(old, next)
+
+        # Extending a run's start plants frames next..old-1 (lo)
+        def extend_first_lo(old: i64, next: i64) -> i64:
+            requires next >= 0
+            requires next < old
+            requires old < StudioFoot::MAX_FRAMES
+            ensure result == next
+            return StudioFoot::edit_lo(true, old, next)
+
+        # Extending a run's start plants frames next..old-1 (hi)
+        def extend_first_hi(old: i64, next: i64) -> i64:
+            requires next >= 0
+            requires next < old
+            requires old < StudioFoot::MAX_FRAMES
+            ensure result == old - 1
+            return StudioFoot::edit_hi(true, old, next)
+
+        # Trimming a run's start lifts frames old..next-1 (planted)
+        def trim_first_planted(old: i64, next: i64) -> bool:
+            requires old >= 0
+            requires old < next
+            requires next < StudioFoot::MAX_FRAMES
+            ensure not result
+            return StudioFoot::first_planted(old, next)
+
+        # Trimming a run's start lifts frames old..next-1 (lo)
+        def trim_first_lo(old: i64, next: i64) -> i64:
+            requires old >= 0
+            requires old < next
+            requires next < StudioFoot::MAX_FRAMES
+            ensure result == old
+            return StudioFoot::edit_lo(true, old, next)
+
+        # Trimming a run's start lifts frames old..next-1 (hi)
+        def trim_first_hi(old: i64, next: i64) -> i64:
+            requires old >= 0
+            requires old < next
+            requires next < StudioFoot::MAX_FRAMES
+            ensure result == next - 1
+            return StudioFoot::edit_hi(true, old, next)
+
+        # Extending a run's end plants frames old+1..next (planted)
+        def extend_last_planted(old: i64, next: i64) -> bool:
+            requires old >= 0
+            requires old < next
+            requires next < StudioFoot::MAX_FRAMES
+            ensure result
+            return StudioFoot::last_planted(old, next)
+
+        # Extending a run's end plants frames old+1..next (lo)
+        def extend_last_lo(old: i64, next: i64) -> i64:
+            requires old >= 0
+            requires old < next
+            requires next < StudioFoot::MAX_FRAMES
+            ensure result == old + 1
+            return StudioFoot::edit_lo(false, old, next)
+
+        # Extending a run's end plants frames old+1..next (hi)
+        def extend_last_hi(old: i64, next: i64) -> i64:
+            requires old >= 0
+            requires old < next
+            requires next < StudioFoot::MAX_FRAMES
+            ensure result == next
+            return StudioFoot::edit_hi(false, old, next)
+
+        # Trimming a run's end lifts frames next+1..old (planted)
+        def trim_last_planted(old: i64, next: i64) -> bool:
+            requires next >= 0
+            requires next < old
+            requires old < StudioFoot::MAX_FRAMES
+            ensure not result
+            return StudioFoot::last_planted(old, next)
+
+        # Trimming a run's end lifts frames next+1..old (lo)
+        def trim_last_lo(old: i64, next: i64) -> i64:
+            requires next >= 0
+            requires next < old
+            requires old < StudioFoot::MAX_FRAMES
+            ensure result == next + 1
+            return StudioFoot::edit_lo(false, old, next)
+
+        # Trimming a run's end lifts frames next+1..old (hi)
+        def trim_last_hi(old: i64, next: i64) -> i64:
+            requires next >= 0
+            requires next < old
+            requires old < StudioFoot::MAX_FRAMES
+            ensure result == old
+            return StudioFoot::edit_hi(false, old, next)
+
+        # A real move edits a non-empty range.
+        def first_edit_nonempty(old: i64, next: i64) -> bool:
+            requires old >= 0
+            requires next >= 0
+            requires old < StudioFoot::MAX_FRAMES
+            requires next < StudioFoot::MAX_FRAMES
+            requires old != next
+            ensure result
+            return StudioFoot::edit_lo(true, old, next) <= StudioFoot::edit_hi(true, old, next)
+
+        def last_edit_nonempty(old: i64, next: i64) -> bool:
+            requires old >= 0
+            requires next >= 0
+            requires old < StudioFoot::MAX_FRAMES
+            requires next < StudioFoot::MAX_FRAMES
+            requires old != next
+            ensure result
+            return StudioFoot::edit_lo(false, old, next) <= StudioFoot::edit_hi(false, old, next)
+
+        # A move to a different frame is a move (the reflexive case, moved(v, v)
+        # is false, is stated by the kernel's ensure; see docs/proof-gaps.md).
+        def other_frame_is_moved(v: i64) -> bool:
+            requires v >= 0
+            requires v < StudioFoot::MAX_FRAMES
+            ensure result
+            return StudioFoot::moved(v, v + 1)
+
+        # ---- New spans ------------------------------------------------------
+
+        # A new span starts inside the clip ...
+        def new_span_starts_inside(frame: i64, frames: i64) -> i64:
+            requires frames >= 1
+            requires frames <= StudioFoot::MAX_FRAMES
+            ensure result >= 0
+            ensure result < frames
+            return StudioFoot::new_first(frame, frames)
+
+        # ... and ends inside it, never before its start.
+        def new_span_ends_inside(first: i64, frames: i64) -> i64:
+            requires first >= 0
+            requires first < frames
+            requires frames <= StudioFoot::MAX_FRAMES
+            ensure result >= first
+            ensure result < frames
+            return StudioFoot::new_last(first, frames)
+
+        # In a long clip a span in the middle covers NEW_SPAN frames.
+        def new_span_width(first: i64) -> i64:
+            requires first >= 0
+            requires first <= 1000
+            ensure result == first + StudioFoot::NEW_SPAN - 1
+            return StudioFoot::new_last(first, 10000)
+
+        # In a long clip a span in the middle starts NEW_SPAN / 2 frames early.
+        def new_span_centred(frame: i64) -> i64:
+            requires frame >= 100
+            requires frame <= 1000
+            ensure result == frame - StudioFoot::NEW_SPAN / 2
+            return StudioFoot::new_first(frame, 10000)
+
+        # ---- Cues and markers -----------------------------------------------
+
+        # Fixing a metric reads green.
+        def fixed_is_better(before: i64) -> i64:
+            requires before >= 1
+            ensure result == StudioFoot::BETTER
+            return StudioFoot::cue(before, 0)
+
+        # An untouched metric is neutral.
+        def same_is_same(v: i64) -> i64:
+            ensure result == StudioFoot::SAME
+            return StudioFoot::cue(v, v)
+
+        # A grown metric reads red.
+        def grown_is_worse(v: i64) -> i64:
+            requires v <= 1000000
+            ensure result == StudioFoot::WORSE
+            return StudioFoot::cue(v, v + 1)
+
+        # A held foot is never marked.
+        def held_is_unmarked() -> bool:
+            ensure not result
+            return StudioFoot::marked(0)
+
+        # A centimetre of slide in a frame is marked.
+        def centimetre_is_marked() -> bool:
+            ensure result
+            return StudioFoot::marked(10000)
+
+        # ---- Worst frame ----------------------------------------------------
+
+        # A larger value takes over the scan.
+        def worst_takes_larger(best: i64, best_value: i64, frame: i64) -> i64:
+            requires best_value <= 1000000
+            ensure result == frame
+            return StudioFoot::worst_frame(best, best_value, frame, best_value + 1)
+
+        # A tie keeps the earlier frame.
+        def worst_keeps_tie(best: i64, best_value: i64, frame: i64) -> i64:
+            ensure result == best
+            return StudioFoot::worst_frame(best, best_value, frame, best_value)
+
+        # The running maximum never drops.
+        def worst_value_monotone(best_value: i64, value: i64) -> bool:
+            ensure result
+            return StudioFoot::worst_value(best_value, value) >= best_value
+
+        # ---- Transition -----------------------------------------------------
+
+        # A transition starts on the old value ...
+        def mix_starts_old(start: i64, target: i64) -> i64:
+            requires start >= -1000000
+            requires start <= 1000000
+            requires target >= -1000000
+            requires target <= 1000000
+            ensure result == start
+            w: i64 = StudioFoot::progress(0, 10)
+            return StudioFoot::mix(start, target, w)
+
+        # ... and ends on the new one.
+        def mix_ends_new(start: i64, target: i64, duration: i64) -> i64:
+            requires start >= -1000000
+            requires start <= 1000000
+            requires target >= -1000000
+            requires target <= 1000000
+            requires duration >= 1
+            requires duration <= 1000
+            ensure result == target
+            w: i64 = StudioFoot::progress(duration, duration)
+            return StudioFoot::mix(start, target, w)
+
+        # Progress past the end stays full.
+        def progress_saturates(elapsed: i64, duration: i64) -> i64:
+            requires duration >= 1
+            requires duration <= 1000
+            requires elapsed >= duration
+            requires elapsed <= 1000000
+            ensure result == StudioFoot::FULL
+            return StudioFoot::progress(elapsed, duration)
+
+        # Equal ends make the transition a constant.
+        def mix_constant_ends(v: i64, w: i64) -> i64:
+            requires v >= -1000000
+            requires v <= 1000000
+            requires w >= 0
+            requires w <= StudioFoot::FULL
+            requires w == 0 or w == StudioFoot::FULL
+            ensure result == v
+            return StudioFoot::mix(v, v, w)

@@ -46,6 +46,14 @@ module StudioPerf:
         # range. A window reaching a channel's last key runs to the clip end.
         def edit_window(old: StackState::Stack&, new: StackState::Stack&, frames: i64, shortest: i64) -> Window:
             return full(frames) if old.count != new.count
+            # The foot fix (K) is non-local: toggling it, its blend or its
+            # contact edits rebuild everything, and so does any change while
+            # it is on (a correction can move a contact run).
+            return full(frames) if old.feet != new.feet or old.blend != new.blend or old.edit_count != new.edit_count
+            for i in 0..<old.edit_count |i, old, new|:
+                a: StackState::FootEdit = old.edits[i]
+                b: StackState::FootEdit = new.edits[i]
+                return full(frames) if a.side != b.side or a.first != b.first or a.last != b.last or a.planted != b.planted
             for i in 0..<old.count |i, old, new|:
                 x: Ops::Operation = old.ops[i]
                 y: Ops::Operation = new.ops[i]
@@ -67,6 +75,7 @@ module StudioPerf:
                     q: Corrections::Correction = new.fixes[i]
                     w <- widen(w, q.first, q.last)
             return w if is_empty(w)
+            return full(frames) if new.feet
             lo: i64 = w.lo if w.lo > 0 else 0
             hi: i64 = PerfCache::window_end(w.hi if w.hi > 0 else 0, shortest if shortest > 0 else 0, frames)
             return Window{lo: lo, hi: hi}

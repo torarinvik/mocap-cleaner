@@ -1,0 +1,143 @@
+# Headless tests of the studio's foot cleanup (no window): the foot fields of
+# the stack and their undo/redo, timeline contact-bar presses and releases
+# (grab ends, drag, lift a run, plant a new span), and the model build on
+# the boxing clip with feet off and on (K): the readout, the worst frame and
+# the slide markers.
+include "../src/studio/app/model.elisa"
+
+extern puts(text: cstr) -> i64
+
+const PATH: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+
+def flags_of(n: i64, first: i64, last: i64) -> darray[bool]:
+    mutable out: darray[bool] = []
+    for f in 0..<n |f, out, first, last|:
+        out.push(f >= first and f <= last)
+    return out
+
+# Stack foot fields, blend nudges and history.
+def stack_fields() -> i32:
+    mutable s: StackState::Stack = StudioModel::initial_stack()
+    return 10 if not s.feet or s.blend != StudioFoot::DEFAULT_BLEND or s.edit_count != 0
+    mutable h: HistoryState::History = zeroed
+    HistoryState::reset(&h, s)
+    # K off, recorded; undo brings it back.
+    return 11 if not StackState::set_feet(&s, false)
+    return 12 if StackState::set_feet(&s, false)
+    return 13 if not HistoryState::record(&h, s)
+    return 14 if not HistoryState::undo(&h)
+    back: StackState::Stack = HistoryState::current(&h)
+    return 15 if not back.feet
+    return 16 if not HistoryState::redo(&h)
+    again: StackState::Stack = HistoryState::current(&h)
+    return 17 if again.feet
+    # Blend nudges clamp at the ends.
+    mutable b: StackState::Stack = StackState::empty()
+    for i in 0..<40 |b|:
+        _ = StackState::nudge_blend(&b, true)
+    return 18 if b.blend != StudioFoot::MAX_BLEND
+    return 19 if StackState::nudge_blend(&b, true)
+    for i in 0..<40 |b|:
+        _ = StackState::nudge_blend(&b, false)
+    return 20 if b.blend != StudioFoot::MIN_BLEND
+    # Edits are part of `same`, so history records them.
+    mutable e: StackState::Stack = StackState::empty()
+    p: StackState::Stack = e
+    return 21 if not StackState::add_edit(&e, StackState::LEFT, 3, 9, true)
+    return 22 if StackState::same(&e, &p)
+    return 23 if StackState::add_edit(&e, 2, 3, 9, true) or StackState::add_edit(&e, 0, 9, 3, true)
+    for i in 0..<40 |e|:
+        _ = StackState::add_edit(&e, StackState::RIGHT, i, i, false)
+    return 24 if e.edit_count != StackState::MAX_EDITS
+    return 25 if not StackState::clear_edits(&e) or e.edit_count != 0
+    # apply_edits: later edits win, only on their side.
+    mutable f: darray[bool] = flags_of(20, 5, 10)
+    mutable g: StackState::Stack = StackState::empty()
+    _ = StackState::add_edit(&g, StackState::LEFT, 0, 7, false)
+    _ = StackState::add_edit(&g, StackState::LEFT, 2, 3, true)
+    _ = StackState::add_edit(&g, StackState::RIGHT, 0, 19, true)
+    StackState::apply_edits(&g, StackState::LEFT, &f)
+    return 26 if f[1] or not f[2] or not f[3] or f[4] or f[7] or not f[8] or not f[10] or f[11]
+    return 0
+
+# Presses and releases on a 100-frame row drawn 1000 px wide (10 px/frame).
+def bars() -> i32:
+    flags: darray[bool] = flags_of(100, 20, 39)
+    # Pixel 200 is the run's first edge, 400 its right edge, 300 its body.
+    a: FootState::Press = FootState::press(flags, StackState::LEFT, 201, 1000)
+    return 30 if a.part != StudioFoot::FIRST or a.first != 20 or a.last != 39
+    z: FootState::Press = FootState::press(flags, StackState::LEFT, 398, 1000)
+    return 31 if z.part != StudioFoot::LAST
+    m: FootState::Press = FootState::press(flags, StackState::LEFT, 300, 1000)
+    return 32 if m.part != StudioFoot::BODY
+    o: FootState::Press = FootState::press(flags, StackState::RIGHT, 700, 1000)
+    return 33 if o.part != StudioFoot::NONE or o.frame != 70 or not FootState::active(&o)
+    # Drag the first end earlier to 12: plants 12..19.
+    mutable s: StackState::Stack = StackState::empty()
+    return 34 if not FootState::release(&s, &a, 12, 100)
+    e: StackState::FootEdit = s.edits[0]
+    return 35 if e.first != 12 or e.last != 19 or not e.planted or e.side != StackState::LEFT
+    # Drag the last end earlier to 30: lifts 31..39.
+    return 36 if not FootState::release(&s, &z, 30, 100)
+    e2: StackState::FootEdit = s.edits[1]
+    return 37 if e2.first != 31 or e2.last != 39 or e2.planted
+    # Drag the last end past the clip: clamps to 99, plants 40..99.
+    return 38 if not FootState::release(&s, &z, 500, 100)
+    e3: StackState::FootEdit = s.edits[2]
+    return 39 if e3.first != 40 or e3.last != 99 or not e3.planted
+    # Click on the body lifts the run.
+    return 40 if not FootState::release(&s, &m, m.frame, 100)
+    e4: StackState::FootEdit = s.edits[3]
+    return 41 if e4.first != 20 or e4.last != 39 or e4.planted
+    # Click off every run plants a new span centred on the click.
+    return 42 if not FootState::release(&s, &o, 70, 100)
+    e5: StackState::FootEdit = s.edits[4]
+    return 43 if e5.side != StackState::RIGHT or e5.first != 66 or e5.last != 73 or not e5.planted
+    # The edits rebuild the row the user drew.
+    mutable after: darray[bool] = flags_of(100, 20, 39)
+    StackState::apply_edits(&s, StackState::LEFT, &after)
+    for k in 0..<100 |k, after|:
+        return 44 if after[k] != ((k >= 12 and k <= 19) or k >= 40)
+    # An idle press records nothing.
+    i: FootState::Press = FootState::idle()
+    return 45 if FootState::release(&s, &i, 10, 100)
+    return 0
+
+# Model build: feet off then on (the studio default).
+def model() -> i32:
+    mutable off: StackState::Stack = StudioModel::initial_stack()
+    off.feet <- false
+    a: StudioModel::Clip? = StudioModel::build(PATH, "jab", off)
+    on: StackState::Stack = StudioModel::initial_stack()
+    b: StudioModel::Clip? = StudioModel::build(PATH, "jab", on)
+    if a is x:
+        if b is y:
+            return 50 if x.feet or x.slide_before != 0 or x.slide_after != 0
+            return 51 if not y.feet or y.slide_before <= 0
+            return 52 if y.slide_after > y.slide_before or y.sink_after > y.sink_before
+            return 53 if StudioFoot::cue(y.slide_before, y.slide_after) != StudioFoot::BETTER
+            return 54 if x.foot_slide.count.i64() != x.frames or y.foot_slide.count.i64() != y.frames
+            return 55 if y.worst_frame < 0 or y.worst_frame >= y.frames
+            return 56 if y.foot_slide[y.worst_frame.usize()] != y.worst_slide
+            return 58 if FootState::marks(y.foot_slide) > FootState::marks(x.foot_slide)
+            return 59 if y.left_contact.count.i64() != y.frames
+            # A hand edit lifting the whole left foot empties its contact bar.
+            mutable lift: StackState::Stack = StudioModel::initial_stack()
+            _ = StackState::add_edit(&lift, StackState::LEFT, 0, y.frames - 1, false)
+            l: StudioModel::Clip? = StudioModel::build(PATH, "jab", lift)
+            if l is z:
+                for k in 0..<z.left_contact.count |k, z|:
+                    return 60 if z.left_contact[k]
+                return 0
+            return 61
+    return 62
+
+def main() -> i32:
+    rc: i32 = stack_fields()
+    return rc if rc != 0
+    rc2: i32 = bars()
+    return rc2 if rc2 != 0
+    rc3: i32 = model()
+    if rc3 == 0:
+        _ = puts("studio_foot: ok")
+    return rc3

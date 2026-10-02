@@ -8,6 +8,7 @@
 # preview). Stage1 keeps darrays alive only when the owning struct is moved
 # into the global, so nothing here is mutated in place.
 include "../state/clip_state.elisa"
+include "../state/foot_state.elisa"
 include "../state/history_state.elisa"
 include "../state/timeline_state.elisa"
 include "../view.elisa"
@@ -68,6 +69,18 @@ module StudioModel:
             detect_us: i64
             poses: i64
             ops_run: i64
+            # Foot cleanup (K): planted-foot slide and sink (micro-units)
+            # before and after the fix, per-frame planted slide (worse foot)
+            # for the timeline markers, and the worst frame and its foot.
+            feet: bool
+            slide_before: i64
+            slide_after: i64
+            sink_before: i64
+            sink_after: i64
+            foot_slide: mutable darray[i64]
+            worst_frame: i64
+            worst_slide: i64
+            worst_side: i64
 
         def open(path: cstr) -> GlbDocument::Document?:
             d: GlbDocument::Document = catch GlbDocument::load(path):
@@ -161,6 +174,11 @@ module StudioModel:
             for i in 0..<s.fix_count |i, s, cleaned, anim|:
                 fix: Corrections::Correction = s.fixes[i]
                 _ = Corrections::apply(&cleaned, anim, &fix)
+            edits: darray[RigOps::RigOp] = edit_ops(s)
+            mutable foot: RigOps::Summary = RigOps::empty_summary()
+            if s.feet:
+                rops: darray[RigOps::RigOp] = foot_ops(s)
+                foot <- RigOps::run(&cleaned, anim, rops, threshold)
             t1: i64 = clock()
             ops_run: i64 = GlbTracks::bank_evaluations(&m.bank) - before_runs
             nodes: darray[i64] = copy_ints(&m.nodes)
@@ -172,8 +190,11 @@ module StudioModel:
             rh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 1, frames)
             lf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 2, frames)
             rf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 3, frames)
-            lc: darray[bool] = StudioClip::contacts(lf, Timeline::RATE)
-            rc: darray[bool] = StudioClip::contacts(rf, Timeline::RATE)
+            lc: darray[bool] = contacts_of(&cleaned, anim, 0, &edits, lf)
+            rc: darray[bool] = contacts_of(&cleaned, anim, 1, &edits, rf)
+            fs: darray[i64] = foot_slide(lf, rf, lc, rc)
+            worst: (frame: i64, value: i64) = worst_of(fs)
+            worst_side: i64 = side_at(lf, rf, lc, rc, worst.frame)
             edge: StudioPerf::Window = StudioPerf::margin(w, StudioPerf::DETECT_EDGE, frames)
             problems: darray[i64] = StudioPerf::problems(cleaned, anim, frames, threshold, prev_problems, edge)
             source_problems: darray[i64] = copy_ints(&m.source_problems)
@@ -185,7 +206,7 @@ module StudioModel:
             balance_of(&cleaned, anim, frames, &bal)
             t2: i64 = clock()
             src: GlbDocument::Document = GlbDocument::copy(&m.pristine)
-            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run}
+            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side}
             return move c
 
         def copy_ints(v: darray[i64]&) -> darray[i64]:
@@ -193,6 +214,63 @@ module StudioModel:
             for x in v |out|:
                 out.push(x)
             return out
+
+        # The stack's contact edits as RigOps (role per foot).
+        def edit_ops(s: StackState::Stack&) -> darray[RigOps::RigOp]:
+            mutable out: darray[RigOps::RigOp] = []
+            for i in 0..<s.edit_count |i, s, out|:
+                e: StackState::FootEdit = s.edits[i]
+                role: i64 = Roles::LEFT_FOOT if e.side == StackState::LEFT else Roles::RIGHT_FOOT
+                out.push(RigOps::contact_edit(role, e.first, e.last, e.planted))
+            return out
+
+        # The foot fix: the pivot hold with the stack's blend, then the edits.
+        def foot_ops(s: StackState::Stack&) -> darray[RigOps::RigOp]:
+            mutable out: darray[RigOps::RigOp] = []
+            out.push(RigOps::foot_pivot(StudioFoot::blend(s.blend)))
+            for op in edit_ops(s) |op, out|:
+                out.push(op)
+            return out
+
+        # Contacts of one foot as the foot fix sees them (detection plus the
+        # hand edits), or the studio's own detection when the rig has no leg.
+        def contacts_of(doc: GlbDocument::Document&, anim: usize, side: i64, edits: darray[RigOps::RigOp]&, track: darray[Geometry::Vec3]&) -> darray[bool]:
+            rig: Rig::Clip = Rig::load(doc, anim)
+            flags: darray[bool] = RigOps::foot_contacts(&rig, side, edits)
+            return flags if flags.count == track.count
+            return StudioClip::contacts(track, Timeline::RATE)
+
+        # Horizontal slide (micro-units) of a planted foot from frame k-1 to k.
+        def step_slide(track: darray[Geometry::Vec3]&, flags: darray[bool]&, k: usize) -> i64:
+            return 0 if k == 0 or k >= track.count or k >= flags.count or not flags[k] or not flags[k - 1]
+            dx: f64 = (track[k].x - track[k - 1].x).f64()
+            dz: f64 = (track[k].z - track[k - 1].z).f64()
+            return ((dx * dx + dz * dz).sqrt() * 1000000.0).round().i64()
+
+        # Per-frame planted slide of the worse foot.
+        def foot_slide(lf: darray[Geometry::Vec3]&, rf: darray[Geometry::Vec3]&, lc: darray[bool]&, rc: darray[bool]&) -> darray[i64]:
+            mutable out: darray[i64] = []
+            for k in 0..<lf.count |k, lf, rf, lc, rc, out|:
+                a: i64 = step_slide(lf, lc, k)
+                b: i64 = step_slide(rf, rc, k)
+                out.push(StudioFoot::worst_value(a, b))
+            return out
+
+        # The frame with the most planted slide (earliest on ties), or 0.
+        def worst_of(v: darray[i64]&) -> (frame: i64, value: i64):
+            mutable best: i64 = 0
+            mutable value: i64 = 0
+            for k in 0..<v.count |k, v, best, value|:
+                best <- StudioFoot::worst_frame(best, value, k.i64(), v[k])
+                value <- StudioFoot::worst_value(value, v[k])
+            return (frame: best, value: value)
+
+        # The foot (StackState::LEFT/RIGHT) sliding more at `frame`.
+        def side_at(lf: darray[Geometry::Vec3]&, rf: darray[Geometry::Vec3]&, lc: darray[bool]&, rc: darray[bool]&, frame: i64) -> i64:
+            return StackState::LEFT if frame < 0
+            k: usize = frame.usize()
+            return StackState::RIGHT if step_slide(rf, rc, k) > step_slide(lf, lc, k)
+            return StackState::LEFT
 
         const SUPPORT_CORNERS: i64 = 4
 
@@ -315,8 +393,11 @@ module StudioModel:
             return true
 
         # Default stack: the boxing preset.
+        # Feet are fixed by default (blend StudioFoot::DEFAULT_BLEND).
         def initial_stack() -> StackState::Stack:
-            return StackState::from_list(Presets::operations(Presets::Preset.Boxing))
+            mutable s: StackState::Stack = StackState::from_list(Presets::operations(Presets::Preset.Boxing))
+            s.feet <- true
+            return s
 
         # A fresh operation of kind index `k` (0..4) over the whole clip.
         def new_operation(k: i64, frames: i64) -> Ops::Operation:

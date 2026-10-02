@@ -1,0 +1,253 @@
+# Decisions behind the studio's foot cleanup, as small proved kernels:
+#   - the blend (frames the carry eases over) and its nudge;
+#   - what a click or a drag on a timeline contact bar does: which end of a
+#     run is grabbed, where a dragged end lands, and the hand edit (range and
+#     planted or lifted) that turns the old run into the new one;
+#   - the green/red cue of a before/after metric, and when a frame's slide
+#     earns a timeline marker;
+#   - the worst-frame scan;
+#   - the before/after display transition (a clamped ramp and a mix).
+module StudioFoot:
+    public:
+        const MIN_BLEND: i64 = 1
+        const MAX_BLEND: i64 = 24
+        const DEFAULT_BLEND: i64 = 4
+        # A click on an empty part of a contact row plants this many frames.
+        const NEW_SPAN: i64 = 8
+        # A drag grabs a run end within this many pixels.
+        const GRIP: i64 = 6
+        const MAX_FRAMES: i64 = 1000000
+        # Per-frame slide (micro-units) that earns a timeline marker: 2 mm.
+        const MARK_SLIDE: i64 = 2000
+        const LIMIT: i64 = 1000000000000
+        # Transition length in permille steps.
+        const FULL: i64 = 1000
+
+        # What a press on a contact row grabs.
+        const NONE: i64 = 0
+        const FIRST: i64 = 1
+        const LAST: i64 = 2
+        const BODY: i64 = 3
+
+        # Cue of a metric where lower is better.
+        const WORSE: i64 = 0
+        const SAME: i64 = 1
+        const BETTER: i64 = 2
+
+        # A blend kept in [MIN_BLEND, MAX_BLEND] (out-of-range input falls
+        # back to the default).
+        def blend(v: i64) -> i64:
+            ensure result >= MIN_BLEND
+            ensure result <= MAX_BLEND
+            ensure v < MIN_BLEND or v > MAX_BLEND or result == v
+            ensure v >= MIN_BLEND or result == DEFAULT_BLEND
+            ensure v <= MAX_BLEND or result == DEFAULT_BLEND
+            return DEFAULT_BLEND if v < MIN_BLEND or v > MAX_BLEND
+            return v
+
+        # The blend after one nudge step (`up` or down), clamped.
+        def nudge_blend(v: i64, up: bool) -> i64:
+            requires v >= MIN_BLEND
+            requires v <= MAX_BLEND
+            ensure result >= MIN_BLEND
+            ensure result <= MAX_BLEND
+            ensure not up or v == MAX_BLEND or result == v + 1
+            ensure up or v == MIN_BLEND or result == v - 1
+            ensure not up or v != MAX_BLEND or result == v
+            ensure up or v != MIN_BLEND or result == v
+            return v if up and v == MAX_BLEND
+            return v + 1 if up
+            return v if v == MIN_BLEND
+            return v - 1
+
+        # Which part of the run [x0, x1] (pixels) a press at `x` grabs. The
+        # nearer end wins inside the grip; a press elsewhere on the run is
+        # the body, and off the run nothing.
+        def grab(x: i64, x0: i64, x1: i64) -> i64:
+            requires x0 <= x1
+            requires x0 >= -LIMIT
+            requires x1 <= LIMIT
+            requires x >= -LIMIT
+            requires x <= LIMIT
+            ensure result >= NONE
+            ensure result <= BODY
+            ensure result == NONE or x >= x0 - GRIP
+            ensure result == NONE or x <= x1 + GRIP
+            ensure x < x0 - GRIP or x > x1 + GRIP or result != NONE
+            ensure result != FIRST or x <= x0 + GRIP
+            ensure result != LAST or x >= x1 - GRIP
+            ensure x < x0 or x > x0 + GRIP or x - x0 > x1 - x or result == FIRST
+            ensure x <= x0 + GRIP or x < x1 - GRIP or x > x1 + GRIP or result == LAST
+            return NONE if x < x0 - GRIP or x > x1 + GRIP
+            return FIRST if x <= x0 + GRIP and x - x0 <= x1 - x
+            return LAST if x >= x1 - GRIP
+            return FIRST if x <= x0 + GRIP
+            return BODY
+
+        # A dragged first frame lands in [0, last].
+        def drag_first(target: i64, last: i64) -> i64:
+            requires last >= 0
+            requires last < MAX_FRAMES
+            ensure result >= 0
+            ensure result <= last
+            ensure target < 0 or target > last or result == target
+            ensure target >= 0 or result == 0
+            ensure target <= last or result == last
+            return 0 if target < 0
+            return last if target > last
+            return target
+
+        # A dragged last frame lands in [first, frames - 1].
+        def drag_last(target: i64, first: i64, frames: i64) -> i64:
+            requires first >= 0
+            requires frames <= MAX_FRAMES
+            requires first < frames
+            ensure result >= first
+            ensure result < frames
+            ensure target < first or target >= frames or result == target
+            ensure target >= first or result == first
+            ensure target < frames or result == frames - 1
+            return first if target < first
+            return frames - 1 if target >= frames
+            return target
+
+        # The edit that moves a run end from `old` to `new`. When the first
+        # frame moves earlier, or the last moves later, the frames between
+        # are planted; otherwise they are lifted. `edit_lo`/`edit_hi` give
+        # the frames the edit covers (the frames that change state).
+        def edit_planted(is_first: bool, old: i64, moved_to: i64) -> bool:
+            ensure not is_first or result == first_planted(old, moved_to)
+            ensure is_first or result == last_planted(old, moved_to)
+            return first_planted(old, moved_to) if is_first
+            return last_planted(old, moved_to)
+
+        # Moving the first end earlier plants; moving the last end later plants.
+        def first_planted(old: i64, moved_to: i64) -> bool:
+            ensure result == (moved_to < old)
+            return moved_to < old
+
+        def last_planted(old: i64, moved_to: i64) -> bool:
+            ensure result == (moved_to > old)
+            return moved_to > old
+
+        def edit_lo(is_first: bool, old: i64, moved_to: i64) -> i64:
+            requires old >= 0
+            requires moved_to >= 0
+            requires old < MAX_FRAMES
+            requires moved_to < MAX_FRAMES
+            ensure result >= 0
+            ensure not is_first or moved_to >= old or result == moved_to
+            ensure not is_first or moved_to < old or result == old
+            ensure is_first or moved_to <= old or result == old + 1
+            ensure is_first or moved_to > old or result == moved_to + 1
+            if is_first:
+                return moved_to if moved_to < old
+                return old
+            return old + 1 if moved_to > old
+            return moved_to + 1
+
+        def edit_hi(is_first: bool, old: i64, moved_to: i64) -> i64:
+            requires old >= 0
+            requires moved_to >= 0
+            requires old < MAX_FRAMES
+            requires moved_to < MAX_FRAMES
+            ensure result >= -1
+            ensure not is_first or moved_to >= old or result == old - 1
+            ensure not is_first or moved_to < old or result == moved_to - 1
+            ensure is_first or moved_to <= old or result == moved_to
+            ensure is_first or moved_to > old or result == old
+            if is_first:
+                return old - 1 if moved_to < old
+                return moved_to - 1
+            return moved_to if moved_to > old
+            return old
+
+        # Whether a move changes anything.
+        def moved(old: i64, moved_to: i64) -> bool:
+            ensure result == (old != moved_to)
+            return old != moved_to
+
+        # First and last frame of a new planted span at `frame`, inside the
+        # clip.
+        def new_first(frame: i64, frames: i64) -> i64:
+            requires frames >= 1
+            requires frames <= MAX_FRAMES
+            ensure result >= 0
+            ensure result < frames
+            ensure frame < NEW_SPAN / 2 or frame >= frames or result == frame - NEW_SPAN / 2
+            return 0 if frame < NEW_SPAN / 2
+            return frames - 1 if frame >= frames
+            return frame - NEW_SPAN / 2
+
+        def new_last(first: i64, frames: i64) -> i64:
+            requires first >= 0
+            requires first < frames
+            requires frames <= MAX_FRAMES
+            ensure result >= first
+            ensure result < frames
+            ensure first + NEW_SPAN - 1 >= frames or result == first + NEW_SPAN - 1
+            return frames - 1 if first + NEW_SPAN - 1 >= frames
+            return first + NEW_SPAN - 1
+
+        # Cue of a lower-is-better metric: better, same or worse.
+        def cue(before: i64, after: i64) -> i64:
+            ensure result >= WORSE
+            ensure result <= BETTER
+            ensure result != BETTER or after < before
+            ensure result != WORSE or after > before
+            ensure result != SAME or after == before
+            ensure after >= before or result == BETTER
+            ensure after <= before or result == WORSE
+            return BETTER if after < before
+            return WORSE if after > before
+            return SAME
+
+        # Whether a frame's slide gets a timeline marker.
+        def marked(slide: i64) -> bool:
+            ensure result == (slide > MARK_SLIDE)
+            return slide > MARK_SLIDE
+
+        # One step of the worst-frame scan: keeps the earlier frame on ties.
+        def worst_frame(best: i64, best_value: i64, frame: i64, value: i64) -> i64:
+            ensure result == best or result == frame
+            ensure value <= best_value or result == frame
+            ensure value > best_value or result == best
+            return frame if value > best_value
+            return best
+
+        def worst_value(best_value: i64, value: i64) -> i64:
+            ensure result >= best_value
+            ensure result >= value
+            ensure result == best_value or result == value
+            return value if value > best_value
+            return best_value
+
+        # Transition progress (permille) after `elapsed` of `duration` steps.
+        def progress(elapsed: i64, duration: i64) -> i64:
+            requires duration >= 1
+            requires duration <= LIMIT
+            requires elapsed <= LIMIT
+            ensure result >= 0
+            ensure result <= FULL
+            ensure elapsed > 0 or result == 0
+            ensure elapsed < duration or result == FULL
+            return 0 if elapsed <= 0
+            return FULL if elapsed >= duration
+            v: i64 = elapsed * FULL / duration
+            return 0 if v < 0
+            return FULL if v > FULL
+            return v
+
+        # The value shown at progress `w` between `from` and `to`.
+        def mix(start: i64, target: i64, w: i64) -> i64:
+            requires start >= -LIMIT
+            requires start <= LIMIT
+            requires target >= -LIMIT
+            requires target <= LIMIT
+            requires w >= 0
+            requires w <= FULL
+            ensure w != 0 or result == start
+            ensure w != FULL or result == target
+            return start if w == 0
+            return target if w == FULL
+            return start + (target - start) * w / FULL

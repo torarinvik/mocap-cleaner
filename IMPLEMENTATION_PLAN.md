@@ -225,6 +225,15 @@ and almost all of that is the prover.
       detectors and draw µs, poses, ops rerun, drag bones moved. Builds;
       not inspected on screen.
 
+**Foot cleanup in the studio.**
+- [x] K toggles foot cleanup (on by default), recorded in history.
+- [x] Timeline contact bars are editable (drag ends, lift, plant), with undo/redo.
+- [x] Live slide/sink before/after readout with green/red cues and an eased transition.
+- [x] W jumps to the worst slide frame and frames the foot; worst-slide markers on the timeline.
+- [x] Planted trail segments drawn distinctly; hover highlight; blend keys; sidebar hints.
+- [x] Proved kernels (`src/studio/foot_policy.elisa` + `_laws`), headless test `test/studio_foot.elisa`, per-clip gate `test/foot_clips.elisa`.
+      Status: done 2026-10-02. Verified headless only; the app compiles but was not run on screen. Knee-pop gate is tolerant, an open trade-off in `docs/foot-workflow.md`.
+
 **Kernels and batch (throughput).**
 - [ ] Profile the CLI on the boxing clips; publish a per-op time table in
       the report.

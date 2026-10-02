@@ -81,6 +81,15 @@ module Studio:
         global mutable last_y: f32 = 0.0
         global mutable down_x: f32 = 0.0
         global mutable down_y: f32 = 0.0
+        # Foot cleanup: the contact-bar press in progress, the hovered
+        # contact row (StackState::LEFT/RIGHT or -1), and the readout
+        # transition (values shown before the last rebuild, and its start).
+        global mutable foot_press: FootState::Press = FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
+        global mutable hover_row: i64 = -1
+        global mutable shown_slide: i64 = 0
+        global mutable shown_sink: i64 = 0
+        global mutable readout_start: f64 = 0.0
+        const READOUT_MS: i64 = 250
 
         def set_path(p: cstr) -> void:
             path <- p
@@ -154,6 +163,10 @@ module Studio:
         # Rebuild the cleaned clip from the current stack (live preview).
         def rebuild() -> void:
             s: StackState::Stack = current_stack()
+            if clip is old:
+                shown_slide <- readout_value(old.slide_after)
+                shown_sink <- readout_value(old.sink_after)
+            readout_start <- UiAppKitCanvas::monotonic_time()
             if memo == null:
                 memo <- StudioModel::load(path, anim_name)
             mutable result: StudioModel::Clip? = null
@@ -198,6 +211,73 @@ module Studio:
                 if HistoryState::redo(&history):
                     rebuild()
                     status <- "redo"
+
+        # ---- foot cleanup ------------------------------------------------
+        # Readout transition progress (StudioFoot::FULL when settled).
+        def readout_progress() -> i64:
+            ms: f64 = (UiAppKitCanvas::monotonic_time() - readout_start) * 1000.0
+            elapsed: i64 = 0 if ms < 0.0 else (READOUT_MS if ms > READOUT_MS.f64() else ms.i64())
+            return StudioFoot::progress(elapsed, READOUT_MS)
+
+        def readout_value(target: i64) -> i64:
+            return target if target < -StudioFoot::LIMIT or target > StudioFoot::LIMIT
+            return target if shown_slide < -StudioFoot::LIMIT or shown_slide > StudioFoot::LIMIT
+            return StudioFoot::mix(shown_slide, target, readout_progress())
+
+        # K: foot cleanup on/off, recorded in history.
+        def toggle_feet() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::set_feet(&s, not s.feet):
+                commit(s, true)
+                status <- "feet fixed" if s.feet else "feet off"
+
+        # , and .: shorter or longer carry blend.
+        def nudge_blend(up: bool) -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::nudge_blend(&s, up):
+                commit(s, true)
+                status <- "blend"
+
+        # W: scrub to the worst planted slide, select that foot and frame it.
+        def jump_worst() -> void:
+            if clip is c:
+                return if c.worst_frame < 0 or c.worst_frame >= c.frames
+                scrub_to(c.worst_frame)
+                role: i64 = Roles::LEFT_FOOT if c.worst_side == StackState::LEFT else Roles::RIGHT_FOOT
+                bone <- StudioClip::slot_of_role(c.cleaned, c.slot, role)
+                track: darray[Geometry::Vec3] = c.left_foot if c.worst_side == StackState::LEFT else c.right_foot
+                if c.worst_frame < track.count.i64():
+                    p: Geometry::Vec3 = track[c.worst_frame.usize()]
+                    pts: darray[Geometry::Vec3] = [Geometry::vec3_add(p, Geometry::Vec3{x: -0.25, y: -0.05, z: -0.25}), Geometry::vec3_add(p, Geometry::Vec3{x: 0.25, y: 0.35, z: 0.25})]
+                    for i in 0..<3 |i, pts|:
+                        if view(i) is opened:
+                            mutable vp: Viewport::Viewport = opened
+                            _ = ViewportCamera::frame_points(&vp.camera, &pts, 1.15)
+                            Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                            put_view(i, vp)
+                status <- "worst slide"
+                touch()
+
+        # A press on a contact row; true when it was one.
+        def foot_down(x: f32, y: f32) -> bool:
+            tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+            row: i64 = StudioPanels::contact_row(tb, y)
+            return false if row < 0
+            if clip is c:
+                st: StudioPanels::Box = StudioPanels::strip(tb)
+                fl: darray[bool] = c.left_contact if row == StackState::LEFT else c.right_contact
+                foot_press <- FootState::press(fl, row, (x - st.x).i64(), st.w.i64())
+                return true
+            false
+
+        def foot_up(x: f32) -> void:
+            p: FootState::Press = foot_press
+            foot_press <- FootState::idle()
+            tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+            mutable s: StackState::Stack = current_stack()
+            if FootState::release(&s, &p, StudioPanels::timeline_frame(tb, x, frames()), frames()):
+                commit(s, true)
+                status <- "contact edited"
 
         def set_timeline(t: TimelineState::State) -> void:
             timeline <- t
@@ -455,6 +535,9 @@ module Studio:
                     StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
                     perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
+                    StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
+                    StudioPanels::foot_readout(StudioPanels::sidebar_box(w, h), c, readout_value(c.slide_after), StudioFoot::mix(shown_sink, c.sink_after, readout_progress()) if shown_sink >= -StudioFoot::LIMIT and shown_sink <= StudioFoot::LIMIT and c.sink_after >= -StudioFoot::LIMIT and c.sink_after <= StudioFoot::LIMIT else c.sink_after, s.blend)
+                    UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
                     drawn_frame <- t.frame
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
@@ -545,6 +628,8 @@ module Studio:
                 toolbar_action(a)
                 return
             tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+            if StudioPanels::inside(tb, x, y) and button == 0:
+                return if foot_down(x, y)
             if StudioPanels::inside(tb, x, y) or StudioPanels::inside(StudioPanels::curve_box(w, h), x, y):
                 scrubbing <- true
                 scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
@@ -564,6 +649,11 @@ module Studio:
                 drag_button <- button
 
         def pointer_move(x: f32, y: f32) -> void:
+            tbh: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+            row: i64 = StudioPanels::contact_row(tbh, y) if StudioPanels::inside(tbh, x, y) else -1
+            if row != hover_row:
+                hover_row <- row
+                touch()
             if gizmo_view >= 0:
                 gizmo_preview(x, y)
                 last_x <- x
@@ -578,6 +668,9 @@ module Studio:
             last_y <- y
 
         def pointer_up(x: f32, y: f32) -> void:
+            if FootState::active(&foot_press):
+                foot_up(x)
+                return
             if gizmo_view >= 0:
                 gizmo_release(x, y)
                 return
@@ -707,6 +800,14 @@ module Studio:
                 curve_mode <- StudioOverlay::next_mode(curve_mode)
                 status <- "curves: position" if curve_mode == StudioOverlay::POSITION else "curves: rotation"
                 touch()
+            elif code == UiCore::Key.K:
+                toggle_feet()
+            elif code == UiCore::Key.W:
+                jump_worst()
+            elif code == UiCore::Key.Comma:
+                nudge_blend(false)
+            elif code == UiCore::Key.Period:
+                nudge_blend(true)
             elif code == UiCore::Key.M:
                 toggle_action_mesh()
             elif code == UiCore::Key.F and StudioShortcuts::shift(modifiers):

@@ -205,3 +205,29 @@ workarounds are in `src/core/perf_cache.elisa` and
   window_end(b)`) times out, also when split into the two branches of the
   kernel. The law is dropped; the kernel's ensures (end is `hi` inside the
   keys, the clip's last frame otherwise) give it by hand.
+
+## Foot cleanup (studio-foot, 2026-10-02)
+
+The prover (`../elisa-proof-mocap/build/elisa-proof`) was not edited; every
+gap below was worked around in our code.
+
+- G43: parameters named `to`, `from` or `new` are parse errors.
+- G44: returning a negative constant (`return -1`) does not establish an
+  ensure that names it; a named constant does.
+- G45: a bool-equality ensure (`result == (a < b)`) reached through a
+  disjunction fails; split into one helper per case
+  (`StudioFoot::first_planted` / `last_planted`).
+- G46: a law returning an `and` of conditions fails; one law per condition.
+- G47: implication ensures over a bare bool parameter
+  (`not is_first or ...`) do not prove when the result is a bool.
+- G48: a law over the reflexive call `moved(v, v)` with `ensure not result`
+  proves but has a certificate replay gap (state "unknown"); the i64 form is
+  unproven. Replaced by `other_frame_is_moved` (`moved(v, v + 1)`).
+- G49: literal bounds in clamps prove where `-LIMIT` in an ensure, or
+  `Order::clamp` with negative bounds, does not.
+- G50: nonlinear sign facts (`a * b >= 0`) time out; summing two carries in
+  one expression times out; nested call arguments are unsupported.
+- G51: `return x if a or b` fails where two separate return-ifs prove.
+- G52: callers get no overflow obligations, so the `LIMIT` requires are
+  ours, not the prover's.
+
