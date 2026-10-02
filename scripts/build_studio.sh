@@ -28,8 +28,9 @@ if [[ -z "${ELISA_STAGE1_BIN:-}" && -x "$SHADOW" ]]; then export ELISA_STAGE1_BI
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "the studio window is macOS only" >&2; exit 2; }
 [[ -f "$RUNTIME" ]] || { echo "no runtime object at $RUNTIME" >&2; exit 2; }
-mkdir -p "$OUT"
+mkdir -p "$OUT" "$OUT/test"
 cd "$ROOT"
+python3 "$ROOT/tools/svg_icons.py" "$OUT/generated/studio_icon_paths.elisa"
 
 clang -c -fobjc-arc -O2 -o "$OUT/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
 clang -c -fobjc-arc -O2 -o "$OUT/studio_viewport_metal.o" "$ENGINE/native/viewport_metal.m"

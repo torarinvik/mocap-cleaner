@@ -1,0 +1,49 @@
+# Headless check of the generated icon geometry (build/generated, from
+# tools/svg_icons.py): every icon code draws at least one stroke, every
+# stroke stays inside its box, and the worst-case toolbar (18 buttons, the
+# largest icons) plus a full stack panel stays under 1.5x elisa-ui's 1024
+# draw commands a frame. StudioDraw is replaced by a counting stub.
+include "../../elisa-ui/src/core/ui_core.elisa"
+
+module StudioDraw:
+    public:
+        global mutable strokes: i64 = 0
+        global mutable outside: i64 = 0
+        global mutable box_x: f32 = 0.0
+        global mutable box_s: f32 = 0.0
+
+        def set_box(x: f32, s: f32) -> void:
+            box_x <- x
+            box_s <- s
+
+        def inside(v: f32) -> bool:
+            v >= box_x - 0.5 and v <= box_x + box_s + 0.5
+
+        def segment(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, c: UiCore::Color) -> void:
+            strokes <- strokes + 1
+            if not (inside(x1) and inside(y1) and inside(x2) and inside(y2)) or width <= 0.0:
+                outside <- outside + 1
+
+include "../build/generated/studio_icon_paths.elisa"
+
+extern puts(text: cstr) -> i64
+
+def main() -> i32:
+    c: UiCore::Color = UiCore::rgb(255, 255, 255)
+    mutable worst: i64 = 0
+    mutable i: i64 = 0
+    while i < StudioIconPaths::COUNT:
+        StudioDraw::set_box(10.0, 20.0)
+        before: i64 = StudioDraw::strokes
+        StudioIconPaths::draw(i, 10.0, 10.0, 20.0, 1.6, c)
+        n: i64 = StudioDraw::strokes - before
+        return 1 if n < 1
+        if n > worst:
+            worst <- n
+        i <- i + 1
+    return 2 if StudioDraw::outside != 0
+    # 18 toolbar buttons + 12 stack rows of 4 icons, all at the worst size.
+    return 3 if worst * (18 + 12 * 4) > 3 * 1024 / 2
+    return 4 if worst > 20
+    _ = puts("studio icons: all codes draw inside their box")
+    0

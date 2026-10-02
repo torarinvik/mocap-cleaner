@@ -235,8 +235,9 @@ and almost all of that is the prover.
 - [x] One-click clean with the boxing preset (A / Auto) with before/after
       slide and spike reduction.
 - [ ] Native file-open dialog (needs an engine/ui bridge).
-- [ ] Units on strength/edge controls; toolbar icon set (proposed sets
-      listed in `docs/studio-ux.md`, awaiting a choice).
+- [x] Toolbar icons: vendored Lucide (ISC) plus custom mocap SVGs,
+      flattened to strokes by `tools/svg_icons.py` (`test/studio_icons`).
+- [ ] Units and readable names on strength/edge controls.
 
 **Foot cleanup in the studio.**
 - [x] K toggles foot cleanup (on by default), recorded in history.

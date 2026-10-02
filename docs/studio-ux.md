@@ -23,17 +23,27 @@ inspected on screen. Layout, colours and tooltip placement still need a visual c
 | 10 | Save/load session | None | `src/studio/state/session_state.elisa`: a text format (`mocap-studio session 1`) that saves feet, blend, operations and contact edits. On load, scopes are clamped to the take, unknown or damaged lines are skipped, and a file without the header is refused. Gizmo corrections are not saved yet. |
 | 11 | One-click "Clean with preset" + metrics | Preset existed only as the initial stack | The A key or the Auto button applies `StudioModel::initial_stack()` (boxing, feet on) as an undoable edit. The status bar then shows the slide and spike reduction (`clean_gain`, permille clamped to 0..1000). |
 
-## Icons (proposed, NOT downloaded)
+## Icons
 
-These are open-licence sets that cover the toolbar (play, step, loop, undo/redo,
-trails, contacts, heat, onion, ghost, x-ray, mesh, frame, export, balance,
-auto-clean):
+The user approved Lucide (ISC). `lucide-static` 1.49.0 came from the npm
+tarball. Only the 26 SVGs the studio uses, plus `LICENSE`, are vendored in
+`assets/icons/lucide/`, and `SOURCE.txt` records where they came from.
 
-- **Lucide**, ISC licence: a consistent 24 px stroke style and the largest coverage.
-- **Tabler Icons**, MIT licence: about 5k icons, including bone, footprint and wand.
-- **Phosphor**, MIT licence: six weights, which helps with toggle on/off states.
-- **Material Symbols**, Apache 2.0 licence: a variable font with fill and weight axes.
+`assets/icons/custom/` holds six hand-authored icons in the same 24 px,
+2 px-stroke style: foot fix, contacts, pivot, spike, retime and trails.
 
-For the domain-specific icons (contact bar, onion skin, foot plant), custom
-AI-generated glyphs in the same stroke style were suggested. Nothing is fetched
-until the user picks a set.
+elisa-ui draws strokes, not SVG or bitmaps. `tools/svg_icons.py` therefore
+flattens every path, arc, circle and rect into line segments and writes
+`build/generated/studio_icon_paths.elisa`; `scripts/build_studio.sh` runs it
+before compiling. Each icon is held to 20 segments or fewer by
+Douglas-Peucker simplification, so 18 toolbar icons cost about 360 of the
+1024 draw commands elisa-ui allows per frame.
+
+`test/studio_icons.elisa` checks headless that every icon code draws, stays
+inside its box and meets the budget. Tooltips keep the text labels and
+shortcuts.
+
+Verified headless only: the geometry was rasterised offline from the
+generated segments into `build/generated/icon_preview.png` and inspected
+there. The on-screen toolbar has not been inspected (no desktop
+screenshots).
