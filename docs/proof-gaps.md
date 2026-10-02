@@ -322,8 +322,14 @@ now prove completely with every certificate replayed.
   Constant half resolved in elisa-proof-mocap 0c1a6df: module constants are
   owned by their module, bare names resolve to the function's own module, and
   `Q::NAME` (including nested modules) to `Q`. The capture caused wrongful
-  rejection, never a false proof; no corpus file relied on it. The function
-  half (unqualified calls) is still open.
+  rejection, never a false proof; no corpus file relied on it. Function half
+  resolved in elisa-proof-mocap e723e71: a bare call inside an included module
+  resolves to that module's own function, then to globals, never to the
+  including module's same-named function; `Mod::f` resolves only within `Mod`.
+  The scheduler now matches findings per owning module, so a same-named
+  function elsewhere can no longer mask or taint a callee's summary. No corpus
+  file relied on the wrong resolution; callers of unverified `Ops::apply`,
+  `range_weight` and similar now report it honestly.
 - G69: contract bounds written as `frame * 1000` fail; callers pass
   pre-scaled milli-frame times (`Retime::time_of`).
 - G70: ensures that reconstruct a time through division
