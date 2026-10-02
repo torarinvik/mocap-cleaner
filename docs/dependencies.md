@@ -3,7 +3,7 @@
 | Dependency | Worktree | Branch | Revision | Provides |
 |---|---|---|---|---|
 | Elisa-engine | `../elisa-engine-mocap` | `mocap-track` | `795b3c57` | glTF token arrays renamed `json_tokens` (studio links with elisa-ui), MotionQuat `between`/`angle` (limb re-solves), M06 GLB document, M02 long clip + pose override, M07 pipeline, M01 viewport, M03 skeleton, M05 overlays, M04 gizmos |
-| elisa-ui | `../elisa-ui-mocap-viewport` | `mocap-viewport` | `46e217f` | hosted engine surfaces in AppKit canvas panels |
+| elisa-ui | `../elisa-ui` | `main` | `0edd528` | hosted engine surfaces in AppKit canvas panels |
 | elisa-proof | `../elisa-proof-mocap` | `mocap-cleaner-proofs` | `36ed514` | refinement types, disjunctions (G4, G13), relational `%` and `/` |
 
 ## Blockers

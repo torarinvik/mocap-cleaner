@@ -7,19 +7,24 @@
 #   STUDIO_SKIP_CHECKS=1 scripts/...   build only
 #   build/mocap_studio [clip.glb [animation]]
 #
-# Environment: ELISA_UI_ROOT (../elisa-ui-mocap-viewport), ELISA_ENGINE_ROOT
+# Environment: ELISA_UI_ROOT (../elisa-ui), ELISA_ENGINE_ROOT
 # (../elisa-engine-mocap), ELISA_STAGE1 (../Elisa-compiler), ELISA_PROOF
 # (../elisa-proof-mocap/build/elisa-proof).
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-UI="$(cd -- "${ELISA_UI_ROOT:-$ROOT/../elisa-ui-mocap-viewport}" && pwd)"
+UI="$(cd -- "${ELISA_UI_ROOT:-$ROOT/../elisa-ui}" && pwd)"
 ENGINE="$(cd -- "${ELISA_ENGINE_ROOT:-$ROOT/../elisa-engine-mocap}" && pwd)"
 STAGE1="$(cd -- "${ELISA_STAGE1:-$ROOT/../Elisa-compiler}" && pwd)"
 PROOF="${ELISA_PROOF:-$ROOT/../elisa-proof-mocap/build/elisa-proof}"
 RUNTIME="$STAGE1/build/runtime/elisacore_runtime.o"
 OUT="$ROOT/build"
 export ELISA_ALLOW_STALE_STAGE1="${ELISA_ALLOW_STALE_STAGE1:-1}"
+# The main compiler checkout's bin/elisac-stage1 predates the fix that lets
+# the current module win name lookup (compiler e2871b2c); without it the
+# studio's Ops::Kind clashes with elisa-ui's Kind. Prefer the rebuilt binary.
+SHADOW="$ROOT/../elisa-compiler-worktrees/local-shadow/bin/elisac-stage1"
+if [[ -z "${ELISA_STAGE1_BIN:-}" && -x "$SHADOW" ]]; then export ELISA_STAGE1_BIN="$SHADOW"; fi
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "the studio window is macOS only" >&2; exit 2; }
 [[ -f "$RUNTIME" ]] || { echo "no runtime object at $RUNTIME" >&2; exit 2; }
