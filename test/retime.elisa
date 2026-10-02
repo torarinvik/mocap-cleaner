@@ -1,0 +1,129 @@
+include "../src/ops/retime_apply.elisa"
+
+# Range retiming: the time map (length, blend continuity, identity at 1x)
+# and the resampled GLB (byte-identical at 1x, contacts kept, no added foot
+# slide). The real-clip half runs when the boxing game's export is present.
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def ankle_slide(c: Rig::Clip&, side: i64) -> (slide: i64, planted: i64):
+    none: darray[RigOps::RigOp] = []
+    flags: darray[bool] = RigOps::foot_contacts(c, side, &none)
+    leg: (upper: i64, hinge: i64, end: i64, toe: i64) = RigOps::leg_nodes(c, side)
+    mutable xs: darray[i64] = []
+    mutable zs: darray[i64] = []
+    mutable w: Rig::World = Rig::empty_world()
+    for f in 0..<c.frames:
+        Rig::solve_world(c, f, &w)
+        p: MotionQuat::V = w.pos[leg.end.usize()]
+        xs.push(RigOps::m(p.x))
+        zs.push(RigOps::m(p.z))
+    mutable planted: i64 = 0
+    for b in flags:
+        planted <- planted + 1 if b
+    return (RigOps::slide(&xs, &zs, &flags), planted)
+
+def map_checks() -> i32:
+    # 1x and no ranges are the identity map.
+    none: darray[RetimeApply::Range] = []
+    plain: darray[i64] = RetimeApply::source_times(120, &none)
+    return 101 if not RetimeApply::identity(&plain, 120)
+    ones: darray[RigOps::RigOp] = [RigOps::retime(20, 60, 1000, 4)]
+    unit: darray[RetimeApply::Range] = RetimeApply::ranges_of(&ones, 120)
+    unit_times: darray[i64] = RetimeApply::source_times(120, &unit)
+    return 102 if not RetimeApply::identity(&unit_times, 120)
+    # 0.5x over 40 source frames: about 80 output frames, within the blend.
+    half_ops: darray[RigOps::RigOp] = [RigOps::retime(20, 60, 500, 4)]
+    half: darray[RetimeApply::Range] = RetimeApply::ranges_of(&half_ops, 120)
+    times: darray[i64] = RetimeApply::source_times(120, &half)
+    rep: RetimeApply::Report = RetimeApply::report_of(&half, &times, 120)
+    return 103 if rep.ranges.count != 1
+    out: i64 = rep.ranges[0].output_frames
+    return 104 if out < 2 * 41 - 2 * 4 or out > 2 * 41 + 1
+    return 105 if rep.frames_after - 120 < 40 - 4 or rep.frames_after - 120 > 40 + 1
+    # Monotone, ends exactly on the last source frame, identity plus a
+    # shift after the range.
+    for k in 1..<times.count:
+        return 106 if times[k] <= times[k - 1]
+    return 107 if times[times.count - 1] != 119000
+    # After the range (and its blend) every step is one whole frame until
+    # the final landing step.
+    for k in 1..<times.count - 1:
+        continue if times[k - 1] <= 64000
+        return 108 if times[k] - times[k - 1] != 1000
+    # Velocity: the step changes smoothly (no jump at the blend edges): no
+    # frame-to-frame change larger than a blend's share of the speed drop,
+    # and the steps at the range edges are still 1x.
+    for k in 2..<times.count:
+        a: i64 = times[k - 1] - times[k - 2]
+        b: i64 = times[k] - times[k - 1]
+        d: i64 = b - a if b >= a else a - b
+        return 109 if d > 250
+    # Overlap: the later range is dropped; 4x shortens.
+    both: darray[RigOps::RigOp] = [RigOps::retime(20, 60, 500, 4), RigOps::retime(50, 90, 2000, 4)]
+    kept: darray[RetimeApply::Range] = RetimeApply::ranges_of(&both, 120)
+    return 110 if kept.count != 1
+    fast_ops: darray[RigOps::RigOp] = [RigOps::retime(10, 90, 4000, 0)]
+    fast: darray[RetimeApply::Range] = RetimeApply::ranges_of(&fast_ops, 120)
+    fast_times: darray[i64] = RetimeApply::source_times(120, &fast)
+    return 111 if fast_times.count > 60
+    # Map helpers round-trip outside the ranges.
+    return 112 if RetimeApply::source_frame_of(&times, RetimeApply::output_frame_of(&times, 10)) != 10
+    return 113 if RetimeApply::source_frame_of(&times, RetimeApply::output_frame_of(&times, 100)) != 100
+    return 0
+
+def main() -> i32:
+    rc: i32 = map_checks()
+    return rc if rc != 0
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    doc: GlbDocument::Document = load_or_empty(path)
+    anim: i64 = GlbDocument::find_animation(&doc, "jab")
+    return 1 if anim < 0
+    before: Rig::Clip = Rig::load(&doc, anim.usize())
+    frames: i64 = before.frames
+    return 2 if frames < 40
+
+    # 1x: byte-identical.
+    mutable rep: RetimeApply::Report = RetimeApply::empty_report()
+    ones: darray[RigOps::RigOp] = [RigOps::retime(5, frames - 5, 1000, 4)]
+    same: GlbDocument::Document = RetimeApply::apply(&doc, anim.usize(), &ones, &rep)
+    return 3 if rep.applied or GlbDocument::byte_count(&same) != GlbDocument::byte_count(&doc) or GlbDocument::first_difference(&same, &doc) >= 0
+
+    # 0.5x: the range doubles (within the blend), the clip grows by it.
+    first: i64 = frames / 4
+    last: i64 = frames * 3 / 4
+    halves: darray[RigOps::RigOp] = [RigOps::retime(first, last, 500, 4)]
+    slow: GlbDocument::Document = RetimeApply::apply(&doc, anim.usize(), &halves, &rep)
+    return 4 if not rep.applied or rep.status != 0
+    after: Rig::Clip = Rig::load(&slow, anim.usize())
+    return 5 if after.frames != rep.frames_after
+    span: i64 = last - first + 1
+    return 6 if rep.ranges[0].output_frames < 2 * span - 8 or rep.ranges[0].output_frames > 2 * span + 1
+    # Even key spacing kept at the source interval.
+    dt0: f64 = before.times[1] - before.times[0]
+    dt1: f64 = after.times[1] - after.times[0]
+    return 7 if dt1 - dt0 > 0.0001 or dt0 - dt1 > 0.0001
+    # Poses before the range are untouched; the last frame is the last source frame.
+    root: i64 = before.order[0]
+    for f in 0..<first - 4:
+        return 8 if MotionQuat::dot(Rig::local_rot(&before, f, root), Rig::local_rot(&after, f, root)) < 0.99999
+    last_q: f64 = MotionQuat::dot(Rig::local_rot(&before, frames - 1, root), Rig::local_rot(&after, after.frames - 1, root))
+    return 10 if last_q < 0.99999 and last_q > -0.99999
+
+    # Contacts survive and foot slide does not grow.
+    for side in 0..<2:
+        old: (slide: i64, planted: i64) = ankle_slide(&before, side.i64())
+        new: (slide: i64, planted: i64) = ankle_slide(&after, side.i64())
+        return 11 if new.planted < old.planted
+        return 12 if new.slide > old.slide + old.slide / 20 + 1000
+    return 0

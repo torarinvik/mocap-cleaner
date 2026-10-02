@@ -1,0 +1,241 @@
+# Range retiming applied to a GLB animation. Runs last, after the channel,
+# rig and physics stacks, on the finished pose: contacts and pins already
+# baked into the keys move with the time map, so they stay consistent.
+# Every time-map decision goes through the proved Retime kernel
+# (range_ok / disjoint / clamp_speed / clamp_blend / range_step / advance /
+# land / frame_of / fraction_of). Rotations are resampled with slerp,
+# translations and scales with a Catmull-Rom Hermite, STEP channels hold
+# the lower key. Key times stay evenly spaced at the source frame interval,
+# so the clip's length changes with the map. An identity map (no ranges, or
+# every range at 1x) leaves the document byte-identical.
+include "../core/retime.elisa"
+include "rig_stack.elisa"
+include "../../../elisa-engine-mocap/src/assets/glb_resize.elisa"
+
+module RetimeApply:
+    public:
+        struct Range:
+            first: i64
+            last: i64
+            speed: i64
+            blend: i64
+
+        struct RangeReport:
+            first: i64
+            last: i64
+            speed: i64
+            source_frames: i64
+            output_frames: i64
+
+        struct Report:
+            applied: mutable bool
+            # 0 ok, 1 nothing to do, 2 refused (cubic-spline or weights channels)
+            status: mutable i64
+            frames_before: i64
+            frames_after: i64
+            ranges: mutable darray[RangeReport]
+
+        def empty_report() -> Report:
+            return Report{applied: false, status: 1, frames_before: 0, frames_after: 0, ranges: []}
+
+        # Enabled retime ops as kernel-validated ranges, sorted by first frame.
+        # A range that overlaps one kept earlier in the stack is dropped.
+        def ranges_of(ops: darray[RigOps::RigOp]&, frames: i64) -> darray[Range]:
+            mutable out: darray[Range] = []
+            return move out if frames < 2 or frames > Retime::MAX_FRAMES
+            for op in ops:
+                continue if not op.enabled or op.kind != RigOps::RigKind.Retime
+                continue if not Retime::range_ok(op.first, op.last, frames)
+                mutable fits: bool = true
+                for r in out:
+                    fits <- false if not Retime::disjoint(r.first, r.last, op.first, op.last)
+                continue if not fits
+                out.push(Range{first: op.first, last: op.last, speed: Retime::clamp_speed(op.amount), blend: Retime::clamp_blend(op.edge)})
+            for i in 1..<out.count:
+                mutable j: usize = i
+                while j > 0 and out[j - 1].first > out[j].first:
+                    held: Range = out[j]
+                    out[j] <- out[j - 1]
+                    out[j - 1] <- held
+                    j <- j - 1
+            return move out
+
+        # Source time (milli-frames) of every output frame. Starts at 0, steps
+        # by the range step of the range that changes it (UNIT elsewhere) and
+        # lands exactly on the last source frame.
+        def source_times(frames: i64, ranges: darray[Range]&) -> darray[i64]:
+            mutable out: darray[i64] = []
+            return move out if frames < 1 or frames > Retime::MAX_FRAMES
+            out.push(0)
+            end: i64 = Retime::time_of(frames - 1)
+            mutable t: i64 = 0
+            mutable entry: usize = 0
+            mutable active: i64 = -1
+            while t < end:
+                mutable delta: i64 = Retime::UNIT
+                for i in 0..<ranges.count:
+                    r: Range = ranges[i]
+                    start: i64 = Retime::time_of(r.first)
+                    stop: i64 = Retime::time_of(r.last)
+                    if t >= start and t < stop and active != i.i64():
+                        active <- i.i64()
+                        entry <- out.count - 1
+                    s: i64 = Retime::range_step(t, start, stop, r.speed, r.blend)
+                    delta <- s if s != Retime::UNIT
+                t <- Retime::land(Retime::advance(t, delta), end)
+                if active >= 0:
+                    r: Range = ranges[active.usize()]
+                    start: i64 = Retime::time_of(r.first)
+                    stop: i64 = Retime::time_of(r.last)
+                    if t >= stop:
+                        for j in entry..<out.count:
+                            out[j] <- Retime::rescale(out[j], start, t, stop)
+                        t <- stop
+                        active <- -1
+                out.push(t)
+            return move out
+
+        def identity(times: darray[i64]&, frames: i64) -> bool:
+            return false if times.count.i64() != frames
+            for k in 0..<times.count:
+                return false if times[k] != k.i64() * Retime::UNIT
+            return true
+
+        # Output frame whose source time is nearest source frame `frame`.
+        def output_frame_of(times: darray[i64]&, frame: i64) -> i64:
+            return 0 if times.count == 0
+            target: i64 = frame * Retime::UNIT
+            mutable best: usize = 0
+            mutable gap: i64 = -1
+            for k in 0..<times.count:
+                d: i64 = times[k] - target if times[k] >= target else target - times[k]
+                if gap < 0 or d < gap:
+                    best <- k
+                    gap <- d
+            return best.i64()
+
+        # Source frame nearest output frame `frame`.
+        def source_frame_of(times: darray[i64]&, frame: i64) -> i64:
+            return 0 if times.count == 0
+            k: i64 = 0 if frame < 0 else frame
+            t: i64 = times[times.count - 1] if k >= times.count.i64() else times[k.usize()]
+            return (t + Retime::UNIT / 2) / Retime::UNIT
+
+        # Output frames per range: samples whose source time lies inside it.
+        def report_of(ranges: darray[Range]&, times: darray[i64]&, frames: i64) -> Report:
+            mutable rep: Report = Report{applied: false, status: 1, frames_before: frames, frames_after: times.count.i64(), ranges: []}
+            for r in ranges:
+                mutable n: i64 = 0
+                for t in times:
+                    n <- n + 1 if t >= r.first * Retime::UNIT and t <= r.last * Retime::UNIT
+                rep.ranges.push(RangeReport{first: r.first, last: r.last, speed: r.speed, source_frames: r.last - r.first + 1, output_frames: n})
+            return move rep
+
+    private:
+        def key_v(doc: GlbDocument::Document&, o: usize, k: usize) -> MotionQuat::V:
+            return Rig::v(GlbDocument::track_value(doc, o, k, 0).f64(), GlbDocument::track_value(doc, o, k, 1).f64(), GlbDocument::track_value(doc, o, k, 2).f64())
+
+        # Catmull-Rom Hermite between keys k and k+1: velocity-continuous
+        # across key boundaries, exact at the keys.
+        def hermite(doc: GlbDocument::Document&, o: usize, k: usize, u: f64) -> MotionQuat::V:
+            n: usize = GlbDocument::key_count(doc, o)
+            p1: MotionQuat::V = key_v(doc, o, k)
+            return p1 if k + 1 >= n or u <= 0.0
+            p2: MotionQuat::V = key_v(doc, o, k + 1)
+            p0: MotionQuat::V = key_v(doc, o, k - 1) if k > 0 else p1
+            p3: MotionQuat::V = key_v(doc, o, k + 2) if k + 2 < n else p2
+            m1: MotionQuat::V = Rig::vscale(Rig::vsub(p2, p0), 0.5)
+            m2: MotionQuat::V = Rig::vscale(Rig::vsub(p3, p1), 0.5)
+            u2: f64 = u * u
+            u3: f64 = u2 * u
+            h00: f64 = 2.0 * u3 - 3.0 * u2 + 1.0
+            h10: f64 = u3 - 2.0 * u2 + u
+            h01: f64 = 0.0 - 2.0 * u3 + 3.0 * u2
+            h11: f64 = u3 - u2
+            return Rig::vadd(Rig::vadd(Rig::vscale(p1, h00), Rig::vscale(m1, h10)), Rig::vadd(Rig::vscale(p2, h01), Rig::vscale(m2, h11)))
+
+        def push_slot(slots: mutable darray[usize]&, slot: usize) -> bool:
+            for s in slots:
+                return false if s == slot
+            slots.push(slot)
+            return true
+
+        def failure(doc: GlbDocument::Document&, animation: usize, slots: darray[usize]&, starts: darray[usize]&, values: darray[f32]&) -> i64:
+            code: i64 = catch GlbResize::replace_animation_tracks(doc, animation, slots, starts, values):
+                value: 0
+                GlbDocument::GlbError.BadJson: 1
+                GlbDocument::GlbError.MissingField: 2
+                GlbDocument::GlbError.IndexOutOfRange: 3
+                GlbDocument::GlbError.AccessorOutOfRange: 4
+                GlbDocument::GlbError.UnsupportedLayout: 5
+                GlbDocument::GlbError.AccessorShape: 6
+                GlbDocument::GlbError.Capacity: 7
+                error failure: 8
+            return code
+
+        def copied(doc: GlbDocument::Document&, animation: usize, slots: darray[usize]&, starts: darray[usize]&, values: darray[f32]&) -> GlbDocument::Document:
+            out: GlbDocument::Document = catch GlbResize::replace_animation_tracks(doc, animation, slots, starts, values):
+                value: value
+                error failure: GlbDocument::copy(doc)
+            return move out
+
+    public:
+        # Retime animation `animation` of `doc` by the enabled retime ops in
+        # `ops`. Returns the new document (a copy when nothing changes) and
+        # fills `rep`.
+        def apply(doc: GlbDocument::Document&, animation: usize, ops: darray[RigOps::RigOp]&, rep: mutable Report&) -> GlbDocument::Document:
+            c: Rig::Clip = Rig::load(doc, animation)
+            frames: i64 = c.frames
+            ranges: darray[Range] = ranges_of(ops, frames)
+            times: darray[i64] = source_times(frames, &ranges)
+            rep <- report_of(&ranges, &times, frames)
+            return GlbDocument::copy(doc) if ranges.count == 0 or identity(&times, frames)
+            channels: usize = GlbDocument::channel_count(doc, animation)
+            for ch in 0..<channels:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, animation, ch)
+                if held.interpolation == GlbDocument::Interpolation.CubicSpline or held.path == GlbDocument::TargetPath.Weights:
+                    rep.status <- 2
+                    return GlbDocument::copy(doc)
+            # Source time in seconds of every output frame.
+            mutable seconds: darray[f64] = []
+            for t in times:
+                f: i64 = Retime::frame_of(t)
+                u: f64 = Retime::fraction_of(t).f64() / 1000.0
+                a: f64 = c.times[f.usize()]
+                b: f64 = c.times[f.usize() + 1] if f + 1 < frames else a
+                seconds.push(a + (b - a) * u)
+            t0: f64 = c.times[0]
+            dt: f64 = (c.times[frames.usize() - 1] - t0) / (frames - 1).f64()
+            mutable slots: darray[usize] = []
+            mutable starts: darray[usize] = []
+            mutable values: darray[f32] = []
+            for ch in 0..<channels:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, animation, ch)
+                continue if GlbDocument::key_count(doc, held.input) < 2
+                if push_slot(&slots, held.input):
+                    starts.push(values.count)
+                    for k in 0..<times.count:
+                        values.push((t0 + dt * k.f64()).f32())
+                continue if not push_slot(&slots, held.output)
+                starts.push(values.count)
+                step: bool = held.interpolation == GlbDocument::Interpolation.Step
+                for s in seconds:
+                    hit: (key: usize, u: f64) = Rig::locate(doc, held.input, s)
+                    if held.path == GlbDocument::TargetPath.Rotation:
+                        a: MotionQuat::Q = Rig::key_q(doc, held.output, hit.key)
+                        q: MotionQuat::Q = a if step or hit.key + 1 >= GlbDocument::key_count(doc, held.output) else MotionQuat::slerp(a, Rig::key_q(doc, held.output, hit.key + 1), hit.u)
+                        n: MotionQuat::Q = MotionQuat::normalize(q)
+                        values.push(n.x.f32())
+                        values.push(n.y.f32())
+                        values.push(n.z.f32())
+                        values.push(n.w.f32())
+                    else:
+                        p: MotionQuat::V = key_v(doc, held.output, hit.key) if step else hermite(doc, held.output, hit.key, hit.u)
+                        values.push(p.x.f32())
+                        values.push(p.y.f32())
+                        values.push(p.z.f32())
+            starts.push(values.count)
+            code: i64 = failure(doc, animation, &slots, &starts, &values)
+            rep.applied <- code == 0
+            rep.status <- 0 if code == 0 else 10 + code
+            return copied(doc, animation, &slots, &starts, &values)

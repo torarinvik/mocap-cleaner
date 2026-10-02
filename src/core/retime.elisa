@@ -1,0 +1,339 @@
+# Range retiming: the time map from output frames to source time.
+# Source time is kept in milli-frames (UNIT per frame). Each output frame
+# advances source time by a step in permille of a frame: UNIT outside every
+# range, the range's speed inside it, eased in and out with a smoothstep
+# over `blend` frames from each range edge. Steps are always at least
+# MIN_SPEED, so the map is strictly increasing; the last output frame lands
+# exactly on the source's last frame.
+include "fade.elisa"
+
+module Retime:
+    public:
+        const UNIT: i64 = 1000
+        const MIN_SPEED: i64 = 100
+        const MAX_SPEED: i64 = 4000
+        const MAX_FRAMES: i64 = 10000000
+        const MAX_BLEND: i64 = 10000
+        const MAX_TIME: i64 = 10000000000
+        const DEFAULT_BLEND: i64 = 4
+
+        def speed_ok(speed: i64) -> bool:
+            ensure not result or speed >= MIN_SPEED
+            ensure not result or speed <= MAX_SPEED
+            return false if speed < MIN_SPEED
+            return false if speed > MAX_SPEED
+            return true
+
+        def clamp_speed(speed: i64) -> i64:
+            ensure result >= MIN_SPEED
+            ensure result <= MAX_SPEED
+            ensure speed < MIN_SPEED or speed > MAX_SPEED or result == speed
+            return MIN_SPEED if speed < MIN_SPEED
+            return MAX_SPEED if speed > MAX_SPEED
+            return speed
+
+        def clamp_blend(blend: i64) -> i64:
+            ensure result >= 0
+            ensure result <= MAX_BLEND
+            ensure blend < 0 or blend > MAX_BLEND or result == blend
+            return 0 if blend < 0
+            return MAX_BLEND if blend > MAX_BLEND
+            return blend
+
+        # Ranges [a_first, a_last] and [b_first, b_last] share no frame.
+        def disjoint(a_first: i64, a_last: i64, b_first: i64, b_last: i64) -> bool:
+            ensure not result or a_last < b_first or b_last < a_first
+            ensure result or (a_last >= b_first and b_last >= a_first)
+            return true if a_last < b_first
+            return true if b_last < a_first
+            return false
+
+        # A well-formed range inside a clip of `frames` frames.
+        def range_ok(first: i64, last: i64, frames: i64) -> bool:
+            requires frames >= 0
+            requires frames <= MAX_FRAMES
+            ensure not result or first >= 0
+            ensure not result or first < last
+            ensure not result or last < frames
+            return false if first < 0
+            return false if first >= last
+            return false if last >= frames
+            return true
+
+        # `time` lies within [start, stop] (milli-frames).
+        def inside(time: i64, start: i64, stop: i64) -> bool:
+            requires start >= 0
+            requires start < stop
+            requires stop <= MAX_TIME
+            ensure not result or time >= start
+            ensure not result or time <= stop
+            ensure result or time < start or time > stop
+            return false if time < start
+            return false if time > stop
+            return true
+
+        # Milli-frames from `time` to the nearer edge of [start, stop].
+        def range_distance(time: i64, start: i64, stop: i64) -> i64:
+            requires start >= 0
+            requires start < stop
+            requires stop <= MAX_TIME
+            requires time >= start
+            requires time <= stop
+            ensure result >= 0
+            ensure result <= time - start
+            ensure result <= stop - time
+            ensure time != start or result == 0
+            ensure time != stop or result == 0
+            before: i64 = time - start
+            after: i64 = stop - time
+            return before if before <= after
+            return after
+
+        # Linear blend weight in permille: distance over the blend, clamped.
+        # No blend gives the full speed on the whole range.
+        def linear_weight(distance: i64, blend: i64) -> i64:
+            requires distance >= 0
+            requires distance <= MAX_TIME
+            requires blend >= 0
+            requires blend <= MAX_BLEND
+            ensure result >= 0
+            ensure result <= UNIT
+            ensure blend == 0 or distance != 0 or result == 0
+            ensure blend != 0 or result == UNIT
+            ensure distance < blend * UNIT or result == UNIT
+            return UNIT if blend == 0
+            return 0 if distance == 0
+            return UNIT if distance >= blend * UNIT
+            weight: i64 = distance / blend
+            return 0 if weight < 0
+            return UNIT if weight > UNIT
+            return weight
+
+        # Eased weight of the range [start, stop] at `time`: 0 outside,
+        # smoothstep in over `blend` frames from each edge.
+        def range_weight(time: i64, start: i64, stop: i64, blend: i64) -> i64:
+            requires start >= 0
+            requires start < stop
+            requires stop <= MAX_TIME
+            requires time >= 0
+            requires time <= MAX_TIME
+            requires blend >= 0
+            requires blend <= MAX_BLEND
+            ensure result >= 0
+            ensure result <= UNIT
+            ensure time >= start or result == 0
+            ensure time <= stop or result == 0
+            ensure blend == 0 or time != start or result == 0
+            ensure blend == 0 or time != stop or result == 0
+            ensure blend != 0 or time < start or time > stop or result == UNIT
+            return 0 if time < start
+            return 0 if time > stop
+            return UNIT if blend == 0
+            return 0 if time == start
+            return 0 if time == stop
+            distance: i64 = range_distance(time, start, stop)
+            linear: i64 = linear_weight(distance, blend)
+            return Fade::ease(linear)
+
+        # Milli-frame time of source frame `frame`.
+        def time_of(frame: i64) -> i64:
+            requires frame >= 0
+            requires frame <= MAX_FRAMES
+            ensure result >= 0
+            ensure result <= MAX_TIME
+            return frame * 1000
+
+        # Source step for one output frame: UNIT eased toward `speed`.
+        def step(speed: i64, weight: i64) -> i64:
+            requires speed >= MIN_SPEED
+            requires speed <= MAX_SPEED
+            requires weight >= 0
+            requires weight <= UNIT
+            ensure result >= MIN_SPEED
+            ensure result <= MAX_SPEED
+            ensure weight != 0 or result == UNIT
+            ensure speed != UNIT or result == UNIT
+            ensure weight != UNIT or result == speed
+            ensure speed > UNIT or result <= UNIT
+            ensure speed < UNIT or result >= UNIT
+            ensure speed > UNIT or result >= speed
+            ensure speed < UNIT or result <= speed
+            return UNIT if weight == 0
+            return UNIT if speed == UNIT
+            return speed if weight == UNIT
+            if speed > UNIT:
+                raised: i64 = UNIT + (speed - UNIT) * weight / UNIT
+                return UNIT if raised < UNIT
+                return speed if raised > speed
+                return raised
+            lowered: i64 = UNIT - (UNIT - speed) * weight / UNIT
+            return speed if lowered < speed
+            return UNIT if lowered > UNIT
+            return lowered
+
+        # Source step at `time` for one range: eased toward `speed` inside
+        # [start, stop], UNIT outside it and on its edges when blended.
+        def range_step(time: i64, start: i64, stop: i64, speed: i64, blend: i64) -> i64:
+            requires start >= 0
+            requires start < stop
+            requires stop <= MAX_TIME
+            requires time >= 0
+            requires time <= MAX_TIME
+            requires blend >= 0
+            requires blend <= MAX_BLEND
+            requires speed >= MIN_SPEED
+            requires speed <= MAX_SPEED
+            ensure result >= MIN_SPEED
+            ensure result <= MAX_SPEED
+            ensure time >= start or result == UNIT
+            ensure time <= stop or result == UNIT
+            ensure speed != UNIT or result == UNIT
+            ensure blend == 0 or time != start or result == UNIT
+            ensure blend == 0 or time != stop or result == UNIT
+            ensure blend != 0 or time < start or time > stop or result == speed
+            amount: i64 = range_weight(time, start, stop, blend)
+            return step(speed, amount)
+
+        # Next output frame's source time.
+        def advance(time: i64, delta: i64) -> i64:
+            requires time >= 0
+            requires time <= MAX_TIME
+            requires delta >= MIN_SPEED
+            requires delta <= MAX_SPEED
+            ensure result > time
+            ensure result == time + delta
+            ensure result >= time + MIN_SPEED
+            return time + delta
+
+        # Clamp to the source's last frame: the final output frame lands on
+        # it exactly.
+        def land(time: i64, end: i64) -> i64:
+            requires time >= 0
+            requires end >= 0
+            ensure result <= end
+            ensure result >= 0
+            ensure time < end or result == end
+            ensure time > end or result == time
+            return end if time >= end
+            return time
+
+        # Source frame below `time` and the fraction past it, in permille.
+        def frame_of(time: i64) -> i64:
+            requires time >= 0
+            requires time <= MAX_TIME
+            ensure result >= 0
+            ensure result <= MAX_FRAMES
+            ensure result <= time
+            ensure time >= 1000 or result == 0
+            return time / 1000
+
+        def fraction_of(time: i64) -> i64:
+            requires time >= 0
+            requires time <= MAX_TIME
+            ensure result >= 0
+            ensure result < UNIT
+            return time % 1000
+
+        # A range's samples are stretched so the first one past its end lands
+        # exactly on it: `time` in [start, reached] maps linearly onto
+        # [start, stop]. Keeps the frames after a range on whole source
+        # frames (the map there is identity plus a whole-frame shift).
+        def rescale(time: i64, start: i64, reached: i64, stop: i64) -> i64:
+            requires start >= 0
+            requires stop > start
+            requires reached >= stop
+            requires reached <= MAX_TIME
+            requires time >= start
+            requires time <= reached
+            ensure result >= start
+            ensure result <= stop
+            ensure time != start or result == start
+            ensure time != reached or result == stop
+            return start if time == start
+            return stop if time == reached
+            moved: i64 = start + (time - start) * (stop - start) / (reached - start)
+            return start if moved < start
+            return stop if moved > stop
+            return moved
+
+        # Output frames outside every range map by a shift: k frames on from
+        # `time` is `time` plus k whole frames.
+        def shifted(time: i64, frames: i64) -> i64:
+            requires time >= 0
+            requires time <= MAX_TIME
+            requires frames >= 0
+            requires frames <= MAX_FRAMES
+            ensure result == time + frames * UNIT
+            ensure result >= time
+            ensure frames != 0 or result == time
+            return time + frames * UNIT
+
+        # Inverse map between two neighbouring output frames whose source
+        # times are `before` < `after`: the output time, in milli-frames past
+        # the first of them, at which source time `time` is reached.
+        def invert_between(before: i64, after: i64, time: i64) -> i64:
+            requires before >= 0
+            requires after > before
+            requires after <= MAX_TIME
+            requires time >= before
+            requires time <= after
+            ensure result >= 0
+            ensure result <= UNIT
+            ensure time != before or result == 0
+            ensure time != after or result == UNIT
+            return 0 if time == before
+            return UNIT if time == after
+            part: i64 = (time - before) * UNIT / (after - before)
+            return 0 if part < 0
+            return UNIT if part > UNIT
+            return part
+
+        # Forward map between the same two output frames: the source time at
+        # `part` milli-frames past the first.
+        def forward_between(before: i64, after: i64, part: i64) -> i64:
+            requires before >= 0
+            requires after > before
+            requires after <= MAX_TIME
+            requires part >= 0
+            requires part <= UNIT
+            ensure result >= before
+            ensure result <= after
+            ensure part != 0 or result == before
+            ensure part != UNIT or result == after
+            return before if part == 0
+            return after if part == UNIT
+            moved: i64 = before + (after - before) * part / UNIT
+            return before if moved < before
+            return after if moved > after
+            return moved
+
+        # Two retimes applied in turn run at the product of their speeds.
+        def compose(outer: i64, inner: i64) -> i64:
+            requires outer >= MIN_SPEED
+            requires outer <= MAX_SPEED
+            requires inner >= MIN_SPEED
+            requires inner <= MAX_SPEED
+            ensure result >= MIN_SPEED
+            ensure result <= MAX_SPEED
+            ensure outer != UNIT or result == inner
+            ensure inner != UNIT or result == outer
+            return inner if outer == UNIT
+            return outer if inner == UNIT
+            product: i64 = outer * inner / UNIT
+            return clamp_speed(product)
+
+        # Output frames a source span of `frames` frames takes at a constant
+        # `speed` (rounded up so the span's end is reached).
+        def span_frames(frames: i64, speed: i64) -> i64:
+            requires frames >= 0
+            requires frames <= MAX_FRAMES
+            requires speed >= MIN_SPEED
+            requires speed <= MAX_SPEED
+            ensure result >= 0
+            ensure speed != UNIT or result == frames
+            ensure frames != 0 or result == 0
+            return frames if speed == UNIT
+            return 0 if frames == 0
+            whole: i64 = (frames * UNIT + speed - 1) / speed
+            return 0 if whole < 0
+            return whole
