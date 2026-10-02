@@ -208,8 +208,10 @@ workarounds are in `src/core/perf_cache.elisa` and
 
 ## Foot cleanup (studio-foot, 2026-10-02)
 
-The prover (`../elisa-proof-mocap/build/elisa-proof`) was not edited; every
-gap below was worked around in our code.
+G67-G71 and G73 were worked around in our code. G72 was fixed in our code
+and G74 in the prover (`../elisa-proof-mocap`, branch `mocap-cleaner-proofs`,
+3244c9d). Both `src/core/retime.elisa` and `proof/retime_laws.elisa`
+now prove completely with every certificate replayed.
 
 - G43: parameters named `to`, `from` or `new` are parse errors.
 - G44: returning a negative constant (`return -1`) does not establish an
@@ -297,8 +299,10 @@ gap below was worked around in our code.
 
 ## Range retiming (retime, 2026-10-02)
 
-The prover (`../elisa-proof-mocap/build/elisa-proof`) was not edited; every
-gap below was worked around in our code.
+G67-G71 and G73 were worked around in our code. G72 was fixed in our code
+and G74 in the prover (`../elisa-proof-mocap`, branch `mocap-cleaner-proofs`,
+3244c9d). Both `src/core/retime.elisa` and `proof/retime_laws.elisa`
+now prove completely with every certificate replayed.
 
 - G67: a bool result built from `and`/`or` cannot be negated by the prover
   (`ensure not result or ...` fails); `Retime::disjoint` and
@@ -309,6 +313,12 @@ gap below was worked around in our code.
   `GlbResize::push_count` became `resize_count` (it was captured by
   `StudioHistory::push_count` once the studio included it; elisa-engine-mocap
   700efa62).
+  Constants are captured the same way: in `retime_apply` (which also
+  includes `rig_stack` and `knee`), `Retime`'s `MAX_SPEED` resolved to
+  `RigStack::MAX_SPEED: f64` (its contracts were rejected), and `MIN_SPEED` was exposed to the same
+  capture by `Knee::MIN_SPEED = 2000`. `Retime`'s bounds are now
+  `MIN_RATE` / `MAX_RATE`; writing `Retime::MAX_SPEED` inside the module
+  did not help.
 - G69: contract bounds written as `frame * 1000` fail; callers pass
   pre-scaled milli-frame times (`Retime::time_of`).
 - G70: ensures that reconstruct a time through division
@@ -318,21 +328,31 @@ gap below was worked around in our code.
   unconditional move, so every later use of `out` is reported as a
   disproved use-after-move. `RetimeApply::ranges_of` / `source_times`
   return a fresh empty array from an `if` block instead.
-- G72: `range_step` (eight ensures over `range_weight` and `step`) hits
-  the prover's time budget on winpc although it proved on the Mac; moving
-  the in-range case into a helper made the helper time out instead, so the
-  single-function form is kept. Its callers in `retime_laws` lose its
-  summary whenever it times out.
+- G72 (fixed): `range_step` (eight ensures over `range_weight` and `step`)
+  left one obligation open, and it took about 7 minutes to fail, on the Mac
+  as well as on winpc (the earlier note that it proved on the Mac was
+  wrong). Adding the early returns `return speed if blend == 0`, `return
+  UNIT if time == start` and `return UNIT if time == stop` (the output is
+  unchanged) made it prove in about 20 s, so its callers in `retime_laws`
+  keep its summary.
 - G73: a product of two variables divided by a third (`done * span /
   whole`) leaves the bounds of the local unknown even when clamped.
   `rescale` goes through `rescale_fraction` (constant multiplier, like
   `invert_between`) and `rescale_offset` (bounded parameter, like
   `forward_between`), with an exact `return time if reached == stop` so 1x
   stays byte-identical.
-- G74: the laws `apart_accepted` (`ensure result` of `disjoint` on
-  `other + 1`), `clamped_speed_ok` (`speed_ok` of a `clamp_speed` result)
-  and `advance_land_forward` (two-call composition `land(advance(...))`)
-  did not prove and were dropped; the retime tests cover those cases.
+- G74 (fixed): the laws `apart_accepted` (`ensure result` of `disjoint`
+  on `other + 1`), `clamped_speed_ok` (`speed_ok` of a `clamp_speed`
+  result) and `advance_land_forward` (`land(advance(...))`) are restored
+  with their original statements and prove. `disjoint` gained
+  `ensure result or a_last >= b_first` and `ensure result or b_last >=
+  a_first`, `speed_ok` gained `ensure result or speed < MIN_RATE or speed >
+  MAX_RATE`, and `land` gained `ensure result == time or result == end`.
+  Two prover changes were needed. First, a premise that has the goal as one
+  of its alternatives is now split first, instead of the bounded split
+  depth going to unrelated disjunctions such as `clamp_speed`'s. Second, a
+  call rewritten by a callee summary (`advance(t, d)` to `t + d`) keeps its
+  original form when only that form appears in the facts.
 - `src/ops/retime_apply.elisa` includes `rig_stack.elisa` and so inherits its
   state ("unsupported", the same class as `ops_file`, `rig_cache` and
   `rig_stack` on main, whose counts are unchanged). The time-map decisions it
