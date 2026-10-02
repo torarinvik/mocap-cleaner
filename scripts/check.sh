@@ -45,11 +45,13 @@ if ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1; then
 else
     echo "cli   BUILD FAILED (build/test/cli.log)"; status=1
 fi
-# Prove files incrementally (cached by file + includes + prover hash) and
-# longest first, PROOF_JOBS at once (default: core count); report in order.
+# Prove files incrementally (cached by file + includes + the prover's semantic
+# revision, see scripts/prove.py) and longest first, PROOF_JOBS at once
+# (default: core count); report in order. PROOF_RECHECK=N re-proves N random
+# cache hits and fails on any mismatch.
 mkdir -p build/proof
 rm -f build/proof/*.txt build/proof/*.cached
-python3 scripts/prove.py "$PROVER" $(ls src/*/*.elisa proof/*.elisa 2>/dev/null)
+python3 scripts/prove.py ${PROOF_RECHECK:+--recheck-sample "$PROOF_RECHECK"} "$PROVER" $(ls src/*/*.elisa proof/*.elisa 2>/dev/null) || status=1
 for f in src/*/*.elisa proof/*.elisa; do
     [ -f "$f" ] || continue
     base="build/proof/$(echo "$f" | tr / _)"
