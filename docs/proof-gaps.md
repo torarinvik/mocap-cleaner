@@ -293,3 +293,32 @@ gap below was worked around in our code.
   (`o_chord`, `s_chord`, `e_chord`). A disjunctive ensure such as
   `(mask != 1 and mask != 3) or ...` also failed and is split into two
   ensures (G13). `load_take` and the panel calls are app driver code (G58).
+
+
+## Range retiming (retime, 2026-10-02)
+
+The prover (`../elisa-proof-mocap/build/elisa-proof`) was not edited; every
+gap below was worked around in our code.
+
+- G67: a bool result built from `and`/`or` cannot be negated by the prover
+  (`ensure not result or ...` fails); `Retime::disjoint` and
+  `Retime::range_ok` use explicit `return false if` branches instead.
+- G68: inside an included module, an unqualified call resolves to a
+  same-named function of the including module. `Retime`'s helpers became
+  `range_distance` / `range_weight`, and the engine's
+  `GlbResize::push_count` became `resize_count` (it was captured by
+  `StudioHistory::push_count` once the studio included it; elisa-engine-mocap
+  700efa62).
+- G69: contract bounds written as `frame * 1000` fail; callers pass
+  pre-scaled milli-frame times (`Retime::time_of`).
+- G70: ensures that reconstruct a time through division
+  (`result * UNIT / span == ...`) time out; `rescale`, `forward_between` and
+  `invert_between` state bounds and exact endpoints only.
+- G71: a conditional early `return move out if ...` is treated as an
+  unconditional move, so every later use of `out` is reported as a
+  disproved use-after-move. `RetimeApply::ranges_of` / `source_times`
+  return a fresh empty array from an `if` block instead.
+- `src/ops/retime_apply.elisa` includes `rig_stack.elisa` and so inherits its
+  state ("unsupported", the same class as `ops_file`, `rig_cache` and
+  `rig_stack` on main, whose counts are unchanged). The time-map decisions it
+  makes go through the proved `Retime` kernel.

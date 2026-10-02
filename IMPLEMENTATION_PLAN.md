@@ -260,6 +260,15 @@ and almost all of that is the prover.
 - [x] Proved kernels (`src/studio/foot_policy.elisa` + `_laws`), headless test `test/studio_foot.elisa`, per-clip gate `test/foot_clips.elisa`.
       Status: done 2026-10-02. Verified headless only; the app compiles but was not run on screen. Knee-pop gate is tolerant, an open trade-off in `docs/foot-workflow.md`.
 
+**Range retiming.**
+- [x] Non-destructive `Retime{first,last,speed}` op (0.1x..4x, eased blend),
+      run last; slerp/Hermite resampling; contacts and pins follow; report
+      of new length and per-range frames; `--retime FIRST:LAST:SPEED[:BLEND]`;
+      studio Shift-drag selection, presets, slider, typed speed, bands.
+      Status: kernel `src/core/retime.elisa` + `proof/retime_laws.elisa`;
+      tests `test/retime.elisa`, `test/studio_retime.elisa`. Studio verified
+      headless and by build only; gaps G67-G71 in `docs/proof-gaps.md`.
+
 **Kernels and batch (throughput).**
 - [x] Profile the CLI on the boxing clips; publish a per-op time table in
       the report.
