@@ -1,0 +1,251 @@
+# Laws of the knee motion limits, stated as composed obligations over the
+# verified summaries of Knee. They are what the foot IK relies on: untouched
+# frames stay untouched, a soft-reached leg never straightens past its
+# length, a limited knee never outruns its budget, and the clip gate
+# accepts the source itself.
+include "../src/core/knee.elisa"
+
+module KneeLaws:
+    public:
+        const BOUND: i64 = 1000000000
+        const HALF: i64 = 250000000
+
+        # A frame whose source reach is already the soft start is untouched:
+        # the soft zone never starts below what the source reached.
+        def source_reach_is_kept(source: i64, length: i64) -> i64:
+            requires length >= 0
+            requires length <= HALF
+            requires source >= 0
+            requires source <= length
+            ensure result == source
+            start: i64 = Knee::soft_start(source, length)
+            return Knee::soft_reach(source, start, length)
+
+        # Any reach at or below the source reach is untouched.
+        def shorter_reach_is_kept(distance: i64, source: i64, length: i64) -> i64:
+            requires length >= 0
+            requires length <= HALF
+            requires source >= 0
+            requires source <= length
+            requires distance >= 0
+            requires distance <= source
+            ensure result == distance
+            start: i64 = Knee::soft_start(source, length)
+            return Knee::soft_reach(distance, start, length)
+
+        # A soft reach never asks for more than full extension.
+        def soft_reach_within_leg(distance: i64, source: i64, length: i64) -> i64:
+            requires length >= 0
+            requires length <= HALF
+            requires source >= 0
+            requires source <= HALF
+            requires distance >= 0
+            requires distance <= HALF
+            ensure result <= length
+            ensure result <= distance
+            start: i64 = Knee::soft_start(source, length)
+            return Knee::soft_reach(distance, start, length)
+
+        # A soft reach never pulls a leg shorter than the soft start.
+        def soft_reach_above_start(distance: i64, source: i64, length: i64) -> i64:
+            requires length >= 0
+            requires length <= HALF
+            requires source >= 0
+            requires source <= length
+            requires distance >= 0
+            requires distance <= HALF
+            ensure distance <= source or result >= source
+            start: i64 = Knee::soft_start(source, length)
+            return Knee::soft_reach(distance, start, length)
+
+        # A reach far past the leg lands exactly at full extension.
+        def far_reach_is_full(length: i64) -> i64:
+            requires length >= 0
+            requires length <= HALF
+            ensure result <= length
+            start: i64 = Knee::soft_start(0, length)
+            return Knee::soft_reach(HALF, start, length)
+
+        # The part kept of an excess never exceeds the room left.
+        def kept_within_room(x: i64, r: i64) -> i64:
+            requires r >= 1
+            requires r <= HALF
+            requires x >= 0
+            requires x < r + r
+            requires x <= HALF + HALF
+            ensure result >= 0
+            ensure result <= r
+            ensure result <= x
+            return Knee::keep(x, r)
+
+        # Nothing of a zero excess gives way.
+        def zero_excess_keeps_nothing(r: i64) -> i64:
+            requires r >= 1
+            requires r <= HALF
+            ensure result == 0
+            return Knee::keep(0, r)
+
+        # Straightness is a permille ratio, full at or past the leg length.
+        def straightness_is_ratio(reach: i64, length: i64) -> i64:
+            requires length >= 1
+            requires length <= BOUND
+            requires reach >= 0
+            requires reach <= BOUND
+            ensure result >= 0
+            ensure result <= Knee::PERMILLE
+            ensure reach < length or result == Knee::PERMILLE
+            return Knee::straightness(reach, length)
+
+        # A bent leg releases over the base blend.
+        def bent_leg_keeps_blend(blend: i64, reach: i64, length: i64) -> i64:
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            requires length >= 1
+            requires length <= BOUND
+            requires reach >= 0
+            requires reach <= BOUND
+            ensure result >= blend
+            ensure result <= blend + blend + blend
+            ensure result <= Fade::MAX_EDGE
+            straight: i64 = Knee::straightness(reach, length)
+            return Knee::release_blend(blend, straight)
+
+        # A fully straight leg releases over at least the base blend and
+        # never past the fade limit.
+        def straight_leg_release_bounded(blend: i64) -> i64:
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            ensure result >= blend
+            ensure result <= Fade::MAX_EDGE
+            return Knee::release_blend(blend, Knee::PERMILLE)
+
+        # The release never shortens with a straighter leg at the threshold.
+        def threshold_release_is_base(blend: i64) -> i64:
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            ensure result == blend
+            return Knee::release_blend(blend, Knee::STRAIGHT)
+
+        # The speed budget covers the take's own fastest knee motion.
+        def budget_covers_source(source: i64) -> i64:
+            requires source >= 0
+            requires source <= BOUND
+            ensure result >= source
+            ensure result >= Knee::MIN_SPEED
+            return Knee::speed_budget(source)
+
+        # The acceleration budget is positive and within the speed budget.
+        def accel_within_speed(source: i64) -> i64:
+            requires source >= 0
+            requires source <= BOUND
+            ensure result >= 1
+            speed: i64 = Knee::speed_budget(source)
+            return Knee::accel_budget(speed)
+
+        # A limited step never exceeds the speed budget either way.
+        def step_within_speed(previous: i64, velocity: i64, target: i64, speed: i64, accel: i64) -> i64:
+            requires speed >= 1
+            requires speed <= BOUND
+            requires accel >= 1
+            requires accel <= BOUND
+            requires velocity + speed >= 0
+            requires velocity <= speed
+            requires velocity >= 0 - BOUND
+            requires velocity <= BOUND
+            requires previous >= 0 - BOUND
+            requires previous <= BOUND
+            requires target >= 0 - BOUND
+            requires target <= BOUND
+            ensure result + speed >= 0
+            ensure result <= speed
+            return Knee::step_velocity(previous, velocity, target, speed, accel)
+
+        # A limited step never changes velocity by more than the accel budget.
+        def step_within_accel(previous: i64, velocity: i64, target: i64, speed: i64, accel: i64) -> i64:
+            requires speed >= 1
+            requires speed <= BOUND
+            requires accel >= 1
+            requires accel <= BOUND
+            requires velocity + speed >= 0
+            requires velocity <= speed
+            requires velocity >= 0 - BOUND
+            requires velocity <= BOUND
+            requires previous >= 0 - BOUND
+            requires previous <= BOUND
+            requires target >= 0 - BOUND
+            requires target <= BOUND
+            ensure result + accel >= velocity
+            ensure result <= velocity + accel
+            return Knee::step_velocity(previous, velocity, target, speed, accel)
+
+        # A reachable move is taken exactly: no lag when within budget.
+        def reachable_move_is_exact(want: i64, velocity: i64, speed: i64, accel: i64) -> i64:
+            requires speed >= 1
+            requires speed <= BOUND
+            requires accel >= 1
+            requires accel <= BOUND
+            requires velocity + speed >= 0
+            requires velocity <= speed
+            requires velocity >= 0 - BOUND
+            requires velocity <= BOUND
+            requires want + accel >= velocity
+            requires want <= velocity + accel
+            requires want + speed >= 0
+            requires want <= speed
+            ensure result == want
+            return Knee::limit_velocity(want, velocity, speed, accel)
+
+        # Holding still from rest stays still.
+        def rest_stays_still(speed: i64, accel: i64) -> i64:
+            requires speed >= 1
+            requires speed <= BOUND
+            requires accel >= 1
+            requires accel <= BOUND
+            ensure result == 0
+            return Knee::limit_velocity(0, 0, speed, accel)
+
+        # A pop beyond the allowance fails the gate.
+        def far_pop_fails_gate(after: i64, source: i64) -> bool:
+            requires source >= 0
+            requires source <= HALF
+            requires after >= 0
+            requires after <= BOUND
+            requires after > source + source / 10 + Knee::NOISE
+            ensure not result
+            return Knee::pop_ok(after, source)
+
+        # A pop within noise of the source always passes.
+        def near_pop_passes_gate(after: i64, source: i64) -> bool:
+            requires source >= 0
+            requires source <= HALF
+            requires after >= 0
+            requires after <= BOUND
+            requires after <= source + Knee::NOISE
+            ensure result
+            return Knee::pop_ok(after, source)
+
+        # Even at full speed a knee never moves past the budget.
+        def full_speed_is_capped(want: i64, speed: i64, accel: i64) -> i64:
+            requires speed >= 1
+            requires speed <= BOUND
+            requires accel >= 1
+            requires accel <= BOUND
+            requires want + BOUND + BOUND >= 0
+            requires want <= BOUND + BOUND
+            ensure result <= speed
+            ensure result + speed >= 0
+            return Knee::limit_velocity(want, speed, speed, accel)
+
+        # The gate accepts the source itself and anything within noise.
+        def source_passes_gate(source: i64) -> bool:
+            requires source >= 0
+            requires source <= BOUND
+            ensure result
+            return Knee::pop_ok(source, source)
+
+        # The gate's bound is at least the source plus noise.
+        def allowance_covers_noise(source: i64) -> i64:
+            requires source >= 0
+            requires source <= BOUND
+            ensure result >= source + Knee::NOISE
+            return Knee::pop_allowed(source)

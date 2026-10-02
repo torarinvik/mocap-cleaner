@@ -1,0 +1,236 @@
+# Knee motion limits for foot IK (MotionBuilder / Cascadeur style), so a
+# leg pulled onto the floor never snaps:
+#   - soft reach: a target that asks a leg to straighten past where the
+#     source already was is eased toward full extension instead of hitting
+#     it, so a nearly straight leg is never snapped straight;
+#   - a speed and acceleration limit on the knee angle, with the budget
+#     taken from the take itself (the actor's own fastest knee motion);
+#   - an adaptive release blend: the straighter the leg at a plant's end,
+#     the longer the carry eases out, so lift-off follows a smooth curve;
+#   - the clip gate the foot tests use.
+# Distances are micro-units, angles micro-radians, ratios permille.
+include "order.elisa"
+include "gate.elisa"
+
+module Knee:
+    public:
+        const BOUND: i64 = 1000000000
+        const PERMILLE: i64 = 1000
+        # Longest leg the soft reach handles (micro-units).
+        const HALF: i64 = 250000000
+        # Soft zone below full extension, in permille of leg length.
+        const SOFT: i64 = 40
+        # Straightness (reach / length, permille) where the release starts to
+        # lengthen, and the most it lengthens (times the base blend).
+        const STRAIGHT: i64 = 900
+        const RELEASE_MAX: i64 = 3
+        # Smallest knee speed budget, micro-radians per frame: a near-still
+        # take still lets the solve settle the foot.
+        const MIN_SPEED: i64 = 2000
+        # Frames to reach the speed budget from rest.
+        const RAMP: i64 = 2
+        # Knee-pop gate: after <= max(source, source * 11 / 10) + NOISE.
+        const NOISE: i64 = 1000
+
+        # Start of the soft zone for a leg of `length`: never below what the
+        # source leg already reached, so untouched frames stay untouched.
+        def soft_start(source: i64, length: i64) -> i64:
+            requires length >= 0
+            requires length <= BOUND
+            requires source >= 0
+            requires source <= BOUND
+            ensure result >= 0
+            ensure result <= length
+            ensure result >= length - length * SOFT / PERMILLE or result == length
+            ensure source > length or result >= source
+            zone: i64 = length - length * SOFT / PERMILLE
+            return length if source > length
+            return source if source > zone
+            return zone
+
+        # Eased-away part of a soft reach: x*x / (4r) for 0 <= x < 2r, at
+        # least x - r (so the result never passes full extension).
+        def give(x: i64, r: i64) -> i64:
+            requires r >= 1
+            requires r <= HALF
+            requires x >= 0
+            requires x < r + r
+            requires x <= HALF + HALF
+            ensure result >= 0
+            ensure result <= x
+            ensure result >= x - r
+            # Piecewise-linear fit of x*x / (4r): nothing up to r/2, slope
+            # 1/2 to r/4 at x = r, then slope 3/4 to r at x = 2r.
+            if x <= r:
+                over: i64 = x - r / 2
+                return 0 if over <= 0
+                part: i64 = over / 2
+                return 0 if part < 0
+                return x if part > x
+                return part
+            room: i64 = r + r - x
+            share: i64 = room / 4
+            return x - r if share <= 0
+            return x if share >= r
+            lifted: i64 = x - r
+            return lifted + share
+
+        # Part of the excess a soft reach keeps: x less what gives way,
+        # never more than r (the room left to full extension).
+        def keep(x: i64, r: i64) -> i64:
+            requires r >= 1
+            requires r <= HALF
+            requires x >= 0
+            requires x < r + r
+            requires x <= HALF + HALF
+            ensure result >= 0
+            ensure result <= x
+            ensure result <= r
+            away: i64 = give(x, r)
+            kept: i64 = x - away
+            return 0 if kept < 0
+            return r if kept > r
+            return x if kept > x
+            return kept
+
+        # Soft reach: distances up to `start` are kept; beyond, the excess
+        # x gives way by about x*x / (4r) (r = length - start), which
+        # leaves the start with slope one and meets full extension with slope
+        # zero at x = 2r. Never above the distance or the leg length.
+        def soft_reach(distance: i64, start: i64, length: i64) -> i64:
+            requires length >= 0
+            requires length <= HALF
+            requires start >= 0
+            requires start <= length
+            requires distance >= 0
+            requires distance <= HALF
+            ensure result <= distance
+            ensure result <= length
+            ensure distance > start or result == distance
+            ensure distance <= start or result >= start
+            return distance if distance <= start
+            r: i64 = length - start
+            return start if r == 0
+            x: i64 = distance - start
+            return length if x >= r + r
+            kept: i64 = keep(x, r)
+            return start + kept
+
+        # Straightness of a reach, permille of leg length.
+        def straightness(reach: i64, length: i64) -> i64:
+            requires length >= 1
+            requires length <= BOUND
+            requires reach >= 0
+            requires reach <= BOUND
+            ensure result >= 0
+            ensure result <= PERMILLE
+            ensure reach < length or result == PERMILLE
+            return PERMILLE if reach >= length
+            raw: i64 = reach * PERMILLE / length
+            return Order::clamp(raw, 0, PERMILLE)
+
+        # Release blend at a plant's end: the base blend while the leg is bent;
+        # from STRAIGHT on it grows in whole-blend steps to RELEASE_MAX (3) times the base at
+        # full extension, within the fade limit.
+        def release_blend(blend: i64, straight: i64) -> i64:
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            requires straight >= 0
+            requires straight <= PERMILLE
+            ensure result >= blend
+            ensure result <= Fade::MAX_EDGE
+            ensure result <= blend + blend + blend
+            ensure straight > STRAIGHT or result == blend
+            return blend if straight <= STRAIGHT
+            if straight > 966:
+                return Fade::MAX_EDGE if blend * 3 > Fade::MAX_EDGE
+                return blend * 3
+            if straight > 933:
+                return Fade::MAX_EDGE if blend * 2 > Fade::MAX_EDGE
+                return blend * 2
+            return blend
+
+        # Speed budget of a knee: the take's own fastest knee motion, never
+        # below MIN_SPEED.
+        def speed_budget(source: i64) -> i64:
+            requires source >= 0
+            requires source <= BOUND
+            ensure result >= MIN_SPEED
+            ensure result >= source
+            ensure result == source or result == MIN_SPEED
+            return source if source > MIN_SPEED
+            return MIN_SPEED
+
+        # Acceleration budget: the speed budget reached in RAMP frames.
+        def accel_budget(speed: i64) -> i64:
+            requires speed >= MIN_SPEED
+            requires speed <= BOUND
+            ensure result >= 1
+            ensure result <= speed
+            return Order::clamp(speed / RAMP, 1, speed)
+
+        # `want` kept within `accel` of `velocity` and within `speed`.
+        def limit_velocity(want: i64, velocity: i64, speed: i64, accel: i64) -> i64:
+            requires speed >= 1
+            requires speed <= BOUND
+            requires accel >= 1
+            requires accel <= BOUND
+            requires velocity + speed >= 0
+            requires velocity >= 0 - BOUND
+            requires velocity <= BOUND
+            requires velocity <= speed
+            requires want + BOUND + BOUND >= 0
+            requires want <= BOUND + BOUND
+            ensure result + speed >= 0
+            ensure result <= speed
+            ensure result + accel >= velocity
+            ensure result <= velocity + accel
+            ensure want + accel < velocity or want > velocity + accel or want + speed < 0 or want > speed or result == want
+            if want + accel < velocity:
+                return velocity - accel if velocity - accel + speed >= 0
+                return 0 - speed
+            if want > velocity + accel:
+                return velocity + accel if velocity + accel <= speed
+                return speed
+            return 0 - speed if want + speed < 0
+            return speed if want > speed
+            return want
+
+        # One limited step: the velocity toward `target` from `previous`,
+        # kept within `accel` of the last velocity and within `speed`.
+        def step_velocity(previous: i64, velocity: i64, target: i64, speed: i64, accel: i64) -> i64:
+            requires speed >= 1
+            requires speed <= BOUND
+            requires accel >= 1
+            requires accel <= BOUND
+            requires velocity + speed >= 0
+            requires velocity >= 0 - BOUND
+            requires velocity <= BOUND
+            requires velocity <= speed
+            requires previous >= 0 - BOUND
+            requires previous <= BOUND
+            requires target >= 0 - BOUND
+            requires target <= BOUND
+            ensure result + speed >= 0
+            ensure result <= speed
+            ensure result + accel >= velocity
+            ensure result <= velocity + accel
+            want: i64 = target - previous
+            return limit_velocity(want, velocity, speed, accel)
+
+        # Knee-pop gate for a cleaned clip.
+        def pop_allowed(source: i64) -> i64:
+            requires source >= 0
+            requires source <= BOUND
+            ensure result >= source + NOISE
+            ensure result <= source + source / 10 + NOISE
+            return source + source / 10 + NOISE
+
+        def pop_ok(after: i64, source: i64) -> bool:
+            requires source >= 0
+            requires source <= BOUND
+            requires after >= 0
+            requires after <= BOUND
+            ensure after > source + NOISE or result
+            ensure after <= source + source / 10 + NOISE or not result
+            return after <= source + source / 10 + NOISE
