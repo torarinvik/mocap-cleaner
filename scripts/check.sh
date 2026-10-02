@@ -34,9 +34,15 @@ if ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1; then
 else
     echo "cli   BUILD FAILED (build/test/cli.log)"; status=1
 fi
+# Prove files in parallel (PROOF_JOBS at once, default 4), then report in order.
+mkdir -p build/proof
+rm -f build/proof/*.txt
+ls src/*/*.elisa proof/*.elisa 2>/dev/null | PROVER="$PROVER" xargs -P "${PROOF_JOBS:-4}" -I{} sh -c '
+    out="build/proof/$(echo "{}" | tr / _).txt"
+    "$PROVER" "$PWD/{}" | grep -E "verification state|proven:|failed:|unproven:" | tr -s " " | tr "\n" " " > "$out"'
 for f in src/*/*.elisa proof/*.elisa; do
     [ -f "$f" ] || continue
-    line=$("$PROVER" "$PWD/$f" | grep -E "verification state|proven:|failed:" | tr -s ' ' | tr '\n' ' ')
+    line=$(cat "build/proof/$(echo "$f" | tr / _).txt" 2>/dev/null)
     echo "proof $f: $line"
     echo "$line" | grep -q "state: proved" || status=1
 done
