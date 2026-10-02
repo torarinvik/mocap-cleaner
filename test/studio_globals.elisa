@@ -1,0 +1,122 @@
+# Regression test for the collapsed-skeleton bug: the studio app keeps its
+# Memo and Clip in module globals, and stage1 used to free everything a
+# function allocated in its auto arena at return, so a clip stored into a
+# global read back as zeros (skeleton at one point, empty timeline, no
+# curve channel). This test stores a clip into module globals the same way
+# Studio::load_take/rebuild do, reads it back from another function, checks
+# the frame rate comes from the key times (hook_left is keyed at 30 fps),
+# and captures build/studio_hook_left.png. Skips when the boxing asset is
+# not checked out next to this repository.
+include "../src/studio/app/scene.elisa"
+include "../../elisa-engine-mocap/src/viewport/viewport_raster.elisa"
+include "../../elisa-engine-mocap/src/viewport/png_writer.elisa"
+
+extern puts(text: cstr) -> i64
+
+const PATH: cstr = "../elisa-boxing-game/boxing-assets/rigged/library/animation_only/black/hook_left.glb"
+
+module Held:
+    public:
+        global mutable memo: StudioModel::Memo? = null
+        global mutable clip: StudioModel::Clip? = null
+        global mutable curves: StudioPerf::Curves = zeroed
+
+        # The curve view fills its memo through a reference to this global
+        # (StudioPanels::curves -> StudioPerf::fill_curves), one frame, and
+        # reads it back on later frames.
+        def fill(c: StudioModel::Clip&, bone: i64) -> void:
+            fill_ref(c, bone, &curves)
+
+        def fill_ref(c: StudioModel::Clip&, bone: i64, memo: mutable StudioPerf::Curves&) -> void:
+            ch: i64 = StudioModel::curve_channel_in(c, bone, 0)
+            StudioPerf::fill_curves(memo, c.source, c.cleaned, c.anim, ch, 1, bone, 0, StudioView::MAX_VALUE)
+
+        # Read the curve memo back in a later call, as the next frame does.
+        def check_curves() -> i32:
+            return 20 if curves.length != 31 or curves.comps < 1
+            mutable moving: i64 = 0
+            for k in 0..<curves.comps |k, moving|:
+                a: darray[i64] = StudioPerf::series(&curves.source, k, curves.length)
+                first: i64 = a[0] if a.count > 0 else 0
+                for v in a |moving, first|:
+                    moving <- moving + 1 if v != first else moving
+            return 21 if moving == 0
+            0
+
+        def load() -> bool:
+            fresh: StudioModel::Memo? = StudioModel::load(PATH, "jab")
+            return false if fresh == null
+            memo <- fresh
+            return true
+
+        def rebuild() -> void:
+            s: StackState::Stack = StudioModel::initial_stack()
+            mutable result: StudioModel::Clip? = null
+            if memo is m:
+                w: StudioPerf::Window = StudioPerf::full(m.frames)
+                none_p: darray[Geometry::Vec3] = []
+                none_i: darray[i64] = []
+                result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w)
+            clip <- result
+
+# Spread of the posed joints along x+y+z; zero when the skeleton collapsed.
+def spread(pts: darray[Geometry::Vec3]&) -> f32:
+    mutable lo: f32 = 1000000.0
+    mutable hi: f32 = -1000000.0
+    for p in pts |lo, hi|:
+        v: f32 = p.x + p.y + p.z
+        lo <- v if v < lo else lo
+        hi <- v if v > hi else hi
+    return hi - lo
+
+def capture(c: StudioModel::Clip&) -> i64:
+    mutable cam: ViewportCamera::Camera = ViewportCamera::create(480, 360)
+    frame: i64 = c.frames / 2
+    pts: darray[Geometry::Vec3] = StudioScene::points(c, frame)
+    _ = ViewportCamera::frame_points(&cam, &pts, 1.15)
+    mesh: GlbSkinMesh::Mesh = GlbSkinMesh::empty()
+    skinned: darray[Geometry::Vec3] = []
+    flags: i64 = StudioScene::DEFAULT_FLAGS + StudioScene::HEAT
+    list: ViewportDraw::List = StudioScene::build(cam, c, &mesh, &skinned, frame, flags, StudioModel::default_bone(c))
+    background: u32 = ViewportDraw::rgba(24, 26, 32, 255)
+    mutable img: ViewportRaster::Image = ViewportRaster::create(480, 360)
+    ViewportRaster::clear(&img, background)
+    ViewportRaster::render(&img, cam, list)
+    _ = catch PngWriter::save("build/studio_hook_left.png", img.width, img.height, img.rgba):
+        value: value
+        error failure: return -1
+    mutable n: i64 = 0
+    for y in 0..<img.height |y, img, n, background|:
+        for x in 0..<img.width |x, y, img, n, background|:
+            n <- n + 1 if ViewportRaster::pixel(img, x, y) != background else n
+    return n
+
+def check() -> i32:
+    if Held::clip is c:
+        return 2 if c.frames != 31
+        return 3 if c.rate != 30
+        return 4 if c.nodes.count < 20
+        pts: darray[Geometry::Vec3] = StudioScene::points(c, c.frames / 2)
+        return 5 if pts.count < 20
+        return 6 if spread(pts) < 0.1
+        return 7 if StudioModel::curve_channel(c, StudioModel::default_bone(c)) < 0
+        return 8 if capture(c) < 500
+        Held::fill(c, StudioModel::default_bone(c))
+        return 0
+    1
+
+def main() -> i32:
+    if not Held::load():
+        _ = puts("studio_globals: SKIP (hook_left.glb not found)")
+        return 0
+    Held::rebuild()
+    r: i32 = check()
+    return r if r != 0
+    rc: i32 = Held::check_curves()
+    return rc if rc != 0
+    # A second rebuild replaces the stored clip; it must still read back.
+    Held::rebuild()
+    r2: i32 = check()
+    return 10 + r2 if r2 != 0
+    _ = puts("studio_globals: hook_left clip survives the global store (31 frames, 30 fps)")
+    0

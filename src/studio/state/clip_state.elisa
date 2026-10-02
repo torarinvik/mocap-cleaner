@@ -5,6 +5,7 @@
 # the source cleaned by the current operation stack (GlbTracks::
 # clean_animation, the same call the CLI exports with), and samples both here.
 include "../../io/glb_tracks.elisa"
+include "../timeline.elisa"
 include "../../../../elisa-engine-mocap/src/animation/pose_override.elisa"
 
 module StudioClip:
@@ -23,6 +24,26 @@ module StudioClip:
                 n: i64 = GlbDocument::key_count(doc, held.output).i64()
                 most <- n if n > most else most
             return most
+
+        # Sample rate of the clip in frames per second, read from the key
+        # times of its longest channel ((keys - 1) / duration, rounded).
+        # Falls back to Timeline::RATE when the clip has fewer than two keys
+        # or a degenerate duration; clamped to 1..1000.
+        def rate(doc: GlbDocument::Document&, anim: usize) -> i64:
+            mutable most: usize = 0
+            mutable input: i64 = -1
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, most, input|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                n: usize = GlbDocument::key_count(doc, held.input)
+                if n > most:
+                    most <- n
+                    input <- held.input.i64()
+            return Timeline::RATE if input < 0 or most < 2
+            t0: f64 = GlbDocument::track_value(doc, input.usize(), 0, 0).f64()
+            t1: f64 = GlbDocument::track_value(doc, input.usize(), most - 1, 0).f64()
+            return Timeline::RATE if t1 - t0 <= 0.000001
+            fps: i64 = ((most - 1).f64() / (t1 - t0) + 0.5).i64()
+            return 1 if fps < 1 else (1000 if fps > 1000 else fps)
 
         # Nodes with every parent before its children.
         def order(doc: GlbDocument::Document&) -> darray[i64]:

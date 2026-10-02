@@ -116,7 +116,7 @@ module StudioPanels:
         const GAP: f32 = 8.0
         const BUTTON: f32 = 32.0
         const BUTTONS: i64 = 18
-        const ROW: f32 = 46.0
+        const ROW: f32 = 58.0
         const ADD_KINDS: i64 = 5
         const CURVE_SEGMENTS: i64 = 40
         const MARKER_BINS: i64 = 120
@@ -392,9 +392,10 @@ module StudioPanels:
                 x0: f32 = frame_x(s, scope_first, n)
                 x1: f32 = frame_x(s, scope_last, n)
                 StudioDraw::rect(x0, s.y + 2.0, (x1 - x0) + 2.0, s.h - 4.0, StudioDraw::color(52, 58, 80))
-            # Ruler every 120 frames (one second).
-            for k in 0..<(n / Timeline::RATE + 1) |k, s, n|:
-                x: f32 = frame_x(s, k * Timeline::RATE, n)
+            # Ruler every second (c.rate frames).
+            r: i64 = c.rate if c.rate >= 1 else Timeline::RATE
+            for k in 0..<(n / r + 1) |k, s, n, r|:
+                x: f32 = frame_x(s, k * r, n)
                 StudioDraw::segment(x, s.y + 2.0, x, s.y + 10.0, 1.0, StudioDraw::muted())
             bins: i64 = MARKER_BINS if n > MARKER_BINS else n
             for b in 0..<bins |b, bins, n, s, c|:
@@ -523,10 +524,10 @@ module StudioPanels:
             w: f32 = (sb.w - 24.0) / 3.0
             col: i64 = k % 3
             row: i64 = k / 3
-            box(sb.x + 12.0 + col.f32() * w, sb.y + 132.0 + row.f32() * 28.0, w - 4.0, 24.0)
+            box(sb.x + 12.0 + col.f32() * w, sb.y + 172.0 + row.f32() * 28.0, w - 4.0, 24.0)
 
         def row_box(sb: Box, i: i64) -> Box:
-            box(sb.x + 8.0, sb.y + 196.0 + i.f32() * (ROW + 4.0), sb.w - 16.0, ROW)
+            box(sb.x + 8.0, sb.y + 236.0 + i.f32() * (ROW + 4.0), sb.w - 16.0, ROW)
 
         def add_label(k: i64) -> sview:
             return "Smooth" if k == 1
@@ -548,11 +549,17 @@ module StudioPanels:
                     return HIT_SELECT * 100 + i
             return -1
 
+        # Frame rate of the loaded clip, set by the app when a clip is built.
+        global mutable shown_rate: i64 = Timeline::RATE
+
+        def set_rate(r: i64) -> void:
+            shown_rate <- r
+
         # "<n> fr (<ms> ms)" for a frame count at the clip rate.
         def frames_put(n: i64) -> void:
             StudioText::put_i(n)
             StudioText::put(" fr (")
-            StudioText::put_i(StudioChrome::clip_millis(n, Timeline::RATE) if n >= 0 and n <= StudioChrome::CHROME_FRAMES and Timeline::RATE >= 1 and Timeline::RATE <= StudioChrome::CHROME_RATE_MAX else 0)
+            StudioText::put_i(StudioChrome::clip_millis(n, shown_rate) if n >= 0 and n <= StudioChrome::CHROME_FRAMES and shown_rate >= 1 and shown_rate <= StudioChrome::CHROME_RATE_MAX else 0)
             StudioText::put(" ms)")
 
         # An operation's strength with its unit (StudioChrome::param_unit).
@@ -602,7 +609,7 @@ module StudioPanels:
             StudioDraw::text(sb.x + 12.0, sb.y + 38.0, 12.0, StudioText::pair("frames ", c.frames, "   bones ", c.nodes.count.i64()), StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, sb.y + 56.0, 12.0, StudioText::pair("spikes source ", c.spikes_before, "  cleaned ", c.spikes_after), StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, sb.y + 74.0, 12.0, StudioText::pair("history ", history_cursor + 1, " / ", history_count), StudioDraw::muted())
-            StudioDraw::bold(sb.x + 12.0, sb.y + 104.0, 14.0, "Operation stack", StudioDraw::ink())
+            StudioDraw::bold(sb.x + 12.0, sb.y + 144.0, 14.0, "Operation stack", StudioDraw::ink())
             for k in 0..<ADD_KINDS |k, sb|:
                 b: Box = add_box(sb, k)
                 StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())
@@ -614,28 +621,32 @@ module StudioPanels:
                 selected: bool = i == s.selected
                 StudioDraw::rect(r.x, r.y, r.w, r.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
                 col: UiCore::Color = StudioDraw::ink() if op.enabled else StudioDraw::color(96, 100, 112)
-                StudioIcons::draw(StudioIcons::EYE if op.enabled else StudioIcons::EYE_OFF, r.x + 6.0, r.y + 13.0, 20.0, col)
-                StudioDraw::bold(r.x + 36.0, r.y + 6.0, 13.0, StackState::kind_label(op.kind), col)
-                StudioDraw::text(r.x + 36.0, r.y + 25.0, 11.0, StackState::bones_label(op.bones), StudioDraw::muted())
-                StudioDraw::text(r.x + 110.0, r.y + 25.0, 11.0, param_text(op), StudioDraw::muted())
-                StudioDraw::text(r.x + 36.0 + 70.0, r.y + 6.0, 11.0, scope_text(op, c.frames), StudioDraw::muted())
-                StudioIcons::draw(StudioIcons::UP, r.x + r.w - 84.0, r.y + 13.0, 20.0, col)
-                StudioIcons::draw(StudioIcons::DOWN, r.x + r.w - 56.0, r.y + 13.0, 20.0, col)
-                StudioIcons::draw(StudioIcons::TRASH, r.x + r.w - 28.0, r.y + 13.0, 20.0, StudioDraw::color(230, 110, 100))
+                # Title, then bones and scope, then the parameter: each
+                # line stays left of the icon column (r.w - 90).
+                StudioIcons::draw(StudioIcons::EYE if op.enabled else StudioIcons::EYE_OFF, r.x + 6.0, r.y + 19.0, 20.0, col)
+                StudioDraw::bold(r.x + 36.0, r.y + 5.0, 13.0, StackState::kind_label(op.kind), col)
+                StudioDraw::text(r.x + 36.0, r.y + 23.0, 11.0, StackState::bones_label(op.bones), StudioDraw::muted())
+                StudioDraw::text(r.x + 100.0, r.y + 23.0, 11.0, scope_text(op, c.frames), StudioDraw::muted())
+                StudioDraw::text(r.x + 36.0, r.y + 39.0, 11.0, param_text(op), StudioDraw::muted())
+                StudioIcons::draw(StudioIcons::UP, r.x + r.w - 84.0, r.y + 19.0, 20.0, col)
+                StudioIcons::draw(StudioIcons::DOWN, r.x + r.w - 56.0, r.y + 19.0, 20.0, col)
+                StudioIcons::draw(StudioIcons::TRASH, r.x + r.w - 28.0, r.y + 19.0, 20.0, StudioDraw::color(230, 110, 100))
             help: f32 = sb.y + sb.h - 150.0
             StudioDraw::text(sb.x + 12.0, help, 11.0, "Space play  Left/Right step  S speed  L loop", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 16.0, 11.0, "Z undo  Y redo  D toggle op  Del remove", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 32.0, 11.0, "PgUp/PgDn move op  [ ] strength  B bones", StudioDraw::muted())
-            StudioDraw::text(sb.x + 12.0, help + 48.0, 11.0, "I / O scope in/out at playhead  1-5 add op", StudioDraw::muted())
+            StudioDraw::text(sb.x + 12.0, help + 48.0, 11.0, "I / O scope at playhead  1-5 add op", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 64.0, 11.0, "T trails C contacts H heat N onion G ghost", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 80.0, 11.0, "X x-ray M mesh F frame E export", StudioDraw::muted())
-            StudioDraw::text(sb.x + 12.0, help + 96.0, 11.0, "Drag view: orbit  right drag: pan  click: pick", StudioDraw::muted())
+            StudioDraw::text(sb.x + 12.0, help + 96.0, 11.0, "Drag: orbit  right drag: pan  click: pick", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 112.0, 11.0, "Q balance overlay  P curve rotation/position", StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, help + 128.0, 11.0, "R rotate / V move gizmo (live preview)", StudioDraw::muted())
-            StudioDraw::text(sb.x + 12.0, help - 64.0, 11.0, "Retime: Shift-drag timeline, Shift-1..7 preset", StudioDraw::accent())
-            StudioDraw::text(sb.x + 12.0, help - 48.0, 11.0, "= type speed  drag band edge  Del band  Esc", StudioDraw::accent())
-            StudioDraw::text(sb.x + 12.0, help - 32.0, 11.0, "K fix feet  W worst slide  , . blend", StudioDraw::accent())
-            StudioDraw::text(sb.x + 12.0, help - 16.0, 11.0, "Contact bars: drag ends, click run lifts, click gap plants", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 96.0, 11.0, "Retime: Shift-drag timeline", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 80.0, 11.0, "Shift-1..7 preset  = type speed  Esc", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 64.0, 11.0, "Drag band edge  Del band", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 48.0, 11.0, "K fix feet  W worst slide  , . blend", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 32.0, 11.0, "Contact bars: drag ends,", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 16.0, 11.0, "click run lifts, click gap plants", StudioDraw::accent())
 
         # ---- foot cleanup ------------------------------------------------
         # Rows of the timeline strip a press on a foot contact bar lands in:
@@ -682,23 +693,25 @@ module StudioPanels:
         # red when worse, easing from the previous values at progress `w`
         # (StudioFoot::FULL when settled).
         def foot_readout(sb: Box, c: StudioModel::Clip&, shown_slide: i64, shown_sink: i64, blend: i64) -> void:
-            y: f32 = sb.y + 86.0
+            # Three lines under the history line, left-aligned so long
+            # millimetre readouts stay inside the sidebar.
+            y: f32 = sb.y + 118.0
             if not c.feet:
-                StudioDraw::text(sb.x + 180.0, y - 12.0, 11.0, "feet off (K)", StudioDraw::muted())
+                StudioDraw::text(sb.x + 12.0, y - 12.0, 11.0, "feet off (K)", StudioDraw::muted())
                 return
             StudioText::begin()
             StudioText::put("slide ")
             mm_put(c.slide_before)
             StudioText::put(" -> ")
             mm_put(shown_slide)
-            StudioDraw::text(sb.x + 180.0, y - 12.0, 11.0, StudioText::view(), cue_color(StudioFoot::cue(c.slide_before, c.slide_after)))
+            StudioDraw::text(sb.x + 12.0, y - 12.0, 11.0, StudioText::view(), cue_color(StudioFoot::cue(c.slide_before, c.slide_after)))
             StudioText::begin()
             StudioText::put("sink ")
             mm_put(c.sink_before)
             StudioText::put(" -> ")
             mm_put(shown_sink)
-            StudioDraw::text(sb.x + 180.0, y + 2.0, 11.0, StudioText::view(), cue_color(StudioFoot::cue(c.sink_before, c.sink_after)))
+            StudioDraw::text(sb.x + 12.0, y + 2.0, 11.0, StudioText::view(), cue_color(StudioFoot::cue(c.sink_before, c.sink_after)))
             StudioText::begin()
             StudioText::put("feet on  blend ")
             frames_put(blend)
-            StudioDraw::text(sb.x + 180.0, y - 26.0, 11.0, StudioText::view(), StudioDraw::color(110, 220, 130))
+            StudioDraw::text(sb.x + 12.0, y - 26.0, 11.0, StudioText::view(), StudioDraw::color(110, 220, 130))

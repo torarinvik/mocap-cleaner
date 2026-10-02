@@ -5,8 +5,10 @@
 # exports with, posed with PoseOverride).
 #
 # State lives in optional module globals: stage1 declines struct and darray
-# global initialisers, and keeps an affine Clip's darrays alive only when it
-# is moved into the global whole.
+# global initialisers. Heap data stored into a global survives only with the
+# studio-globals stage1 (functions that store into globals allocate from a
+# static region instead of a freed auto arena; see scripts/build_studio.sh).
+# That region is never reclaimed, so each rebuild keeps its clip's memory.
 include "../../../../elisa-ui/src/platform/appkit/ui_appkit_canvas_flat.elisa"
 include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
@@ -187,6 +189,12 @@ module Studio:
                 return c.frames
             1
 
+        # Frames per second of the loaded clip, from its key times.
+        def rate() -> i64:
+            if clip is c:
+                return c.rate if c.rate >= 1 else Timeline::RATE
+            Timeline::RATE
+
         # Document nodes of the loaded take (gizmo corrections name them).
         def node_total() -> i64:
             if clip is c:
@@ -233,6 +241,7 @@ module Studio:
                 return
             load_failed <- false
             clip <- result
+            StudioPanels::set_rate(rate())
             sync_count()
             built_stack <- s
             built <- built + 1
@@ -674,19 +683,25 @@ module Studio:
                 skinned_frame <- frame_now()
                 skinned_revision <- revision
 
+        # Refreshes the cached base pose and solves the gizmo chain preview. It reads and
+        # writes heap globals, so its allocations live in the never-freed static region;
+        # keeping it out of draw_list confines that to frames with an active gizmo goal.
+        def chain_preview_of(c: StudioModel::Clip&, goal: Geometry::Transform) -> darray[Geometry::Transform]:
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            if base_frame != frame_now() or base_built != built:
+                base_models <- StudioModel::models(c, r, frame_now(), false)
+                base_locals <- StudioClip::locals_at(c.cleaned, c.anim, frame_now(), c.nodes, c.slot)
+                base_frame <- frame_now()
+                base_built <- built
+            p: StudioPerf::Preview = StudioPerf::chain_preview(r, base_models, base_locals, bone, goal)
+            preview_moved <- p.moved
+            return move p.models
+
         def draw_list(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, empty_mesh: GlbSkinMesh::Mesh&, no_points: darray[Geometry::Vec3]&) -> ViewportDraw::List:
             mutable preview: darray[Geometry::Transform] = []
             if StudioOverlay::preview(gizmo_view, gizmo_drag != null, bone):
                 if gizmo_goal is goal:
-                    r: PoseOverride::Rig = StudioModel::rig(c)
-                    if base_frame != frame_now() or base_built != built:
-                        base_models <- StudioModel::models(c, r, frame_now(), false)
-                        base_locals <- StudioClip::locals_at(c.cleaned, c.anim, frame_now(), c.nodes, c.slot)
-                        base_frame <- frame_now()
-                        base_built <- built
-                    p: StudioPerf::Preview = StudioPerf::chain_preview(r, base_models, base_locals, bone, goal)
-                    preview_moved <- p.moved
-                    preview <- p.models
+                    preview <- chain_preview_of(c, goal)
             if mesh is m:
                 if skinned is p:
                     return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
@@ -719,7 +734,10 @@ module Studio:
                 _ = puts("studio: clip loaded")
             else:
                 timeline <- TimelineState::create(1)
-                _ = puts("studio: clip not found")
+                _ = puts("studio: clip not found; tried path / animation:")
+                _ = puts(path)
+                _ = puts(anim_name)
+                _ = puts("studio: quote a path that contains spaces")
             view0 <- open_view(0)
             view1 <- open_view(1)
             view2 <- open_view(2)
@@ -735,7 +753,9 @@ module Studio:
             last_time <- now
             if timeline is t:
                 if t.playing:
-                    us: i64 = (elapsed * 1000000.0).i64()
+                    # The timeline kernels count frames at Timeline::RATE;
+                    # scale wall time so the clip plays at its own rate.
+                    us: i64 = (elapsed * 1000000.0 * rate().f64() / Timeline::RATE.f64()).i64()
                     n: TimelineState::State = TimelineState::tick(t, us)
                     timeline <- n
                     if n.frame != drawn_frame:
@@ -799,7 +819,7 @@ module Studio:
             screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
             if screen != StudioChrome::SCREEN_EDIT:
                 StudioPanels::guide(w, h, screen)
-            StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), Timeline::RATE, s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, message(s))
+            StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
             scale: f32 = UiAppKitCanvas::backing_scale()

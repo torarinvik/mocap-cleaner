@@ -34,6 +34,8 @@ module StudioModel:
             cleaned: mutable GlbDocument::Document
             anim: usize
             frames: i64
+            # Frames per second, from the key times (StudioClip::rate).
+            rate: i64
             nodes: mutable darray[i64]
             slot: mutable darray[i64]
             # Spike count and strongest acceleration per frame (cleaned and
@@ -207,8 +209,9 @@ module StudioModel:
             rh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 1, frames)
             lf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 2, frames)
             rf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 3, frames)
-            lc: darray[bool] = contacts_of(&cleaned, anim, 0, &edits, lf)
-            rc: darray[bool] = contacts_of(&cleaned, anim, 1, &edits, rf)
+            fps: i64 = StudioClip::rate(&m.pristine, anim)
+            lc: darray[bool] = contacts_of(&cleaned, anim, 0, &edits, lf, fps)
+            rc: darray[bool] = contacts_of(&cleaned, anim, 1, &edits, rf, fps)
             fs: darray[i64] = foot_slide(lf, rf, lc, rc)
             worst: (frame: i64, value: i64) = worst_of(fs)
             worst_side: i64 = side_at(lf, rf, lc, rc, worst.frame)
@@ -223,7 +226,7 @@ module StudioModel:
             balance_of(&cleaned, anim, frames, &bal)
             t2: i64 = clock()
             src: GlbDocument::Document = GlbDocument::copy(&m.pristine)
-            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side, times: times, source_frames: source_frames, retimed: rt.applied}
+            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, rate: fps, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side, times: times, source_frames: source_frames, retimed: rt.applied}
             return move c
 
         def copy_ints(v: darray[i64]&) -> darray[i64]:
@@ -278,11 +281,11 @@ module StudioModel:
 
         # Contacts of one foot as the foot fix sees them (detection plus the
         # hand edits), or the studio's own detection when the rig has no leg.
-        def contacts_of(doc: GlbDocument::Document&, anim: usize, side: i64, edits: darray[RigOps::RigOp]&, track: darray[Geometry::Vec3]&) -> darray[bool]:
+        def contacts_of(doc: GlbDocument::Document&, anim: usize, side: i64, edits: darray[RigOps::RigOp]&, track: darray[Geometry::Vec3]&, fps: i64) -> darray[bool]:
             rig: Rig::Clip = Rig::load(doc, anim)
             flags: darray[bool] = RigOps::foot_contacts(&rig, side, edits)
             return flags if flags.count == track.count
-            return StudioClip::contacts(track, Timeline::RATE)
+            return StudioClip::contacts(track, fps)
 
         # Horizontal slide (micro-units) of a planted foot from frame k-1 to k.
         def step_slide(track: darray[Geometry::Vec3]&, flags: darray[bool]&, k: usize) -> i64:
