@@ -1,0 +1,262 @@
+# Slide laws: the binary search always terminates inside its range, the
+# sliding window drops exactly its first frame and gains exactly the next
+# one (so it covers the same frames as a freshly built window), and the
+# ping-pong buffers alternate so the last pass lands where the caller reads.
+include "../src/core/slide.elisa"
+include "../src/core/window.elisa"
+
+module SlideLaws:
+    public:
+        # The probe lands on a slot of the range.
+        def probe_in_range(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= Slide::SEARCH_MAX
+            ensure result >= 0
+            ensure result < hi - lo
+            return Slide::probe(lo, hi) - lo
+
+        # Halving a span stays inside it.
+        def half_inside(span: i64) -> i64:
+            requires span >= 1
+            requires span <= Slide::SEARCH_MAX
+            ensure result >= 0
+            ensure result < span
+            return Slide::half(span)
+
+        # A one-slot span halves to its only slot.
+        def half_single() -> i64:
+            ensure result == 0
+            return Slide::half(1)
+
+        # A one-slot range probes its only slot.
+        def probe_single(lo: i64) -> i64:
+            requires lo >= 0
+            requires lo < Slide::SEARCH_MAX
+            ensure result == lo
+            return Slide::probe(lo, lo + 1)
+
+        # Going right shrinks the range (the search terminates).
+        def right_shrinks(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= Slide::SEARCH_MAX
+            ensure result >= 0
+            ensure result < hi - lo
+            return hi - Slide::right_of(lo, hi)
+
+        # Going left shrinks the range (the search terminates).
+        def left_shrinks(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= Slide::SEARCH_MAX
+            ensure result >= 0
+            ensure result < hi - lo
+            return Slide::left_of(lo, hi) - lo
+
+        # Either way the new range stays inside the old one.
+        def right_stays_inside(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= Slide::SEARCH_MAX
+            ensure result >= lo
+            ensure result <= hi
+            return Slide::right_of(lo, hi)
+
+        def left_stays_inside(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= Slide::SEARCH_MAX
+            ensure result >= lo
+            ensure result <= hi
+            return Slide::left_of(lo, hi)
+
+        # A two-slot range probes one of its two slots.
+        def pair_probes_inside(lo: i64) -> i64:
+            requires lo >= 0
+            requires lo <= Slide::SEARCH_MAX - 2
+            ensure result >= lo
+            ensure result <= lo + 1
+            return Slide::probe(lo, lo + 2)
+
+        # The leaving and entering frames are one window width apart.
+        def slide_spans_width(frame: i64, reach: i64) -> i64:
+            requires frame >= 1
+            requires frame < Slide::SPAN_MAX
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result == 2 * reach + 1
+            return Slide::incoming(frame, reach) - Slide::outgoing(frame, reach)
+
+        # The leaving frame is the first frame of the previous window.
+        def leaves_previous_first(frame: i64, reach: i64) -> i64:
+            requires frame >= 1
+            requires frame < Slide::SPAN_MAX
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result == 0
+            return Slide::outgoing(frame, reach) - ((frame - 1) - reach)
+
+        # The entering frame is the last frame of the new window.
+        def enters_new_last(frame: i64, reach: i64) -> i64:
+            requires frame >= 1
+            requires frame < Slide::SPAN_MAX
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result == 0
+            return Slide::incoming(frame, reach) - (frame + reach)
+
+        # Once the window is full the leaving frame is a valid index.
+        def leaves_valid_index(frame: i64, reach: i64) -> i64:
+            requires frame >= reach + 1
+            requires frame < Slide::SPAN_MAX
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result >= 0
+            return Slide::outgoing(frame, reach)
+
+        # The leaving frame is never inside the new window.
+        def leaves_outside(frame: i64, reach: i64) -> i64:
+            requires frame >= 1
+            requires frame < Slide::SPAN_MAX
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result >= 1
+            return (frame - reach) - Slide::outgoing(frame, reach)
+
+        # The entering frame was never inside the previous window.
+        def enters_fresh(frame: i64, reach: i64) -> i64:
+            requires frame >= 1
+            requires frame < Slide::SPAN_MAX
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result >= 1
+            return Slide::incoming(frame, reach) - ((frame - 1) + reach)
+
+        # The window keeps an odd width, so it has one median slot.
+        def width_is_odd(reach: i64) -> i64:
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result == 1
+            w: i64 = Slide::width(reach)
+            return w - 2 * reach
+
+        # The median slot (reach) sits strictly inside a full window.
+        def width_median_slot(reach: i64) -> i64:
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            ensure result >= reach + 1
+            w: i64 = Slide::width(reach)
+            return w - reach
+
+        # Inserting or deleting at the end moves nothing; at the front, all.
+        def tail_moves_nothing(size: i64) -> i64:
+            requires size >= 0
+            requires size <= Slide::SPAN_MAX
+            ensure result == 0
+            return Slide::moves(size, size)
+
+        def front_moves_all(size: i64) -> i64:
+            requires size >= 0
+            requires size <= Slide::SPAN_MAX
+            ensure result == size
+            return Slide::moves(0, size)
+
+        # A shift never moves more than one window.
+        def moves_bounded(at: i64, reach: i64) -> i64:
+            requires reach >= 1
+            requires reach <= Slide::REACH_MAX
+            requires at >= 0
+            requires at <= 2 * reach + 1
+            ensure result >= 0
+            ensure result <= 2 * reach + 1
+            return Slide::moves(at, 2 * reach + 1)
+
+        # Pass 0 reads buffer 0; pass 1 reads buffer 1.
+        def first_pass_reads_first() -> i64:
+            ensure result == 1
+            return Slide::reads_first(0)
+
+        def second_pass_reads_second() -> i64:
+            ensure result == 0
+            return Slide::reads_first(1)
+
+        # Flipping the read buffer always changes it.
+        def flip_changes(side: i64) -> i64:
+            requires side >= 0
+            requires side <= 1
+            ensure result == 1
+            f: i64 = Slide::flip(side)
+            return f + side
+
+        # Two flips return to the same buffer.
+        def flip_twice(side: i64) -> i64:
+            requires side >= 0
+            requires side <= 1
+            ensure result == side
+            f: i64 = Slide::flip(side)
+            return Slide::flip(f)
+
+        # After `passes` passes the result sits in the buffer the next pass
+        # would read, so the caller always finds it.
+        def lands_where_next_reads(passes: i64) -> i64:
+            requires passes >= 0
+            requires passes <= Slide::SPAN_MAX
+            ensure result == 0
+            return Slide::lands_first(passes) - Slide::reads_first(passes)
+
+        # No pass leaves the source in buffer 0; one pass moves it to buffer 1.
+        def no_pass_stays(passes: i64) -> i64:
+            requires passes == 0
+            ensure result == 1
+            return Slide::lands_first(passes)
+
+        def one_pass_moves(passes: i64) -> i64:
+            requires passes == 1
+            ensure result == 0
+            return Slide::lands_first(passes)
+
+        # Pass 0 reads buffer 0 (side 1), so the pass writes buffer 1.
+        def first_pass_writes_second() -> i64:
+            ensure result == 0
+            return Slide::flip(1)
+
+        # End frames always take the padded path.
+        def first_frame_padded(count: i64) -> i64:
+            requires count >= 1
+            requires count <= Slide::SPAN_MAX
+            ensure result == 0
+            return Slide::inner(0, count)
+
+        def last_frame_padded(count: i64) -> i64:
+            requires count >= 1
+            requires count <= Slide::SPAN_MAX
+            ensure result == 0
+            return Slide::inner(count - 1, count)
+
+        # Every interior frame takes the direct path.
+        def interior_direct(at: i64, count: i64) -> i64:
+            requires count >= 3
+            requires count <= Slide::SPAN_MAX
+            requires at >= 1
+            requires at < count - 1
+            ensure result == 1
+            return Slide::inner(at, count)
+
+        # A direct read of the left neighbour is a valid index.
+        def direct_left_valid(at: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= Slide::SPAN_MAX
+            requires at >= 0
+            requires at < count
+            ensure result >= 0
+            ensure result <= 1
+            return Slide::inner(at, count)
+
+        # The interior of a track has count - 2 frames.
+        def interior_size(count: i64) -> i64:
+            requires count >= 2
+            requires count <= Slide::SPAN_MAX
+            ensure result >= 0
+            ensure result == count - 2
+            return (count - 1) - 1

@@ -1,0 +1,125 @@
+# Index arithmetic for the throughput kernels (Phase 6): a sorted sliding
+# window for the running median (binary search, then one shift per insert
+# and delete, instead of re-sorting each window), and ping-pong pass buffers
+# for repeated 3-tap filters (two buffers reused across every pass).
+module Slide:
+    public:
+        const SPAN_MAX: i64 = 10000000
+        const REACH_MAX: i64 = 1000
+        # Largest sorted window searched (2 * REACH_MAX + 1 slots).
+        const SEARCH_MAX: i64 = 2001
+
+        # Lower middle slot of a span (rounded down).
+        def half(span: i64) -> i64:
+            requires span >= 1
+            requires span <= SEARCH_MAX
+            ensure result >= 0
+            ensure result < span
+            return (span - 1) / 2
+
+        # Midpoint probe of a binary search over [lo, hi).
+        def probe(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= SEARCH_MAX
+            ensure result >= lo
+            ensure result < hi
+            return lo + half(hi - lo)
+
+        # Search range after a probe that went right: [probe + 1, hi).
+        def right_of(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= SEARCH_MAX
+            ensure result > lo
+            ensure result <= hi
+            return probe(lo, hi) + 1
+
+        # Search range after a probe that went left: [lo, probe).
+        def left_of(lo: i64, hi: i64) -> i64:
+            requires lo >= 0
+            requires lo < hi
+            requires hi <= SEARCH_MAX
+            ensure result >= lo
+            ensure result < hi
+            return probe(lo, hi)
+
+        # Frame that leaves the window when it slides onto `frame`.
+        def outgoing(frame: i64, reach: i64) -> i64:
+            requires frame >= 1
+            requires frame < SPAN_MAX
+            requires reach >= 1
+            requires reach <= REACH_MAX
+            ensure result < frame
+            ensure result == frame - reach - 1
+            return frame - reach - 1
+
+        # Frame that enters the window when it slides onto `frame`.
+        def incoming(frame: i64, reach: i64) -> i64:
+            requires frame >= 1
+            requires frame < SPAN_MAX
+            requires reach >= 1
+            requires reach <= REACH_MAX
+            ensure result > frame
+            ensure result == frame + reach
+            return frame + reach
+
+        # Width of the window around a frame.
+        def width(reach: i64) -> i64:
+            requires reach >= 1
+            requires reach <= REACH_MAX
+            ensure result >= 3
+            ensure result == 2 * reach + 1
+            return 2 * reach + 1
+
+        # Values moved by inserting at (or deleting from) slot `at` of a
+        # window holding `size` values.
+        def moves(at: i64, size: i64) -> i64:
+            requires at >= 0
+            requires at <= size
+            requires size <= SPAN_MAX
+            ensure result >= 0
+            ensure result <= size
+            ensure result == size - at
+            return size - at
+
+        # Ping-pong buffers: pass `round` reads buffer 0 when this is 1.
+        def reads_first(round: i64) -> i64:
+            requires round >= 0
+            requires round <= SPAN_MAX
+            ensure result >= 0
+            ensure result <= 1
+            ensure result == 1 - round % 2
+            return 1 if round % 2 == 0 else 0
+
+        # The other buffer of the pair (the one a pass writes).
+        def flip(side: i64) -> i64:
+            requires side >= 0
+            requires side <= 1
+            ensure result >= 0
+            ensure result <= 1
+            ensure result == 1 - side
+            return 1 - side
+
+        # Buffer that holds the result after `passes` passes (1 = buffer 0).
+        def lands_first(passes: i64) -> i64:
+            requires passes >= 0
+            requires passes <= SPAN_MAX
+            ensure result >= 0
+            ensure result <= 1
+            ensure result == 1 - passes % 2
+            return 1 if passes % 2 == 0 else 0
+
+        # 1 when both neighbours of `at` are inside a track of `count` frames,
+        # so a 3-tap filter can read them directly (no edge padding).
+        def inner(at: i64, count: i64) -> i64:
+            requires count >= 0
+            requires count <= SPAN_MAX
+            requires at >= 0
+            requires at < count
+            ensure result >= 0
+            ensure result <= 1
+            ensure result == 0 or at >= 1
+            ensure result == 0 or at < count - 1
+            ensure at < 1 or at >= count - 1 or result == 1
+            return 1 if at >= 1 and at + 1 < count else 0
