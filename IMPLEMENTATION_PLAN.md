@@ -182,10 +182,19 @@ and almost all of that is the prover.
 - [ ] Prover hot spots: `congruence_goal`, `disjunct_modus_ponens`,
       `linear_fact_parts` (in progress in `elisa-proof-mocap`); `build.sh`
       defaults to O2. Target: check.sh under 60 s.
-- [ ] Incremental proofs: hash each source file plus the prover binary and
+- [x] Incremental proofs: hash each source file plus the prover binary and
       skip re-proving unchanged files (`build/proof/<hash>.txt`).
-- [ ] Longest-first scheduling in check.sh (balance, hinge, pin first), and
+      Status: `scripts/prove.py` keys each result on the file, its transitive
+      `include`s and the prover binary (`build/proof/cache/<sha256>.txt`;
+      empty or crashed results are never cached) and check.sh prints cached
+      lines with "(cached)". Proof phase, 82 files on the loaded Mac: cold
+      174 s, unchanged tree 0.24 s.
+- [x] Longest-first scheduling in check.sh (balance, hinge, pin first), and
       `PROOF_JOBS` defaulting to the core count.
+      Status: durations recorded in `build/proof/cache/durations.json`;
+      never-timed files start first, then longest first (glb_tracks 94 s,
+      presets 80 s, rig_cache 80 s, ...). `PROOF_JOBS` defaults to
+      `os.cpu_count()`.
 - [ ] Fix the 6 certificate-replay gaps so `key_weight` and
       `key_weight_laws` reach "proved".
 

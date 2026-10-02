@@ -41,16 +41,17 @@ if ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1; then
 else
     echo "cli   BUILD FAILED (build/test/cli.log)"; status=1
 fi
-# Prove files in parallel (PROOF_JOBS at once, default 4), then report in order.
+# Prove files incrementally (cached by file + includes + prover hash) and
+# longest first, PROOF_JOBS at once (default: core count); report in order.
 mkdir -p build/proof
-rm -f build/proof/*.txt
-ls src/*/*.elisa proof/*.elisa 2>/dev/null | PROVER="$PROVER" xargs -P "${PROOF_JOBS:-4}" -I{} sh -c '
-    out="build/proof/$(echo "{}" | tr / _).txt"
-    "$PROVER" "$PWD/{}" | grep -E "verification state|proven:|failed:|unproven:" | tr -s " " | tr "\n" " " > "$out"'
+rm -f build/proof/*.txt build/proof/*.cached
+python3 scripts/prove.py "$PROVER" $(ls src/*/*.elisa proof/*.elisa 2>/dev/null)
 for f in src/*/*.elisa proof/*.elisa; do
     [ -f "$f" ] || continue
-    line=$(cat "build/proof/$(echo "$f" | tr / _).txt" 2>/dev/null)
-    echo "proof $f: $line"
+    base="build/proof/$(echo "$f" | tr / _)"
+    line=$(cat "$base.txt" 2>/dev/null)
+    tag=""; [ -f "$base.cached" ] && tag=" (cached)"
+    echo "proof $f: $line$tag"
     echo "$line" | grep -q "state: proved" || status=1
 done
 exit $status
