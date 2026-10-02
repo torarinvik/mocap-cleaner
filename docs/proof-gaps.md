@@ -368,3 +368,32 @@ now prove completely with every certificate replayed.
   state ("unsupported", the same class as `ops_file`, `rig_cache` and
   `rig_stack` on main, whose counts are unchanged). The time-map decisions it
   makes go through the proved `Retime` kernel.
+- G75: `RetimeApply::source_times` called `range_step` with requires it could
+  not see. It now goes through `well_formed`, `step_at`, `range_delta`,
+  `entered` and `rescale_tail`, which carry the guards themselves. The
+  guards are no-ops for `ranges_of` output (ordered, non-empty, in-clip
+  ranges), so the output is unchanged; the range_step requires close.
+  Remaining: index and budget findings at `source_times` :167-171.
+- G76: `Track::despike`/`smooth` called `Gate::apply` per frame with
+  requires on the fade and the values. They now end in `faded`, which uses
+  `fade_at` (no requires, ensures `[0, FULL]`, calls the `Fade` kernel in
+  its domain and repeats its body otherwise) and `blend` (calls
+  `Gate::apply` within `±LIMIT`, the identical formula otherwise). The
+  `fixed.count` and frame-range guards never fire: the passes only assign
+  existing slots. All Gate::apply findings in Track close.
+- G77: `Ops::apply` in `stack.elisa` builds its per-frame weight through
+  `frame_fade` (fully proven; `else: return FULL` on every branch, direct
+  `return Fade::ramp`) and `gated`, and checks the bone index before
+  `Gate::bone_selected`. Remaining: the opaque `candidate` summary
+  (apply :71) and its caller `evaluate` :122.
+- G78: `push_number` in `Report` and `OpsFile` writes digits most
+  significant first from a power-of-ten `place` instead of reversing a
+  buffer (same bytes). The call-requires on the reversed index close;
+  the `place` loop invariants stay unproven (nonlinear `place * 10 <=
+  rest`), and the callers `cell`/`row`/`pair` still see an unverified
+  summary.
+- G79 (prover gap): `contract-proposition-type` on `file != null`
+  (`Report::save`, `OpsFile::read_bytes`) and on cstr `s[i] != 0`
+  (`push_cstr`). Optional-pointer comparison is not a proposition the
+  kernel accepts; it cannot be closed in app code without changing the
+  null check. Left for the prover.

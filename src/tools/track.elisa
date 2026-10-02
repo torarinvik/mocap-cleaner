@@ -18,6 +18,55 @@ module Track:
     public:
         const LIMIT: i64 = 1000000000
 
+        # Fade weight that matches Fade::weight / eased_weight at runtime for
+        # every edge, frame and length: in the kernel domain it calls the
+        # kernel, otherwise it repeats the kernel body (G76). `eased` picks
+        # the smoothstep variant.
+        def fade_at(frame: i64, last: i64, edge: i64, looping: bool, eased: bool) -> i64:
+            ensure result >= 0
+            ensure result <= Fade::FULL
+            return Fade::FULL if looping or frame < 0 or frame > last
+            if last < Fade::MAX_FRAMES and edge >= 1 and edge <= Fade::MAX_EDGE:
+                if eased:
+                    return Fade::eased_weight(frame, last, edge, looping)
+                return Fade::weight(frame, last, edge, looping)
+            rest: i64 = last - frame
+            distance: i64 = frame if frame <= rest else rest
+            return Fade::FULL if distance >= edge
+            return 0 if distance == 0
+            linear: i64 = distance * Fade::FULL / edge
+            return Fade::FULL if linear > Fade::FULL or linear < 0
+            return Fade::ease(linear) if eased
+            return linear
+
+        # Gate::apply for any channel values: the kernel inside its +-LIMIT
+        # domain, the identical arithmetic outside it (G76).
+        def blend(source: i64, fixed: i64, w: i64) -> i64:
+            requires w >= 0
+            requires w <= Fade::FULL
+            ensure w != 0 or result == source
+            return source if source == fixed
+            return source if w == 0
+            return fixed if w == Fade::FULL
+            if source >= -LIMIT and source <= LIMIT and fixed >= -LIMIT and fixed <= LIMIT:
+                return Gate::apply(source, fixed, w)
+            return source + (fixed - source) * w / Fade::FULL
+
+        # Fade the filtered buffer back toward the source at clip edges. The
+        # filter passes only assign existing slots, so `fixed` has the
+        # source's length and the `fixed.count` guard never fires (G76).
+        def faded(values: darray[i64]&, fixed: darray[i64]&, edge: i64, looping: bool, eased: bool) -> darray[i64]:
+            out: mutable darray[i64] = []
+            last: i64 = values.count.i64() - 1
+            for i in 0..<values.count:
+                source: i64 = values[i]
+                target: mutable i64 = source
+                if i < fixed.count:
+                    target <- fixed[i]
+                w: i64 = fade_at(i.i64(), last, edge, looping, eased)
+                out.push(blend(source, target, w))
+            return out
+
         # Odd-reflection sample: off-clip frames mirror through the end value,
         # so symmetric filters keep the end frames exactly.
         def odd_sample(values: darray[i64]&, frame: i64) -> i64:
@@ -70,11 +119,8 @@ module Track:
                     despike_pass(&second, &first, looping)
                 side <- Slide::flip(side)
                 round <- round + 1
-            out: mutable darray[i64] = []
-            for i in 0..<values.count |i, values, first, second, side, out, count, edge, looping|:
-                w: i64 = Fade::weight(i.i64(), count - 1, edge, looping)
-                out.push(Gate::apply(values[i], first[i] if side == 1 else second[i], w))
-            return out
+            return faded(values, &first, edge, looping, false) if side == 1
+            return faded(values, &second, edge, looping, false)
 
         # First slot of a sorted window whose value is above `v` (`above`
         # true) or at least `v` (`above` false): a binary search through the
@@ -171,11 +217,8 @@ module Track:
                     smooth_pass(&second, &first, looping)
                 side <- Slide::flip(side)
                 round <- round + 1
-            out: mutable darray[i64] = []
-            for i in 0..<values.count |i, values, first, second, side, out, count, edge, looping|:
-                w: i64 = Fade::eased_weight(i.i64(), count - 1, edge, looping)
-                out.push(Gate::apply(values[i], first[i] if side == 1 else second[i], w))
-            return out
+            return faded(values, &first, edge, looping, true) if side == 1
+            return faded(values, &second, edge, looping, true)
 
         # Count spikes in a track (the de-spike detector).
         def spike_count(values: darray[i64]&, threshold: i64, looping: bool) -> i64:

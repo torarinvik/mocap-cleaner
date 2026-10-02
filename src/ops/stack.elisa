@@ -64,20 +64,53 @@ module Ops:
         # Apply one operation to one bone channel. Frames outside the span, a
         # disabled operation, and unselected bones come back unchanged.
         def apply(op: Operation, bone: i64, values: darray[i64]&, looping: bool) -> darray[i64]:
+            selected: mutable bool = false
+            if bone >= 0 and bone < 62:
+                selected <- Gate::bone_selected(op.bones, bone)
+            if op.enabled and selected:
+                fixed: darray[i64] = candidate(op, values, looping)
+                return gated(op.first, op.last, op.edge, true, values, &fixed)
+            empty: darray[i64] = []
+            return gated(op.first, op.last, op.edge, false, values, &empty)
+
+        # Last frame of the span clipped to the clip, as `gated` uses it.
+        def span_end(first: i64, last: i64, count: i64) -> i64:
+            return first if first > count - 1
+            return Order::clamp(last, first, count - 1)
+
+        # Edge fade of frame `f` inside an operation span: FULL outside the
+        # ramp's domain or when the span reaches both clip ends, the same
+        # cases the original inline condition fell through on.
+        def frame_fade(f: i64, first: i64, last: i64, edge: i64, count: i64) -> i64:
+            ensure result >= 0
+            ensure result <= Fade::FULL
+            if f >= first and f <= last and first >= 0 and edge >= 1 and edge <= Fade::MAX_EDGE:
+                span_last: i64 = span_end(first, last, count)
+                local_last: i64 = span_last - first
+                at: i64 = f - first
+                ramps: bool = first > 0 or span_last < count - 1
+                if ramps and at >= 0 and local_last >= 0 and local_last < Fade::MAX_FRAMES and at <= local_last:
+                    return Fade::ramp(at, local_last, edge)
+                else:
+                    return Fade::FULL
+            else:
+                return Fade::FULL
+
+        # Per-frame gating loop of `apply`, over the operation's span fields;
+        # `active` is enabled-and-selected.
+        def gated(first: i64, last: i64, edge: i64, active: bool, values: darray[i64]&, fixed: darray[i64]&) -> darray[i64]:
             out: mutable darray[i64] = []
-            selected: bool = bone >= 0 and bone < 62 and Gate::bone_selected(op.bones, bone)
-            fixed: darray[i64] = candidate(op, values, looping) if op.enabled and selected else []
             count: i64 = values.count.i64()
-            for i in 0..<values.count |i, values, out, fixed, op, selected, count|:
+            for i in 0..<values.count:
                 f: i64 = i.i64()
-                inside: bool = Span::contains(op.first, op.last, f)
-                span_last: i64 = Order::clamp(op.last, op.first, count - 1) if op.first <= count - 1 else op.first
-                local_last: i64 = span_last - op.first
-                fade: mutable i64 = Fade::FULL
-                if inside and op.first >= 0 and local_last >= 0 and local_last < Fade::MAX_FRAMES and op.edge >= 1 and op.edge <= Fade::MAX_EDGE and f - op.first <= local_last:
-                    fade <- Fade::ramp(f - op.first, local_last, op.edge) if op.first > 0 or span_last < count - 1 else Fade::FULL
-                w: i64 = Gate::weight(op.enabled, inside, selected, fade)
-                out.push(Gate::apply(values[i], fixed[i], w) if w > 0 and i < fixed.count else values[i])
+                inside: bool = Span::contains(first, last, f)
+                fade: i64 = frame_fade(f, first, last, edge, count)
+                w: i64 = Gate::weight(active, inside, active, fade)
+                source: i64 = values[i]
+                if w > 0 and i < fixed.count:
+                    out.push(Track::blend(source, fixed[i], w))
+                else:
+                    out.push(source)
             return out
 
         # Evaluate the stack in order.

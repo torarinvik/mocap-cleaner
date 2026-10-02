@@ -62,6 +62,88 @@ module RetimeApply:
                     j <- j - 1
             return move out
 
+        # The shape `ranges_of` guarantees for every range it returns
+        # (range_ok, clamp_speed, clamp_blend). `source_times` skips anything
+        # else, which never happens for ranges_of output (see G75).
+        def well_formed(first: i64, last: i64, speed: i64, blend: i64) -> bool:
+            ensure not result or first >= 0
+            ensure not result or first < last
+            ensure not result or last <= Retime::MAX_FRAMES
+            ensure not result or speed >= Retime::MIN_RATE
+            ensure not result or speed <= Retime::MAX_RATE
+            ensure not result or blend >= 0
+            ensure not result or blend <= Retime::MAX_BLEND
+            return false if first < 0 or first >= last or last > Retime::MAX_FRAMES
+            return false if speed < Retime::MIN_RATE or speed > Retime::MAX_RATE
+            return false if blend < 0 or blend > Retime::MAX_BLEND
+            return true
+
+        # One range's step at `t`; UNIT for a range that is not well formed.
+        def step_at(t: i64, first: i64, last: i64, speed: i64, blend: i64) -> i64:
+            requires t >= 0
+            requires t <= Retime::MAX_TIME
+            ensure result >= Retime::MIN_RATE
+            ensure result <= Retime::MAX_RATE
+            unit: i64 = Retime::UNIT
+            return unit if not well_formed(first, last, speed, blend)
+            # Retime::time_of, spelled out so first < last carries to start < stop.
+            start: i64 = first * Retime::UNIT
+            stop: i64 = last * Retime::UNIT
+            s: i64 = Retime::range_step(t, start, stop, speed, blend)
+            return s
+
+        # Step from `t` to the next output frame's source time: UNIT, or the
+        # range step of the last range that changes it.
+        def range_delta(t: i64, ranges: darray[Range]&) -> i64:
+            requires t >= 0
+            requires t <= Retime::MAX_TIME
+            ensure result >= Retime::MIN_RATE
+            ensure result <= Retime::MAX_RATE
+            delta: mutable i64 = Retime::UNIT
+            for i in 0..<ranges.count:
+                invariant delta >= Retime::MIN_RATE
+                invariant delta <= Retime::MAX_RATE
+                r: Range = ranges[i]
+                s: i64 = step_at(t, r.first, r.last, r.speed, r.blend)
+                delta <- s if s != Retime::UNIT
+            return delta
+
+        struct Entry:
+            active: i64
+            moved: bool
+
+        # The range `t` enters, scanned in order: the last one whose span
+        # [start, stop) holds `t` and that is not the active one at that point.
+        # `moved` says whether any range was entered.
+        def entered(t: i64, ranges: darray[Range]&, active: i64) -> Entry:
+            current: mutable i64 = active
+            moved: mutable bool = false
+            for i in 0..<ranges.count:
+                r: Range = ranges[i]
+                first: i64 = r.first
+                last: i64 = r.last
+                continue if not well_formed(first, last, r.speed, r.blend)
+                start: i64 = Retime::time_of(first)
+                stop: i64 = Retime::time_of(last)
+                if t >= start and t < stop and current != i.i64():
+                    current <- i.i64()
+                    moved <- true
+            return Entry{active: current, moved: moved}
+
+        # Stretch the times recorded since a range was entered (from `entry`)
+        # so the first one past its end lands on `stop`. Each of them lies in
+        # [start, reached]: the range was entered at a time >= start and
+        # times only grow up to `reached`, so the guard is never false (G75).
+        def rescale_tail(out: mutable darray[i64]&, entry: usize, start: i64, reached: i64, stop: i64):
+            requires start >= 0
+            requires start < stop
+            requires reached >= stop
+            requires reached <= Retime::MAX_TIME
+            for j in entry..<out.count:
+                v: i64 = out[j]
+                if v >= start and v <= reached:
+                    out[j] <- Retime::rescale(v, start, reached, stop)
+
         # Source time (milli-frames) of every output frame. Starts at 0, steps
         # by the range step of the range that changes it (UNIT elsewhere) and
         # lands exactly on the last source frame.
@@ -69,33 +151,33 @@ module RetimeApply:
             if frames < 1 or frames > Retime::MAX_FRAMES:
                 none: darray[i64] = []
                 return move none
-            mutable out: darray[i64] = []
+            out: mutable darray[i64] = []
             out.push(0)
             end: i64 = Retime::time_of(frames - 1)
-            mutable t: i64 = 0
-            mutable entry: usize = 0
-            mutable active: i64 = -1
+            t: mutable i64 = 0
+            entry: mutable usize = 0
+            active: mutable i64 = -1
             while t < end:
-                mutable delta: i64 = Retime::UNIT
-                for i in 0..<ranges.count:
-                    r: Range = ranges[i]
-                    start: i64 = Retime::time_of(r.first)
-                    stop: i64 = Retime::time_of(r.last)
-                    if t >= start and t < stop and active != i.i64():
-                        active <- i.i64()
-                        entry <- out.count - 1
-                    s: i64 = Retime::range_step(t, start, stop, r.speed, r.blend)
-                    delta <- s if s != Retime::UNIT
+                invariant t >= 0
+                invariant t <= Retime::MAX_TIME
+                found: Entry = entered(t, ranges, active)
+                if found.moved:
+                    active <- found.active
+                    entry <- out.count - 1
+                delta: i64 = range_delta(t, ranges)
                 t <- Retime::land(Retime::advance(t, delta), end)
-                if active >= 0:
+                if active >= 0 and active.usize() < ranges.count:
                     r: Range = ranges[active.usize()]
-                    start: i64 = Retime::time_of(r.first)
-                    stop: i64 = Retime::time_of(r.last)
-                    if t >= stop:
-                        for j in entry..<out.count:
-                            out[j] <- Retime::rescale(out[j], start, t, stop)
-                        t <- stop
-                        active <- -1
+                    first: i64 = r.first
+                    last: i64 = r.last
+                    if well_formed(first, last, r.speed, r.blend):
+                        # Retime::time_of, spelled out (see step_at).
+                        start: i64 = first * Retime::UNIT
+                        stop: i64 = last * Retime::UNIT
+                        if t >= stop:
+                            rescale_tail(out, entry, start, t, stop)
+                            t <- stop
+                            active <- -1
                 out.push(t)
             return move out
 
