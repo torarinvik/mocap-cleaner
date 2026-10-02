@@ -238,7 +238,7 @@ and almost all of that is the prover.
 - [ ] Native file-open dialog (needs an engine/ui bridge).
 - [x] Toolbar icons: vendored Lucide (ISC) plus custom mocap SVGs,
       flattened to strokes by `tools/svg_icons.py` (`test/studio_icons`).
-- [ ] Units and readable names on strength/edge controls.
+- [x] Units and readable names on strength/edge controls.
 
 **Foot cleanup in the studio.**
 - [x] K toggles foot cleanup (on by default), recorded in history.

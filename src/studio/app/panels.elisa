@@ -548,6 +548,39 @@ module StudioPanels:
                     return HIT_SELECT * 100 + i
             return -1
 
+        # "<n> fr (<ms> ms)" for a frame count at the clip rate.
+        def frames_put(n: i64) -> void:
+            StudioText::put_i(n)
+            StudioText::put(" fr (")
+            StudioText::put_i(StudioChrome::clip_millis(n, Timeline::RATE) if n >= 0 and n <= StudioChrome::CHROME_FRAMES and Timeline::RATE >= 1 and Timeline::RATE <= StudioChrome::CHROME_RATE_MAX else 0)
+            StudioText::put(" ms)")
+
+        # An operation's strength with its unit (StudioChrome::param_unit).
+        def param_put(op: Ops::Operation) -> void:
+            unit: i64 = StudioChrome::param_unit(SessionState::kind_code(op.kind))
+            if unit == StudioChrome::UNIT_PASSES:
+                StudioText::put_i(op.strength)
+                StudioText::put("\u00d7 passes")
+            elif unit == StudioChrome::UNIT_FRAMES:
+                StudioText::put("radius " if op.kind == Ops::Kind.Median else "window ")
+                frames_put(op.strength)
+            elif unit == StudioChrome::UNIT_DEGREES:
+                StudioText::put("limit \u00b1")
+                StudioText::put_i(StudioChrome::wring_degrees(op.strength) if op.strength >= 0 and op.strength <= StudioChrome::CHROME_REACH else 0)
+                StudioText::put("\u00b0")
+            else:
+                StudioText::put("auto")
+
+        def param_text(op: Ops::Operation) -> sview:
+            StudioText::begin()
+            param_put(op)
+            return StudioText::view()
+
+        # Micro-units (micrometres) as millimetres with three decimals.
+        def mm_put(micro: i64) -> void:
+            StudioText::put_fixed3(micro * 1000 if micro >= 0 - 1000000000 and micro <= 1000000000 else 0)
+            StudioText::put(" mm")
+
         def scope_text(op: Ops::Operation, frames: i64) -> sview:
             last: i64 = op.last if op.last < frames else frames - 1
             return StudioText::pair("frames ", op.first, "-", last)
@@ -573,7 +606,7 @@ module StudioPanels:
                 StudioIcons::draw(StudioIcons::EYE if op.enabled else StudioIcons::EYE_OFF, r.x + 6.0, r.y + 13.0, 20.0, col)
                 StudioDraw::bold(r.x + 36.0, r.y + 6.0, 13.0, StackState::kind_label(op.kind), col)
                 StudioDraw::text(r.x + 36.0, r.y + 25.0, 11.0, StackState::bones_label(op.bones), StudioDraw::muted())
-                StudioDraw::text(r.x + 110.0, r.y + 25.0, 11.0, StudioText::number("str ", op.strength), StudioDraw::muted())
+                StudioDraw::text(r.x + 110.0, r.y + 25.0, 11.0, param_text(op), StudioDraw::muted())
                 StudioDraw::text(r.x + 36.0 + 70.0, r.y + 6.0, 11.0, scope_text(op, c.frames), StudioDraw::muted())
                 StudioIcons::draw(StudioIcons::UP, r.x + r.w - 84.0, r.y + 13.0, 20.0, col)
                 StudioIcons::draw(StudioIcons::DOWN, r.x + r.w - 56.0, r.y + 13.0, 20.0, col)
@@ -640,6 +673,19 @@ module StudioPanels:
             if not c.feet:
                 StudioDraw::text(sb.x + 180.0, y - 12.0, 11.0, "feet off (K)", StudioDraw::muted())
                 return
-            StudioDraw::text(sb.x + 180.0, y - 12.0, 11.0, StudioText::pair("slide ", c.slide_before, " -> ", shown_slide), cue_color(StudioFoot::cue(c.slide_before, c.slide_after)))
-            StudioDraw::text(sb.x + 180.0, y + 2.0, 11.0, StudioText::pair("sink ", c.sink_before, " -> ", shown_sink), cue_color(StudioFoot::cue(c.sink_before, c.sink_after)))
-            StudioDraw::text(sb.x + 180.0, y - 26.0, 11.0, StudioText::number("feet on  blend ", blend), StudioDraw::color(110, 220, 130))
+            StudioText::begin()
+            StudioText::put("slide ")
+            mm_put(c.slide_before)
+            StudioText::put(" -> ")
+            mm_put(shown_slide)
+            StudioDraw::text(sb.x + 180.0, y - 12.0, 11.0, StudioText::view(), cue_color(StudioFoot::cue(c.slide_before, c.slide_after)))
+            StudioText::begin()
+            StudioText::put("sink ")
+            mm_put(c.sink_before)
+            StudioText::put(" -> ")
+            mm_put(shown_sink)
+            StudioDraw::text(sb.x + 180.0, y + 2.0, 11.0, StudioText::view(), cue_color(StudioFoot::cue(c.sink_before, c.sink_after)))
+            StudioText::begin()
+            StudioText::put("feet on  blend ")
+            frames_put(blend)
+            StudioDraw::text(sb.x + 180.0, y - 26.0, 11.0, StudioText::view(), StudioDraw::color(110, 220, 130))

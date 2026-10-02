@@ -260,3 +260,8 @@ gap below was worked around in our code.
   presets, rig_cache, rig_stack, rig_physics). Those files were already
   "unsupported" in the baseline and stay so; the stack and corrections
   kernels themselves improved.
+- G59: laws restating `param_unit` for kinds 4 and 5 time out when the
+  whole law file is proved (other kinds prove); the kernel's own ensures
+  state those cases and prove, so the two laws were dropped. Laws fixing
+  `wring_degrees` at literal values (200000 reads 23) do not prove through
+  the division; the session/units test checks them instead.

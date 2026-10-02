@@ -13,6 +13,7 @@ include "scene.elisa"
 include "panels.elisa"
 include "../shortcuts.elisa"
 include "../state/session_state.elisa"
+include "../state/readout.elisa"
 
 extern puts(text: cstr) -> i64
 
@@ -33,6 +34,12 @@ module Studio:
         global mutable drawn_frame: i64 = -1
         global mutable revision: i64 = 0
         global mutable status: sview = "ready"
+        # Live drag readouts: gizmo angle (tenths of a degree) and offset
+        # (mm), -1 when no gizmo drag is running; and the stack row whose
+        # strength was just nudged, -1 for none.
+        global mutable readout_angle: i64 = -1
+        global mutable readout_mm: i64 = -1
+        global mutable nudged_row: i64 = -1
         # Chrome: the "?" sheet, whether the take failed to load, and the
         # toolbar button under the pointer (for its tooltip).
         global mutable help_open: bool = false
@@ -201,6 +208,7 @@ module Studio:
                 memo <- m
             if result == null:
                 status <- "clip failed to load"
+                nudged_row <- -1
                 load_failed <- true
                 return
             load_failed <- false
@@ -223,12 +231,14 @@ module Studio:
                 if HistoryState::undo(&history):
                     rebuild()
                     status <- "undo"
+                    nudged_row <- -1
 
         def redo() -> void:
             if history_ready:
                 if HistoryState::redo(&history):
                     rebuild()
                     status <- "redo"
+                    nudged_row <- -1
 
         # ---- foot cleanup ------------------------------------------------
         # Readout transition progress (StudioFoot::FULL when settled).
@@ -248,6 +258,7 @@ module Studio:
             if StackState::set_feet(&s, not s.feet):
                 commit(s, true)
                 status <- "feet fixed" if s.feet else "feet off"
+                nudged_row <- -1
 
         # , and .: shorter or longer carry blend.
         def nudge_blend(up: bool) -> void:
@@ -255,6 +266,7 @@ module Studio:
             if StackState::nudge_blend(&s, up):
                 commit(s, true)
                 status <- "blend"
+                nudged_row <- -2
 
         # W: scrub to the worst planted slide, select that foot and frame it.
         def jump_worst() -> void:
@@ -274,6 +286,7 @@ module Studio:
                             Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
                             put_view(i, vp)
                 status <- "worst slide"
+                nudged_row <- -1
                 touch()
 
         # A press on a contact row; true when it was one.
@@ -296,6 +309,7 @@ module Studio:
             if FootState::release(&s, &p, StudioPanels::timeline_frame(tb, x, frames()), frames()):
                 commit(s, true)
                 status <- "contact edited"
+                nudged_row <- -1
 
         def set_timeline(t: TimelineState::State) -> void:
             timeline <- t
@@ -335,6 +349,7 @@ module Studio:
                 StackState::select(&s, s.count - 1)
                 commit(s, true)
                 status <- "operation added"
+                nudged_row <- -1
 
         def edit_selected(kind: i64, amount: i64) -> void:
             mutable s: StackState::Stack = current_stack()
@@ -351,6 +366,7 @@ module Studio:
                 ok <- StackState::move(&s, at, 1)
             elif kind == 7:
                 ok <- StudioModel::nudge(&s, at, amount)
+                nudged_row <- at if ok else -1
             elif kind == 8:
                 ok <- StackState::cycle_bones(&s, at)
             elif kind == 9:
@@ -384,6 +400,7 @@ module Studio:
                 gain_slide <- gain(c.slide_before, c.slide_after)
                 gain_spikes <- gain(c.spikes_before, c.spikes_after)
             status <- "cleaned with boxing preset (Cmd-Z to undo)"
+            nudged_row <- -1
             touch()
 
         def gain(before: i64, after: i64) -> i64:
@@ -393,19 +410,23 @@ module Studio:
         def save_session() -> void:
             ok: bool = SessionState::save_session(current_stack(), SESSION_PATH)
             status <- "session saved to build/studio_session.txt" if ok else "session save failed"
+            nudged_row <- -1
             touch()
 
         def load_session() -> void:
             if SessionState::load_session(SESSION_PATH, frames(), node_total()) is loaded:
                 commit(loaded, true)
                 status <- "session loaded (Cmd-Z to undo)"
+                nudged_row <- -1
             else:
                 status <- "no saved session at build/studio_session.txt"
+                nudged_row <- -1
             touch()
 
         def export_clip() -> void:
             if clip is c:
                 status <- "exported build/studio_export.glb" if StudioModel::save_cleaned(c, EXPORT_PATH) else "export failed"
+                nudged_row <- -1
                 _ = puts(EXPORT_PATH)
                 touch()
 
@@ -517,6 +538,7 @@ module Studio:
             view2 <- open_view(2)
             if view0 == null:
                 status <- "no Metal device"
+                nudged_row <- -1
             last_time <- UiAppKitCanvas::monotonic_time()
 
         def advance() -> void:
@@ -587,7 +609,7 @@ module Studio:
             screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
             if screen != StudioChrome::SCREEN_EDIT:
                 StudioPanels::guide(w, h, screen)
-            StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), Timeline::RATE, s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, status)
+            StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), Timeline::RATE, s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
             scale: f32 = UiAppKitCanvas::backing_scale()
@@ -595,6 +617,33 @@ module Studio:
             sync_view(1, scale)
             sync_view(2, scale)
             draw_us <- ((UiAppKitCanvas::monotonic_time() - draw_start) * 1000000.0).i64()
+
+        # Status message, with the live value of a running drag or the
+        # parameter just nudged, in its unit.
+        def message(s: StackState::Stack&) -> sview:
+            if gizmo_drag != null and readout_angle >= 0:
+                StudioText::begin()
+                StudioText::put("rotate ")
+                StudioText::put_i(readout_angle / 10)
+                StudioText::put(".")
+                StudioText::put_i(readout_angle % 10)
+                StudioText::put("°   move ")
+                StudioText::put_i(readout_mm)
+                StudioText::put(" mm   (Esc cancels)")
+                return StudioText::view()
+            if nudged_row == -2:
+                StudioText::begin()
+                StudioText::put("blend ")
+                StudioPanels::frames_put(s.blend)
+                return StudioText::view()
+            if nudged_row >= 0 and StackState::valid(s, nudged_row):
+                op: Ops::Operation = s.ops[nudged_row]
+                StudioText::begin()
+                StudioText::put(StackState::kind_label(op.kind))
+                StudioText::put(": ")
+                StudioPanels::param_put(op)
+                return StudioText::view()
+            return status
 
         def camera_input(i: i64, dx: f32, dy: f32) -> void:
             if view(i) is opened:
@@ -626,6 +675,7 @@ module Studio:
                     if hit >= 0:
                         bone <- hit
                         status <- "bone selected"
+                        nudged_row <- -1
                         touch()
 
         def toolbar_action(a: i64) -> void:
@@ -658,6 +708,7 @@ module Studio:
             elif a == StudioPanels::A_MESH:
                 toggle_flag(StudioScene::MESH)
                 status <- ("mesh on" if StudioScene::on(flags, StudioScene::MESH) else "mesh off") if mesh != null else "mesh: no skinned mesh in this file"
+                nudged_row <- -1
             elif a == StudioPanels::A_FRAME:
                 frame_all()
             elif a == StudioPanels::A_EXPORT:
@@ -666,6 +717,7 @@ module Studio:
                 toggle_flag(StudioScene::BALANCE)
                 if clip is c:
                     status <- StudioText::number("balance impossible frames: ", c.impossible_frames)
+                    nudged_row <- -1
 
         def pointer_down(x: f32, y: f32, button: i32) -> void:
             w: f32 = UiCore::viewport_width()
@@ -748,6 +800,7 @@ module Studio:
             gizmo_view <- -1
             gizmo_drag <- null
             status <- ("gizmo: rotate (drag a ring)" if gizmo_mode == GizmoPolicy::ROTATE else "gizmo: translate (drag an arrow)") if gizmo_mode >= 0 else "gizmo off"
+            nudged_row <- -1
             touch()
 
         # Pixel of window point (x, y) in view `i`.
@@ -777,6 +830,7 @@ module Studio:
                     gizmo_drag <- d
                     gizmo_view <- i
                     status <- "gizmo drag"
+                    nudged_row <- -1
                     touch()
                     return true
             false
@@ -786,7 +840,13 @@ module Studio:
             i: i64 = gizmo_view
             if gizmo_drag is d:
                 if view(i) is opened:
-                    gizmo_goal <- Gizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
+                    goal: Geometry::Transform = Gizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
+                    gizmo_goal <- goal
+                    if clip is c:
+                        r: PoseOverride::Rig = StudioModel::rig(c)
+                        fix: Corrections::Correction = StudioModel::correction_for(c, r, bone, frame_now(), goal)
+                        readout_angle <- StudioReadout::angle_tenths(fix.rotation)
+                        readout_mm <- StudioReadout::millimetres(fix.translation)
                     touch()
 
         # Key the dragged pose at the current frame as a correction.
@@ -803,17 +863,24 @@ module Studio:
                         if StackState::add_fix(&s, fix):
                             commit(s, true)
                             status <- "correction keyed"
+                            nudged_row <- -1
                         else:
                             status <- "corrections full (16)"
+                            nudged_row <- -1
             gizmo_drag <- null
             gizmo_goal <- null
+            readout_angle <- -1
+            readout_mm <- -1
             touch()
 
         def gizmo_cancel() -> void:
+            readout_angle <- -1
+            readout_mm <- -1
             gizmo_view <- -1
             gizmo_drag <- null
             gizmo_goal <- null
             status <- "gizmo drag cancelled"
+            nudged_row <- -1
             touch()
 
         # Escape peels one layer: the sheet, a drag, a contact press, the
@@ -828,11 +895,13 @@ module Studio:
             elif layer == StudioChrome::ESC_PRESS:
                 foot_press <- FootState::idle()
                 status <- "contact edit cancelled"
+                nudged_row <- -1
             elif layer == StudioChrome::ESC_GIZMO:
                 set_gizmo(gizmo_mode)
             elif layer == StudioChrome::ESC_SELECT:
                 select_row(-1)
                 status <- "selection cleared"
+                nudged_row <- -1
             touch()
 
         def key(code: UiCore::Key) -> void:
@@ -875,6 +944,7 @@ module Studio:
             elif code == UiCore::Key.P:
                 curve_mode <- StudioOverlay::next_mode(curve_mode)
                 status <- "curves: position" if curve_mode == StudioOverlay::POSITION else "curves: rotation"
+                nudged_row <- -1
                 touch()
             elif code == UiCore::Key.K:
                 toggle_feet()
@@ -889,6 +959,7 @@ module Studio:
             elif code == UiCore::Key.F and StudioShortcuts::shift(modifiers):
                 perf_overlay <- not perf_overlay
                 status <- "frame times on" if perf_overlay else "frame times off"
+                nudged_row <- -1
                 touch()
             elif code == UiCore::Key.F:
                 frame_all()
