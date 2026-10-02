@@ -108,3 +108,13 @@ faster knee motion at lift-off. The gate is tolerant,
 27 (50315 → 79763). The lock op pops less but slides slightly on clips
 17, 18, 19, 20 and 24. Options: keep the tolerant gate; tighten it and
 lengthen the blend on those clips; or limit knee speed in the pivot.
+
+## Rebuild cost with K on
+
+Foot edits go through the studio's cached rebuild (`StudioModel::build_with`
+via `App::rebuild`), so the op caches still skip unchanged ops. The frame
+window cannot narrow while the foot fix is on, though: the pivot is
+non-local, so `StudioPerf::edit_window` returns the whole clip when K, the
+blend or a contact edit changes, and for any edit while K is on. With K off,
+correction edits keep their narrow window (`test/studio_rebuild.elisa`
+measures that path with K off and gates the full window with K on).
