@@ -406,3 +406,25 @@ now prove completely with every certificate replayed.
   (`push_cstr`). Optional-pointer comparison is not a proposition the
   kernel accepts; it cannot be closed in app code without changing the
   null check. Left for the prover.
+
+## Replay of summary dependencies (elisa-proof-mocap 19611a2, 2026-10-03)
+
+- Replay gaps after e723e71 (cli main 30, glb_tracks 14): a certificate that
+  used a callee's function summary was checked against the callee's name
+  only. A same-named function in another module with a finding (or an
+  unattributed line-0 finding, e.g. the control-flow-analysis budget on an
+  `apply`) vetoed replay. Dependencies are now checked per declaration row
+  (owner line); the budget finding is stamped at the body's first line; a
+  bare call inside an included module matches its own module's summary.
+  Now cli main 2779 proven / 2779 replayed / 0 gaps, rig_physics 0 gaps,
+  retime 560/0, retime_laws 896/0. Regression: `examples/replay_dependency_row_probe.elisa`.
+- `RigOps::run_clip` (rig_stack) has no IEEE float-parameter finding because
+  it is not a masking problem: its `op.kind == RigKind...` enum comparisons
+  raise contract-proposition-type findings, and the scheduler skips the body
+  before the float check runs. It stays reported unverified (0 goals).
+  Open: name-keyed recursion guard in replay; `--json` "functions" merges
+  same-named rows.
+- Full corpus vs `build/proof` reports 11 files "worse" (cli main 926 -> 1171
+  unproven, etc.). The baseline predates 3244c9d/0c1a6df/e723e71; proven rose
+  more in each (cli main 1488 -> 2779), i.e. G68 exposed more goals. cli main
+  was already 1171 unproven before 19611a2; this commit changes no counts.
