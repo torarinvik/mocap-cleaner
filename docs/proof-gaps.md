@@ -196,3 +196,12 @@ workarounds are in `src/core/perf_cache.elisa` and
 - G40: slot and memo-key distinctness (`slot(t, a) != slot(t, b)` for
   `a != b`, which has constant multipliers) times out. It is stated as
   ordering (`a < b` implies `slot(t, a) < slot(t, b)`), which proves.
+- G41: a law's callee precondition that follows only by implication (callee
+  `requires shortest >= 0`, law has `hi >= 0` and `hi < shortest - 1`) proved
+  when the law was checked alone, but went `unknown` once a sibling law over
+  the same kernel (`window_end`) was in the file. Stating `requires shortest
+  >= 0` (and an upper bound) directly on the law proves.
+- G42: monotonicity of `window_end` (`a <= b` implies `window_end(a) <=
+  window_end(b)`) times out, also when split into the two branches of the
+  kernel. The law is dropped; the kernel's ensures (end is `hi` inside the
+  keys, the clip's last frame otherwise) give it by hand.

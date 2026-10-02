@@ -2,6 +2,7 @@
 # channels (micro-units). Rotations are renormalised after cleanup.
 include "../../../elisa-engine-mocap/src/assets/glb_document.elisa"
 include "../ops/stack.elisa"
+include "../core/perf_cache.elisa"
 include "rig_map.elisa"
 
 module GlbTracks:
@@ -75,3 +76,45 @@ module GlbTracks:
                     changed <- changed + write(doc, held.output, component, cleaned)
                 normalise_rotation(doc, held.output) if held.path == GlbDocument::TargetPath.Rotation
             return (tracks, changed, before, after)
+
+        # clean_animation with per-channel stack caches: bank[PerfCache::slot(
+        # channel, component)] keeps each channel component's op results, so
+        # an edit reruns only the ops after the first changed one. Output is
+        # identical to clean_animation (Ops::evaluate_cached == evaluate).
+        def clean_animation_cached(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[Ops::Operation]&, threshold: i64, bank: mutable darray[Ops::Cache]&) -> (tracks: i64, changed: i64, before: i64, after: i64):
+            tracks: mutable i64 = 0
+            changed: mutable i64 = 0
+            before: mutable i64 = 0
+            after: mutable i64 = 0
+            for at in 0..<GlbDocument::channel_count(doc, animation) |at, doc, animation, ops, threshold, tracks, changed, before, after, bank|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, animation, at)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                continue if held.path == GlbDocument::TargetPath.Weights
+                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                bone: i64 = bone_group(doc, held.node)
+                tracks <- tracks + 1
+                ordinal: i64 = at.i64() if at.i64() < PerfCache::MAX_TRACKS else -1
+                while ordinal >= 0 and PerfCache::grows(bank.count.i64(), PerfCache::bank_size(ordinal)):
+                    bank.push(Ops::new_cache())
+                for component in 0..<track.components |component, doc, held, ops, bone, threshold, changed, before, after, bank, ordinal|:
+                    source: darray[i64] = read(doc, held.output, component)
+                    before <- before + Track::spike_count(source, threshold, false)
+                    at_slot: i64 = PerfCache::slot(ordinal, component.i64()) if ordinal >= 0 else PerfCache::NONE
+                    cleaned: mutable darray[i64] = []
+                    if at_slot < 0:
+                        cleaned <- Ops::evaluate(ops, bone, source, false)
+                    else:
+                        result: darray[i64] = Ops::evaluate_cached(ops, bone, source, false, &bank[at_slot.usize()])
+                        for v in result |cleaned|:
+                            cleaned.push(v)
+                    after <- after + Track::spike_count(cleaned, threshold, false)
+                    changed <- changed + write(doc, held.output, component, cleaned)
+                normalise_rotation(doc, held.output) if held.path == GlbDocument::TargetPath.Rotation
+            return (tracks, changed, before, after)
+
+        # Ops run across a bank (for tests and the frame-time overlay).
+        def bank_evaluations(bank: darray[Ops::Cache]&) -> i64:
+            total: mutable i64 = 0
+            for c in bank |total|:
+                total <- total + c.evaluations
+            return total

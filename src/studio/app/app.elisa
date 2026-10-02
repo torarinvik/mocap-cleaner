@@ -47,6 +47,21 @@ module Studio:
         global mutable curve_mode: i64 = 0
         # Held modifiers (StudioShortcuts mask).
         global mutable modifiers: i64 = 0
+        # Phase 6 caches: the loaded take and op caches, the stack the clip
+        # was built from, a counter bumped per rebuild, the curve memo, the
+        # drag preview's base pose (per frame and build), and the Shift-F
+        # frame-time overlay with the last draw time.
+        global mutable memo: StudioModel::Memo? = null
+        global mutable built_stack: StackState::Stack? = null
+        global mutable built: i64 = 0
+        global mutable curve_memo: StudioPerf::Curves = zeroed
+        global mutable base_models: darray[Geometry::Transform] = zeroed
+        global mutable base_locals: darray[Geometry::Transform] = zeroed
+        global mutable base_frame: i64 = -1
+        global mutable base_built: i64 = -1
+        global mutable perf_overlay: bool = false
+        global mutable draw_us: i64 = 0
+        global mutable preview_moved: i64 = 0
 
         global mutable view0: Viewport::Viewport? = null
         global mutable view1: Viewport::Viewport? = null
@@ -139,11 +154,28 @@ module Studio:
         # Rebuild the cleaned clip from the current stack (live preview).
         def rebuild() -> void:
             s: StackState::Stack = current_stack()
-            built: StudioModel::Clip? = StudioModel::build(path, anim_name, s)
-            if built == null:
+            if memo == null:
+                memo <- StudioModel::load(path, anim_name)
+            mutable result: StudioModel::Clip? = null
+            if memo is held:
+                mutable m: StudioModel::Memo = held
+                memo <- null
+                w: mutable StudioPerf::Window = StudioPerf::full(m.frames)
+                if clip is c:
+                    if built_stack is old:
+                        w <- StudioPerf::edit_window(old, s, m.frames, m.shortest)
+                    result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w)
+                else:
+                    none_p: darray[Geometry::Vec3] = []
+                    none_i: darray[i64] = []
+                    result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w)
+                memo <- m
+            if result == null:
                 status <- "clip failed to load"
                 return
-            clip <- built
+            clip <- result
+            built_stack <- s
+            built <- built + 1
             touch()
 
         # Record an edited stack and preview it; selection-only edits are
@@ -313,7 +345,15 @@ module Studio:
             mutable preview: darray[Geometry::Transform] = []
             if StudioOverlay::preview(gizmo_view, gizmo_drag != null, bone):
                 if gizmo_goal is goal:
-                    preview <- StudioScene::preview_models(c, frame_now(), bone, goal)
+                    r: PoseOverride::Rig = StudioModel::rig(c)
+                    if base_frame != frame_now() or base_built != built:
+                        base_models <- StudioModel::models(c, r, frame_now(), false)
+                        base_locals <- StudioClip::locals_at(c.cleaned, c.anim, frame_now(), c.nodes, c.slot)
+                        base_frame <- frame_now()
+                        base_built <- built
+                    p: StudioPerf::Preview = StudioPerf::chain_preview(r, base_models, base_locals, bone, goal)
+                    preview_moved <- p.moved
+                    preview <- p.models
             if mesh is m:
                 if skinned is p:
                     return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
@@ -367,7 +407,20 @@ module Studio:
                         revision <- revision + 1
                     UiCore::request_frame_after(0.008)
 
+        # Shift-F overlay: the last rebuild's stage times and the last draw.
+        def perf_panel(c: StudioModel::Clip&) -> void:
+            x: f32 = 16.0
+            y: f32 = 44.0
+            StudioDraw::rect(x - 6.0, y - 4.0, 250.0, 96.0, StudioDraw::color(10, 12, 16))
+            StudioDraw::text(x, y, 12.0, StudioText::number("evaluate us ", c.evaluate_us), StudioDraw::ink())
+            StudioDraw::text(x, y + 15.0, 12.0, StudioText::number("detectors us ", c.detect_us), StudioDraw::ink())
+            StudioDraw::text(x, y + 30.0, 12.0, StudioText::number("draw us ", draw_us), StudioDraw::ink())
+            StudioDraw::text(x, y + 45.0, 12.0, StudioText::number("poses evaluated ", c.poses), StudioDraw::muted())
+            StudioDraw::text(x, y + 60.0, 12.0, StudioText::number("ops rerun ", c.ops_run), StudioDraw::muted())
+            StudioDraw::text(x, y + 75.0, 12.0, StudioText::number("drag bones moved ", preview_moved), StudioDraw::muted())
+
         def frame() -> void:
+            draw_start: f64 = UiAppKitCanvas::monotonic_time()
             advance()
             if not framed and clip != null:
                 framed <- true
@@ -399,13 +452,15 @@ module Studio:
                         StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, op.first, op.last if op.last < c.frames else c.frames - 1)
                     else:
                         StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, first, last)
-                    StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode)
+                    StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
+                    perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
                     drawn_frame <- t.frame
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
             sync_view(2, scale)
+            draw_us <- ((UiAppKitCanvas::monotonic_time() - draw_start) * 1000000.0).i64()
 
         def camera_input(i: i64, dx: f32, dy: f32) -> void:
             if view(i) is opened:
@@ -654,6 +709,10 @@ module Studio:
                 touch()
             elif code == UiCore::Key.M:
                 toggle_action_mesh()
+            elif code == UiCore::Key.F and StudioShortcuts::shift(modifiers):
+                perf_overlay <- not perf_overlay
+                status <- "frame times on" if perf_overlay else "frame times off"
+                touch()
             elif code == UiCore::Key.F:
                 frame_all()
             elif code == UiCore::Key.E:

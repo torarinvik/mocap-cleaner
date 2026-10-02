@@ -1,0 +1,274 @@
+# Phase 6 latency caches: identical output, fewer evaluations, timed on the
+# boxing jab. Exit code names the failing check.
+include "../src/io/glb_tracks.elisa"
+include "../src/ops/presets.elisa"
+include "../src/ops/rig_cache.elisa"
+include "../src/studio/state/perf_state.elisa"
+
+extern clock() -> i64
+extern putchar(c: i32) -> i32
+
+def say(text: sview) -> void:
+    for ch in text:
+        _ = putchar(ch.i32())
+
+def num(v: i64) -> void:
+    if v < 0:
+        _ = putchar(45)
+        num(0 - v)
+        return
+    num(v / 10) if v >= 10
+    _ = putchar((48 + v % 10).i32())
+
+def line(label: sview, a: i64, b: i64, c: i64) -> void:
+    say(label)
+    say(" ")
+    num(a)
+    say(" ")
+    num(b)
+    say(" ")
+    num(c)
+    _ = putchar(10)
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+def same_tracks(a: GlbDocument::Document&, b: GlbDocument::Document&, anim: usize) -> bool:
+    for at in 0..<GlbDocument::channel_count(a, anim) |at, a, b, anim|:
+        held: GlbDocument::Channel = GlbDocument::channel(a, anim, at)
+        track: GlbDocument::Track = GlbDocument::track(a, held.output)
+        for k in 0..<track.components |k, a, b, held|:
+            x: darray[i64] = GlbTracks::read(a, held.output, k)
+            y: darray[i64] = GlbTracks::read(b, held.output, k)
+            return false if x.count != y.count
+            for i in 0..<x.count |i, x, y|:
+                return false if x[i] != y[i]
+    return true
+
+def same_q(a: MotionQuat::Q, b: MotionQuat::Q) -> bool:
+    return a.w == b.w and a.x == b.x and a.y == b.y and a.z == b.z
+
+def same_v(a: MotionQuat::V, b: MotionQuat::V) -> bool:
+    return a.x == b.x and a.y == b.y and a.z == b.z
+
+def same_clip(a: Rig::Clip&, b: Rig::Clip&) -> bool:
+    return false if a.rot.count != b.rot.count or a.pos.count != b.pos.count
+    for i in 0..<a.rot.count |i, a, b|:
+        return false if not same_q(a.rot[i], b.rot[i])
+    for i in 0..<a.pos.count |i, a, b|:
+        return false if not same_v(a.pos[i], b.pos[i])
+    return true
+
+def same_t(a: Geometry::Transform, b: Geometry::Transform) -> bool:
+    p: bool = a.position.x == b.position.x and a.position.y == b.position.y and a.position.z == b.position.z
+    q: bool = a.rotation.x == b.rotation.x and a.rotation.y == b.rotation.y and a.rotation.z == b.rotation.z and a.rotation.w == b.rotation.w
+    return p and q and a.scale.x == b.scale.x and a.scale.y == b.scale.y and a.scale.z == b.scale.z
+
+def same_ints(a: darray[i64]&, b: darray[i64]&) -> bool:
+    return false if a.count != b.count
+    for i in 0..<a.count |i, a, b|:
+        return false if a[i] != b[i]
+    return true
+
+# StudioScene::preview_models, the full re-evaluation the drag used to run.
+def full_preview(r: PoseOverride::Rig&, models: darray[Geometry::Transform]&, locals_in: darray[Geometry::Transform]&, bone: i64, goal: Geometry::Transform) -> darray[Geometry::Transform]:
+    mutable locals: darray[Geometry::Transform] = []
+    for t in locals_in |locals|:
+        locals.push(t)
+    parent: i64 = PoseOverride::rig_parent(r, bone.usize())
+    locals[bone.usize()] <- Geometry::transform_apply_inverse(models[parent.usize()], goal) if parent >= 0 else goal
+    mutable held: PoseOverride::Overrides = PoseOverride::overrides(r)
+    for k in 0..<locals.count |k, held, locals|:
+        _ = PoseOverride::set_override(&held, k, locals[k])
+    mutable out: darray[Geometry::Transform] = []
+    _ = catch PoseOverride::evaluate_rest(r, held, &out):
+        value: 0
+        error failure: 1
+    return out
+
+def main() -> i32:
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 90 if present != 1
+    pristine: GlbDocument::Document = load_or_empty(path)
+    anim: i64 = GlbDocument::find_animation(&pristine, "jab")
+    return 1 if anim < 0
+    threshold: i64 = 20000
+
+    # ---- Item 1: cached clean equals clean; edits rerun fewer ops ------
+    mutable ops: darray[Ops::Operation] = Presets::operations(Presets::Preset.Boxing)
+    bank: mutable darray[Ops::Cache] = []
+    mutable plain: GlbDocument::Document = GlbDocument::copy(&pristine)
+    mutable cold: GlbDocument::Document = GlbDocument::copy(&pristine)
+    mutable warm: GlbDocument::Document = GlbDocument::copy(&pristine)
+    t0: i64 = clock()
+    _ = GlbTracks::clean_animation(&plain, anim.usize(), &ops, threshold)
+    t1: i64 = clock()
+    _ = GlbTracks::clean_animation_cached(&cold, anim.usize(), &ops, threshold, &bank)
+    t2: i64 = clock()
+    return 2 if not same_tracks(&plain, &cold, anim.usize())
+    cold_runs: i64 = GlbTracks::bank_evaluations(&bank)
+    t2b: i64 = clock()
+    _ = GlbTracks::clean_animation_cached(&warm, anim.usize(), &ops, threshold, &bank)
+    t3: i64 = clock()
+    return 3 if not same_tracks(&plain, &warm, anim.usize())
+    return 4 if GlbTracks::bank_evaluations(&bank) != cold_runs
+    # Edit the last op: only it reruns per component.
+    last: usize = ops.count - 1
+    ops[last].strength <- 3
+    mutable plain2: GlbDocument::Document = GlbDocument::copy(&pristine)
+    mutable edit: GlbDocument::Document = GlbDocument::copy(&pristine)
+    t4: i64 = clock()
+    _ = GlbTracks::clean_animation(&plain2, anim.usize(), &ops, threshold)
+    t5: i64 = clock()
+    _ = GlbTracks::clean_animation_cached(&edit, anim.usize(), &ops, threshold, &bank)
+    t6: i64 = clock()
+    return 5 if not same_tracks(&plain2, &edit, anim.usize())
+    edit_runs: i64 = GlbTracks::bank_evaluations(&bank) - cold_runs
+    return 6 if edit_runs <= 0 or edit_runs * 3 > cold_runs
+    line("clean us plain/cold/warm", t1 - t0, t2 - t1, t3 - t2b)
+    line("clean ops cold", cold_runs, 0, 0)
+    line("clean edit-last us plain/cached, ops", t5 - t4, t6 - t5, edit_runs)
+
+    # ---- Item 2: rig cache split at the contact-edit boundary ----------
+    mutable rops: darray[RigOps::RigOp] = Presets::rig_operations(Presets::Preset.Rokoko)
+    rops.push(RigOps::pin(Roles::LEFT_HAND, 20, 60, 4))
+    rops.push(RigOps::contact_edit(Roles::LEFT_FOOT, 10, 30, true))
+    rc: mutable RigCache::Cache = RigCache::new_cache()
+    mutable a: Rig::Clip = Rig::load(&pristine, anim.usize())
+    r0: i64 = clock()
+    _ = RigOps::run_clip(&a, &rops, threshold)
+    r1: i64 = clock()
+    mutable b: Rig::Clip = Rig::load(&pristine, anim.usize())
+    _ = RigCache::run_clip_cached(&b, &rops, threshold, 1, &rc)
+    r2: i64 = clock()
+    return 10 if not same_clip(&a, &b)
+    return 11 if rc.evaluations != 5
+    # Contact edit: only foot lock and the pin rerun.
+    rops[5].last <- 40
+    mutable a2: Rig::Clip = Rig::load(&pristine, anim.usize())
+    r3: i64 = clock()
+    _ = RigOps::run_clip(&a2, &rops, threshold)
+    r4: i64 = clock()
+    mutable b2: Rig::Clip = Rig::load(&pristine, anim.usize())
+    _ = RigCache::run_clip_cached(&b2, &rops, threshold, 1, &rc)
+    r5: i64 = clock()
+    return 12 if not same_clip(&a2, &b2)
+    return 13 if rc.evaluations != 7
+    # Nothing changed: whole result reused.
+    mutable b3: Rig::Clip = Rig::load(&pristine, anim.usize())
+    _ = RigCache::run_clip_cached(&b3, &rops, threshold, 1, &rc)
+    return 14 if not same_clip(&a2, &b3) or rc.evaluations != 7
+    # Upstream edit: everything reruns.
+    rops[1].passes <- 3
+    mutable a4: Rig::Clip = Rig::load(&pristine, anim.usize())
+    _ = RigOps::run_clip(&a4, &rops, threshold)
+    mutable b4: Rig::Clip = Rig::load(&pristine, anim.usize())
+    _ = RigCache::run_clip_cached(&b4, &rops, threshold, 1, &rc)
+    return 15 if not same_clip(&a4, &b4) or rc.evaluations != 12
+    line("rig us plain/cold", r1 - r0, r2 - r1, 0)
+    line("rig contact-edit us plain/cached", r4 - r3, r5 - r4, 0)
+
+    # ---- Item 3: edit windows ------------------------------------------
+    w: StudioPerf::Window = StudioPerf::widen(StudioPerf::empty(100), 30, 40)
+    return 20 if w.lo != 30 or w.hi != 40
+    m: StudioPerf::Window = StudioPerf::margin(w, 1, 100)
+    return 21 if m.lo != 29 or m.hi != 41
+    return 22 if not StudioPerf::is_empty(StudioPerf::empty(100))
+    return 23 if StudioPerf::stale(28, m) or not StudioPerf::stale(29, m)
+
+    # Windowed tracks and detectors equal a full recompute after an edit
+    # confined to frames 30..40 of one channel.
+    au: usize = anim.usize()
+    frames: i64 = StudioClip::frame_count(&plain, au)
+    nodes: darray[i64] = StudioClip::order(&plain)
+    slot: darray[i64] = StudioClip::slots(&plain, nodes)
+    rig: PoseOverride::Rig = StudioClip::rig(&plain, nodes, slot)
+    hips: i64 = StudioClip::slot_of_role(&plain, slot, Roles::HIPS)
+    hand: i64 = StudioClip::slot_of_role(&plain, slot, Roles::LEFT_HAND)
+    lf: i64 = StudioClip::slot_of_role(&plain, slot, Roles::LEFT_FOOT)
+    rf: i64 = StudioClip::slot_of_role(&plain, slot, Roles::RIGHT_FOOT)
+    bones: darray[i64] = [lf, rf, hips, hand]
+    none: darray[Geometry::Vec3] = []
+    mutable edited: GlbDocument::Document = GlbDocument::copy(&plain)
+    ch: i64 = StudioClip::channel_of(&plain, au, nodes[hips.usize()].usize(), GlbDocument::TargetPath.Rotation)
+    return 31 if ch < 0
+    held: GlbDocument::Channel = GlbDocument::channel(&plain, au, ch.usize())
+    mutable vals: darray[i64] = GlbTracks::read(&edited, held.output, 0)
+    for f in 30..<41 |f, vals|:
+        vals[f] <- vals[f] + 40000 + f.i64() * 997
+    _ = GlbTracks::write(&edited, held.output, 0, vals)
+    # Baseline through the same write (unchanged values) so only 30..40 differ.
+    mutable base: GlbDocument::Document = GlbDocument::copy(&plain)
+    same_vals: darray[i64] = GlbTracks::read(&base, held.output, 0)
+    _ = GlbTracks::write(&base, held.output, 0, same_vals)
+    j0: i64 = clock()
+    before: StudioPerf::Tracks = StudioPerf::joint_tracks(rig, &base, au, frames, nodes, slot, bones, none, StudioPerf::full(frames))
+    j1: i64 = clock()
+    return 30 if before.evaluated != frames
+    win: StudioPerf::Window = StudioPerf::widen(StudioPerf::empty(frames), 30, 40)
+    j2: i64 = clock()
+    after: StudioPerf::Tracks = StudioPerf::joint_tracks(rig, &edited, au, frames, nodes, slot, bones, before.points, win)
+    j3: i64 = clock()
+    return 32 if after.evaluated != 11
+    for j in 0..<4 |j, after, rig, edited, au, frames, nodes, slot, bones|:
+        ref: darray[Geometry::Vec3] = StudioClip::joint_track(rig, &edited, au, frames, nodes, slot, bones[j])
+        got: darray[Geometry::Vec3] = StudioPerf::joint(&after, j.i64(), frames)
+        for f in 0..<ref.count |f, ref, got|:
+            if ref[f].x != got[f].x or ref[f].y != got[f].y or ref[f].z != got[f].z:
+                line("mismatch j f", j.i64(), f.i64(), ref.count.i64())
+                return 33
+    j4: i64 = clock()
+    line("joint tracks us full/window/old-4x-full", j1 - j0, j3 - j2, j4 - j3)
+    edge: StudioPerf::Window = StudioPerf::margin(win, StudioPerf::DETECT_EDGE, frames)
+    p_old: darray[i64] = StudioClip::problems(&base, au, frames, threshold)
+    k_old: darray[i64] = StudioClip::peak_accel(&base, au, frames)
+    d0: i64 = clock()
+    p_full: darray[i64] = StudioClip::problems(&edited, au, frames, threshold)
+    k_full: darray[i64] = StudioClip::peak_accel(&edited, au, frames)
+    d1: i64 = clock()
+    p_win: darray[i64] = StudioPerf::problems(&edited, au, frames, threshold, p_old, edge)
+    k_win: darray[i64] = StudioPerf::peaks(&edited, au, frames, k_old, edge)
+    d2: i64 = clock()
+    return 34 if not same_ints(p_full, p_win)
+    return 35 if not same_ints(k_full, k_win)
+    line("detectors us full/window", d1 - d0, d2 - d1, 0)
+
+    # Gizmo drag: only the dragged bone's chain is recomposed, same pose.
+    models: darray[Geometry::Transform] = StudioClip::models_at(rig, &plain, au, 35, nodes, slot)
+    locals: darray[Geometry::Transform] = StudioClip::locals_at(&plain, au, 35, nodes, slot)
+    for bone in [hips, hand, lf] |bone, models, locals, rig|:
+        mutable goal: Geometry::Transform = models[bone.usize()]
+        goal.position <- Geometry::Vec3{x: goal.position.x + 0.05, y: goal.position.y - 0.02, z: goal.position.z + 0.01}
+        g0: i64 = clock()
+        ref: darray[Geometry::Transform] = full_preview(rig, models, locals, bone, goal)
+        g1: i64 = clock()
+        got: StudioPerf::Preview = StudioPerf::chain_preview(rig, models, locals, bone, goal)
+        g2: i64 = clock()
+        return 40 if ref.count != got.models.count
+        for b in 0..<ref.count |b, ref, got|:
+            return 41 if not same_t(ref[b], got.models[b])
+        return 42 if got.moved <= 0 or got.moved > ref.count.i64()
+        line("drag us full/chain, bones moved", g1 - g0, g2 - g1, got.moved)
+    return 43 if StudioPerf::chain_preview(rig, models, locals, hand, models[0]).moved >= models.count.i64()
+
+    # Curve memo: a hit only for the same revision, bone and mode.
+    mutable memo: StudioPerf::Curves = StudioPerf::no_curves()
+    return 50 if StudioPerf::curves_hit(&memo, 1, 3, 0)
+    StudioPerf::fill_curves(&memo, &pristine, &plain, au, ch, 1, 3, 0, 1000000000)
+    return 51 if not StudioPerf::curves_hit(&memo, 1, 3, 0)
+    return 52 if StudioPerf::curves_hit(&memo, 2, 3, 0) or StudioPerf::curves_hit(&memo, 1, 4, 0) or StudioPerf::curves_hit(&memo, 1, 3, 1)
+    for k in 0..<memo.comps |k, memo, pristine, plain, au, ch|:
+        a: darray[i64] = StudioClip::curve(&pristine, au, ch, k.usize())
+        b: darray[i64] = StudioClip::curve(&plain, au, ch, k.usize())
+        sa: darray[i64] = StudioPerf::series(&memo.source, k, memo.length)
+        sb: darray[i64] = StudioPerf::series(&memo.cleaned, k, memo.length)
+        return 53 if not same_ints(a, sa) or not same_ints(b, sb)
+    return 0

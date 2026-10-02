@@ -1,0 +1,131 @@
+# Phase 6: the studio's incremental rebuild (load once, op caches, frame
+# window) equals the from-scratch build after a correction and after an op
+# edit, while evaluating fewer poses and ops. Prints timings on the jab.
+include "../src/studio/app/scene.elisa"
+
+extern putchar(c: i32) -> i32
+
+const PATH: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+
+def say(text: sview) -> void:
+    for ch in text:
+        _ = putchar(ch.i32())
+
+def num(v: i64) -> void:
+    if v < 0:
+        _ = putchar(45)
+        num(0 - v)
+        return
+    num(v / 10) if v >= 10
+    _ = putchar((48 + v % 10).i32())
+
+def row(label: sview, a: i64, b: i64, c: i64) -> void:
+    say(label)
+    for v in [a, b, c] |v|:
+        say(" ")
+        num(v)
+    _ = putchar(10)
+
+def same_i(a: darray[i64]&, b: darray[i64]&) -> bool:
+    return false if a.count != b.count
+    for i in 0..<a.count |i, a, b|:
+        return false if a[i] != b[i]
+    return true
+
+def same_b(a: darray[bool]&, b: darray[bool]&) -> bool:
+    return false if a.count != b.count
+    for i in 0..<a.count |i, a, b|:
+        return false if a[i] != b[i]
+    return true
+
+# NaN-aware (absent support points are NaN in both).
+def eq(a: f32, b: f32) -> bool:
+    return a == b or (a != a and b != b)
+
+def same_v(a: darray[Geometry::Vec3]&, b: darray[Geometry::Vec3]&) -> bool:
+    return false if a.count != b.count
+    for i in 0..<a.count |i, a, b|:
+        return false if not eq(a[i].x, b[i].x) or not eq(a[i].y, b[i].y) or not eq(a[i].z, b[i].z)
+    return true
+
+def same_clip(a: StudioModel::Clip&, b: StudioModel::Clip&) -> i32:
+    return 1 if not same_i(&a.problems, &b.problems)
+    return 2 if not same_i(&a.peaks, &b.peaks) or not same_i(&a.source_problems, &b.source_problems)
+    return 3 if not same_v(&a.left_hand, &b.left_hand) or not same_v(&a.right_hand, &b.right_hand)
+    return 4 if not same_v(&a.left_foot, &b.left_foot) or not same_v(&a.right_foot, &b.right_foot)
+    return 5 if not same_b(&a.left_contact, &b.left_contact) or not same_b(&a.right_contact, &b.right_contact)
+    return 6 if not same_v(&a.com, &b.com) or not same_i(&a.balance, &b.balance) or not same_v(&a.support, &b.support)
+    return 7 if a.changed != b.changed or a.spikes_after != b.spikes_after or a.impossible_frames != b.impossible_frames or not eq(a.ground, b.ground)
+    for at in 0..<GlbDocument::channel_count(a.cleaned, a.anim) |at, a, b|:
+        held: GlbDocument::Channel = GlbDocument::channel(a.cleaned, a.anim, at)
+        track: GlbDocument::Track = GlbDocument::track(a.cleaned, held.output)
+        for k in 0..<track.components |k, a, b, held|:
+            x: darray[i64] = GlbTracks::read(a.cleaned, held.output, k)
+            y: darray[i64] = GlbTracks::read(b.cleaned, held.output, k)
+            return 8 if not same_i(&x, &y)
+    return 0
+
+def main() -> i32:
+    present: i32 = catch GlbDocument::load(PATH):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    s0: StackState::Stack = StudioModel::initial_stack()
+    loaded: StudioModel::Memo? = StudioModel::load(PATH, "jab")
+    if loaded is held:
+        mutable m: StudioModel::Memo = held
+        none_p: darray[Geometry::Vec3] = []
+        none_i: darray[i64] = []
+        b0: i64 = clock()
+        first_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s0)
+        b1: i64 = clock()
+        built: StudioModel::Clip? = StudioModel::build_with(&m, s0, none_p, none_i, none_i, StudioPerf::full(m.frames))
+        if built is c0:
+            return 10 if c0.poses != m.frames
+            # A gizmo correction on the hips at frame 40 (frames 28..52).
+            r: PoseOverride::Rig = StudioModel::rig(c0)
+            hips: i64 = StudioModel::default_bone(c0)
+            mutable goal: Geometry::Transform = StudioModel::models(c0, r, 40, false)[hips.usize()]
+            goal.position <- Geometry::Vec3{x: goal.position.x + 0.04, y: goal.position.y, z: goal.position.z}
+            fix: Corrections::Correction = StudioModel::correction_for(c0, r, hips, 40, goal)
+            mutable s1: StackState::Stack = s0
+            _ = StackState::add_fix(&s1, fix)
+            w: StudioPerf::Window = StudioPerf::edit_window(&s0, &s1, m.frames, m.shortest)
+            row("window", w.lo, w.hi, m.frames)
+            return 11 if w.lo != 28 or w.hi < 52
+            r0: i64 = clock()
+            full_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s1)
+            r1: i64 = clock()
+            inc_opt: StudioModel::Clip? = StudioModel::build_with(&m, s1, c0.points, c0.problems, c0.peaks, w)
+            r2: i64 = clock()
+            if full_opt is full:
+                if inc_opt is inc:
+                    rc: i32 = same_clip(full, inc)
+                    return 20 + rc if rc != 0
+                    return 12 if inc.poses != w.hi - w.lo + 1 or inc.ops_run != 0
+                    row("correction rebuild us full/incremental", r1 - r0, r2 - r1, 0)
+                    row("  incremental evaluate/detect us, poses", inc.evaluate_us, inc.detect_us, inc.poses)
+                    row("  full evaluate/detect us, poses", full.evaluate_us, full.detect_us, full.poses)
+                    # An op edit: whole window, but only the edited op reruns.
+                    mutable s2: StackState::Stack = s1
+                    last: usize = (s2.count - 1).usize()
+                    s2.ops[last].strength <- 3
+                    w2: StudioPerf::Window = StudioPerf::edit_window(&s1, &s2, m.frames, m.shortest)
+                    return 13 if w2.lo != 0 or w2.hi != m.frames - 1
+                    o0: i64 = clock()
+                    full2_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s2)
+                    o1: i64 = clock()
+                    inc2_opt: StudioModel::Clip? = StudioModel::build_with(&m, s2, inc.points, inc.problems, inc.peaks, w2)
+                    o2: i64 = clock()
+                    if full2_opt is full2:
+                        if inc2_opt is inc2:
+                            rc2: i32 = same_clip(full2, inc2)
+                            return 40 + rc2 if rc2 != 0
+                            return 14 if inc2.ops_run <= 0 or inc2.ops_run >= full2.ops_run
+                            row("op-edit rebuild us full/incremental, ops rerun", o1 - o0, o2 - o1, inc2.ops_run)
+                            row("first build (two loads) us", b1 - b0, 0, 0)
+                            return 0
+            return 15
+        return 16
+    return 17

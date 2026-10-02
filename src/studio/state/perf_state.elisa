@@ -1,0 +1,254 @@
+# Studio latency helpers (Phase 6). Every decision about what to reuse goes
+# through the proved kernel PerfCache (../../core/perf_cache.elisa): dirty
+# frame windows, their margins, memo hits and the gizmo drag chain. The
+# functions here only move values; each has a plain counterpart in
+# StudioClip and the tests check they agree exactly.
+include "clip_state.elisa"
+include "stack_state.elisa"
+include "../../core/perf_cache.elisa"
+
+module StudioPerf:
+    public:
+        # Detector margin: problems and peaks read frames f-1..f+1.
+        const DETECT_EDGE: i64 = 1
+
+        # Frames a stack edit can change, as [lo, hi] (lo > hi: none).
+        struct Window:
+            lo: i64
+            hi: i64
+
+        def full(frames: i64) -> Window:
+            return Window{lo: 0, hi: frames - 1 if frames > 0 else 0}
+
+        def empty(frames: i64) -> Window:
+            return Window{lo: PerfCache::empty_lo(frames), hi: PerfCache::empty_hi(frames)} if frames >= 0 and frames <= PerfCache::MAX_FRAMES
+            return Window{lo: 1, hi: 0}
+
+        def widen(w: Window, first: i64, last: i64) -> Window:
+            return Window{lo: PerfCache::take_lo(PerfCache::take_lo(w.lo, first), last), hi: PerfCache::take_hi(PerfCache::take_hi(w.hi, first), last)}
+
+        def is_empty(w: Window) -> bool:
+            return w.lo > w.hi
+
+        # Shortest key count over the animation's channels: a channel samples
+        # its last key for every later frame (StudioClip::key_of).
+        def shortest_keys(doc: GlbDocument::Document&, anim: usize) -> i64:
+            shortest: mutable i64 = PerfCache::MAX_FRAMES
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, shortest|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                n: i64 = GlbDocument::key_count(doc, held.output).i64()
+                shortest <- n if n < shortest else shortest
+            return shortest
+
+        # The window an edit from `old` to `new` touches. Operation edits
+        # (handled by the stack cache) and selection-free changes to the op
+        # list rebuild everything; correction edits touch only their key
+        # range. A window reaching a channel's last key runs to the clip end.
+        def edit_window(old: StackState::Stack&, new: StackState::Stack&, frames: i64, shortest: i64) -> Window:
+            return full(frames) if old.count != new.count
+            for i in 0..<old.count |i, old, new|:
+                x: Ops::Operation = old.ops[i]
+                y: Ops::Operation = new.ops[i]
+                same: bool = x.kind == y.kind and x.enabled == y.enabled and x.first == y.first and x.last == y.last and x.bones == y.bones and x.strength == y.strength and x.edge == y.edge
+                return full(frames) if not same
+            mutable w: Window = empty(frames)
+            most: i64 = old.fix_count if old.fix_count > new.fix_count else new.fix_count
+            for i in 0..<most |i, old, new, w|:
+                if i < old.fix_count and i < new.fix_count:
+                    p: Corrections::Correction = old.fixes[i]
+                    q: Corrections::Correction = new.fixes[i]
+                    if not Corrections::same(&p, &q):
+                        w <- widen(w, p.first, p.last)
+                        w <- widen(w, q.first, q.last)
+                elif i < old.fix_count:
+                    p: Corrections::Correction = old.fixes[i]
+                    w <- widen(w, p.first, p.last)
+                else:
+                    q: Corrections::Correction = new.fixes[i]
+                    w <- widen(w, q.first, q.last)
+            return w if is_empty(w)
+            lo: i64 = w.lo if w.lo > 0 else 0
+            hi: i64 = PerfCache::window_end(w.hi if w.hi > 0 else 0, shortest if shortest > 0 else 0, frames)
+            return Window{lo: lo, hi: hi}
+
+        # The window grown by `edge` frames each side, within the clip.
+        def margin(w: Window, edge: i64, frames: i64) -> Window:
+            return w if is_empty(w) or w.hi >= frames or w.lo < 0
+            return Window{lo: PerfCache::margin_lo(w.lo, edge), hi: PerfCache::margin_hi(w.hi, edge, frames)}
+
+        def stale(f: i64, w: Window) -> bool:
+            return PerfCache::dirty(f, w.lo, w.hi) == 1
+
+        # ---- Joint tracks ----------------------------------------------
+        # World positions of up to four rig slots over every frame, one pose
+        # evaluation per frame shared by all of them (StudioClip::joint_track
+        # evaluates the pose once per joint). Frames outside `w` copy `prev`
+        # (index frame * 4 + joint) when it covers them. `evaluated` counts
+        # pose evaluations.
+        struct Tracks:
+            points: mutable darray[Geometry::Vec3]
+            evaluated: mutable i64
+
+        def joint_tracks(r: PoseOverride::Rig&, doc: GlbDocument::Document&, anim: usize, frames: i64, nodes: darray[i64]&, slot: darray[i64]&, bones: darray[i64]&, prev: darray[Geometry::Vec3]&, w: Window) -> Tracks:
+            mutable out: Tracks = Tracks{points: [], evaluated: 0}
+            zero: Geometry::Vec3 = Geometry::Vec3{x: 0.0, y: 0.0, z: 0.0}
+            reuse: bool = prev.count.i64() == frames * 4
+            for f in 0..<frames |f, out, r, doc, anim, nodes, slot, bones, prev, w, reuse, zero|:
+                if reuse and not stale(f, w):
+                    for j in 0..<4 |j, out, prev, f|:
+                        out.points.push(prev[(f * 4 + j.i64()).usize()])
+                else:
+                    models: darray[Geometry::Transform] = StudioClip::models_at(r, doc, anim, f, nodes, slot)
+                    out.evaluated <- out.evaluated + 1
+                    for j in 0..<4 |j, out, models, bones, zero|:
+                        bone: i64 = bones[j] if j < bones.count else -1
+                        if bone >= 0 and bone < models.count.i64():
+                            out.points.push(models[bone.usize()].position)
+                        else:
+                            out.points.push(zero)
+            return out
+
+        def joint(t: Tracks&, j: i64, frames: i64) -> darray[Geometry::Vec3]:
+            out: mutable darray[Geometry::Vec3] = []
+            for f in 0..<frames |f, out, t, j|:
+                out.push(t.points[(f * 4 + j).usize()])
+            return out
+
+        # ---- Detectors -------------------------------------------------
+        # StudioClip::problems / peak_accel recomputed only inside `w`
+        # (already grown by DETECT_EDGE); other frames copy `prev`.
+        def problems(doc: GlbDocument::Document&, anim: usize, frames: i64, threshold: i64, prev: darray[i64]&, w: Window) -> darray[i64]:
+            return StudioClip::problems(doc, anim, frames, threshold) if prev.count.i64() != frames
+            out: mutable darray[i64] = []
+            for f in 0..<frames |f, out, prev, w|:
+                out.push(0 if stale(f, w) else prev[f])
+            return out if is_empty(w)
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, out, doc, anim, frames, threshold, w|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                continue if held.path == GlbDocument::TargetPath.Weights
+                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                for c in 0..<track.components |c, out, doc, held, frames, threshold, w|:
+                    v: darray[i64] = GlbTracks::read(doc, held.output, c)
+                    n: i64 = v.count.i64()
+                    lo: i64 = w.lo if w.lo > 1 else 1
+                    for f in lo..<(n - 1) |f, v, out, frames, threshold, w|:
+                        if f <= w.hi and f < frames and Spike::is_spike(v[(f - 1).usize()], v[f.usize()], v[(f + 1).usize()], threshold):
+                            out[f.usize()] <- out[f.usize()] + 1
+            return out
+
+        def peaks(doc: GlbDocument::Document&, anim: usize, frames: i64, prev: darray[i64]&, w: Window) -> darray[i64]:
+            return StudioClip::peak_accel(doc, anim, frames) if prev.count.i64() != frames
+            out: mutable darray[i64] = []
+            for f in 0..<frames |f, out, prev, w|:
+                out.push(0 if stale(f, w) else prev[f])
+            return out if is_empty(w)
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, out, doc, anim, frames, w|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                continue if held.path == GlbDocument::TargetPath.Weights
+                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                for c in 0..<track.components |c, out, doc, held, frames, w|:
+                    v: darray[i64] = GlbTracks::read(doc, held.output, c)
+                    n: i64 = v.count.i64()
+                    lo: i64 = w.lo if w.lo > 1 else 1
+                    for f in lo..<(n - 1) |f, v, out, frames, w|:
+                        if f <= w.hi and f < frames:
+                            a: i64 = Spike::magnitude(Spike::accel(v[(f - 1).usize()], v[f.usize()], v[(f + 1).usize()]))
+                            old: i64 = out[f.usize()]
+                            out[f.usize()] <- a if a > old else old
+            return out
+
+        # ---- Gizmo drag chain ------------------------------------------
+        # The preview pose while dragging rig slot `bone` to model transform
+        # `goal`: only the dragged bone and its descendants are recomposed,
+        # from the frame's cached models and locals (StudioScene::
+        # preview_models re-evaluates every bone; the result is identical).
+        # `moved` counts recomposed bones.
+        struct Preview:
+            models: mutable darray[Geometry::Transform]
+            moved: mutable i64
+
+        def chain_preview(r: PoseOverride::Rig&, models: darray[Geometry::Transform]&, locals: darray[Geometry::Transform]&, bone: i64, goal: Geometry::Transform) -> Preview:
+            mutable out: Preview = Preview{models: [], moved: 0}
+            return out if bone < 0 or bone.usize() >= models.count or locals.count != models.count
+            moves: mutable darray[bool] = []
+            for b in 0..<models.count |b, out, models, moves, r, locals, bone, goal|:
+                parent: i64 = PoseOverride::rig_parent(r, b)
+                parent_moves: bool = parent >= 0 and parent.usize() < moves.count and moves[parent.usize()]
+                hit: bool = parent < b.i64() and PerfCache::on_chain(b.i64(), bone, parent, parent_moves) == 1
+                moves.push(hit)
+                if not hit:
+                    out.models.push(models[b])
+                else:
+                    out.moved <- out.moved + 1
+                    if b.i64() == bone:
+                        local: Geometry::Transform = Geometry::transform_apply_inverse(models[parent.usize()], goal) if parent >= 0 else goal
+                        out.models.push(Geometry::transform_compose(models[parent.usize()], local) if parent >= 0 else local)
+                    else:
+                        out.models.push(Geometry::transform_compose(out.models[parent.usize()], locals[b]) if parent >= 0 else locals[b])
+            return out
+
+        # ---- Curve memo ------------------------------------------------
+        # The curve view's series for one (bone, mode), kept until the clip
+        # is rebuilt (revision) or the selection changes (PerfCache::memo_key).
+        struct Curves:
+            valid: mutable bool
+            revision: mutable i64
+            key: mutable i64
+            channel: mutable i64
+            comps: mutable i64
+            # Component k's source then cleaned series, frames apart.
+            source: mutable darray[i64]
+            cleaned: mutable darray[i64]
+            length: mutable i64
+            lo: mutable i64
+            hi: mutable i64
+            # Times the series were (re)built.
+            builds: mutable i64
+
+        def no_curves() -> Curves:
+            return Curves{valid: false, revision: 0, key: 0, channel: -1, comps: 0, source: [], cleaned: [], length: 0, lo: 0, hi: 0, builds: 0}
+
+        def curves_hit(m: Curves&, revision: i64, bone: i64, mode: i64) -> bool:
+            return false if bone < 0 or bone >= 4096 or mode < 0 or mode >= 16
+            return PerfCache::memo_hit(m.valid, m.revision, revision, m.key, PerfCache::memo_key(bone, mode)) == 1
+
+        # Fill the memo from the two documents (lo/hi as the curve view's
+        # shared value range, before its clamping).
+        def fill_curves(m: mutable Curves&, source: GlbDocument::Document&, cleaned: GlbDocument::Document&, anim: usize, channel: i64, revision: i64, bone: i64, mode: i64, max_value: i64) -> void:
+            m.valid <- bone >= 0 and bone < 4096 and mode >= 0 and mode < 16
+            m.revision <- revision
+            m.key <- PerfCache::memo_key(bone, mode) if m.valid else 0
+            m.channel <- channel
+            m.source.clear()
+            m.cleaned.clear()
+            m.comps <- 0
+            m.length <- 0
+            m.lo <- max_value
+            m.hi <- 0 - max_value
+            m.builds <- m.builds + 1
+            return if channel < 0 or channel >= GlbDocument::channel_count(source, anim).i64()
+            held: GlbDocument::Channel = GlbDocument::channel(source, anim, channel.usize())
+            track: GlbDocument::Track = GlbDocument::track(source, held.output)
+            comps: usize = track.components if track.components <= 4 else 4
+            m.comps <- comps.i64()
+            for k in 0..<comps |k, m, source, cleaned, anim, channel|:
+                a: darray[i64] = StudioClip::curve(source, anim, channel, k)
+                b: darray[i64] = StudioClip::curve(cleaned, anim, channel, k)
+                m.length <- a.count.i64()
+                for v in a |v, m|:
+                    m.source.push(v)
+                    m.lo <- v if v < m.lo else m.lo
+                    m.hi <- v if v > m.hi else m.hi
+                for v in b |v, m|:
+                    m.cleaned.push(v)
+                    m.lo <- v if v < m.lo else m.lo
+                    m.hi <- v if v > m.hi else m.hi
+
+        def series(all: darray[i64]&, k: i64, length: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for i in 0..<length |i, out, all, k, length|:
+                at: i64 = k * length + i
+                out.push(all[at.usize()]) if at < all.count.i64()
+            return out

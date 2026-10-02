@@ -52,7 +52,7 @@ def preset_of(name: cstr) -> Presets::Preset:
     return Presets::Preset.Unknown
 
 # Clean one take. `only` is an animation name, or empty for all.
-def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, phys: darray[Physics::PhysOp]&, rig: mutable RigOps::Summary&, found: mutable Physics::Findings&) -> Report::Row:
+def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, phys: darray[Physics::PhysOp]&, rig: mutable RigOps::Summary&, found: mutable Physics::Findings&, bank: mutable darray[Ops::Cache]&) -> Report::Row:
     failed: Report::Row = Report::Row{ok: false, tracks: 0, changed: 0, before: 0, after: 0}
     opened: i32 = catch GlbDocument::load(input):
         value: 0
@@ -70,7 +70,7 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, e
     mutable after: i64 = 0
     for a in 0..<GlbDocument::animation_count(&doc):
         continue if only[0] != 0 and not animation_matches(&doc, a, only)
-        result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation(&doc, a, ops, threshold)
+        result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation_cached(&doc, a, ops, threshold, bank)
         tracks <- tracks + result.tracks
         changed <- changed + result.changed
         before <- before + result.before
@@ -420,6 +420,8 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
     mutable preset: Presets::Preset = Presets::Preset.Boxing
     mutable extra: darray[RigOps::RigOp] = []
     mutable phys: darray[Physics::PhysOp] = []
+    # Op caches shared by every take this run cleans (Phase 6).
+    mutable bank: darray[Ops::Cache] = []
     if same(command, "clean".cast[cstr]):
         input: cstr = slots[2].cast[cstr]
         mutable output: cstr = "".cast[cstr]
@@ -472,7 +474,7 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
             return 1
         mutable rig: RigOps::Summary = RigOps::empty_summary()
         mutable found: Physics::Findings = Physics::empty_findings()
-        row: Report::Row = clean_take(input, output, preset, only, &extra, &phys, &rig, &found)
+        row: Report::Row = clean_take(input, output, preset, only, &extra, &phys, &rig, &found, &bank)
         print_row(row)
         print_rig(&rig)
         print_physics(&found)
@@ -529,7 +531,7 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
             output: cstr = (&target[0]).cast[cstr]
             mutable rig: RigOps::Summary = RigOps::empty_summary()
             mutable found: Physics::Findings = Physics::empty_findings()
-            row: Report::Row = clean_take(input, output, preset, "".cast[cstr], &extra, &checks, &rig, &found)
+            row: Report::Row = clean_take(input, output, preset, "".cast[cstr], &extra, &checks, &rig, &found, &bank)
             failures <- failures + 1 if not row.ok
             Report::row_detail(&html, input, row, detail_of(count_clips(input), &rig, &found))
             Out::c_text(input)

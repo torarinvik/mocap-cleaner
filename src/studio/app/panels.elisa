@@ -419,35 +419,27 @@ module StudioPanels:
 
         # Curve view: every component of the selected bone's channel,
         # source dim and cleaned bright, on one shared value range.
-        def curves(cb: Box, c: StudioModel::Clip&, bone: i64, frame: i64, mode: i64) -> void:
+        # The curve view draws from the per-(bone, mode) memo, refilled only
+        # when the clip is rebuilt (`built`) or the selection changes.
+        def curves(cb: Box, c: StudioModel::Clip&, bone: i64, frame: i64, mode: i64, memo: mutable StudioPerf::Curves&, built: i64) -> void:
             StudioDraw::rect(cb.x, cb.y, cb.w, cb.h, StudioDraw::panel())
             ch: i64 = StudioModel::curve_channel_in(c, bone, mode)
             if ch < 0:
                 StudioDraw::text(cb.x + 10.0, cb.y + 8.0, 12.0, "no animated channel on this bone", StudioDraw::muted())
                 return
-            held: GlbDocument::Channel = GlbDocument::channel(c.source, c.anim, ch.usize())
-            track: GlbDocument::Track = GlbDocument::track(c.source, held.output)
-            comps: usize = track.components if track.components <= 4 else 4
-            mutable lo: i64 = StudioView::MAX_VALUE
-            mutable hi: i64 = 0 - StudioView::MAX_VALUE
-            for k in 0..<comps |k, c, ch, lo, hi|:
-                a: darray[i64] = StudioClip::curve(c.source, c.anim, ch, k)
-                b: darray[i64] = StudioClip::curve(c.cleaned, c.anim, ch, k)
-                for v in a |v, lo, hi|:
-                    lo <- v if v < lo else lo
-                    hi <- v if v > hi else hi
-                for v in b |v, lo, hi|:
-                    lo <- v if v < lo else lo
-                    hi <- v if v > hi else hi
+            if not StudioPerf::curves_hit(memo, built, bone, mode) or memo.channel != ch:
+                StudioPerf::fill_curves(memo, c.source, c.cleaned, c.anim, ch, built, bone, mode, StudioView::MAX_VALUE)
+            mutable lo: i64 = memo.lo
+            mutable hi: i64 = memo.hi
             lo <- (0 - StudioView::MAX_VALUE) if lo < 0 - StudioView::MAX_VALUE else lo
             hi <- StudioView::MAX_VALUE if hi > StudioView::MAX_VALUE else hi
             lo <- StudioView::MAX_VALUE - 1 if lo >= StudioView::MAX_VALUE else lo
             hi <- lo + 1 if hi <= lo else hi
             inner: Box = box(cb.x + 12.0, cb.y + 22.0, cb.w - 24.0, cb.h - 30.0)
-            for k in 0..<comps |k, c, ch, lo, hi, inner|:
-                a: darray[i64] = StudioClip::curve(c.source, c.anim, ch, k)
-                b: darray[i64] = StudioClip::curve(c.cleaned, c.anim, ch, k)
-                col: UiCore::Color = series_color(k)
+            for k in 0..<memo.comps |k, memo, lo, hi, inner|:
+                a: darray[i64] = StudioPerf::series(&memo.source, k, memo.length)
+                b: darray[i64] = StudioPerf::series(&memo.cleaned, k, memo.length)
+                col: UiCore::Color = series_color(k.usize())
                 polyline(inner, a, lo, hi, UiCore::rgba(col.r, col.g, col.b, 90), 1.0)
                 polyline(inner, b, lo, hi, col, 1.6)
             n: i64 = c.frames if c.frames > 0 else 1

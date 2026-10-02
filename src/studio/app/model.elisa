@@ -14,6 +14,9 @@ include "../view.elisa"
 include "../../ops/presets.elisa"
 include "../../physics/rig_physics.elisa"
 include "../overlay_policy.elisa"
+include "../state/perf_state.elisa"
+
+extern clock() -> i64
 
 module StudioModel:
     public:
@@ -55,6 +58,16 @@ module StudioModel:
             changed: i64
             spikes_before: i64
             spikes_after: i64
+            # Joint tracks interleaved (frame * 4 + joint), kept so the next
+            # edit recomputes only its frame window (StudioPerf).
+            points: mutable darray[Geometry::Vec3]
+            # Stage costs of the build that made this clip, in microseconds
+            # (process CPU clock): clean (evaluate), tracks + detectors +
+            # balance (detect); poses evaluated and ops rerun.
+            evaluate_us: i64
+            detect_us: i64
+            poses: i64
+            ops_run: i64
 
         def open(path: cstr) -> GlbDocument::Document?:
             d: GlbDocument::Document = catch GlbDocument::load(path):
@@ -87,46 +100,99 @@ module StudioModel:
                 return a.i64() if same and name[n] == 0
             return -1
 
-        # Load `path`, find `anim_name`, clean a second copy with `s` and
-        # sample everything the studio draws. Null when the file or the
-        # animation is missing.
-        def build(path: cstr, anim_name: cstr, s: StackState::Stack&) -> Clip?:
+        # What survives stack edits: the source loaded once, its problem
+        # markers, rig order and the per-channel op caches (Phase 6).
+        affine struct Memo:
+            pristine: mutable GlbDocument::Document
+            anim: usize
+            frames: i64
+            nodes: mutable darray[i64]
+            slot: mutable darray[i64]
+            source_problems: mutable darray[i64]
+            bank: mutable darray[Ops::Cache]
+            shortest: i64
+            threshold: i64
+
+        # Load `path` and find `anim_name` (the first animation when absent).
+        # Null when the file or every animation is missing.
+        def load(path: cstr, anim_name: cstr) -> Memo?:
             a: GlbDocument::Document? = open(path)
-            b: GlbDocument::Document? = open(path)
             if a is src:
-                if b is copy:
-                    found: i64 = find(src, anim_name)
-                    found_any: i64 = found if found >= 0 else (0 if GlbDocument::animation_count(src) > 0 else -1)
-                    return null if found_any < 0
-                    anim: usize = found_any.usize()
-                    threshold: i64 = Presets::spike_threshold(Presets::Preset.Boxing)
-                    mutable cleaned: GlbDocument::Document = copy
-                    ops: darray[Ops::Operation] = StackState::operations(s)
-                    result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation(&cleaned, anim, ops, threshold)
-                    for i in 0..<s.fix_count |i, s, cleaned, anim|:
-                        fix: Corrections::Correction = s.fixes[i]
-                        _ = Corrections::apply(&cleaned, anim, &fix)
-                    frames: i64 = StudioClip::frame_count(src, anim)
-                    nodes: darray[i64] = StudioClip::order(src)
-                    slot: darray[i64] = StudioClip::slots(src, nodes)
-                    rig: PoseOverride::Rig = StudioClip::rig(cleaned, nodes, slot)
-                    lh: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_HAND))
-                    rh: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_HAND))
-                    lf: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_FOOT))
-                    rf: darray[Geometry::Vec3] = StudioClip::joint_track(rig, cleaned, anim, frames, nodes, slot, StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_FOOT))
-                    lc: darray[bool] = StudioClip::contacts(lf, Timeline::RATE)
-                    rc: darray[bool] = StudioClip::contacts(rf, Timeline::RATE)
-                    problems: darray[i64] = StudioClip::problems(cleaned, anim, frames, threshold)
-                    source_problems: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
-                    peaks: darray[i64] = StudioClip::peak_accel(cleaned, anim, frames)
-                    ground: f32 = lowest(lf, rf)
-                    before: i64 = total(source_problems)
-                    after: i64 = total(problems)
-                    mutable bal: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0}
-                    balance_of(&cleaned, anim, frames, &bal)
-                    c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after}
-                    return move c
+                found: i64 = find(src, anim_name)
+                found_any: i64 = found if found >= 0 else (0 if GlbDocument::animation_count(src) > 0 else -1)
+                return null if found_any < 0
+                anim: usize = found_any.usize()
+                threshold: i64 = Presets::spike_threshold(Presets::Preset.Boxing)
+                frames: i64 = StudioClip::frame_count(src, anim)
+                nodes: darray[i64] = StudioClip::order(src)
+                slot: darray[i64] = StudioClip::slots(src, nodes)
+                sp: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
+                shortest: i64 = StudioPerf::shortest_keys(src, anim)
+                m: Memo = Memo{pristine: src, anim: anim, frames: frames, nodes: nodes, slot: slot, source_problems: sp, bank: [], shortest: shortest, threshold: threshold}
+                return move m
             return null
+
+        # Load `path`, find `anim_name`, clean a copy with `s` and sample
+        # everything the studio draws (no reuse). Null when missing.
+        def build(path: cstr, anim_name: cstr, s: StackState::Stack&) -> Clip?:
+            loaded: Memo? = load(path, anim_name)
+            if loaded is held:
+                mutable m: Memo = held
+                none_p: darray[Geometry::Vec3] = []
+                none_i: darray[i64] = []
+                return build_with(&m, s, none_p, none_i, none_i, StudioPerf::full(m.frames))
+            return null
+
+        # Clean a copy of the memo's source with `s` (through the op caches)
+        # and sample it. Tracks and detectors are recomputed only in `w`
+        # (detectors in `w` widened by StudioPerf::DETECT_EDGE); every other
+        # frame copies the previous clip's arrays (empty: recompute all).
+        # Contacts and balance are non-local and always recomputed. Equal to
+        # `build` for the same stack when `w` covers what changed.
+        def build_with(m: mutable Memo&, s: StackState::Stack&, prev_points: darray[Geometry::Vec3]&, prev_problems: darray[i64]&, prev_peaks: darray[i64]&, w: StudioPerf::Window) -> Clip?:
+            anim: usize = m.anim
+            frames: i64 = m.frames
+            threshold: i64 = m.threshold
+            t0: i64 = clock()
+            before_runs: i64 = GlbTracks::bank_evaluations(&m.bank)
+            mutable cleaned: GlbDocument::Document = GlbDocument::copy(&m.pristine)
+            ops: darray[Ops::Operation] = StackState::operations(s)
+            result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation_cached(&cleaned, anim, ops, threshold, &m.bank)
+            for i in 0..<s.fix_count |i, s, cleaned, anim|:
+                fix: Corrections::Correction = s.fixes[i]
+                _ = Corrections::apply(&cleaned, anim, &fix)
+            t1: i64 = clock()
+            ops_run: i64 = GlbTracks::bank_evaluations(&m.bank) - before_runs
+            nodes: darray[i64] = copy_ints(&m.nodes)
+            slot: darray[i64] = copy_ints(&m.slot)
+            rig: PoseOverride::Rig = StudioClip::rig(cleaned, nodes, slot)
+            bones: darray[i64] = [StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_HAND), StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_HAND), StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_FOOT), StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_FOOT)]
+            tracks: StudioPerf::Tracks = StudioPerf::joint_tracks(rig, cleaned, anim, frames, nodes, slot, bones, prev_points, w)
+            lh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 0, frames)
+            rh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 1, frames)
+            lf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 2, frames)
+            rf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 3, frames)
+            lc: darray[bool] = StudioClip::contacts(lf, Timeline::RATE)
+            rc: darray[bool] = StudioClip::contacts(rf, Timeline::RATE)
+            edge: StudioPerf::Window = StudioPerf::margin(w, StudioPerf::DETECT_EDGE, frames)
+            problems: darray[i64] = StudioPerf::problems(cleaned, anim, frames, threshold, prev_problems, edge)
+            source_problems: darray[i64] = copy_ints(&m.source_problems)
+            peaks: darray[i64] = StudioPerf::peaks(cleaned, anim, frames, prev_peaks, edge)
+            ground: f32 = lowest(lf, rf)
+            before: i64 = total(source_problems)
+            after: i64 = total(problems)
+            mutable bal: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0}
+            balance_of(&cleaned, anim, frames, &bal)
+            t2: i64 = clock()
+            src: GlbDocument::Document = GlbDocument::copy(&m.pristine)
+            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run}
+            return move c
+
+        def copy_ints(v: darray[i64]&) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for x in v |out|:
+                out.push(x)
+            return out
 
         const SUPPORT_CORNERS: i64 = 4
 

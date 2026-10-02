@@ -190,18 +190,40 @@ and almost all of that is the prover.
       `key_weight_laws` reach "proved".
 
 **Interactive studio (user-visible latency).**
-- [ ] Wire `Ops::evaluate_cached` into the studio, so stack edits rerun only
+- [x] Wire `Ops::evaluate_cached` into the studio, so stack edits rerun only
       the ops after the first changed one. Do the same in the CLI's batch.
+      Status: `GlbTracks::clean_animation_cached` with a per-channel bank kept
+      in `StudioModel::Memo` (the take is loaded once) and shared by the CLI
+      run. Jab: edit to the last op 520 of 1560 op runs, ~4 ms vs ~10 ms;
+      unchanged stack ~2 ms. CLI output is byte-identical; the batch sees
+      little reuse across different takes (cold runs cost about the same).
 - [ ] Cache the rig stack: split it at the contact-edit boundary, so the
       lock/pivot dependency on contacts invalidates only the downstream part.
-- [ ] Range-limited re-evaluation: a correction or op scoped to frames A..B
+      Status: `RigCache::run_clip_cached` (`src/ops/rig_cache.elisa`) snapshots
+      before the first foot lock; a contact edit reruns 2 of 5 steps
+      (~13 ms vs ~23 ms), equal to `RigOps::run_clip`. Partial: library and
+      tests only; the studio does not run the rig stack yet.
+- [x] Range-limited re-evaluation: a correction or op scoped to frames A..B
       recomputes only A..B plus its fade margins.
-- [ ] Gizmo drag preview at 60 fps: evaluate only the dragged bone's chain
+      Status: `StudioPerf::edit_window` + windowed `joint_tracks`/`problems`/
+      `peaks`; equal to a full build (`test/studio_rebuild.elisa`). Joint
+      tracks over an 11-frame window ~0.25 ms vs ~2 ms. Op edits still clean
+      whole channels (the cache handles them); contacts/balance stay full.
+- [x] Gizmo drag preview at 60 fps: evaluate only the dragged bone's chain
       for the current frame, and keep the full rebuild for release.
-- [ ] Detectors and curves computed once per clip edit and memoised per bone
+      Status: `StudioPerf::chain_preview` over a base pose cached per frame and
+      build; equal to `preview_models` (hips 52, hand 16, foot 2 bones
+      moved). Not checked at 60 fps on screen (headless only).
+- [x] Detectors and curves computed once per clip edit and memoised per bone
       (timeline markers, heat, curve view), not on every frame drawn.
-- [ ] Frame-time budget overlay (F key) with per-stage times: evaluate,
+      Status: detectors are computed per rebuild (windowed); the curve view
+      reads `StudioPerf::Curves`, refilled only on a rebuild or a bone/mode
+      change.
+- [x] Frame-time budget overlay (F key) with per-stage times: evaluate,
       detectors, draw.
+      Status: on Shift-F, since F already frames the views. Shows evaluate,
+      detectors and draw µs, poses, ops rerun, drag bones moved. Builds;
+      not inspected on screen.
 
 **Kernels and batch (throughput).**
 - [ ] Profile the CLI on the boxing clips; publish a per-op time table in

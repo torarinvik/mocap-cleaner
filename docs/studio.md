@@ -19,7 +19,7 @@ build/mocap_studio [clip.glb [animation]]    # default: boxing black-boxer.glb, 
 
 ## Keys
 
-The keys are Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O. They are listed in the sidebar.
+The keys are Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O. They are listed in the sidebar. Shift-F toggles the frame-time overlay (evaluate, detectors and draw times in µs, poses evaluated, ops rerun, bones moved by a drag); plain F still frames the views.
 
 Export writes `build/studio_export.glb`.
 
@@ -30,11 +30,12 @@ Export writes `build/studio_export.glb`.
 | `src/studio/{timeline,history,stack_policy,view}.elisa` | proved integer kernels (frame/time/pixel maps, undo cursor, stack index moves, curve and severity mapping) | elisa-proof, `*_laws.elisa` |
 | `src/studio/state/*` | value-level state: timeline, operation stack, history ring, clip sampling | `test/studio_state.elisa`, `test/studio_clip.elisa` |
 | `src/studio/app/model.elisa`, `scene.elisa` | loaded clip plus cleaned copy; 3D draw list (grid, ghost, onion, trails or heat, contacts, skeleton) | `test/studio_capture.elisa` (offscreen PNGs `build/studio_{perspective,front,side}.png`) |
+| `src/studio/state/perf_state.elisa`, `src/core/perf_cache.elisa`, `src/ops/rig_cache.elisa` | Phase 6 caches: edit window, windowed joint tracks and detectors, drag-chain preview, curve memo, rig-stack cache split at foot lock | `test/studio_perf.elisa`, `test/studio_rebuild.elisa`; `perf_cache` by `proof/perf_cache_laws.elisa` |
 | `src/studio/app/{text,panels,app,main}.elisa` | 2D panels, input, window | builds only; it has not been checked visually |
 
 ## Limits
 
 - **Mesh toggle.** The toggle is stored but nothing is drawn. The mesh backdrop needs `ViewportScene`, which is on engine main but not on `mocap-track`.
 - **Draw budget.** elisa-ui records at most 1024 draw commands per frame. To stay under it, curves are drawn as 40 segments per series and timeline markers are grouped into 120 bins.
-- **Rebuild cost.** Each stack edit rebuilds the clip: two loads, a clean and resampling. This takes about 1 s unoptimised and less at -O2. The window is unresponsive during the rebuild.
+- **Rebuild cost.** The take is loaded once (`StudioModel::Memo`). A stack edit copies it, reruns only the ops after the first changed one (per-channel `Ops::Cache`), and re-samples the joint tracks and spike detectors only over the edited frames (see `StudioPerf::edit_window`; a window reaching a short channel's last key runs to the clip end). Contacts and balance are still recomputed in full, and the rebuild still runs on the UI thread. On the jab (unoptimised) a correction rebuild drops from about 0.5 s to about 0.23 s.
 - **Undo keys.** Undo and redo are plain Z and Y, with no Cmd modifier.
