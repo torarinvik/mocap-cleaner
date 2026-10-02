@@ -9,6 +9,8 @@ mkdir -p build/test
 rm -rf build/folder-test && mkdir -p build/folder-test/sub.glb
 touch build/folder-test/a.glb build/folder-test/b.glb build/folder-test/C.GLB build/folder-test/.hidden.glb build/folder-test/c.txt
 status=0
+# Derived icon geometry for test/studio_icons.elisa (also made by build_studio.sh).
+python3 tools/svg_icons.py build/generated/studio_icon_paths.elisa >/dev/null || status=1
 for t in test/*.elisa; do
     name=$(basename "$t" .elisa)
     if ELISA_ALLOW_STALE_STAGE1=1 "$ELISAC" -emit exe -o "build/test/$name" "$t" >"build/test/$name.log" 2>&1; then
