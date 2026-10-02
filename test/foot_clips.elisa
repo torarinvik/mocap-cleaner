@@ -1,0 +1,82 @@
+# Foot cleanup quality over every boxing clip: heel/ball pivot and ankle lock
+# run on each animation; slide, sink/float and knee pops are reported before
+# and after and gated. Skips (rc 0) when the boxing take is not present.
+include "../src/io/ops_file.elisa"
+include "../src/io/console.elisa"
+
+def load_or_empty(path: cstr) -> GlbDocument::Document:
+    doc: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: GlbDocument::Document()
+    return move doc
+
+# Largest frame-to-frame turn of a knee (local rotation), in micro-radians.
+def knee_pop(c: Rig::Clip&, role: i64) -> i64:
+    knee: i64 = Rig::node_of(c, role)
+    return 0 if knee < 0
+    mutable worst: f64 = 0.0
+    for f in 1..<c.frames:
+        a: MotionQuat::Q = Rig::local_rot(c, f - 1, knee)
+        b: MotionQuat::Q = Rig::local_rot(c, f, knee)
+        t: f64 = MotionQuat::angle(MotionQuat::mul(MotionQuat::conjugate(a), b))
+        worst <- t if t > worst
+    return Limb::micro(worst)
+
+def pops(c: Rig::Clip&) -> i64:
+    l: i64 = knee_pop(c, Roles::LEFT_LEG)
+    r: i64 = knee_pop(c, Roles::RIGHT_LEG)
+    return l if l > r else r
+
+def main() -> i32:
+    path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    present: i32 = catch GlbDocument::load(path):
+        value: 1
+        GlbDocument::GlbError.OpenFailed: 0
+        error failure: 2
+    return 0 if present == 0
+    return 9 if present != 1
+    doc: GlbDocument::Document = load_or_empty(path)
+    count: i64 = GlbDocument::animation_count(&doc).i64()
+    return 1 if count == 0
+    Out::line("anim frames pivot_slide_b pivot_slide_a pivot_sink_b pivot_sink_a lock_slide_b lock_slide_a pop_src pop_pivot pop_lock")
+    mutable fails: i32 = 0
+    for a in 0..<count:
+        src: Rig::Clip = Rig::load(&doc, a.usize())
+        pop0: i64 = pops(&src)
+        mutable p: Rig::Clip = Rig::load(&doc, a.usize())
+        mutable ops: darray[RigOps::RigOp] = [RigOps::foot_pivot(4)]
+        sp: RigOps::Summary = RigOps::run_clip(&p, &ops, 20000)
+        mutable l: Rig::Clip = Rig::load(&doc, a.usize())
+        ops <- [RigOps::foot_lock(4)]
+        sl: RigOps::Summary = RigOps::run_clip(&l, &ops, 20000)
+        Out::number(a)
+        Out::text(" ")
+        Out::number(src.frames)
+        Out::text(" ")
+        Out::number(sp.slide_before)
+        Out::text(" ")
+        Out::number(sp.slide_after)
+        Out::text(" ")
+        Out::number(sp.sink_before)
+        Out::text(" ")
+        Out::number(sp.sink_after)
+        Out::text(" ")
+        Out::number(sl.slide_before)
+        Out::text(" ")
+        Out::number(sl.slide_after)
+        Out::text(" ")
+        Out::number(pop0)
+        Out::text(" ")
+        Out::number(pops(&p))
+        Out::text(" ")
+        Out::number(pops(&l))
+        Out::text(" ")
+        Out::line("")
+        # A 1 mm allowance absorbs solver noise on near-static clips.
+        fails <- fails + 1 if sp.slide_after > sp.slide_before + 1000 or sp.sink_after > sp.sink_before + 1000 or sl.slide_after > sl.slide_before + 1000
+        # Knee pops may grow while the leg is pulled onto the floor; the
+        # trade-off is bounded at twice the source or source + 35 mrad.
+        allowed: i64 = pop0 * 2 if pop0 * 2 > pop0 + 35000 else pop0 + 35000
+        fails <- fails + 1 if pops(&p) > allowed or pops(&l) > allowed
+    return 10 + fails if fails > 0
+    return 0

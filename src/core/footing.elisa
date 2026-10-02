@@ -1,0 +1,108 @@
+# Footing kernels for contact detection and the settled anchor of a plant.
+# A foot that rolls on its heel or ball is still planted, so detection uses
+# the slower of the two points; a plant is held where the foot settles (the
+# middle of its run), not where it first touched down. A hold is full on
+# every planted frame and is carried into the swing on either side, easing
+# out over `blend` frames, so planted frames never slide and the catch-up
+# happens while the foot is in the air.
+include "order.elisa"
+include "fade.elisa"
+include "gate.elisa"
+
+module Footing:
+    public:
+        const LIMIT: i64 = 1000000000
+
+        # Planted-foot speed: the slower of heel and ball, never negative.
+        def contact_speed(heel: i64, ball: i64) -> i64:
+            requires heel >= 0
+            requires heel <= LIMIT
+            requires ball >= 0
+            requires ball <= LIMIT
+            ensure result >= 0
+            ensure result <= heel
+            ensure result <= ball
+            ensure result == heel or result == ball
+            return heel if heel <= ball
+            return ball
+
+        # Settled anchor of a run: the run's middle value kept inside the
+        # run's own range, so a hold never leaves where the foot really was.
+        def settled(middle: i64, low: i64, high: i64) -> i64:
+            requires low <= high
+            requires low >= -LIMIT
+            requires high <= LIMIT
+            ensure result >= low
+            ensure result <= high
+            ensure middle < low or middle > high or result == middle
+            return low if middle < low
+            return high if middle > high
+            return middle
+
+        # Weight of a hold `distance` frames outside its planted run: full at
+        # the run, eased to zero `blend` frames out.
+        def carry_weight(distance: i64, blend: i64) -> i64:
+            requires distance >= 0
+            requires distance <= Fade::MAX_FRAMES
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            ensure result >= 0
+            ensure result <= Fade::FULL
+            ensure distance != 0 or result == Fade::FULL
+            ensure distance < blend or result == 0
+            return Fade::FULL if distance == 0
+            return 0 if distance >= blend
+            gone: i64 = Fade::scale(distance, blend)
+            left: i64 = Fade::FULL - gone
+            return Fade::ease(left)
+
+        # A planted run's correction carried `distance` frames into the swing.
+        def carry(offset: i64, distance: i64, blend: i64) -> i64:
+            requires offset >= -LIMIT
+            requires offset <= LIMIT
+            requires distance >= 0
+            requires distance <= Fade::MAX_FRAMES
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            ensure distance > 0 or result == offset
+            ensure distance < blend or result == 0
+            ensure offset < 0 or offset > 0 or result == 0
+            return offset if distance == 0
+            return 0 if distance >= blend
+            return 0 if offset == 0
+            w: i64 = carry_weight(distance, blend)
+            moved: i64 = Gate::apply(0, offset, w)
+            return moved
+
+        # Frames to ease a hold out over: at least `blend`, and long enough
+        # that the eased catch-up (peak slope about twice the mean) moves at
+        # most `step` per frame.
+        def span(offset: i64, step: i64, blend: i64) -> i64:
+            requires offset >= -LIMIT
+            requires offset <= LIMIT
+            requires step >= 1
+            requires step <= LIMIT
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            ensure result >= blend
+            ensure result <= Fade::MAX_EDGE
+            magnitude: i64 = Order::absolute(offset)
+            need: i64 = magnitude * 2 / step + 1
+            return settled(need, blend, Fade::MAX_EDGE)
+
+        # Correction of a swing frame between two holds: what each carries.
+        def between(before: i64, since: i64, after: i64, until: i64, blend: i64) -> i64:
+            requires before >= -LIMIT
+            requires before <= LIMIT
+            requires after >= -LIMIT
+            requires after <= LIMIT
+            requires since >= 1
+            requires since <= Fade::MAX_FRAMES
+            requires until >= 1
+            requires until <= Fade::MAX_FRAMES
+            requires blend >= 1
+            requires blend <= Fade::MAX_EDGE
+            ensure since < blend or until < blend or result == 0
+            first: i64 = carry(before, since, blend)
+            second: i64 = carry(after, until, blend)
+            return first + second

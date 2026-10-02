@@ -8,6 +8,7 @@ include "../core/gate.elisa"
 include "../core/seam.elisa"
 include "../core/smooth.elisa"
 include "../core/lock.elisa"
+include "../core/footing.elisa"
 include "../core/window.elisa"
 include "../detect/contact.elisa"
 include "../detect/spike.elisa"
@@ -180,4 +181,52 @@ module Track:
                     v: i64 = Order::clamp(values[f.usize()], -Lock::LIMIT, Lock::LIMIT)
                     out[f.usize()] <- Lock::locked(v, anchor, f - start, finish - f, blend)
                 start <- finish + 1
+            return out
+
+        # Spread planted corrections into the swing: a planted frame keeps its
+        # own offset in full; a swing frame gets the offset of the run before
+        # it and of the run after it, each eased out over at least `blend` frames
+        # and slowly enough to move at most `step` per frame (Footing::span), so the catch-up happens in the air.
+        def carried(offsets: darray[i64]&, flags: darray[bool]&, blend: i64, step: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for v in offsets |out|:
+                out.push(0)
+            count: i64 = offsets.count.i64()
+            return out if count == 0 or count > Fade::MAX_FRAMES or blend < 1 or blend > Fade::MAX_EDGE or flags.count.i64() < count or step < 1 or step > Footing::LIMIT
+            for f in 0..<count |f, offsets, flags, out|:
+                if flags[f.usize()]:
+                    out[f.usize()] <- Order::clamp(offsets[f.usize()], -Footing::LIMIT, Footing::LIMIT)
+            prev: mutable i64 = -1
+            f: mutable i64 = 0
+            while f < count |f, count, offsets, flags, out, prev, blend|:
+                if flags[f.usize()]:
+                    prev <- f
+                    f <- f + 1
+                    continue
+                next: mutable i64 = f + 1
+                while next < count and not flags[next.usize()] |next, count, flags|:
+                    next <- next + 1
+                for g in f..<next |g, f, next, prev, count, offsets, out, blend|:
+                    before: i64 = Order::clamp(offsets[prev.usize()], -Footing::LIMIT, Footing::LIMIT) if prev >= 0 else 0
+                    after: i64 = Order::clamp(offsets[next.usize()], -Footing::LIMIT, Footing::LIMIT) if next < count else 0
+                    since: i64 = g - prev if prev >= 0 else Fade::MAX_EDGE
+                    until: i64 = next - g if next < count else Fade::MAX_EDGE
+                    since_c: i64 = Order::clamp(since, 1, Fade::MAX_FRAMES)
+                    until_c: i64 = Order::clamp(until, 1, Fade::MAX_FRAMES)
+                    first: i64 = Footing::carry(before, since_c, Footing::span(before, step, blend))
+                    second: i64 = Footing::carry(after, until_c, Footing::span(after, step, blend))
+                    out[g.usize()] <- first + second
+                f <- next
+            return out
+
+        # Offset that holds each planted frame at its run's first value.
+        def hold_offsets(values: darray[i64]&, flags: darray[bool]&) -> darray[i64]:
+            out: mutable darray[i64] = []
+            anchor: mutable i64 = 0
+            for k in 0..<values.count |k, values, flags, out, anchor|:
+                planted: bool = k < flags.count and flags[k]
+                if planted and (k == 0 or not flags[k - 1]):
+                    anchor <- Order::clamp(values[k], -Lock::LIMIT, Lock::LIMIT)
+                v: i64 = Order::clamp(values[k], -Lock::LIMIT, Lock::LIMIT)
+                out.push(anchor - v if planted else 0)
             return out

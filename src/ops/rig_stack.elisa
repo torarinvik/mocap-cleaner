@@ -338,6 +338,14 @@ module RigOps:
                 for k in 0..<flags.count:
                     flags[k] <- Contact::edited(flags[k], k.i64(), op.first, op.last, op.amount != 0)
 
+        # Contact detection, as fractions of leg length: enter and leave
+        # heights above the clip's lowest foot point, and the planted speed
+        # limit per second.
+        const ENTER: f64 = 0.05
+        const LEAVE: f64 = 0.08
+        const STEP: f64 = 0.01
+        const MAX_SPEED: f64 = 0.25
+
         def leg_length(c: Rig::Clip&, leg: (upper: i64, hinge: i64, end: i64, toe: i64)) -> f64:
             mutable w: Rig::World = Rig::empty_world()
             Rig::solve_world(c, 0, &w)
@@ -346,6 +354,11 @@ module RigOps:
         # Contact track of one foot (side 0 left, 1 right): detected from the
         # foot's lowest point and ankle speed, then the hand edits applied.
         # Empty when the leg is missing.
+        def horizontal(a: MotionQuat::V, b: MotionQuat::V) -> f64:
+            dx: f64 = a.x - b.x
+            dz: f64 = a.z - b.z
+            return (dx * dx + dz * dz).sqrt()
+
         def foot_contacts(c: Rig::Clip&, side: i64, ops: darray[RigOp]&) -> darray[bool]:
             mutable none: darray[bool] = []
             leg: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, side)
@@ -371,42 +384,24 @@ module RigOps:
                 heights.push(Order::clamp(h - floor, 0, Hinge::LIMIT))
             span: f64 = c.times[c.times.count - 1] - c.times[0]
             fps: f64 = (c.frames - 1).f64() / span if span > 0.0 else 30.0
+            mutable ball: darray[MotionQuat::V] = []
+            mutable ball_rot: darray[MotionQuat::Q] = []
+            ankle_path(c, leg.toe, &ball, &ball_rot) if leg.toe >= 0
             mutable speeds: darray[i64] = []
             for k in 0..<pos.count:
                 if k == 0:
                     speeds.push(0)
                 else:
-                    dx: f64 = pos[k].x - pos[k - 1].x
-                    dz: f64 = pos[k].z - pos[k - 1].z
-                    speeds.push(Limb::micro((dx * dx + dz * dz).sqrt() * fps))
-            enter: i64 = Limb::micro(length * 0.05)
-            leave: i64 = Limb::micro(length * 0.08)
-            max_speed: i64 = Limb::micro(length * 0.5)
+                    heel: i64 = Order::clamp(Limb::micro(horizontal(pos[k], pos[k - 1]) * fps), 0, Footing::LIMIT)
+                    toe: i64 = Order::clamp(Limb::micro(horizontal(ball[k], ball[k - 1]) * fps), 0, Footing::LIMIT) if k < ball.count else heel
+                    speeds.push(Footing::contact_speed(heel, toe))
+            enter: i64 = Limb::micro(length * ENTER)
+            leave: i64 = Limb::micro(length * LEAVE)
+            max_speed: i64 = Limb::micro(length * MAX_SPEED)
             return none if not Contact::valid_thresholds(enter, leave, max_speed)
             mutable flags: darray[bool] = Track::contacts(&heights, &speeds, enter, leave, max_speed)
             apply_edits(&flags, ops, Roles::LEFT_FOOT if side == 0 else Roles::RIGHT_FOOT)
             return move flags
-
-        # Per-frame lock weight of a contact track: each planted run ramps in
-        # from its plant frame and out to its lift frame (Lock::hold).
-        def hold_weights(flags: darray[bool]&, blend: i64) -> darray[i64]:
-            mutable out: darray[i64] = []
-            for b in flags:
-                out.push(0)
-            count: i64 = flags.count.i64()
-            return out if count > Fade::MAX_FRAMES or blend < 1 or blend > Fade::MAX_EDGE
-            mutable start: i64 = 0
-            while start < count:
-                if not flags[start.usize()]:
-                    start <- start + 1
-                    continue
-                mutable finish: i64 = start
-                while finish + 1 < count and flags[(finish + 1).usize()]:
-                    finish <- finish + 1
-                for f in start..<(finish + 1):
-                    out[f.usize()] <- Lock::hold(f - start, finish - f, blend)
-                start <- finish + 1
-            return out
 
         def m(value: f64) -> i64:
             return Order::clamp(Limb::micro(value), -Pivot::LIMIT, Pivot::LIMIT)
@@ -451,7 +446,6 @@ module RigOps:
                 floor <- m(pos[k].y) if m(pos[k].y) < floor
                 floor <- m(ball[k].y) if m(ball[k].y) < floor
             margin: i64 = Order::clamp(Limb::micro(leg_length(c, leg) * 0.01), 0, Pivot::LIMIT)
-            weights: darray[i64] = hold_weights(flags, Order::clamp(op.edge, 1, Fade::MAX_EDGE))
             mutable choices: darray[i64] = []
             mutable anchors: darray[MotionQuat::V] = []
             mutable choice: i64 = Pivot::HEEL
@@ -474,18 +468,31 @@ module RigOps:
             before: (slide: i64, sink: i64) = pivot_metrics(&points, flags, floor)
             s.slide_before <- s.slide_before + before.slide
             s.sink_before <- s.sink_before + before.sink
+            blend: i64 = Order::clamp(op.edge, 1, Fade::MAX_EDGE)
+            mutable ox: darray[i64] = []
+            mutable oy: darray[i64] = []
+            mutable oz: darray[i64] = []
+            for k in 0..<points.count:
+                p: MotionQuat::V = points[k]
+                ox.push(m(anchors[k].x) - m(p.x))
+                oz.push(m(anchors[k].z) - m(p.z))
+                height: i64 = Order::clamp(m(p.y) - floor, -Pivot::LIMIT, Pivot::LIMIT)
+                oy.push(0 - height)
+            step: i64 = Order::clamp(Limb::micro(leg_length(c, leg) * STEP), 1, Footing::LIMIT)
+            cx: darray[i64] = Track::carried(&ox, flags, blend, step)
+            cy: darray[i64] = Track::carried(&oy, flags, blend, step)
+            cz: darray[i64] = Track::carried(&oz, flags, blend, step)
             mutable w: Rig::World = Rig::empty_world()
             for f in 0..<c.frames:
                 k: usize = f.usize()
-                continue if k >= weights.count or k >= points.count
-                wt: i64 = Offset::offset_amount(weights[k], range_weight(op, f, c.frames))
-                continue if wt == 0
-                p: MotionQuat::V = points[k]
-                dx: i64 = Pivot::shift(m(p.x), m(anchors[k].x), wt)
-                dz: i64 = Pivot::shift(m(p.z), m(anchors[k].z), wt)
-                height: i64 = Order::clamp(m(p.y) - floor, -Pivot::LIMIT, Pivot::LIMIT)
-                dy: i64 = Pivot::settle(height, 0, wt) - height
-                target: MotionQuat::V = Rig::vadd(pos[k], Rig::v(Limb::unmicro(dx), Limb::unmicro(dy), Limb::unmicro(dz)))
+                continue if k >= cx.count
+                wt: i64 = range_weight(op, f, c.frames)
+                dx: i64 = Offset::offset_amount(Order::clamp(cx[k], -Footing::LIMIT, Footing::LIMIT), wt)
+                dy: i64 = Offset::offset_amount(Order::clamp(cy[k], -Footing::LIMIT, Footing::LIMIT), wt)
+                dz: i64 = Offset::offset_amount(Order::clamp(cz[k], -Footing::LIMIT, Footing::LIMIT), wt)
+                continue if dx == 0 and dy == 0 and dz == 0
+                wanted: MotionQuat::V = Rig::vadd(pos[k], Rig::v(Limb::unmicro(dx), Limb::unmicro(dy), Limb::unmicro(dz)))
+                target: MotionQuat::V = wanted
                 _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, target, rot[k], &w)
             ankle_path(c, leg.end, &pos, &rot)
             ankle_path(c, leg.toe, &ball, &ball_rot)
@@ -514,17 +521,27 @@ module RigOps:
                 zs.push(Limb::micro(p.z))
             s.slide_before <- s.slide_before + slide(&xs, &zs, &flags)
             blend: i64 = Order::clamp(op.edge, 1, Fade::MAX_EDGE)
-            lx: darray[i64] = Track::lock(&xs, &flags, blend)
-            ly: darray[i64] = Track::lock(&ys, &flags, blend)
-            lz: darray[i64] = Track::lock(&zs, &flags, blend)
+            hx: darray[i64] = Track::hold_offsets(&xs, &flags)
+            hy: darray[i64] = Track::hold_offsets(&ys, &flags)
+            hz: darray[i64] = Track::hold_offsets(&zs, &flags)
+            step: i64 = Order::clamp(Limb::micro(leg_length(c, leg) * STEP), 1, Footing::LIMIT)
+            cx: darray[i64] = Track::carried(&hx, &flags, blend, step)
+            # Height follows the source: a locked ankle may still roll up.
+            mutable flat: darray[i64] = []
+            for v in hy:
+                flat.push(0)
+            cy: darray[i64] = Track::carried(&flat, &flags, blend, step)
+            cz: darray[i64] = Track::carried(&hz, &flags, blend, step)
             for f in 0..<c.frames:
                 k: usize = f.usize()
+                continue if k >= cx.count
                 weight: i64 = range_weight(op, f, c.frames)
-                nx: i64 = Gate::apply(xs[k], lx[k], weight)
-                ny: i64 = Gate::apply(ys[k], ly[k], weight)
-                nz: i64 = Gate::apply(zs[k], lz[k], weight)
+                nx: i64 = xs[k] + Offset::offset_amount(Order::clamp(cx[k], -Footing::LIMIT, Footing::LIMIT), weight)
+                ny: i64 = ys[k] + Offset::offset_amount(Order::clamp(cy[k], -Footing::LIMIT, Footing::LIMIT), weight)
+                nz: i64 = zs[k] + Offset::offset_amount(Order::clamp(cz[k], -Footing::LIMIT, Footing::LIMIT), weight)
                 continue if nx == xs[k] and ny == ys[k] and nz == zs[k]
-                _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz)), rot[k], &w)
+                target: MotionQuat::V = Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz))
+                _ = Limb::solve_chain(c, f, leg.upper, leg.hinge, leg.end, target, rot[k], &w)
             ankle_path(c, leg.end, &pos, &rot)
             mutable ax: darray[i64] = []
             mutable az: darray[i64] = []
