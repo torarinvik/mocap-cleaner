@@ -12,6 +12,7 @@ include "../../elisa-engine-mocap/src/viewport/viewport_raster.elisa"
 include "../../elisa-engine-mocap/src/viewport/png_writer.elisa"
 
 extern puts(text: cstr) -> i64
+extern getrusage(who: i32, usage: void&) -> i32
 
 const PATH: cstr = "../elisa-boxing-game/boxing-assets/rigged/library/animation_only/black/hook_left.glb"
 
@@ -105,6 +106,29 @@ def check() -> i32:
         return 0
     1
 
+# Peak resident set size in KiB (ru_maxrss is bytes on macOS, KiB on Linux).
+def peak_rss_kib() -> i64 can[Unsafe.PointerCast]:
+    mutable usage: darray[i64] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    _ = getrusage(0, (&usage[0]).cast[void&] can Unsafe.PointerCast)
+    return usage[4] / 1024
+
+# Every rebuild replaces the stored clip. The previous clip must be reclaimed:
+# stage1 used to allocate global-bound values in a never-freed static region,
+# leaking ~2 MB per Studio rebuild. 200 more rebuilds must stay within 32 MiB.
+def check_rebuild_memory() -> i32 can[Unsafe.PointerCast]:
+    for warm in 0..<20 |warm|:
+        Held::rebuild()
+    before: i64 = peak_rss_kib()
+    for k in 0..<200 |k|:
+        Held::rebuild()
+    after: i64 = peak_rss_kib()
+    r: i32 = check()
+    return 30 + r if r != 0
+    if after - before > 32768:
+        _ = puts("studio_globals: rebuilds grew peak RSS past 32 MiB")
+        return 40
+    0
+
 def main() -> i32:
     if not Held::load():
         _ = puts("studio_globals: SKIP (hook_left.glb not found)")
@@ -118,5 +142,7 @@ def main() -> i32:
     Held::rebuild()
     r2: i32 = check()
     return 10 + r2 if r2 != 0
+    rm: i32 = check_rebuild_memory()
+    return rm if rm != 0
     _ = puts("studio_globals: hook_left clip survives the global store (31 frames, 30 fps)")
     0
