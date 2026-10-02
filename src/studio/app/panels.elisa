@@ -9,6 +9,7 @@
 # frame, so curves and markers are binned to a fixed number of segments.
 include "text.elisa"
 include "scene.elisa"
+include "../chrome.elisa"
 
 module StudioDraw:
     public:
@@ -184,9 +185,10 @@ module StudioPanels:
         const TOOLBAR: f32 = 44.0
         const TIMELINE: f32 = 92.0
         const CURVE: f32 = 150.0
+        const STATUS: f32 = 24.0
         const GAP: f32 = 8.0
         const BUTTON: f32 = 32.0
-        const BUTTONS: i64 = 17
+        const BUTTONS: i64 = 18
         const ROW: f32 = 46.0
         const ADD_KINDS: i64 = 5
         const CURVE_SEGMENTS: i64 = 40
@@ -210,6 +212,7 @@ module StudioPanels:
         const A_FRAME: i64 = 14
         const A_EXPORT: i64 = 15
         const A_BALANCE: i64 = 16
+        const A_CLEAN: i64 = 17
 
         # Stack-panel hits: kind * 100 + row (kind 1 select, 2 toggle, 3 up,
         # 4 down, 5 remove), or 600 + k for "add kind k".
@@ -238,7 +241,7 @@ module StudioPanels:
             v if v > 200.0 else 200.0
 
         def views_height(h: f32) -> f32:
-            v: f32 = h - TOOLBAR - CURVE - TIMELINE - 3.0 * GAP
+            v: f32 = h - TOOLBAR - CURVE - TIMELINE - STATUS - 3.0 * GAP
             v if v > 160.0 else 160.0
 
         def view_box(index: usize, w: f32, h: f32) -> Box:
@@ -256,6 +259,9 @@ module StudioPanels:
         def timeline_box(w: f32, h: f32) -> Box:
             box(GAP, TOOLBAR + views_height(h) + CURVE + 2.0 * GAP, main_width(w), TIMELINE)
 
+        def status_box(w: f32, h: f32) -> Box:
+            box(0.0, h - STATUS, w - SIDEBAR, STATUS)
+
         def sidebar_box(w: f32, h: f32) -> Box:
             box(w - SIDEBAR, 0.0, SIDEBAR, h)
 
@@ -264,7 +270,7 @@ module StudioPanels:
             box(t.x + 12.0, t.y, t.w - 24.0, t.h)
 
         def button_x(i: i64) -> f32:
-            groups: i64 = (1 if i >= A_UNDO else 0) + (1 if i >= A_TRAILS else 0) + (1 if i >= A_FRAME else 0)
+            groups: i64 = (1 if i >= A_UNDO else 0) + (1 if i >= A_TRAILS else 0) + (1 if i >= A_FRAME else 0) + (1 if i >= A_CLEAN else 0)
             GAP + i.f32() * (BUTTON + 4.0) + groups.f32() * 14.0
 
         def button_box(i: i64) -> Box:
@@ -294,6 +300,123 @@ module StudioPanels:
             return StudioIcons::BALANCE if action == A_BALANCE
             -1
 
+        # Tooltip of a toolbar button: what it does, then its shortcut.
+        def tip_of(action: i64) -> sview:
+            return "Play / pause  (Space)" if action == A_PLAY
+            return "Previous frame  (Left)" if action == A_BACK
+            return "Next frame  (Right)" if action == A_FORWARD
+            return "Playback speed  (S)" if action == A_SPEED
+            return "Loop playback  (L)" if action == A_LOOP
+            return "Undo  (Cmd-Z)" if action == A_UNDO
+            return "Redo  (Cmd-Shift-Z)" if action == A_REDO
+            return "Motion trails  (T)" if action == A_TRAILS
+            return "Foot contacts  (C)" if action == A_CONTACTS
+            return "Problem heat map  (H)" if action == A_HEAT
+            return "Onion skin  (N)" if action == A_ONION
+            return "Source ghost  (G)" if action == A_GHOST
+            return "X-ray skeleton  (X)" if action == A_XRAY
+            return "Skinned mesh  (M)" if action == A_MESH
+            return "Frame the character  (F)" if action == A_FRAME
+            return "Export cleaned GLB  (E)" if action == A_EXPORT
+            return "Balance overlay  (Q)" if action == A_BALANCE
+            return "Clean with boxing preset  (A)" if action == A_CLEAN
+            ""
+
+        def tooltip(action: i64) -> void:
+            return if action < 0 or action >= BUTTONS
+            b: Box = button_box(action)
+            text: sview = tip_of(action)
+            width: f32 = text.len.f32() * 6.6 + 16.0
+            StudioDraw::rect(b.x, b.y + b.h + 4.0, width, 22.0, StudioDraw::color(240, 236, 220))
+            StudioDraw::text(b.x + 8.0, b.y + b.h + 8.0, 12.0, text, StudioDraw::color(20, 22, 28))
+
+        # Shortcut sheet ("?"): every binding, grouped.
+        const HELP_LINES: i64 = 26
+        def help_line(i: i64) -> sview:
+            return "PLAYBACK" if i == 0
+            return "Space  play / pause       Left / Right  step a frame" if i == 1
+            return "S  speed (1, 1/2, 1/4)    L  loop" if i == 2
+            return "EDITING" if i == 3
+            return "A  clean with the boxing preset (undoable)" if i == 4
+            return "1-5  add despike / smooth / median / wring / seam" if i == 5
+            return "Up / Down  select operation    D  enable / disable" if i == 6
+            return "[ / ]  strength    B  bones    I / O  scope in / out at playhead" if i == 7
+            return "PgUp / PgDn  move operation    Delete  remove" if i == 8
+            return "K  foot fix on / off    , / .  foot blend    W  worst slide" if i == 9
+            return "Click a contact bar on the timeline to plant / lift a foot" if i == 10
+            return "R / V  rotate / translate gizmo (drag to key a correction)" if i == 11
+            return "Cmd-Z  undo    Cmd-Shift-Z (or Y)  redo" if i == 12
+            return "FILE" if i == 13
+            return "Cmd-S  save session (operations + contacts)" if i == 14
+            return "Cmd-O  reopen the saved session    E  export cleaned GLB" if i == 15
+            return "VIEW" if i == 16
+            return "F  frame character    Shift-F  frame times    P  position / rotation curves" if i == 17
+            return "T trails  C contacts  H heat  N onion  G ghost  X x-ray  M mesh  Q balance" if i == 18
+            return "Drag a view to orbit, right-drag to pan, scroll to zoom, click a bone to select" if i == 19
+            return "" if i == 20
+            return "Escape cancels one thing at a time: this sheet, a drag, a contact" if i == 21
+            return "press, the gizmo, then the selection." if i == 22
+            return "" if i == 23
+            return "?  show / hide this sheet" if i == 24
+            ""
+
+        def help_sheet(w: f32, h: f32) -> void:
+            sw: f32 = 620.0
+            sh: f32 = 60.0 + HELP_LINES.f32() * 19.0
+            x: f32 = (w - sw) * 0.5
+            y: f32 = (h - sh) * 0.5
+            StudioDraw::rect(0.0, 0.0, w, h, UiCore::Color{r: 0, g: 0, b: 0, a: 150})
+            StudioDraw::rect(x, y, sw, sh, StudioDraw::color(30, 33, 41))
+            StudioDraw::bold(x + 24.0, y + 18.0, 16.0, "Keyboard shortcuts", StudioDraw::ink())
+            for i in 0..<HELP_LINES |i, x, y|:
+                line: sview = help_line(i)
+                heading: bool = i == 0 or i == 3 or i == 13 or i == 16
+                if heading:
+                    StudioDraw::bold(x + 24.0, y + 52.0 + i.f32() * 19.0, 11.0, line, StudioDraw::accent())
+                else:
+                    StudioDraw::text(x + 24.0, y + 52.0 + i.f32() * 19.0, 12.0, line, StudioDraw::ink())
+
+        # First-run guide or load failure, drawn over the empty views.
+        def guide(w: f32, h: f32, screen: i64) -> void:
+            b: Box = view_box(0, w, h)
+            x: f32 = b.x + 40.0
+            y: f32 = b.y + 40.0
+            if screen == StudioChrome::SCREEN_FAILED:
+                StudioDraw::bold(x, y, 18.0, "Could not open the take", StudioDraw::severity_color(2))
+                StudioDraw::text(x, y + 30.0, 13.0, "The take or animation named on the command line could not be read.", StudioDraw::ink())
+                StudioDraw::text(x, y + 52.0, 13.0, "Check the path, and that the file is a GLB with an animation.", StudioDraw::muted())
+            else:
+                StudioDraw::bold(x, y, 18.0, "Open a take to start", StudioDraw::ink())
+            StudioDraw::text(x, y + 84.0, 13.0, "Start the studio with a take:  build/mocap_studio <take.glb> [animation]", StudioDraw::ink())
+            StudioDraw::text(x, y + 106.0, 13.0, "Then press A to clean it with the boxing preset, or ? for every shortcut.", StudioDraw::muted())
+
+        # Status bar: frame, clip time, rate, selection and the last message.
+        def status_bar(sb: Box, frame: i64, count: i64, rate: i64, selected: i64, slide: i64, spikes: i64, message: sview) -> void:
+            StudioDraw::rect(sb.x, sb.y, sb.w, sb.h, StudioDraw::color(24, 27, 34))
+            StudioDraw::text(sb.x + 560.0, sb.y + 5.0, 12.0, message, StudioDraw::accent())
+            StudioText::begin()
+            StudioText::put("Frame ")
+            StudioText::put_i(StudioChrome::shown_frame(frame, count) if frame >= 0 and frame < count and count >= 1 and count <= StudioChrome::CHROME_FRAMES else 0)
+            StudioText::put(" / ")
+            StudioText::put_i(count)
+            StudioText::put("   ")
+            StudioText::put_fixed3(StudioChrome::clip_millis(frame, rate) * 1000 if frame >= 0 and frame <= StudioChrome::CHROME_FRAMES and rate >= 1 and rate <= StudioChrome::CHROME_RATE_MAX else 0)
+            StudioText::put(" s   ")
+            StudioText::put_i(rate)
+            StudioText::put(" fps   ")
+            if selected >= 0:
+                StudioText::put("operation ")
+                StudioText::put_i(selected + 1)
+            else:
+                StudioText::put("no selection")
+            if slide >= 0:
+                StudioText::put("   clean: slide -")
+                StudioText::put_i(slide / 10)
+                StudioText::put("%, spikes -")
+                StudioText::put_i(spikes / 10)
+                StudioText::put("%")
+            StudioDraw::text(sb.x + 12.0, sb.y + 5.0, 12.0, StudioText::view(), StudioDraw::ink())
+
         # Whether a toggle button is lit.
         def lit(action: i64, flags: i64, t: TimelineState::State&) -> bool:
             return t.looping if action == A_LOOP
@@ -316,6 +439,9 @@ module StudioPanels:
                 c: UiCore::Color = StudioDraw::accent() if on else (StudioDraw::color(80, 86, 100) if dim else StudioDraw::ink())
                 if i == A_SPEED:
                     StudioDraw::text(b.x + 3.0, b.y + 9.0, 12.0, TimelineState::speed_label(t.divisor), c)
+                elif i == A_CLEAN:
+                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(52, 72, 60))
+                    StudioDraw::bold(b.x + 2.0, b.y + 9.0, 11.0, "Auto", StudioDraw::ink())
                 else:
                     StudioIcons::draw(icon_of(i, t.playing), b.x + 6.0, b.y + 6.0, 20.0, c)
 

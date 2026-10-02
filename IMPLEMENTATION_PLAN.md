@@ -225,6 +225,19 @@ and almost all of that is the prover.
       detectors and draw µs, poses, ops rerun, drag bones moved. Builds;
       not inspected on screen.
 
+**Professional studio chrome** (`docs/studio-ux.md`; headless only).
+- [x] Escape cancels one layer at a time (help, drag, contact press, gizmo,
+      selection), proved in `src/studio/chrome.elisa`.
+- [x] `?` shortcut sheet; toolbar tooltips with shortcuts.
+- [x] First-run and load-failure screens; status bar (frame, time, fps,
+      selection, last clean gain).
+- [x] Session save/load (Cmd-S / Cmd-O, ops + contact edits), undoable.
+- [x] One-click clean with the boxing preset (A / Auto) with before/after
+      slide and spike reduction.
+- [ ] Native file-open dialog (needs an engine/ui bridge).
+- [ ] Units on strength/edge controls; toolbar icon set (proposed sets
+      listed in `docs/studio-ux.md`, awaiting a choice).
+
 **Foot cleanup in the studio.**
 - [x] K toggles foot cleanup (on by default), recorded in history.
 - [x] Timeline contact bars are editable (drag ends, lift, plant), with undo/redo.

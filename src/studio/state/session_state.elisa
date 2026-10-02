@@ -1,0 +1,124 @@
+# Studio session file: the editable stack (operations, foot fix on/off and
+# blend, hand contact edits) saved as text next to the take, so a cleanup
+# can be closed and reopened. Format:
+#
+#   mocap-studio session 1
+#   # 1 feet blend | 2 kind enabled first last bones strength edge | 3 side first last planted
+#   1 1 6
+#   2 0 1 0 239 -1 2 8
+#   3 0 40 52 1
+#
+# Fields are signed decimals (OpsFile's reader). Every value is brought
+# into range by the proved StudioChrome checks, so a session saved on a
+# longer take, or edited by hand, still loads safely; unknown operation
+# kinds and malformed lines are skipped. Gizmo corrections are not saved.
+include "stack_state.elisa"
+include "../chrome.elisa"
+include "../../io/ops_file.elisa"
+
+module SessionState:
+    public:
+        const TAG_FEET: i64 = 1
+        const TAG_OP: i64 = 2
+        const TAG_EDIT: i64 = 3
+
+        def session_header() -> sview:
+            return "mocap-studio session 1"
+
+        def kind_code(k: Ops::Kind) -> i64:
+            return 0 if k == Ops::Kind.Despike
+            return 1 if k == Ops::Kind.PinContacts
+            return 2 if k == Ops::Kind.CloseSeam
+            return 3 if k == Ops::Kind.SmoothPath
+            return 4 if k == Ops::Kind.LimitWring
+            return 5
+
+        def kind_from(code: i64) -> Ops::Kind:
+            return Ops::Kind.Despike if code == 0
+            return Ops::Kind.PinContacts if code == 1
+            return Ops::Kind.CloseSeam if code == 2
+            return Ops::Kind.SmoothPath if code == 3
+            return Ops::Kind.LimitWring if code == 4
+            return Ops::Kind.Median
+
+        def encode_session(s: StackState::Stack&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            Report::push_text(&out, session_header())
+            out.push(10)
+            Report::push_text(&out, "# 1 feet blend | 2 kind enabled first last bones strength edge | 3 side first last planted")
+            out.push(10)
+            head: darray[i64] = [TAG_FEET, 1 if s.feet else 0, s.blend]
+            for k in 0..<head.count:
+                out.push(32) if k > 0
+                OpsFile::push_number(&out, head[k])
+            out.push(10)
+            for i in 0..<s.count |s, out|:
+                op: Ops::Operation = s.ops[i]
+                f: darray[i64] = [TAG_OP, kind_code(op.kind), 1 if op.enabled else 0, op.first, op.last, op.bones, op.strength, op.edge]
+                for k in 0..<f.count:
+                    out.push(32) if k > 0
+                    OpsFile::push_number(&out, f[k])
+                out.push(10)
+            for i in 0..<s.edit_count |s, out|:
+                e: StackState::FootEdit = s.edits[i]
+                f: darray[i64] = [TAG_EDIT, e.side, e.first, e.last, 1 if e.planted else 0]
+                for k in 0..<f.count:
+                    out.push(32) if k > 0
+                    OpsFile::push_number(&out, f[k])
+                out.push(10)
+            return move out
+
+        def header_line(text: darray[u8]&) -> bool:
+            mutable h: darray[u8] = []
+            Report::push_text(&h, session_header())
+            return false if text.count < h.count
+            for k in 0..<h.count |text, h|:
+                return false if text[k] != h[k]
+            return true
+
+        # Decode a session for a clip of `frames` frames. Null on a missing
+        # header; bad lines are skipped.
+        def decode_session(text: darray[u8]&, frames: i64) -> StackState::Stack?:
+            return null if frames < 1 or frames > StudioChrome::CHROME_FRAMES
+            return null if not header_line(text)
+            mutable s: StackState::Stack = StackState::empty()
+            mutable cur: darray[u8] = []
+            mutable fields: darray[i64] = []
+            mutable first_line: bool = true
+            mutable k: usize = 0
+            while k <= text.count:
+                if k < text.count and text[k] != 10:
+                    cur.push(text[k])
+                    k <- k + 1
+                    continue
+                k <- k + 1
+                if first_line or cur.count == 0 or cur[0] == 35:
+                    first_line <- false
+                    cur.clear()
+                    continue
+                if OpsFile::parse_fields(&cur, &fields) and fields.count > 0:
+                    tag: i64 = fields[0]
+                    if tag == TAG_FEET and fields.count == 3:
+                        s.feet <- fields[1] != 0
+                        s.blend <- StudioFoot::blend(fields[2])
+                    elif tag == TAG_OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
+                        a: i64 = StudioChrome::session_frame(fields[3], frames)
+                        b: i64 = StudioChrome::session_frame(fields[4], frames)
+                        op: Ops::Operation = Ops::Operation{kind: kind_from(fields[1]), enabled: fields[2] != 0, first: a if a <= b else b, last: b if a <= b else a, bones: StudioChrome::session_bones(fields[5]), strength: StudioChrome::session_strength(fields[6]), edge: StudioChrome::session_edge(fields[7])}
+                        _ = StackState::add(&s, op)
+                    elif tag == TAG_EDIT and fields.count == 5:
+                        a: i64 = StudioChrome::session_frame(fields[2], frames)
+                        b: i64 = StudioChrome::session_frame(fields[3], frames)
+                        _ = StackState::add_edit(&s, fields[1], a if a <= b else b, b if a <= b else a, fields[4] != 0)
+                cur.clear()
+            s.selected <- -1 if s.count == 0 else 0
+            return s
+
+        def save_session(s: StackState::Stack&, path: cstr) -> bool:
+            text: darray[u8] = encode_session(s)
+            return Report::save(&text, path)
+
+        def load_session(path: cstr, frames: i64) -> StackState::Stack?:
+            mutable text: darray[u8] = []
+            return null if not OpsFile::read_bytes(path, &text)
+            return decode_session(&text, frames)

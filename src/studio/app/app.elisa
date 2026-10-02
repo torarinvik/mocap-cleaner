@@ -12,12 +12,14 @@ include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "scene.elisa"
 include "panels.elisa"
 include "../shortcuts.elisa"
+include "../state/session_state.elisa"
 
 extern puts(text: cstr) -> i64
 
 module Studio:
     public:
         const EXPORT_PATH: cstr = "build/studio_export.glb"
+        const SESSION_PATH: cstr = "build/studio_session.txt"
 
         global mutable path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
         global mutable anim_name: cstr = "jab"
@@ -31,6 +33,14 @@ module Studio:
         global mutable drawn_frame: i64 = -1
         global mutable revision: i64 = 0
         global mutable status: sview = "ready"
+        # Chrome: the "?" sheet, whether the take failed to load, and the
+        # toolbar button under the pointer (for its tooltip).
+        global mutable help_open: bool = false
+        global mutable load_failed: bool = false
+        global mutable hover_button: i64 = -1
+        # Last one-click clean: permille of slide and spikes removed, or -1.
+        global mutable gain_slide: i64 = -1
+        global mutable gain_spikes: i64 = -1
         # Skinned mesh of the clip's character, loaded once, and its pose
         # cached per (frame, revision).
         global mutable mesh: GlbSkinMesh::Mesh? = null
@@ -185,7 +195,9 @@ module Studio:
                 memo <- m
             if result == null:
                 status <- "clip failed to load"
+                load_failed <- true
                 return
+            load_failed <- false
             clip <- result
             built_stack <- s
             built <- built + 1
@@ -358,6 +370,33 @@ module Studio:
             select_row(row)
             edit_selected(kind, 0) if kind != StudioPanels::HIT_SELECT
 
+        # One click clean: the boxing preset (every operation plus the foot
+        # fix) as an undoable edit, then the before/after gain.
+        def clean_with_preset() -> void:
+            commit(StudioModel::initial_stack(), true)
+            if clip is c:
+                gain_slide <- gain(c.slide_before, c.slide_after)
+                gain_spikes <- gain(c.spikes_before, c.spikes_after)
+            status <- "cleaned with boxing preset (Cmd-Z to undo)"
+            touch()
+
+        def gain(before: i64, after: i64) -> i64:
+            return 0 if before < 0 or after < 0 or before > StudioChrome::CHROME_SIZE or after > StudioChrome::CHROME_SIZE
+            StudioChrome::clean_gain(before, after)
+
+        def save_session() -> void:
+            ok: bool = SessionState::save_session(current_stack(), SESSION_PATH)
+            status <- "session saved to build/studio_session.txt" if ok else "session save failed"
+            touch()
+
+        def load_session() -> void:
+            if SessionState::load_session(SESSION_PATH, frames()) is loaded:
+                commit(loaded, true)
+                status <- "session loaded (Cmd-Z to undo)"
+            else:
+                status <- "no saved session at build/studio_session.txt"
+            touch()
+
         def export_clip() -> void:
             if clip is c:
                 status <- "exported build/studio_export.glb" if StudioModel::save_cleaned(c, EXPORT_PATH) else "export failed"
@@ -520,7 +559,7 @@ module Studio:
                 can_redo <- HistoryPolicy::can_redo(history.cursor, history.count)
             if timeline is t:
                 StudioPanels::toolbar(t, flags, can_undo, can_redo)
-                StudioDraw::text(StudioPanels::button_x(StudioPanels::BUTTONS) + 8.0, 16.0, 12.0, status, StudioDraw::muted())
+                StudioDraw::text(StudioPanels::button_x(StudioPanels::BUTTONS) + 8.0, 16.0, 12.0, "?  shortcuts", StudioDraw::muted())
                 for i in 0..<3 |i|:
                     b: StudioPanels::Box = view_box(i)
                     StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(38, 40, 46))
@@ -539,6 +578,12 @@ module Studio:
                     StudioPanels::foot_readout(StudioPanels::sidebar_box(w, h), c, readout_value(c.slide_after), StudioFoot::mix(shown_sink, c.sink_after, readout_progress()) if shown_sink >= -StudioFoot::LIMIT and shown_sink <= StudioFoot::LIMIT and c.sink_after >= -StudioFoot::LIMIT and c.sink_after <= StudioFoot::LIMIT else c.sink_after, s.blend)
                     UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
                     drawn_frame <- t.frame
+            screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
+            if screen != StudioChrome::SCREEN_EDIT:
+                StudioPanels::guide(w, h, screen)
+            StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), Timeline::RATE, s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, status)
+            StudioPanels::tooltip(hover_button)
+            StudioPanels::help_sheet(w, h) if help_open
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
@@ -649,6 +694,10 @@ module Studio:
                 drag_button <- button
 
         def pointer_move(x: f32, y: f32) -> void:
+            over: i64 = StudioPanels::toolbar_hit(x, y)
+            if over != hover_button:
+                hover_button <- over
+                touch()
             tbh: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
             row: i64 = StudioPanels::contact_row(tbh, y) if StudioPanels::inside(tbh, x, y) else -1
             if row != hover_row:
@@ -761,13 +810,34 @@ module Studio:
             status <- "gizmo drag cancelled"
             touch()
 
+        # Escape peels one layer: the sheet, a drag, a contact press, the
+        # gizmo, then the selection (StudioChrome::escape_layer).
+        def escape() -> void:
+            s: StackState::Stack = current_stack()
+            layer: i64 = StudioChrome::escape_layer(help_open, gizmo_view >= 0, FootState::active(&foot_press), gizmo_mode >= 0, StackState::valid(s, s.selected))
+            if layer == StudioChrome::ESC_HELP:
+                help_open <- false
+            elif layer == StudioChrome::ESC_DRAG:
+                gizmo_cancel()
+            elif layer == StudioChrome::ESC_PRESS:
+                foot_press <- FootState::idle()
+                status <- "contact edit cancelled"
+            elif layer == StudioChrome::ESC_GIZMO:
+                set_gizmo(gizmo_mode)
+            elif layer == StudioChrome::ESC_SELECT:
+                select_row(-1)
+                status <- "selection cleared"
+            touch()
+
         def key(code: UiCore::Key) -> void:
             if code == UiCore::Key.R:
                 set_gizmo(GizmoPolicy::ROTATE)
             elif code == UiCore::Key.V:
                 set_gizmo(GizmoPolicy::TRANSLATE)
             elif code == UiCore::Key.Escape:
-                gizmo_cancel()
+                escape()
+            elif code == UiCore::Key.A:
+                clean_with_preset()
             elif code == UiCore::Key.Space:
                 toggle_play()
             elif code == UiCore::Key.Left:
@@ -867,6 +937,19 @@ module Studio:
         # plain keys go to the single-key bindings.
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
+            command: bool = StudioShortcuts::command(modifiers)
+            if command and code == UiCore::Key.S:
+                save_session()
+                return
+            if command and code == UiCore::Key.O:
+                load_session()
+                return
+            if code == UiCore::Key.Slash and not command:
+                help_open <- StudioChrome::help_after(help_open, true, false)
+                touch()
+                return
+            if help_open and code != UiCore::Key.Escape:
+                return
             action: i64 = StudioShortcuts::z_chord(modifiers) if code == UiCore::Key.Z else StudioShortcuts::other_chord(modifiers)
             if action == StudioShortcuts::UNDO:
                 undo()

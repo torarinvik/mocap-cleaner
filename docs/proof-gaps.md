@@ -241,3 +241,11 @@ gap below was worked around in our code.
   local hit the same gate, so laws call the kernel inline.
 - G55: `start_is_gentle` (soft reach has slope one at the zone start) could
   not be stated without a product of two variables; dropped.
+- G56: a law returning `bool` with `ensure result` that calls a kernel with
+  literal arguments (`help_after(false, true, false)`) often fails; the same
+  fact proves as an i64 law (`ensure result == N`), with the literal bound
+  through `requires x == literal`, or as `ensure not result`. Kernel bool
+  ensures written `result == (a and b)` fail where split `or result` /
+  `or not result` clauses with explicit `true`/`false` returns prove. A
+  disjunctive requires over five flags times out (`escape_never_idle`,
+  replaced by one `lone_*` law per layer).

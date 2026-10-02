@@ -1,0 +1,83 @@
+# Headless test of the studio session file and chrome decisions: a stack
+# with operations, the foot fix and contact edits saves and loads back the
+# same; a session saved on a longer take is clamped into this take; damaged
+# or unknown lines are skipped; a file without the header is refused. Then
+# the Escape chain, the help sheet toggle and the first-run screen.
+include "../src/studio/state/session_state.elisa"
+
+extern puts(text: cstr) -> i64
+
+def text_of(body: sview) -> darray[u8]:
+    mutable out: darray[u8] = []
+    Report::push_text(&out, body)
+    return move out
+
+def main() -> i32:
+    mutable s: StackState::Stack = StackState::empty()
+    _ = StackState::add(&s, Ops::despike(0, 99, -1, 3))
+    _ = StackState::add(&s, Ops::median(10, 50, 2, 4))
+    _ = StackState::toggle(&s, 1)
+    _ = StackState::set_feet(&s, true)
+    _ = StackState::nudge_blend(&s, true)
+    _ = StackState::add_edit(&s, StackState::LEFT, 20, 30, true)
+    _ = StackState::add_edit(&s, StackState::RIGHT, 40, 41, false)
+    text: darray[u8] = SessionState::encode_session(&s)
+    back: StackState::Stack? = SessionState::decode_session(&text, 100)
+    if back is b:
+        return 2 if not StackState::same(&s, &b)
+    else:
+        return 1
+    # Saved on a 100-frame take, loaded on a 40-frame one: scopes clamp.
+    if SessionState::decode_session(&text, 40) is short:
+        return 3 if short.count != 2
+        return 4 if short.ops[0].last != 39 or short.ops[1].last != 39
+        return 5 if short.edits[0].last != 30 or short.edits[1].first != 39
+    else:
+        return 6
+    # Damaged lines are skipped, values brought into range.
+    bad: darray[u8] = text_of("mocap-studio session 1\n1 1 999\n2 9 1 0 5 -1 2 8\n2 0 1 7 3 77 500 -4\nnot numbers\n3 5 1 2 1\n")
+    if SessionState::decode_session(&bad, 50) is d:
+        return 7 if d.count != 1 or not d.feet
+        return 8 if d.blend != StudioFoot::DEFAULT_BLEND
+        op: Ops::Operation = d.ops[0]
+        return 9 if op.first != 3 or op.last != 7 or op.bones != -1
+        return 10 if op.strength != StudioChrome::CHROME_STRENGTH or op.edge != 0
+        return 11 if d.edit_count != 0
+    else:
+        return 12
+    # No header: refused.
+    nohead: darray[u8] = text_of("2 0 1 0 5 -1 2 8\n")
+    return 13 if SessionState::decode_session(&nohead, 50) != null
+    # Save to disk and load back.
+    path: cstr = "build/test/studio_session.txt"
+    return 14 if not SessionState::save_session(&s, path)
+    if SessionState::load_session(path, 100) is disk:
+        return 15 if not StackState::same(&s, &disk)
+    else:
+        return 16
+    # Escape peels one layer per press: help, drag, gizmo, selection, none.
+    mutable help: bool = true
+    mutable drag: bool = true
+    mutable gizmo: bool = true
+    mutable selected: bool = true
+    mutable presses: i64 = 0
+    while StudioChrome::escape_layer(help, drag, false, gizmo, selected) != StudioChrome::ESC_NONE:
+        layer: i64 = StudioChrome::escape_layer(help, drag, false, gizmo, selected)
+        help <- false if layer == StudioChrome::ESC_HELP else help
+        drag <- false if layer == StudioChrome::ESC_DRAG else drag
+        gizmo <- false if layer == StudioChrome::ESC_GIZMO else gizmo
+        selected <- false if layer == StudioChrome::ESC_SELECT else selected
+        presses <- presses + 1
+        return 17 if presses > 4
+    return 18 if presses != 4
+    # "?" toggles the help sheet, Escape closes it.
+    return 19 if not StudioChrome::help_after(false, true, false)
+    return 20 if StudioChrome::help_after(true, false, true)
+    # First run vs failed load vs editing.
+    return 21 if StudioChrome::chrome_screen(false, false) != StudioChrome::SCREEN_EMPTY
+    return 22 if StudioChrome::chrome_screen(false, true) != StudioChrome::SCREEN_FAILED
+    # Status clock and gain.
+    return 23 if StudioChrome::clip_millis(60, 120) != 500
+    return 24 if StudioChrome::clean_gain(4000, 1000) != 750
+    _ = puts("studio session: ok")
+    return 0

@@ -1,0 +1,230 @@
+# Laws of the studio chrome: Escape always cancels something while anything
+# is open, and pressing it enough times reaches "nothing to cancel"; the
+# first-run screen shows exactly when no clip is loaded; the status clock
+# never runs backwards; the preset gain is a fair share; session fields
+# always land in range and leave good values alone; the help sheet opens
+# and closes cleanly.
+include "chrome.elisa"
+
+module StudioChromeLaws:
+    public:
+        # Escape with the help sheet open closes the help sheet first, even
+        # in the middle of a drag.
+        def help_closes_before_drag(dragging: bool, pressing: bool, gizmo: bool, selected: bool) -> bool:
+            ensure result
+            return StudioChrome::escape_layer(true, dragging, pressing, gizmo, selected) == StudioChrome::ESC_HELP
+
+        # A drag in progress is cancelled before the gizmo mode is left.
+        def drag_cancels_before_mode(pressing: bool, selected: bool) -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, true, pressing, true, selected) == StudioChrome::ESC_DRAG
+
+        # A contact-bar press is cancelled before the selection is cleared.
+        def press_cancels_before_selection(gizmo: bool) -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, false, true, gizmo, true) == StudioChrome::ESC_PRESS
+
+        # Escape always cancels something while anything is open: each
+        # layer alone is cancelled.
+        def lone_drag_cancelled() -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, true, false, false, false) == StudioChrome::ESC_DRAG
+
+        def lone_press_cancelled() -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, false, true, false, false) == StudioChrome::ESC_PRESS
+
+        def lone_gizmo_cancelled() -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, false, false, true, false) == StudioChrome::ESC_GIZMO
+
+        # With nothing open Escape does nothing.
+        def escape_idle_when_clear() -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, false, false, false, false) == StudioChrome::ESC_NONE
+
+        # The selection alone is what Escape clears last.
+        def selection_is_last() -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, false, false, false, true) == StudioChrome::ESC_SELECT
+
+        # The gizmo mode is left before the selection is cleared.
+        def gizmo_before_selection() -> bool:
+            ensure result
+            return StudioChrome::escape_layer(false, false, false, true, true) == StudioChrome::ESC_GIZMO
+
+        # A loaded clip always shows the editor, failed or not.
+        def loaded_shows_editor(failed: bool) -> bool:
+            ensure result
+            return StudioChrome::chrome_screen(true, failed) == StudioChrome::SCREEN_EDIT
+
+        # First run (nothing loaded, nothing failed) shows the guide.
+        def first_run_shows_guide() -> bool:
+            ensure result
+            return StudioChrome::chrome_screen(false, false) == StudioChrome::SCREEN_EMPTY
+
+        # A failed load says so instead of showing an empty editor.
+        def failure_is_shown() -> bool:
+            ensure result
+            return StudioChrome::chrome_screen(false, true) == StudioChrome::SCREEN_FAILED
+
+        # The first frame is at time zero.
+        def clock_starts_at_zero(rate: i64) -> i64:
+            requires rate >= 1
+            requires rate <= StudioChrome::CHROME_RATE_MAX
+            ensure result == 0
+            return StudioChrome::clip_millis(0, rate)
+
+        # Frame labels are one-based: the first frame is "1".
+        def first_frame_label(count: i64) -> i64:
+            requires count >= 1
+            requires count <= StudioChrome::CHROME_FRAMES
+            ensure result == 1
+            return StudioChrome::shown_frame(0, count)
+
+        # The last frame's label is the frame count.
+        def last_frame_label(count: i64) -> bool:
+            requires count >= 1
+            requires count <= StudioChrome::CHROME_FRAMES
+            ensure result
+            return StudioChrome::shown_frame(count - 1, count) == count
+
+        # Removing everything is a full gain.
+        def full_clean_is_full(before: i64) -> i64:
+            requires before >= 1
+            requires before <= StudioChrome::CHROME_SIZE
+            ensure result == StudioChrome::CHROME_ALL
+            return StudioChrome::clean_gain(before, 0)
+
+        # An unchanged value gains nothing.
+        def unchanged_gains_nothing(value: i64) -> bool:
+            requires value >= 0
+            requires value <= StudioChrome::CHROME_SIZE
+            ensure result
+            return StudioChrome::clean_gain(value, value) == 0
+
+        # A worse result never shows as a gain.
+        def worse_gains_nothing(before: i64, after: i64) -> bool:
+            requires before >= 0
+            requires before <= StudioChrome::CHROME_SIZE
+            requires after >= before
+            requires after <= StudioChrome::CHROME_SIZE
+            ensure result
+            return StudioChrome::clean_gain(before, after) == 0
+
+        # Nothing to clean gains nothing.
+        def clean_take_gains_nothing(after: i64) -> i64:
+            requires after >= 0
+            requires after <= StudioChrome::CHROME_SIZE
+            ensure result == 0
+            return StudioChrome::clean_gain(0, after)
+
+        # Every gain is a share between none and all.
+        def gain_is_share(before: i64, after: i64) -> bool:
+            requires before >= 0
+            requires before <= StudioChrome::CHROME_SIZE
+            requires after >= 0
+            requires after <= StudioChrome::CHROME_SIZE
+            ensure result
+            return StudioChrome::clean_gain(before, after) >= 0 and StudioChrome::clean_gain(before, after) <= StudioChrome::CHROME_ALL
+
+        # Every operation kind the stack knows round-trips the session file.
+        def known_kinds_load(code: i64) -> bool:
+            requires code >= 0
+            requires code < StudioChrome::CHROME_KINDS
+            ensure result
+            return StudioChrome::session_kind_ok(code)
+
+        # Unknown kinds are skipped, not guessed.
+        def unknown_kind_skipped(code: i64) -> bool:
+            requires code >= StudioChrome::CHROME_KINDS
+            ensure not result
+            return StudioChrome::session_kind_ok(code)
+
+        def negative_kind_skipped(code: i64) -> bool:
+            requires code < 0
+            ensure not result
+            return StudioChrome::session_kind_ok(code)
+
+        # A saved strength in range loads unchanged.
+        def strength_round_trips(value: i64) -> bool:
+            requires value >= 1
+            requires value <= StudioChrome::CHROME_STRENGTH
+            ensure result
+            return StudioChrome::session_strength(value) == value
+
+        # A damaged strength still loads in range.
+        def strength_in_range(value: i64) -> bool:
+            ensure result
+            return StudioChrome::session_strength(value) >= 1 and StudioChrome::session_strength(value) <= StudioChrome::CHROME_STRENGTH
+
+        # A saved edge in range loads unchanged.
+        def edge_round_trips(value: i64) -> bool:
+            requires value >= 0
+            requires value <= StudioChrome::CHROME_EDGE
+            ensure result
+            return StudioChrome::session_edge(value) == value
+
+        def edge_in_range(value: i64) -> bool:
+            ensure result
+            return StudioChrome::session_edge(value) >= 0 and StudioChrome::session_edge(value) <= StudioChrome::CHROME_EDGE
+
+        # Known bone masks load unchanged; a damaged one loads as all bones.
+        def legs_mask_round_trips(mask: i64) -> i64:
+            requires mask == 2
+            ensure result == 2
+            return StudioChrome::session_bones(mask)
+
+        def upper_mask_round_trips(mask: i64) -> i64:
+            requires mask == 1
+            ensure result == 1
+            return StudioChrome::session_bones(mask)
+
+        def damaged_mask_is_all(mask: i64) -> i64:
+            requires mask > 2
+            ensure result + 1 == 0
+            return StudioChrome::session_bones(mask)
+
+        # A saved scope frame inside the clip loads unchanged.
+        def frame_round_trips(value: i64, count: i64) -> bool:
+            requires count >= 1
+            requires count <= StudioChrome::CHROME_FRAMES
+            requires value >= 0
+            requires value < count
+            ensure result
+            return StudioChrome::session_frame(value, count) == value
+
+        # A session saved on a longer take lands on this take's last frame.
+        def long_scope_lands_on_end(value: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= StudioChrome::CHROME_FRAMES
+            requires value >= count
+            ensure result + 1 == count
+            return StudioChrome::session_frame(value, count)
+
+        # "?" opens a closed help sheet and closes an open one.
+        def question_opens(open: bool) -> bool:
+            requires not open
+            ensure result
+            return StudioChrome::help_after(open, true, false)
+
+        def question_closes(open: bool) -> bool:
+            requires open
+            ensure not result
+            return StudioChrome::help_after(open, true, false)
+
+        # Escape always closes the help sheet.
+        def escape_closes_help(open: bool, question: bool) -> bool:
+            ensure not result
+            return StudioChrome::help_after(open, question, true)
+
+        # Other keys leave the help sheet as it was.
+        def other_keys_keep_open(open: bool) -> bool:
+            requires open
+            ensure result
+            return StudioChrome::help_after(open, false, false)
+
+        def other_keys_keep_closed(open: bool) -> bool:
+            requires not open
+            ensure not result
+            return StudioChrome::help_after(open, false, false)

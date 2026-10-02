@@ -1,0 +1,162 @@
+# Studio chrome decisions, kept pure so they can be proved: what Escape
+# cancels (one layer per press, innermost first), which screen the window
+# shows (first run, load failure, editing), the status-bar clock, the
+# preset's before/after gain, the session file's field checks, and the
+# help sheet's open state.
+module StudioChrome:
+    public:
+        # Escape layers, innermost first.
+        const ESC_NONE: i64 = 0
+        const ESC_HELP: i64 = 1
+        const ESC_DRAG: i64 = 2
+        const ESC_PRESS: i64 = 3
+        const ESC_GIZMO: i64 = 4
+        const ESC_SELECT: i64 = 5
+
+        # Screens.
+        const SCREEN_EMPTY: i64 = 0
+        const SCREEN_FAILED: i64 = 1
+        const SCREEN_EDIT: i64 = 2
+
+        const CHROME_FRAMES: i64 = 10000000
+        const CHROME_RATE_MAX: i64 = 1000
+        const CHROME_SIZE: i64 = 1000000000
+        const CHROME_ALL: i64 = 1000
+        # Session field ranges (match StackState and Ops).
+        const CHROME_KINDS: i64 = 6
+        const CHROME_STRENGTH: i64 = 64
+        const CHROME_EDGE: i64 = 120
+
+        # What one Escape press cancels: the help sheet, then a gizmo drag,
+        # then a contact-bar press, then the gizmo mode, then the selection.
+        def escape_layer(help: bool, dragging: bool, pressing: bool, gizmo: bool, selected: bool) -> i64:
+            ensure result >= ESC_NONE
+            ensure result <= ESC_SELECT
+            ensure not help or result == ESC_HELP
+            ensure help or not dragging or result == ESC_DRAG
+            ensure help or dragging or not pressing or result == ESC_PRESS
+            ensure help or dragging or pressing or not gizmo or result == ESC_GIZMO
+            ensure help or dragging or pressing or gizmo or not selected or result == ESC_SELECT
+            ensure help or dragging or pressing or gizmo or selected or result == ESC_NONE
+            return ESC_HELP if help
+            return ESC_DRAG if dragging
+            return ESC_PRESS if pressing
+            return ESC_GIZMO if gizmo
+            return ESC_SELECT if selected
+            return ESC_NONE
+
+        # Screen to draw: the editor once a clip is loaded, otherwise the
+        # first-run guide, or the load failure with its path.
+        def chrome_screen(loaded: bool, failed: bool) -> i64:
+            ensure result >= SCREEN_EMPTY
+            ensure result <= SCREEN_EDIT
+            ensure not loaded or result == SCREEN_EDIT
+            ensure loaded or not failed or result == SCREEN_FAILED
+            ensure loaded or failed or result == SCREEN_EMPTY
+            return SCREEN_EDIT if loaded
+            return SCREEN_FAILED if failed
+            return SCREEN_EMPTY
+
+        # Clip time of `frame` at `rate` frames per second, in milliseconds.
+        def clip_millis(frame: i64, rate: i64) -> i64:
+            requires frame >= 0
+            requires frame <= CHROME_FRAMES
+            requires rate >= 1
+            requires rate <= CHROME_RATE_MAX
+            ensure result >= 0
+            ensure result <= frame * 1000
+            return frame * 1000 / rate
+
+        # Shown frame number: one-based, as editors label frames.
+        def shown_frame(frame: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= CHROME_FRAMES
+            requires frame >= 0
+            requires frame < count
+            ensure result >= 1
+            ensure result <= count
+            ensure result == frame + 1
+            return frame + 1
+
+        # How much of `before` the clean removed, permille (0 when nothing
+        # was there or it got worse, 1000 when all of it went).
+        def clean_gain(before: i64, after: i64) -> i64:
+            requires before >= 0
+            requires before <= CHROME_SIZE
+            requires after >= 0
+            requires after <= CHROME_SIZE
+            ensure result >= 0
+            ensure result <= CHROME_ALL
+            ensure before > 0 or result == 0
+            ensure after < before or result == 0
+            ensure after > 0 or before == 0 or result == CHROME_ALL
+            return 0 if before == 0
+            return 0 if after >= before
+            return CHROME_ALL if after == 0
+            removed: i64 = before - after
+            share: i64 = removed * CHROME_ALL / before
+            return 0 if share < 0
+            return CHROME_ALL if share > CHROME_ALL
+            return share
+
+        # Session file checks: a kind code, and fields brought into range.
+        def session_kind_ok(code: i64) -> bool:
+            ensure code < 0 or code >= CHROME_KINDS or result
+            ensure code >= 0 or not result
+            ensure code < CHROME_KINDS or not result
+            return false if code < 0
+            return false if code >= CHROME_KINDS
+            return true
+
+        def session_strength(value: i64) -> i64:
+            ensure result >= 1
+            ensure result <= CHROME_STRENGTH
+            ensure value < 1 or value > CHROME_STRENGTH or result == value
+            return 1 if value < 1
+            return CHROME_STRENGTH if value > CHROME_STRENGTH
+            return value
+
+        def session_edge(value: i64) -> i64:
+            ensure result >= 0
+            ensure result <= CHROME_EDGE
+            ensure value < 0 or value > CHROME_EDGE or result == value
+            return 0 if value < 0
+            return CHROME_EDGE if value > CHROME_EDGE
+            return value
+
+        # A saved bone mask: all bones (-1), upper body (1) or legs (2);
+        # anything else loads as all bones.
+        def session_bones(mask: i64) -> i64:
+            ensure result == 0 - 1 or result == 1 or result == 2
+            ensure mask != 1 or result == 1
+            ensure mask != 2 or result == 2
+            ensure mask == 1 or mask == 2 or result == 0 - 1
+            return 1 if mask == 1
+            return 2 if mask == 2
+            return 0 - 1
+
+        # A saved scope frame brought inside a clip of `count` frames.
+        def session_frame(value: i64, count: i64) -> i64:
+            requires count >= 1
+            requires count <= CHROME_FRAMES
+            ensure result >= 0
+            ensure result < count
+            ensure value < 0 or value >= count or result == value
+            ensure value < count or result == count - 1
+            return 0 if value < 0
+            return count - 1 if value >= count
+            return value
+
+        # Help sheet after a key: "?" toggles it, Escape closes it.
+        def help_after(open: bool, question: bool, escape: bool) -> bool:
+            ensure not escape or not result
+            ensure escape or not question or open or result
+            ensure escape or not question or not open or not result
+            ensure escape or question or not open or result
+            ensure escape or question or open or not result
+            return false if escape
+            if question:
+                return false if open
+                return true
+            return true if open
+            return false
