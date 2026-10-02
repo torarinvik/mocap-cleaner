@@ -163,14 +163,64 @@ Everything above works headless first; the UI puts it in front of the user.
       (`--op momentum`: tapered local smoothing, drift capped at 10°.)
 
 Status: CoM and support-region flagging is headless (`--op balance`,
-`src/physics/rig_physics.elisa`, reported in the CLI, JSON and HTML report);
-the overlay waits for the studio, so that item stays open.
+`src/physics/rig_physics.elisa`, reported in the CLI, JSON and HTML report),
+and the studio overlay is done (Q).
 
 ### Phase 5: Batch and pipeline
 - [x] Presets per source, e.g. "Mixamo boxing" or "Rokoko raw". (`boxing`, `raw`, `rokoko`.)
 - [x] Batch folder processing with an HTML report. (`batch OUTDIR [--op ...] IN.glb|FOLDER...`; macOS dirent layout.)
 - [x] Retarget-aware import: map several skeletons to a common rig.
       (`src/io/rig_map.elisa`: Mixamo, plain, Rokoko/Unity spellings onto `src/core/roles.elisa`.)
+
+### Phase 6: Performance and high-ROI follow-ups
+Ordered by return on effort. Every speedup is measured (before/after wall
+time on the boxing jab and the full batch) and must leave outputs
+byte-identical, or within the existing test tolerances.
+
+**Proof loop (developer speed).** The full `scripts/check.sh` takes 185 s,
+and almost all of that is the prover.
+- [ ] Prover hot spots: `congruence_goal`, `disjunct_modus_ponens`,
+      `linear_fact_parts` (in progress in `elisa-proof-mocap`); `build.sh`
+      defaults to O2. Target: check.sh under 60 s.
+- [ ] Incremental proofs: hash each source file plus the prover binary and
+      skip re-proving unchanged files (`build/proof/<hash>.txt`).
+- [ ] Longest-first scheduling in check.sh (balance, hinge, pin first), and
+      `PROOF_JOBS` defaulting to the core count.
+- [ ] Fix the 6 certificate-replay gaps so `key_weight` and
+      `key_weight_laws` reach "proved".
+
+**Interactive studio (user-visible latency).**
+- [ ] Wire `Ops::evaluate_cached` into the studio, so stack edits rerun only
+      the ops after the first changed one. Do the same in the CLI's batch.
+- [ ] Cache the rig stack: split it at the contact-edit boundary, so the
+      lock/pivot dependency on contacts invalidates only the downstream part.
+- [ ] Range-limited re-evaluation: a correction or op scoped to frames A..B
+      recomputes only A..B plus its fade margins.
+- [ ] Gizmo drag preview at 60 fps: evaluate only the dragged bone's chain
+      for the current frame, and keep the full rebuild for release.
+- [ ] Detectors and curves computed once per clip edit and memoised per bone
+      (timeline markers, heat, curve view), not on every frame drawn.
+- [ ] Frame-time budget overlay (F key) with per-stage times: evaluate,
+      detectors, draw.
+
+**Kernels and batch (throughput).**
+- [ ] Profile the CLI on the boxing clips; publish a per-op time table in
+      the report.
+- [ ] Running median in O(log w) per sample (two heaps or an order-statistic
+      window) instead of re-sorting each window.
+- [ ] Separable Gaussian with precomputed kernels; reuse buffers across
+      bones instead of allocating per track.
+- [ ] Batch: process files in parallel worker processes (`--jobs N`), and
+      parse the GLB once per file for all ops.
+- [ ] Structure-of-arrays tracks (contiguous per-channel floats) so the
+      filters stream through memory.
+
+**Product (non-performance, high ROI).**
+- [ ] Hand contacts (planted hands on ropes and floor) reuse the foot
+      contact pipeline.
+- [ ] One-click "Fix all" in the studio: apply the preset, then show
+      before/after metrics per detector.
+- [ ] Report diff between two runs (regression check for preset changes).
 
 ## Proofs (elisa-proof)
 
