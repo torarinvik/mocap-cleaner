@@ -373,7 +373,14 @@ now prove completely with every certificate replayed.
   `entered` and `rescale_tail`, which carry the guards themselves. The
   guards are no-ops for `ranges_of` output (ordered, non-empty, in-clip
   ranges), so the output is unchanged; the range_step requires close.
-  Remaining: index and budget findings at `source_times` :167-171.
+  Remaining: index and budget findings at `source_times` :167-171. Tried
+  (gaps2): moving the stop handling into a loop-free helper indexed by a
+  plain `usize` removes the index and budget findings, but the prover then
+  drops path facts in the `while t < end` body: even an explicit
+  `if t >= 0 and t <= MAX_TIME` immediately before `range_delta(t)` /
+  `finish(t)` leaves those requires unproven, and the two `t` invariants
+  stop being preserved (net +3). Reverted; this looks like a prover gap
+  in while-loop fact tracking rather than missing app guards.
 - G76: `Track::despike`/`smooth` called `Gate::apply` per frame with
   requires on the fade and the values. They now end in `faded`, which uses
   `fade_at` (no requires, ensures `[0, FULL]`, calls the `Fade` kernel in
@@ -385,13 +392,15 @@ now prove completely with every certificate replayed.
   `frame_fade` (fully proven; `else: return FULL` on every branch, direct
   `return Fade::ramp`) and `gated`, and checks the bone index before
   `Gate::bone_selected`. Remaining: the opaque `candidate` summary
-  (apply :71) and its caller `evaluate` :122.
-- G78: `push_number` in `Report` and `OpsFile` writes digits most
-  significant first from a power-of-ten `place` instead of reversing a
-  buffer (same bytes). The call-requires on the reversed index close;
-  the `place` loop invariants stay unproven (nonlinear `place * 10 <=
-  rest`), and the callers `cell`/`row`/`pair` still see an unverified
-  summary.
+  (apply :71) and its caller `evaluate` :122. `candidate` only dispatches
+  to Track::despike/smooth/limit_wring/median/close_seam/contacts/pin; it
+  becomes verified only once those Track bodies are (track.elisa still
+  has ~160 unproven findings), so this is blocked on proving Track.
+- G78 (closed): `push_number` in `Report` and `OpsFile` walks the 19
+  powers of ten from 10^18 down in a fixed `for` loop, skipping leading
+  zeros (same bytes; the units digit is always written). No `place`
+  invariant remains. Report goes from 31 to 8 unproven; what is left there
+  is G79 (`push_cstr` / `save`) and its callers.
 - G79 (prover gap): `contract-proposition-type` on `file != null`
   (`Report::save`, `OpsFile::read_bytes`) and on cstr `s[i] != 0`
   (`push_cstr`). Optional-pointer comparison is not a proposition the
