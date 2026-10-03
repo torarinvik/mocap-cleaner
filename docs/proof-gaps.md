@@ -391,11 +391,16 @@ now prove completely with every certificate replayed.
 - G77: `Ops::apply` in `stack.elisa` builds its per-frame weight through
   `frame_fade` (fully proven; `else: return FULL` on every branch, direct
   `return Fade::ramp`) and `gated`, and checks the bone index before
-  `Gate::bone_selected`. Remaining: the opaque `candidate` summary
-  (apply :71) and its caller `evaluate` :122. `candidate` only dispatches
-  to Track::despike/smooth/limit_wring/median/close_seam/contacts/pin; it
-  becomes verified only once those Track bodies are (track.elisa still
-  has ~160 unproven findings), so this is blocked on proving Track.
+  `Gate::bone_selected`. `src/tools/track.elisa` now proves completely
+  (958/958 obligations, 0 findings; 6 certificates in `fade_at`/`faded`/
+  `median` do not replay, as before, so its state reads `unknown`); the
+  workarounds are G80-G82 and docs/track-proofs-notes.md. `stack.elisa`
+  goes from 65 to 34 unproven, all in `stack.elisa` itself. `candidate`
+  still sees `borrow-call-opaque` at `Track::despike`, `Track::limit_wring`
+  and `Track::median`: a G68-style capture, since `Ops` (and `Stability`)
+  define functions with those names. An identical `limit_wring` body in a
+  module of its own is not opaque to its caller. Closing it needs either
+  distinct names on one side or the prover keying summaries by module.
 - G78 (closed): `push_number` in `Report` and `OpsFile` walks the 19
   powers of ten from 10^18 down in a fixed `for` loop, skipping leading
   zeros (same bytes; the units digit is always written). No `place`
@@ -406,6 +411,30 @@ now prove completely with every certificate replayed.
   (`push_cstr`). Optional-pointer comparison is not a proposition the
   kernel accepts; it cannot be closed in app code without changing the
   null check. Left for the prover.
+- G80 (prover gap): a closed comparison between constants of different
+  sign is never decided. `return 3` does not establish `ensure result >=
+  -5`, `Order::clamp(0, -H, H)` does not establish `result >= -H`, and a
+  `-K` argument fails `requires lo <= hi`. `proof_closed_safe_constant_
+  comparison` and `proof_closed_signed_i64_comparison`
+  (`src/proof/linear/congruence_goals.elisa`) both bail out on
+  `proof_has_ambiguous_integer_constant`, which accepts only 0..127
+  (`fixed_width_arithmetic.elisa:5-35, 84-87`). Two negative constants
+  compare fine through linear reasoning. App workaround: clamp through a
+  helper that takes the bound positive (`Track::bound_to(v, k)`, ensures
+  `result >= -k`), and never return a literal under a negative bound.
+- G81 (prover gap): two `clamp`s in scope (`Order::clamp` and
+  `Span::clamp`, both included by Track) make the prover drop
+  `Order::clamp`'s ensures at the call; a uniquely named copy
+  (`Track::bounded`) keeps them. Same family as G68.
+- G82 (prover gap): within one body, the ensures of a call result are lost
+  once a later call's facts mention a negative constant, and facts about a
+  `let x = f(...)` binding are not tied to `f`'s ensures after a call that
+  takes a `mutable` borrow. Track keeps one clamp per function
+  (`carried_side` -> `side_eased` -> `side_held` -> `carry_over`), moves
+  inner loops into their own functions (`lock_run`, `carry_gap`, which
+  also clears the control-flow fact budget), and restates the callee's
+  ensures as never-taken `break if` guards where a loop invariant needs
+  them.
 
 ## Replay of summary dependencies (elisa-proof-mocap 19611a2, 2026-10-03)
 

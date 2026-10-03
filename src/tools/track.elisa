@@ -25,50 +25,47 @@ module Track:
         const LOCK_LIMIT: i64 = 1000000000        # Lock::LIMIT
         const FOOT_LIMIT: i64 = 1000000000        # Footing::LIMIT
         const WRING_HALF: i64 = 500000000         # Stability::LIMIT / 2
+        const STABLE_LIMIT: i64 = 1000000000      # Stability::LIMIT
 
-        # Order::clamp to the exact ranges the kernels require, with ensures
-        # stated in the kernels' own terms (a clamp to the Track-local
-        # constants does not discharge them). Same values as the clamps they
-        # replace, since the constants are equal.
-        def foot_value(v: i64) -> i64:
-            ensure result >= 0 - Footing::LIMIT
-            ensure result <= Footing::LIMIT
-            ensure v < 0 - Footing::LIMIT or v > Footing::LIMIT or result == v
-            return 0 - Footing::LIMIT if v < 0 - Footing::LIMIT
-            return Footing::LIMIT if v > Footing::LIMIT
+        # Order::clamp under a name of its own: Span::clamp is also included,
+        # and with two `clamp`s in scope the prover does not apply
+        # Order::clamp's ensures at the call. Same body and contract.
+        def bounded(value: i64, lo: i64, hi: i64) -> i64:
+            requires lo <= hi
+            ensure result >= lo
+            ensure result <= hi
+            ensure value < lo or value > hi or result == value
+            return lo if value < lo
+            return hi if value > hi
+            return value
+
+        # bounded(v, -k, k), with k passed positive: a negated constant
+        # argument is a mixed-sign constant the prover will not compare.
+        def bound_to(v: i64, k: i64) -> i64:
+            requires k >= 0
+            ensure result >= -k
+            ensure result <= k
+            ensure v < -k or v > k or result == v
+            return -k if v < -k
+            return k if v > k
             return v
 
+        # bound_to at each kernel bound. Called inside loops, where a
+        # constant argument's `k >= 0` is not re-proved per call.
         def lock_value(v: i64) -> i64:
-            ensure result >= 0 - Lock::LIMIT
-            ensure result <= Lock::LIMIT
-            ensure v < 0 - Lock::LIMIT or v > Lock::LIMIT or result == v
-            return 0 - Lock::LIMIT if v < 0 - Lock::LIMIT
-            return Lock::LIMIT if v > Lock::LIMIT
-            return v
+            ensure result >= -LOCK_LIMIT
+            ensure result <= LOCK_LIMIT
+            return bound_to(v, LOCK_LIMIT)
+
+        def foot_value(v: i64) -> i64:
+            ensure result >= -FOOT_LIMIT
+            ensure result <= FOOT_LIMIT
+            return bound_to(v, FOOT_LIMIT)
 
         def wring_value(v: i64) -> i64:
-            ensure result >= (0 - Stability::LIMIT) / 2
-            ensure result <= Stability::LIMIT / 2
-            ensure v < (0 - Stability::LIMIT) / 2 or v > Stability::LIMIT / 2 or result == v
-            return (0 - Stability::LIMIT) / 2 if v < (0 - Stability::LIMIT) / 2
-            return Stability::LIMIT / 2 if v > Stability::LIMIT / 2
-            return v
-
-        # A carry distance (Order::clamp(d, 1, Fade::MAX_FRAMES)).
-        def reach_of(d: i64) -> i64:
-            ensure result >= 1
-            ensure result <= Fade::MAX_FRAMES
-            return 1 if d < 1
-            return Fade::MAX_FRAMES if d > Fade::MAX_FRAMES
-            return d
-
-        # A blend width (Order::clamp(b, 1, Fade::MAX_EDGE)).
-        def edge_of(b: i64) -> i64:
-            ensure result >= 1
-            ensure result <= Fade::MAX_EDGE
-            return 1 if b < 1
-            return Fade::MAX_EDGE if b > Fade::MAX_EDGE
-            return b
+            ensure result >= -WRING_HALF
+            ensure result <= WRING_HALF
+            return bound_to(v, WRING_HALF)
 
         # Fade weight that matches Fade::weight / eased_weight at runtime for
         # every edge, frame and length: in the kernel domain it calls the
@@ -435,13 +432,20 @@ module Track:
             target_end: i64 = item(values, 0)
             count: i64 = last + 1
             for f in 0..<count |f, values, out, last, window, target_end|:
-                # Always true (f < count = last + 1, guard above); restated
-                # because the loop body does not see the guard.
+                # Always true (f < count = last + 1, and the guard above);
+                # restated because the loop body does not carry the guard.
                 if f >= 0 and f <= last and window >= 1 and window <= last:
                     w: i64 = pulled(f, last, window)
                     source: i64 = item(values, f)
                     put(&out, f, blend(source, target_end, w))
             return out
+
+        # Sum of the clamped channel values (wring_guard's numerator).
+        def wring_total(values: darray[i64]&) -> i64:
+            total: mutable i64 = 0
+            for v in values |total|:
+                total <- total + wring_value(v)
+            return total
 
         # The guard pose: the mean of the channel clamped to half the
         # stability range, clamped again into that range.
@@ -449,30 +453,23 @@ module Track:
             ensure result >= -WRING_HALF
             ensure result <= WRING_HALF
             n: i64 = values.count.i64()
-            # Beyond 1e10 frames (80 GB of samples) the sum could overflow;
-            # no clip comes near that (Fade::MAX_FRAMES is 1e7).
-            return 0 if n <= 0 or n > 10000000000
-            total: mutable i64 = 0
-            k: mutable i64 = 0
-            while k < n:
-                invariant k >= 0
-                invariant k <= n
-                invariant n <= 10000000000
-                invariant total <= k * WRING_HALF
-                invariant total >= 0 - k * WRING_HALF
-                total <- total + Order::clamp(item(values, k), -WRING_HALF, WRING_HALF)
-                k <- k + 1
-            return Order::clamp(total / n, -WRING_HALF, WRING_HALF)
+            # n is 0 here, so this is 0 (a literal 0 does not establish a
+            # negative lower bound for the prover; a clamped name does).
+            return wring_value(n) if values.count == 0
+            total: i64 = wring_total(values)
+            mean: i64 = total / n
+            return wring_value(mean)
 
         # One frame of limit_wring, the value clamped like the guard.
         def wring_one(v: i64, about: i64, bound: i64) -> i64:
-            requires about >= -WRING_HALF
-            requires about <= WRING_HALF
             requires bound >= 0
             requires bound <= Stability::LIMIT
             value: i64 = wring_value(v)
-            guard: i64 = wring_value(about)
-            return Stability::limit_wring(value, guard, bound)
+            # Never taken: value is a wring_value and `about` the wring_guard,
+            # both within WRING_HALF = STABLE_LIMIT / 2. Written in
+            # limit_wring's own terms, which the prover matches directly.
+            return value if value < -STABLE_LIMIT / 2 or value > STABLE_LIMIT / 2 or about < -STABLE_LIMIT / 2 or about > STABLE_LIMIT / 2
+            return Stability::limit_wring(value, about, bound)
 
         # Knee/elbow stability: soft-limit a channel about its mean (the guard pose).
         def limit_wring(values: darray[i64]&, limit: i64) -> darray[i64]:
@@ -530,19 +527,44 @@ module Track:
                     continue
                 finish: i64 = run_end(flags, start, count)
                 held: i64 = item(values, start)
-                anchor: i64 = lock_value(held)
-                stop: i64 = finish + 1
-                for f in start..<stop |f, start, finish, values, out, anchor, blend, count|:
-                    raw: i64 = item(values, f)
-                    v: i64 = lock_value(raw)
-                    into: i64 = f - start
-                    left: i64 = finish - f
-                    # Always true: start <= f <= finish < count <= MAX_FRAMES
-                    # and blend was checked above; restated for the loop body.
-                    if into >= 0 and into <= Fade::MAX_FRAMES and left >= 0 and left <= Fade::MAX_FRAMES and blend >= 1 and blend <= Fade::MAX_EDGE:
-                        put(&out, f, Lock::locked(v, anchor, into, left, blend))
+                # Never taken (run_end ensures start <= finish < count); the
+                # prover does not tie `finish` to those ensures, so say it.
+                break if finish < start or finish >= count
+                lock_run(values, &out, start, finish, blend)
                 start <- finish + 1
             return out
+
+        # Hold one planted run start..finish at its plant value (lock's inner
+        # loop, in a body of its own to stay within the fact budget).
+        def lock_run(values: darray[i64]&, out: mutable darray[i64]&, start: i64, finish: i64, ramp: i64) -> void:
+            requires ramp >= 1
+            requires ramp <= Fade::MAX_EDGE
+            requires start >= 0
+            requires start <= finish
+            requires finish < Fade::MAX_FRAMES
+            held: i64 = item(values, start)
+            anchor: i64 = lock_value(held)
+            stop: i64 = finish + 1
+            for f in start..<stop |f, start, finish, values, out, anchor, ramp|:
+                into: i64 = f - start
+                left: i64 = finish - f
+                # Always true (lock passes start <= f <= finish < count <=
+                # MAX_FRAMES and anchor is a lock_value); restated for the body.
+                if into >= 0 and into <= Fade::MAX_FRAMES and left >= 0 and left <= Fade::MAX_FRAMES and ramp >= 1 and ramp <= Fade::MAX_EDGE and anchor >= -LOCK_LIMIT and anchor <= LOCK_LIMIT:
+                    put(out, f, lock_frame(item(values, f), anchor, into, left, ramp))
+
+        # One frame of `lock`: Lock::locked on the clamped value.
+        def lock_frame(raw: i64, anchor: i64, into: i64, left: i64, ramp: i64) -> i64:
+            requires anchor >= -LOCK_LIMIT
+            requires anchor <= LOCK_LIMIT
+            requires into >= 0
+            requires into <= Fade::MAX_FRAMES
+            requires left >= 0
+            requires left <= Fade::MAX_FRAMES
+            requires ramp >= 1
+            requires ramp <= Fade::MAX_EDGE
+            v: i64 = lock_value(raw)
+            return Lock::locked(v, anchor, into, left, ramp)
 
         # Spread planted corrections into the swing: a planted frame keeps its
         # own offset in full; a swing frame gets the offset of the run before
@@ -564,15 +586,40 @@ module Track:
         def carried_side(offset: i64, distance: i64, blend: i64, step: i64) -> i64:
             requires step >= 1
             requires step <= Footing::LIMIT
-            ensure result >= 0 - Footing::LIMIT
-            ensure result <= Footing::LIMIT
+            reach: i64 = bounded(distance, 1, Fade::MAX_FRAMES)
+            return side_eased(offset, reach, blend, step)
+
+        # carried_side split one clamp per function: the prover keeps the
+        # ensures of one call result per body, not of three.
+        def side_eased(offset: i64, reach: i64, ramp: i64, step: i64) -> i64:
+            requires reach >= 1
+            requires reach <= Fade::MAX_FRAMES
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            ease: i64 = bounded(ramp, 1, Fade::MAX_EDGE)
+            return side_held(offset, reach, ease, step)
+
+        def side_held(offset: i64, reach: i64, ease: i64, step: i64) -> i64:
+            requires reach >= 1
+            requires reach <= Fade::MAX_FRAMES
+            requires ease >= 1
+            requires ease <= Fade::MAX_EDGE
+            requires step >= 1
+            requires step <= Footing::LIMIT
             held: i64 = foot_value(offset)
-            reach: i64 = reach_of(distance)
-            ease: i64 = edge_of(blend)
+            return carry_over(held, reach, ease, step)
+
+        def carry_over(held: i64, reach: i64, ease: i64, step: i64) -> i64:
+            requires held >= -FOOT_LIMIT
+            requires held <= FOOT_LIMIT
+            requires reach >= 1
+            requires reach <= Fade::MAX_FRAMES
+            requires ease >= 1
+            requires ease <= Fade::MAX_EDGE
+            requires step >= 1
+            requires step <= Footing::LIMIT
             width: i64 = Footing::span(held, step, ease)
-            # carry is Gate::apply(0, held, w): between 0 and held, so this
-            # bound (for the sum in carried_at) never changes the value.
-            return foot_value(Footing::carry(held, reach, width))
+            return Footing::carry(held, reach, width)
 
         # The carried offset of one swing frame `g` between the plant at
         # `prev` (-1: none) and the one at `next` (`count`: none). A missing
@@ -616,10 +663,20 @@ module Track:
                     f <- f + 1
                     continue
                 next: i64 = next_plant(flags, f, count)
-                for g in f..<next |g, f, next, prev, count, offsets, out, blends, step|:
-                    put(&out, g, carried_at(offsets, blends, g, prev, next, count, step))
+                carry_gap(offsets, blends, &out, f, next, prev, count, step)
+                # Never taken (next_plant ensures next > f); the call above
+                # drops that fact, the loop invariant needs it.
+                break if next <= f
                 f <- next
             return out
+
+        # Fill the free frames f..<next of carried_blends (its inner loop,
+        # in a body of its own to stay within the prover's fact budget).
+        def carry_gap(offsets: darray[i64]&, blends: darray[i64]&, out: mutable darray[i64]&, f: i64, next: i64, prev: i64, count: i64, step: i64) -> void:
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            for g in f..<next |g, f, next, prev, count, offsets, out, blends, step|:
+                put(out, g, carried_at(offsets, blends, g, prev, next, count, step))
 
         # Offset that holds each planted frame at its run's first value.
         def hold_offsets(values: darray[i64]&, flags: darray[bool]&) -> darray[i64]:
@@ -633,10 +690,7 @@ module Track:
                     anchor <- lock_value(raw)
                 v: i64 = lock_value(raw)
                 if planted:
-                    # anchor only ever holds 0 or a lock_value, so this is
-                    # anchor itself; it bounds the difference for the prover.
-                    held: i64 = lock_value(anchor)
-                    out.push(held - v)
+                    out.push(anchor - v)
                 else:
                     out.push(0)
             return out
