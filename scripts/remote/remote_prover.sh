@@ -64,7 +64,8 @@ if [[ -n "$REV" ]]; then
     PINNED="$(git -C "$SRC" show "$full:ELISA_COMPILER_REV" | tr -d '[:space:]')"
 else
     full="$(git -C "$SRC" rev-parse HEAD)"
-    srcid="${full:0:12}"
+    # Key on the prover's source trees, not the commit: a test-only commit reuses the build.
+    srcid="t$(git -C "$SRC" rev-parse HEAD:src HEAD:examples | sha 11)"
     if [[ -n "$(git -C "$SRC" status --porcelain -- src examples ELISA_COMPILER_REV | grep -v '\.DS_Store$' || true)" ]]; then
         # Dirty: name the uncommitted content, not just HEAD.
         srcid="$srcid-d$(HASH_LEN=10 tree_hash "$SRC" src examples)"
