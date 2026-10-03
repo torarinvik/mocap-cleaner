@@ -23,6 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 PROJECTS="$(cd "$ROOT/.." && pwd)"
 WINPC="${WINPC:-winpc}"
+SSH=(ssh ${SSH_CONFIG:+-F "$SSH_CONFIG"})
 RBASE="${REMOTE_BASE:-work/mocap-offload}"
 JOBS="${JOBS:-3}"; (( JOBS > 3 )) && JOBS=3
 MIN_FREE_MB="${MIN_FREE_MB:-1500}"
@@ -54,21 +55,21 @@ if [[ ${#files[@]} -eq 0 ]]; then
     fi
 fi
 [[ -n "$PROVER" ]] || PROVER="$("$HERE/remote_prover.sh" ${prover_args[@]+"${prover_args[@]}"} | tail -1)"
-ssh "$WINPC" "test -x ~/$PROVER" || { echo "no prover at winpc:~/$PROVER" >&2; exit 2; }
+"${SSH[@]}" "$WINPC" "test -x ~/$PROVER" || { echo "no prover at winpc:~/$PROVER" >&2; exit 2; }
 
 RUN="$(date +%Y%m%d-%H%M%S)-$$"
 T="$RBASE/trees/$RUN"
-ssh "$WINPC" "mkdir -p $T/elisa-engine-mocap $T/elisa-ui"
-RS=(rsync -az --delete --exclude build/ --exclude .git --exclude .DS_Store)
+"${SSH[@]}" "$WINPC" "mkdir -p $T/elisa-engine-mocap $T/elisa-ui"
+RS=(rsync -az -e "${SSH[*]}" --delete --exclude build/ --exclude .git --exclude .DS_Store)
 "${RS[@]}" --exclude '*.glb' --exclude '*.fbx' "$ROOT/" "$WINPC:$T/mocap-cleaner/"
 "${RS[@]}" "$PROJECTS/elisa-engine-mocap/src" "$WINPC:$T/elisa-engine-mocap/"
 "${RS[@]}" "$PROJECTS/elisa-ui/src" "$WINPC:$T/elisa-ui/"
 printf '%s\n' "${files[@]}" > "${TMPDIR:-/tmp}/corpus-$RUN.list"
-rsync -az "${TMPDIR:-/tmp}/corpus-$RUN.list" "$WINPC:$T/files.list"
+rsync -az -e "${SSH[*]}" "${TMPDIR:-/tmp}/corpus-$RUN.list" "$WINPC:$T/files.list"
 rm -f "${TMPDIR:-/tmp}/corpus-$RUN.list"
 
 # Runner: largest files first (they take longest), memory-gated, detached from ssh.
-ssh "$WINPC" "cat > $T/run.sh" <<'EOF'
+"${SSH[@]}" "$WINPC" "cat > $T/run.sh" <<'EOF'
 #!/usr/bin/env bash
 cd "$(dirname "$0")/mocap-cleaner"; P="$1"; JOBS="$2"; MIN="$3"; TO="$4"
 mkdir -p ../out
@@ -91,18 +92,18 @@ wait
 cat ../out/*.txt | sort > ../result.tsv
 echo "wall $(( $(date +%s) - t0 ))s" > ../done
 EOF
-ssh "$WINPC" "cd $T && nohup bash run.sh ~/$PROVER $JOBS $MIN_FREE_MB $FILE_TIMEOUT > run.log 2>&1 < /dev/null &"
+"${SSH[@]}" "$WINPC" "cd $T && nohup bash run.sh ~/$PROVER $JOBS $MIN_FREE_MB $FILE_TIMEOUT > run.log 2>&1 < /dev/null &"
 echo "run winpc:~/$T with $PROVER (${#files[@]} files, $JOBS jobs)" >&2
 
 n=${#files[@]}
-while ! ssh "$WINPC" "test -f $T/done"; do
+while ! "${SSH[@]}" "$WINPC" "test -f $T/done"; do
     sleep 20
-    echo "  $(ssh "$WINPC" "ls $T/out 2>/dev/null | grep -c 'txt\$'; free -m | awk '/^Mem:/{print \"avail \" \$7 \"MB\"}'" | tr '\n' ' ')of $n" >&2
+    echo "  $("${SSH[@]}" "$WINPC" "ls $T/out 2>/dev/null | grep -c 'txt\$'; free -m | awk '/^Mem:/{print \"avail \" \$7 \"MB\"}'" | tr '\n' ' ')of $n" >&2
 done
-res="$(ssh "$WINPC" "cat $T/result.tsv; cat $T/done >&2")"
+res="$("${SSH[@]}" "$WINPC" "cat $T/result.tsv; cat $T/done >&2")"
 [[ -n "$OUT" ]] && printf '%s\n' "$res" > "$OUT"
 printf 'file\tstate\tproven\tunproven\tseconds\n%s\n' "$res"
-ssh "$WINPC" "rm -rf $T/mocap-cleaner $T/elisa-engine-mocap $T/elisa-ui"  # keep out/ and result.tsv
+"${SSH[@]}" "$WINPC" "rm -rf $T/mocap-cleaner $T/elisa-engine-mocap $T/elisa-ui"  # keep out/ and result.tsv
 
 [[ -z "$COMPARE" ]] && exit 0
 python3 - "$COMPARE" <<PY

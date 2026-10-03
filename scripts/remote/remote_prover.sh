@@ -47,6 +47,7 @@ CROOT="${ELISA_STAGE1_ROOT:-$PROJECTS/elisa-compiler-worktrees/local-shadow}"
 CSRC="${ELISA_COMPILER_SRC:-$PROJECTS/Elisa-compiler}"
 WINPC="${WINPC:-winpc}"
 RBASE="${REMOTE_BASE:-work/mocap-offload}"
+SSH=(ssh ${SSH_CONFIG:+-F "$SSH_CONFIG"})  # SSH_CONFIG: e.g. ~/.ssh/fleet_config
 LOCAL="${MOCAP_OFFLOAD_CACHE:-$HOME/.cache/mocap-offload}"
 PRODUCT="$CROOT/bin/elisac-stage1"
 [[ -x "$PRODUCT" ]] || { echo "no stage1 product at $PRODUCT" >&2; exit 2; }
@@ -92,17 +93,17 @@ if [[ ! -s "$RT/rt.o" ]]; then
     mv -f "$RT/rt.o.tmp" "$RT/rt.o"
 fi
 
-ssh "$WINPC" "mkdir -p $RBASE/runtime/$RKEY"
-if ! ssh "$WINPC" "test -s $RBASE/runtime/$RKEY/elisacore_runtime.o"; then
-    rsync -az "$RT/rt.o" "$RT/hooks.c" "$WINPC:$RBASE/runtime/$RKEY/"
-    ssh "$WINPC" "set -e; cd $RBASE/runtime/$RKEY; clang -fno-builtin -c -o hooks.o hooks.c
+"${SSH[@]}" "$WINPC" "mkdir -p $RBASE/runtime/$RKEY"
+if ! "${SSH[@]}" "$WINPC" "test -s $RBASE/runtime/$RKEY/elisacore_runtime.o"; then
+    rsync -az -e "${SSH[*]}" "$RT/rt.o" "$RT/hooks.c" "$WINPC:$RBASE/runtime/$RKEY/"
+    "${SSH[@]}" "$WINPC" "set -e; cd $RBASE/runtime/$RKEY; clang -fno-builtin -c -o hooks.o hooks.c
         clang -r -o elisacore_runtime.o.tmp rt.o hooks.o; mv -f elisacore_runtime.o.tmp elisacore_runtime.o"
 fi
 if [[ "$RUNTIME_ONLY" == 1 ]]; then echo "$RBASE/runtime/$RKEY/elisacore_runtime.o"; exit 0; fi
 
 RDIR="$RBASE/provers/$KEY"
 want="elisa-proof"; [[ "$REPLAY" == 1 ]] && want="elisa-proof-replay"
-if ssh "$WINPC" "test -x $RDIR/elisa-proof && test -x $RDIR/$want"; then
+if "${SSH[@]}" "$WINPC" "test -x $RDIR/elisa-proof && test -x $RDIR/$want"; then
     echo "cached: $KEY" >&2
     echo "$RDIR/elisa-proof"; exit 0
 fi
@@ -142,17 +143,17 @@ for m in "${mains[@]}"; do
 done
 
 # --- link on winpc --------------------------------------------------------------------
-ssh "$WINPC" "mkdir -p $RDIR.tmp"
+"${SSH[@]}" "$WINPC" "mkdir -p $RDIR.tmp"
 objs=("$SNAP/Elisa-compiler/test/parity/profile_hooks.c" "$SNAP/elisa-proof/examples/verified.elisa")
 for m in "${mains[@]}"; do objs+=("$W/$m.o"); done
-rsync -az "${objs[@]}" "$WINPC:$RDIR.tmp/"
+rsync -az -e "${SSH[*]}" "${objs[@]}" "$WINPC:$RDIR.tmp/"
 {
     echo "key: $KEY"; echo "source: $SRC"; echo "revision: $full"; echo "source_id: $srcid"
     echo "opt: $OPT"; echo "stage1: $CROOT ($(git -C "$CROOT" rev-parse --short HEAD 2>/dev/null))"
     echo "frontend: $PINNED"; echo "runtime: $RKEY"; echo "built: $(date -u +%FT%TZ)"
 } > "$W/BUILD_INFO"
-rsync -az "$W/BUILD_INFO" "$WINPC:$RDIR.tmp/"
-ssh "$WINPC" "set -e; cd $RDIR.tmp; clang -c -O2 -o profile_hooks.o profile_hooks.c
+rsync -az -e "${SSH[*]}" "$W/BUILD_INFO" "$WINPC:$RDIR.tmp/"
+"${SSH[@]}" "$WINPC" "set -e; cd $RDIR.tmp; clang -c -O2 -o profile_hooks.o profile_hooks.c
     for m in ${mains[*]}; do
         out=elisa-proof; [ \$m = replay_main ] && out=elisa-proof-replay
         clang -no-pie -Wl,--gc-sections -o \$out \$m.o profile_hooks.o ~/$RBASE/runtime/$RKEY/elisacore_runtime.o -lm
