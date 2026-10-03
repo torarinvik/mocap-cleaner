@@ -17,6 +17,14 @@ include "../detect/spike.elisa"
 module Track:
     public:
         const LIMIT: i64 = 1000000000
+        # The kernels' bounds under names of their own: a negated qualified
+        # constant (`-Lock::LIMIT`) is ambiguous to the prover here, since six
+        # included modules each define a LIMIT. A wrong value here fails the
+        # kernels' preconditions, so the prover keeps them in step.
+        const SMOOTH_LIMIT: i64 = 1000000000000   # Smooth::LIMIT
+        const LOCK_LIMIT: i64 = 1000000000        # Lock::LIMIT
+        const FOOT_LIMIT: i64 = 1000000000        # Footing::LIMIT
+        const WRING_HALF: i64 = 500000000         # Stability::LIMIT / 2
 
         # Fade weight that matches Fade::weight / eased_weight at runtime for
         # every edge, frame and length: in the kernel domain it calls the
@@ -67,37 +75,94 @@ module Track:
                 out.push(blend(source, target, w))
             return out
 
+        # Element `k`, or 0 off the track. Every caller passes an in-range
+        # frame, so this is the plain read; the check is what lets the prover
+        # see the bound without a model of the caller's arithmetic.
+        def item(values: darray[i64]&, k: i64) -> i64:
+            return 0 if k < 0
+            index: usize = k.usize()
+            return 0 if index >= values.count
+            return values[index]
+
+        # Flag `k`, false off the end (the callers' own `k < flags.count` test).
+        def flag(flags: darray[bool]&, k: i64) -> bool:
+            return false if k < 0
+            index: usize = k.usize()
+            return false if index >= flags.count
+            return flags[index]
+
+        # Store `v` at `k`; callers only write existing slots.
+        def put(values: mutable darray[i64]&, k: i64, v: i64) -> void:
+            return if k < 0
+            index: usize = k.usize()
+            return if index >= values.count
+            values[index] <- v
+
+        # Span::clamp for any count (its body beyond MAX_FRAMES).
+        def clamped(frame: i64, count: i64) -> i64:
+            requires count >= 1
+            ensure result >= 0
+            ensure result < count
+            return Span::clamp(frame, count) if count <= Span::MAX_FRAMES
+            return 0 if frame < 0
+            return count - 1 if frame >= count
+            return frame
+
+        # Span::wrap for any count and frame (its body outside the kernel
+        # domain; a frame so large the shift would overflow reads slot 0).
+        def wrapped(frame: i64, count: i64) -> i64:
+            requires count >= 1
+            if count <= Span::MAX_FRAMES and frame > -Span::MAX_FRAMES and frame < 2 * Span::MAX_FRAMES:
+                return Span::wrap(frame, count)
+            return 0 if frame > 9000000000000000000 or frame < -9000000000000000000
+            return (frame + Span::MAX_FRAMES) % count
+
         # Odd-reflection sample: off-clip frames mirror through the end value,
         # so symmetric filters keep the end frames exactly.
         def odd_sample(values: darray[i64]&, frame: i64) -> i64:
             count: i64 = values.count.i64()
-            return 0 if count == 0
-            return values[frame.usize()] if frame >= 0 and frame < count
-            return values[Span::clamp(frame, count).usize()] if frame <= -count or frame >= 2 * count - 1 or count > Window::MAX_FRAMES
+            return 0 if count <= 0
+            return item(values, frame) if frame >= 0 and frame < count
+            return item(values, clamped(frame, count)) if count > Window::MAX_FRAMES
+            # The last two tests are implied by the first two once count <= MAX_FRAMES.
+            return item(values, clamped(frame, count)) if frame <= -count or frame >= 2 * count - 1 or frame <= -Window::MAX_FRAMES or frame >= 2 * Window::MAX_FRAMES
             at: i64 = Window::mirror(frame, count)
-            end: i64 = values[0] if frame < 0 else values[(count - 1).usize()]
-            return values[at.usize()] if end < -LIMIT or end > LIMIT or values[at.usize()] < -LIMIT or values[at.usize()] > LIMIT
-            return Window::reflect(end, values[at.usize()], LIMIT)
+            end: mutable i64 = item(values, count - 1)
+            if frame < 0:
+                end <- item(values, 0)
+            return reflected(end, item(values, at))
+
+        # Window::reflect within +-LIMIT, the mirrored value itself outside it.
+        def reflected(end: i64, mirrored: i64) -> i64:
+            return mirrored if end < -LIMIT or end > LIMIT or mirrored < -LIMIT or mirrored > LIMIT
+            return Window::reflect(end, mirrored, LIMIT)
 
         def sample(values: darray[i64]&, frame: i64, looping: bool) -> i64:
             count: i64 = values.count.i64()
-            return 0 if count == 0
-            index: i64 = Span::wrap(frame, count) if looping else Span::clamp(frame, count)
-            return values[index.usize()]
+            return 0 if count <= 0
+            if looping:
+                return item(values, wrapped(frame, count))
+            return item(values, clamped(frame, count))
 
         # One median-of-3 pass from `src` into `dst` (same length). Without
-        # looping, interior frames read their neighbours directly
-        # (Slide::inner) and the ends go through `sample`, so the result
-        # equals the padded form everywhere. Looping keeps `sample` on every
-        # frame: Span::wrap offsets in-range frames by MAX_FRAMES % count.
+        # looping, interior frames (both neighbours on the track, the
+        # Slide::inner test) read their neighbours directly and the ends go
+        # through `sample`, so the result equals the padded form everywhere.
+        # Looping keeps `sample` on every frame: Span::wrap offsets in-range
+        # frames by MAX_FRAMES % count.
         def despike_pass(src: darray[i64]&, dst: mutable darray[i64]&, looping: bool) -> void:
             count: i64 = src.count.i64()
-            for i in 0..<src.count |i, src, dst, count, looping|:
-                f: i64 = i.i64()
-                if not looping and Slide::inner(f, count) == 1:
-                    dst[i] <- Order::median3(src[i - 1], src[i], src[i + 1])
+            for f in 0..<count |f, src, dst, count, looping|:
+                if not looping and f >= 1 and f + 1 < count:
+                    a: i64 = item(src, f - 1)
+                    b: i64 = item(src, f)
+                    c: i64 = item(src, f + 1)
+                    put(dst, f, Order::median3(a, b, c))
                 else:
-                    dst[i] <- Order::median3(sample(src, f - 1, looping), src[i], sample(src, f + 1, looping))
+                    before: i64 = sample(src, f - 1, looping)
+                    now: i64 = item(src, f)
+                    after: i64 = sample(src, f + 1, looping)
+                    put(dst, f, Order::median3(before, now, after))
 
         # Running median-of-3 de-spike, repeated `passes` times, then faded to
         # the source at clip edges (unless looping). Two buffers are reused
@@ -112,7 +177,9 @@ module Track:
             return first if count < 3
             side: mutable i64 = 1
             round: mutable i64 = 0
-            while round < passes |round, first, second, side, looping|:
+            while round < passes:
+                invariant side >= 0
+                invariant side <= 1
                 if side == 1:
                     despike_pass(&first, &second, looping)
                 else:
@@ -129,9 +196,11 @@ module Track:
             lo: mutable i64 = 0
             hi: mutable i64 = window.count.i64()
             return hi if hi > Slide::SEARCH_MAX
-            while lo < hi |lo, hi, window, v, above|:
+            while lo < hi:
+                invariant lo >= 0
+                invariant hi <= Slide::SEARCH_MAX
                 at: i64 = Slide::probe(lo, hi)
-                x: i64 = window[at.usize()]
+                x: i64 = item(window, at)
                 if x < v or (above and x == v):
                     lo <- Slide::right_of(lo, hi)
                 else:
@@ -142,29 +211,36 @@ module Track:
         def sorted_insert(window: mutable darray[i64]&, v: i64) -> void:
             at: i64 = sorted_slot(window, v, true)
             window.push(v)
-            j: mutable i64 = window.count.i64() - 1
-            while j > at |j, at, window|:
-                window[j.usize()] <- window[(j - 1).usize()]
-                j <- j - 1
-            window[at.usize()] <- v
+            last: i64 = window.count.i64() - 1
+            for k in 0..<(last - at) |k, at, last, window|:
+                j: i64 = last - k
+                moved: i64 = item(window, j - 1)
+                put(window, j, moved)
+            put(window, at, v)
 
         # Remove one copy of `v` from a sorted window that holds it.
         def sorted_remove(window: mutable darray[i64]&, v: i64) -> void:
             at: i64 = sorted_slot(window, v, false)
             n: i64 = window.count.i64()
             return if at >= n
-            j: mutable i64 = at
-            while j + 1 < n |j, n, window|:
-                window[j.usize()] <- window[(j + 1).usize()]
-                j <- j + 1
+            for j in at..<(n - 1) |j, n, window|:
+                moved: i64 = item(window, j + 1)
+                put(window, j, moved)
             window.pop()
+
+        # Window::middle for any size (its body outside the kernel domain).
+        def middle_of(size: i64) -> i64:
+            return Window::middle(size) if size >= 1 and size <= 2 * Window::MAX_RADIUS + 1
+            return (size - 1) / 2
 
         # Wide running median over 2*radius+1 frames (odd-reflected at clip
         # ends), faded to the source at clip edges. Removes long jitter runs
         # that a median-of-3 cannot. The window stays sorted as it slides:
         # each frame removes the frame that leaves (Slide::outgoing) and
         # inserts the one that enters (Slide::incoming), O(log w) to find each
-        # slot instead of re-sorting 2r+1 values per frame.
+        # slot instead of re-sorting 2r+1 values per frame. The fade is
+        # Fade::eased_weight (`fade_at` in its domain) and the blend Gate::apply
+        # (`blend` within +-LIMIT).
         def median(values: darray[i64]&, radius: i64, edge: i64) -> darray[i64]:
             count: i64 = values.count.i64()
             out: mutable darray[i64] = []
@@ -172,31 +248,46 @@ module Track:
                 out.push(v)
             return out if count < 3 or radius < 1 or radius > Window::MAX_RADIUS or radius > Slide::REACH_MAX or count >= Window::MAX_FRAMES or count >= Slide::SPAN_MAX
             window: mutable darray[i64] = []
-            for d in 0..<(2 * radius + 1).usize() |d, values, window, radius|:
-                sorted_insert(&window, odd_sample(values, d.i64() - radius))
-            for i in 0..<values.count |i, values, out, window, count, radius, edge|:
-                f: i64 = i.i64()
+            for d in 0..<(2 * radius + 1) |d, values, window, radius|:
+                sorted_insert(&window, odd_sample(values, d - radius))
+            for f in 0..<count |f, values, out, window, count, radius, edge|:
                 if f >= 1:
                     sorted_remove(&window, odd_sample(values, Slide::outgoing(f, radius)))
                     sorted_insert(&window, odd_sample(values, Slide::incoming(f, radius)))
-                m: i64 = Window::middle(window.count.i64())
-                w: i64 = Fade::eased_weight(f, count - 1, edge, false)
-                out[i] <- Gate::apply(values[i], window[m.usize()], w)
+                m: i64 = middle_of(window.count.i64())
+                w: i64 = fade_at(f, count - 1, edge, false, true)
+                put(&out, f, blend(item(values, f), item(window, m), w))
             return out
+
+        # Smooth::binomial for any values (its body outside +-Smooth::LIMIT).
+        def binomial(a: i64, b: i64, c: i64) -> i64:
+            if a >= -Smooth::LIMIT and a <= Smooth::LIMIT and b >= -Smooth::LIMIT and b <= Smooth::LIMIT and c >= -Smooth::LIMIT and c <= Smooth::LIMIT:
+                return Smooth::binomial(a, b, c)
+            return b if a == b and b == c
+            return (a + 2 * b + c) / 4
 
         # One 1-2-1 pass from `src` into `dst` (same length); without looping,
         # interior frames read their neighbours directly and the ends are
         # padded as before (looping keeps `sample`, as in despike_pass).
         def smooth_pass(src: darray[i64]&, dst: mutable darray[i64]&, looping: bool) -> void:
             count: i64 = src.count.i64()
-            for i in 0..<src.count |i, src, dst, count, looping|:
-                f: i64 = i.i64()
-                if not looping and Slide::inner(f, count) == 1:
-                    dst[i] <- Smooth::binomial(src[i - 1], src[i], src[i + 1])
+            for f in 0..<count |f, src, dst, count, looping|:
+                if not looping and f >= 1 and f + 1 < count:
+                    a: i64 = item(src, f - 1)
+                    b: i64 = item(src, f)
+                    c: i64 = item(src, f + 1)
+                    put(dst, f, binomial(a, b, c))
                 else:
-                    before: i64 = sample(src, f - 1, true) if looping else odd_sample(src, f - 1)
-                    after: i64 = sample(src, f + 1, true) if looping else odd_sample(src, f + 1)
-                    dst[i] <- Smooth::binomial(before, src[i], after)
+                    before: mutable i64 = 0
+                    after: mutable i64 = 0
+                    if looping:
+                        before <- sample(src, f - 1, true)
+                        after <- sample(src, f + 1, true)
+                    else:
+                        before <- odd_sample(src, f - 1)
+                        after <- odd_sample(src, f + 1)
+                    now: i64 = item(src, f)
+                    put(dst, f, binomial(before, now, after))
 
         # Repeated 1-2-1 smoothing, faded to the source at clip edges; two
         # buffers are reused for every pass.
@@ -205,12 +296,14 @@ module Track:
             first: mutable darray[i64] = []
             second: mutable darray[i64] = []
             for v in values |first, second|:
-                first.push(Order::clamp(v, -Smooth::LIMIT, Smooth::LIMIT))
+                first.push(Order::clamp(v, -SMOOTH_LIMIT, SMOOTH_LIMIT))
                 second.push(0)
             return first if count < 3
             side: mutable i64 = 1
             round: mutable i64 = 0
-            while round < passes |round, first, second, side, looping|:
+            while round < passes:
+                invariant side >= 0
+                invariant side <= 1
                 if side == 1:
                     smooth_pass(&first, &second, looping)
                 else:
@@ -220,21 +313,42 @@ module Track:
             return faded(values, &first, edge, looping, true) if side == 1
             return faded(values, &second, edge, looping, true)
 
+        # Spike::is_spike for any values (its body outside +-Spike::LIMIT).
+        def spiked(prev: i64, now: i64, next: i64, threshold: i64) -> bool:
+            if threshold >= 0 and prev >= -Spike::LIMIT and prev <= Spike::LIMIT and now >= -Spike::LIMIT and now <= Spike::LIMIT and next >= -Spike::LIMIT and next <= Spike::LIMIT:
+                return Spike::is_spike(prev, now, next, threshold)
+            out: i64 = now - prev
+            back: i64 = next - now
+            return false if out == 0 or back == 0
+            return false if (out > 0) == (back > 0)
+            bend: i64 = prev - 2 * now + next
+            size: mutable i64 = bend
+            if bend < 0:
+                size <- -bend
+            return size > threshold
+
         # Count spikes in a track (the de-spike detector).
         def spike_count(values: darray[i64]&, threshold: i64, looping: bool) -> i64:
             total: mutable i64 = 0
-            for i in 0..<values.count |i, values, total, threshold, looping|:
-                f: i64 = i.i64()
-                total <- total + 1 if Spike::is_spike(sample(values, f - 1, looping), values[i], sample(values, f + 1, looping), threshold)
+            count: i64 = values.count.i64()
+            for f in 0..<count |f, values, total, threshold, looping|:
+                total <- total + 1 if spiked(sample(values, f - 1, looping), item(values, f), sample(values, f + 1, looping), threshold)
             return total
+
+        # Contact::step for any thresholds (its body when enter > leave).
+        def stepped(planted: bool, height: i64, speed: i64, enter: i64, leave: i64, max_speed: i64) -> bool:
+            return Contact::step(planted, height, speed, enter, leave, max_speed) if enter <= leave
+            return false if speed > max_speed
+            return height <= leave if planted
+            return height <= enter
 
         # Contact flags from heights and speeds with hysteresis.
         def contacts(heights: darray[i64]&, speeds: darray[i64]&, enter: i64, leave: i64, max_speed: i64) -> darray[bool]:
             flags: mutable darray[bool] = []
             planted: mutable bool = false
             for i in 0..<heights.count |i, heights, speeds, flags, planted, enter, leave, max_speed|:
-                speed: i64 = speeds[i] if i < speeds.count else 0
-                planted <- Contact::step(planted, heights[i], speed, enter, leave, max_speed)
+                speed: i64 = get speeds[i] else 0
+                planted <- stepped(planted, heights[i], speed, enter, leave, max_speed)
                 flags.push(planted)
             return flags
 
@@ -242,36 +356,101 @@ module Track:
         def pin(heights: darray[i64]&, flags: darray[bool]&, floor: i64) -> darray[i64]:
             out: mutable darray[i64] = []
             for i in 0..<heights.count |i, heights, flags, out, floor|:
-                planted: bool = flags[i] if i < flags.count else false
+                planted: bool = get flags[i] else false
                 out.push(Contact::pinned_height(planted, heights[i], floor))
             return out
 
+        # Seam::pull for any clip length (its body beyond MAX_FRAMES).
+        def pulled(frame: i64, last: i64, window: i64) -> i64:
+            requires last >= 1
+            requires window >= 1
+            requires window <= last
+            requires frame >= 0
+            requires frame <= last
+            ensure result >= 0
+            ensure result <= Fade::FULL
+            return Seam::pull(frame, last, window) if last < Seam::MAX_FRAMES
+            start: i64 = last - window
+            return 0 if frame <= start
+            return Fade::FULL if frame == last
+            into: i64 = frame - start
+            w: i64 = into * Fade::FULL / window
+            # 0 < into < window here, so w is already in [0, FULL].
+            return Fade::FULL if w > Fade::FULL
+            return 0 if w < 0
+            return w
+
         # Close a loop seam: pull the last `window` frames toward a linear
-        # continuation into frame 0.
+        # continuation into frame 0 (Gate::apply through `blend`).
         def close_seam(values: darray[i64]&, window: i64) -> darray[i64]:
             out: mutable darray[i64] = []
             for v in values |out|:
                 out.push(v)
             last: i64 = values.count.i64() - 1
             return out if last < 1 or window < 1 or window > last
-            target_end: i64 = values[0]
-            for i in 0..<values.count |i, values, out, last, window, target_end|:
-                w: i64 = Seam::pull(i.i64(), last, window)
-                out[i] <- Gate::apply(values[i], target_end, w)
+            target_end: i64 = item(values, 0)
+            count: i64 = last + 1
+            for f in 0..<count |f, values, out, last, window, target_end|:
+                w: i64 = pulled(f, last, window)
+                source: i64 = item(values, f)
+                put(&out, f, blend(source, target_end, w))
             return out
+
+        # The guard pose: the mean of the channel clamped to half the
+        # stability range, clamped again into that range.
+        def wring_guard(values: darray[i64]&) -> i64:
+            ensure result >= -WRING_HALF
+            ensure result <= WRING_HALF
+            return 0 if values.count == 0
+            total: mutable i64 = 0
+            for v in values |total|:
+                total <- total + Order::clamp(v, -WRING_HALF, WRING_HALF)
+            return Order::clamp(total / values.count.i64(), -WRING_HALF, WRING_HALF)
+
+        # One frame of limit_wring, the value clamped like the guard.
+        def wring_one(v: i64, about: i64, bound: i64) -> i64:
+            requires about >= -WRING_HALF
+            requires about <= WRING_HALF
+            requires bound >= 0
+            requires bound <= Stability::LIMIT
+            value: i64 = Order::clamp(v, -WRING_HALF, WRING_HALF)
+            return Stability::limit_wring(value, about, bound)
 
         # Knee/elbow stability: soft-limit a channel about its mean (the guard pose).
         def limit_wring(values: darray[i64]&, limit: i64) -> darray[i64]:
             out: mutable darray[i64] = []
             return out if values.count == 0
-            total: mutable i64 = 0
-            for v in values |total|:
-                total <- total + Order::clamp(v, -Stability::LIMIT / 2, Stability::LIMIT / 2)
-            guard: i64 = total / values.count.i64()
+            about: i64 = wring_guard(values)
             bound: i64 = Order::clamp(limit, 0, Stability::LIMIT)
-            for v in values |out, guard, bound|:
-                out.push(Stability::limit_wring(Order::clamp(v, -Stability::LIMIT / 2, Stability::LIMIT / 2), Order::clamp(guard, -Stability::LIMIT / 2, Stability::LIMIT / 2), bound))
+            for v in values |out, about, bound|:
+                out.push(wring_one(v, about, bound))
             return out
+
+        # Last frame of the planted run that starts at `start`.
+        def run_end(flags: darray[bool]&, start: i64, count: i64) -> i64:
+            requires start >= 0
+            requires start < count
+            ensure result >= start
+            ensure result < count
+            finish: mutable i64 = start
+            while finish + 1 < count:
+                invariant finish >= start
+                invariant finish < count
+                break if not flag(flags, finish + 1)
+                finish <- finish + 1
+            return finish
+
+        # First planted frame after `f`, or `count` when none is.
+        def next_plant(flags: darray[bool]&, f: i64, count: i64) -> i64:
+            requires f < count
+            ensure result > f
+            ensure result <= count
+            next: mutable i64 = f + 1
+            while next < count:
+                invariant next > f
+                break if flag(flags, next)
+                next <- next + 1
+            return next
 
         # Foot-slide lock: hold each planted run of a foot channel at its value
         # on the plant frame, ramping in and out over `blend` frames.
@@ -282,18 +461,22 @@ module Track:
             count: i64 = values.count.i64()
             return out if count == 0 or count > Fade::MAX_FRAMES or blend < 1 or blend > Fade::MAX_EDGE
             start: mutable i64 = 0
-            while start < count |start, count, values, flags, out, blend|:
-                planted: bool = flags[start.usize()] if start < flags.count.i64() else false
-                if not planted:
+            while start < count:
+                invariant start >= 0
+                invariant count <= Fade::MAX_FRAMES
+                invariant blend >= 1
+                invariant blend <= Fade::MAX_EDGE
+                if not flag(flags, start):
                     start <- start + 1
                     continue
-                finish: mutable i64 = start
-                while finish + 1 < count and finish + 1 < flags.count.i64() and flags[(finish + 1).usize()] |finish, count, flags|:
-                    finish <- finish + 1
-                anchor: i64 = Order::clamp(values[start.usize()], -Lock::LIMIT, Lock::LIMIT)
-                for f in start..<(finish + 1) |f, start, finish, values, out, anchor, blend|:
-                    v: i64 = Order::clamp(values[f.usize()], -Lock::LIMIT, Lock::LIMIT)
-                    out[f.usize()] <- Lock::locked(v, anchor, f - start, finish - f, blend)
+                finish: i64 = run_end(flags, start, count)
+                held: i64 = item(values, start)
+                anchor: i64 = Order::clamp(held, -LOCK_LIMIT, LOCK_LIMIT)
+                stop: i64 = finish + 1
+                for f in start..<stop |f, start, finish, values, out, anchor, blend, count|:
+                    raw: i64 = item(values, f)
+                    v: i64 = Order::clamp(raw, -LOCK_LIMIT, LOCK_LIMIT)
+                    put(&out, f, Lock::locked(v, anchor, f - start, finish - f, blend))
                 start <- finish + 1
             return out
 
@@ -312,6 +495,35 @@ module Track:
                 return blends
             return carried_blends(offsets, flags, &blends, step)
 
+        # One side of a swing frame's carried offset: the plant's offset
+        # eased out over `distance` frames at the plant's blend.
+        def carried_side(offset: i64, distance: i64, blend: i64, step: i64) -> i64:
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            held: i64 = Order::clamp(offset, -FOOT_LIMIT, FOOT_LIMIT)
+            reach: i64 = Order::clamp(distance, 1, Fade::MAX_FRAMES)
+            ease: i64 = Order::clamp(blend, 1, Fade::MAX_EDGE)
+            width: i64 = Footing::span(held, step, ease)
+            return Footing::carry(held, reach, width)
+
+        # The carried offset of one swing frame `g` between the plant at
+        # `prev` (-1: none) and the one at `next` (`count`: none). A missing
+        # plant contributes offset 0 at distance MAX_EDGE with blend 1.
+        def carried_at(offsets: darray[i64]&, blends: darray[i64]&, g: i64, prev: i64, next: i64, count: i64, step: i64) -> i64:
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            first: mutable i64 = carried_side(0, Fade::MAX_EDGE, 1, step)
+            if prev >= 0:
+                before: i64 = item(offsets, prev)
+                release: i64 = item(blends, prev)
+                first <- carried_side(before, g - prev, release, step)
+            second: mutable i64 = carried_side(0, Fade::MAX_EDGE, 1, step)
+            if next < count:
+                after: i64 = item(offsets, next)
+                approach: i64 = item(blends, next)
+                second <- carried_side(after, next - g, approach, step)
+            return first + second
+
         # Carry with a blend per frame: a free stretch eases out over the
         # blend of the plant it leaves and in over the blend of the plant it
         # reaches (the adaptive release of a straight leg).
@@ -322,30 +534,22 @@ module Track:
             count: i64 = offsets.count.i64()
             return out if count == 0 or count > Fade::MAX_FRAMES or blends.count.i64() < count or flags.count.i64() < count or step < 1 or step > Footing::LIMIT
             for f in 0..<count |f, offsets, flags, out|:
-                if flags[f.usize()]:
-                    out[f.usize()] <- Order::clamp(offsets[f.usize()], -Footing::LIMIT, Footing::LIMIT)
+                if flag(flags, f):
+                    planted: i64 = item(offsets, f)
+                    put(&out, f, Order::clamp(planted, -FOOT_LIMIT, FOOT_LIMIT))
             prev: mutable i64 = -1
             f: mutable i64 = 0
-            while f < count |f, count, offsets, flags, out, prev, blends|:
-                if flags[f.usize()]:
+            while f < count:
+                invariant f >= 0
+                invariant step >= 1
+                invariant step <= Footing::LIMIT
+                if flag(flags, f):
                     prev <- f
                     f <- f + 1
                     continue
-                next: mutable i64 = f + 1
-                while next < count and not flags[next.usize()] |next, count, flags|:
-                    next <- next + 1
-                for g in f..<next |g, f, next, prev, count, offsets, out, blends|:
-                    before: i64 = Order::clamp(offsets[prev.usize()], -Footing::LIMIT, Footing::LIMIT) if prev >= 0 else 0
-                    after: i64 = Order::clamp(offsets[next.usize()], -Footing::LIMIT, Footing::LIMIT) if next < count else 0
-                    since: i64 = g - prev if prev >= 0 else Fade::MAX_EDGE
-                    until: i64 = next - g if next < count else Fade::MAX_EDGE
-                    since_c: i64 = Order::clamp(since, 1, Fade::MAX_FRAMES)
-                    until_c: i64 = Order::clamp(until, 1, Fade::MAX_FRAMES)
-                    release: i64 = Order::clamp(blends[prev.usize()], 1, Fade::MAX_EDGE) if prev >= 0 else 1
-                    approach: i64 = Order::clamp(blends[next.usize()], 1, Fade::MAX_EDGE) if next < count else 1
-                    first: i64 = Footing::carry(before, since_c, Footing::span(before, step, release))
-                    second: i64 = Footing::carry(after, until_c, Footing::span(after, step, approach))
-                    out[g.usize()] <- first + second
+                next: i64 = next_plant(flags, f, count)
+                for g in f..<next |g, f, next, prev, count, offsets, out, blends, step|:
+                    put(&out, g, carried_at(offsets, blends, g, prev, next, count, step))
                 f <- next
             return out
 
@@ -353,10 +557,15 @@ module Track:
         def hold_offsets(values: darray[i64]&, flags: darray[bool]&) -> darray[i64]:
             out: mutable darray[i64] = []
             anchor: mutable i64 = 0
-            for k in 0..<values.count |k, values, flags, out, anchor|:
-                planted: bool = k < flags.count and flags[k]
-                if planted and (k == 0 or not flags[k - 1]):
-                    anchor <- Order::clamp(values[k], -Lock::LIMIT, Lock::LIMIT)
-                v: i64 = Order::clamp(values[k], -Lock::LIMIT, Lock::LIMIT)
-                out.push(anchor - v if planted else 0)
+            count: i64 = values.count.i64()
+            for k in 0..<count |k, values, flags, out, anchor|:
+                planted: bool = flag(flags, k)
+                raw: i64 = item(values, k)
+                if planted and (k == 0 or not flag(flags, k - 1)):
+                    anchor <- Order::clamp(raw, -LOCK_LIMIT, LOCK_LIMIT)
+                v: i64 = Order::clamp(raw, -LOCK_LIMIT, LOCK_LIMIT)
+                if planted:
+                    out.push(anchor - v)
+                else:
+                    out.push(0)
             return out
