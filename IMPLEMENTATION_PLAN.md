@@ -535,31 +535,29 @@ never silently loses edits. No representation rewrite without a measured need.
 
 ### 11.1 Reviewed export (P0)
 
-- [ ] Add export review with selected animations, destination under `build/`,
-      filename, duration/rate, rig profile, root-motion policy, active operations
-      and unresolved warnings. Require explicit acknowledgement for material
-      warnings, with a route back to the relevant issue.
+- [ ] Finish export review semantics and interaction: identify the selected
+      animation and state which other animations are retained unchanged; show
+      the exact output path/filename, duration/rate, source rig or profile,
+      root-motion behavior, active operation names/settings and unresolved
+      warnings. A warning must link to its relevant frame or metric. Require an
+      explicit acknowledgement before a warned result can be exported. Verify
+      the dialog at minimum supported size and complete keyboard, pointer and
+      screen-reader journeys.
 - [ ] Provide intentional export controls only for supported semantics.
       Root extraction/in-place conversion or key reduction requires a separate
       implemented and validated policy before offering a checkbox.
-- [x] Guard publication destinations under canonical `build/`; reject source
-      paths and hard-link aliases, symlink leaves, non-regular targets and
-      unconfirmed replacement. Quick Export asks before replacing; Cancel keeps
-      the current destination. See `StudioExportPolicy` and the FilePanel path
-      identity adapter.
-- [x] Stage GLB bytes in a unique same-directory temporary, flush and reload
-      them, compare the exact bytes with the reviewed cleaned document, recheck
-      destination safety, then publish with one atomic rename. Failed writes or
-      validation leave the selected destination intact.
 - [ ] Reload the derived GLB and compare animation channels/poses, contacts,
       duration and untouched nodes/skins/meshes against expected output.
-      Compare evaluated output against the reviewed revision, and report write
-      success separately from semantic review.
+      Compare evaluated output against the reviewed revision. Surface a clear
+      distinction between file-write validation and motion-quality review.
 - [ ] Export a human-readable summary and machine-readable report containing
       source/output hashes, animation identities, tool/dependency versions,
       recipe/rig settings, metrics, thresholds and warnings.
-- [ ] Offer Show in folder and Open result for review. Keep the editable
-      session separate from the exported animation and explain both.
+- [ ] After successful publication, show the output name and destination with
+      Open Result, Show in Folder and Done actions. Disable result actions when
+      there is no committed output; preserve the last successful path after a
+      failed/cancelled export. Explain that the editable session and rendered
+      GLB are separate artifacts and offer to save dirty session changes.
 
 ### 11.2 Studio batch and repeatability (P1)
 
