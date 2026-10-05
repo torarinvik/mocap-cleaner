@@ -17,7 +17,7 @@ build/mocap_studio [clip.glb [animation]]    # default: boxing black-boxer.glb, 
 | Timeline | 1 s ruler, source spike strip, cleaned problem markers coloured by severity, left/right foot and hand contact bars, retime bands, the selected operation's scope band, and the playhead. Click or drag to scrub. Contact bars are editable; retime selection uses Shift-drag. |
 | Sidebar | File menu; clip and cleanup metrics; history position; add buttons (Despike, Smooth, Median, Wring, Seam); and one row per operation with enable, up/down and remove. The File menu supports pointer use, Up/Down navigation, Enter/Space activation and Escape dismissal. |
 
-The status bar adds `* Unsaved changes` when the current cleanup stack differs from the last successfully saved session snapshot. Undoing or redoing back to that snapshot clears the marker. Replacing a take with unsaved changes opens a Save and Open / Discard and Open / Cancel prompt; Escape cancels, and Save keeps the prompt open if the session write fails. Export writes the cleaned animation; it does not save the editable session. Closing or quitting with unsaved changes, and replacing the session with Open Session, still need a warning flow.
+The status bar adds `* Unsaved changes` when the current cleanup stack differs from the last successfully saved session snapshot. Undoing or redoing back to that snapshot clears the marker. Opening another take or loading a session over unsaved changes opens a Save and Open / Discard and Open / Cancel prompt; Escape cancels, and Save keeps the prompt open if the session write fails. Export writes the cleaned animation; it does not save the editable session. Closing or quitting with unsaved changes still needs a warning flow.
 
 ## Keys
 
