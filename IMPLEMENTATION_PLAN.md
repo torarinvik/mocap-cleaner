@@ -321,11 +321,14 @@ and almost all of that is the prover.
       (the clip count comes from that load). 6 boxing takes, 10-core Mac:
       before 17.0-23.3 s, `--jobs 1` 10.4-10.7 s, `--jobs 4` 2.9-3.2 s,
       `--jobs 8` 3.1 s; all GLBs byte-identical.
-- [ ] Structure-of-arrays tracks (contiguous per-channel floats) so the
-      filters stream through memory.
-      Status: skipped. The profile shows the filters are ~15% of a take
-      (tracks ~440 ms of ~2 s) and are not memory-bound after the sliding
-      median; load and physics dominate, so SoA would not pay for the churn.
+- [x] Profile structure-of-arrays track storage and migrate only if it removes
+      a measured bottleneck.
+      Status: evaluated and deferred. Filters are ~15% of a take (tracks
+      ~440 ms of ~2 s) and are not memory-bound after the sliding median.
+      The operation layer already feeds contiguous fixed-point component
+      arrays to the filters; changing the underlying GLB layout would add
+      conversion and cache churn without a measured payoff. Revisit if a new
+      profile shows the filters have become a bottleneck.
 
 **Product (non-performance, high ROI).**
 - [x] Hand contacts (planted hands on ropes and floor) reuse the foot
