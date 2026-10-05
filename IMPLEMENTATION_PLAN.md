@@ -415,9 +415,10 @@ state. No recommendation passes solely on aggregate improvement.
 
 - [ ] Add explicit Split and Merge actions. Delete now removes the newest
       authored interval covering the selected frame, reveals earlier authored
-      state or automatic detection, reports the full affected range, and is
-      undoable. Show a contextual preview while an endpoint is dragged and
-      make cancellation leave the saved contact state untouched.
+      state or automatic detection, shows the full affected range before
+      activation, confirms it afterward, and is undoable. Show a contextual
+      preview while an endpoint is dragged and make cancellation leave the
+      saved contact state untouched.
 - [ ] Add timeline zoom/pan, fitted range, visible row labels, draggable handles
       with usable hit targets, numeric interval fields and keyboard nudging.
       Exact one-frame edits must work on long clips. Plant, Lift and Reset now

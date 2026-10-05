@@ -22,8 +22,9 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
    **Shift-U** to remove this frame from authored overrides and return it to
    automatic detection; Reset is disabled when the selected frame has no
    authored override. Delete or **Shift-Delete** removes the newest authored
-   interval containing the selected frame; it reports the full 1-based range
-   and is undoable. Reset remains frame-local. The selected side and 1-based
+   interval containing the selected frame; its full 1-based range is shown
+   before removal and repeated in the status line afterward. Delete is undoable.
+   Reset remains frame-local. The selected side and 1-based
    frame number stay visible in the editor. To change a run's extent, drag its
    start or end handle (6 px grip). Clicking a run body or a gap only selects
    and scrubs. Every edit is
