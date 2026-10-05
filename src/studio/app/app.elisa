@@ -137,6 +137,8 @@ module Studio:
         global mutable shown1: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
         global mutable shown2: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
         global mutable framed: bool = false
+        global mutable accessibility_toolbar_widgets: usize[StudioPanels::BUTTONS.usize()] = zeroed
+        global mutable accessibility_toolbar_ready: bool = false
 
         global mutable drag_view: i64 = -1
         global mutable drag_button: i32 = -1
@@ -1106,6 +1108,7 @@ module Studio:
         # ---- lifecycle -------------------------------------------------
         def init() -> void:
             UiHandles::reset()
+            init_accessibility_toolbar()
             initial: StackState::Stack = StudioModel::initial_stack()
             HistoryState::reset(&history, initial)
             history_ready <- true
@@ -1215,7 +1218,8 @@ module Studio:
             StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close, replacement_is_termination)
             StudioPanels::legacy_session_prompt_panel(w, h, legacy_prompt_open, legacy_prompt_focus)
             if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
-                publish_accessibility(w, h, s)
+                if timeline is current_timeline:
+                    publish_accessibility(w, h, s, current_timeline)
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
@@ -1255,18 +1259,67 @@ module Studio:
                 return StudioText::view()
             return status
 
-        # Publish stable workspace landmarks after painting. This first
-        # semantic pass names the regions and live status; interactive
-        # controls will receive individual roles and action routes separately.
-        def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, text_value: sview) -> void:
+        def init_accessibility_toolbar() -> void:
+            UiFlat::reset()
+            transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
+            for action in 0..<StudioPanels::BUTTONS:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
+                    transparent, transparent, transparent)
+                return if widget == UiFlat::NONE or widget != action.usize()
+                accessibility_toolbar_widgets[action.usize()] <- widget
+            accessibility_toolbar_ready <- true
+
+        def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
+            return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
+            UiCore::AccessibilityRole.Button
+
+        def toolbar_accessibility_enabled(action: i64, can_undo: bool, can_redo: bool) -> bool:
+            return can_undo if action == StudioPanels::A_UNDO
+            return can_redo if action == StudioPanels::A_REDO
+            true
+
+        def toolbar_accessibility_value(action: i64, t: TimelineState::State&) -> sview:
+            return TimelineState::speed_label(t.divisor) if action == StudioPanels::A_SPEED
+            return "Playing" if t.playing and action == StudioPanels::A_PLAY
+            return "Paused" if action == StudioPanels::A_PLAY
+            ""
+
+        def toolbar_accessibility_selected(action: i64, flags: i64, t: TimelineState::State&) -> bool:
+            return StudioPanels::lit(action, flags, t) if toolbar_accessibility_role(action) == UiCore::AccessibilityRole.CheckBox
+            false
+
+        def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            return if not accessibility_toolbar_ready or event != UiConst::WidgetEvent.Click.i32()
+            action: i64 = StudioAccessibility::toolbar_action_for_widget(widget)
+            toolbar_action(action) if action >= 0
+
+        # Publish stable region landmarks and actionable toolbar controls.
+        def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, action: usize, enabled: bool, selected: bool, text_value: sview) -> void:
             UiCore::accessibility_with_metadata(role, label, help_text,
-                UiCore::Rect(b.x, b.y, b.w, b.h), id,
-                StudioAccessibility::NO_NODE, true, false, false, 0.0,
+                UiCore::Rect(b.x, b.y, b.w, b.h), id, action,
+                enabled, false, selected, 0.0,
                 text_value, "", revision.usize(), 0, 0, parent_id,
                 first_child_id, next_sibling_id, 0.0, 1.0, false)
 
-        def publish_accessibility(w: f32, h: f32, s: StackState::Stack&) -> void:
+        def publish_toolbar_accessibility(t: TimelineState::State&, can_undo: bool, can_redo: bool) -> void:
+            return if not accessibility_toolbar_ready
             none: usize = StudioAccessibility::NO_NODE
+            for i in 0..<StudioPanels::BUTTONS |i, t|:
+                widget: usize = accessibility_toolbar_widgets[i.usize()]
+                enabled: bool = toolbar_accessibility_enabled(i, can_undo, can_redo)
+                UiFlat::set_enabled(widget, enabled)
+                id: usize = StudioAccessibility::toolbar_control_id(i)
+                next: usize = StudioAccessibility::next_sibling(id)
+                role: UiCore::AccessibilityRole = toolbar_accessibility_role(i)
+                accessibility_node(role, StudioPanels::tip_of(i),
+                    "Activate this toolbar action.", StudioPanels::button_box(i),
+                    id, StudioAccessibility::TOOLBAR, none, next, widget,
+                    enabled, toolbar_accessibility_selected(i, flags, t),
+                    toolbar_accessibility_value(i, t))
+
+        def publish_accessibility(w: f32, h: f32, s: StackState::Stack&, t: TimelineState::State&) -> void:
+            none: usize = StudioAccessibility::NO_NODE
+            return if not accessibility_toolbar_ready
             workspace: StudioPanels::Box = StudioPanels::box(0.0, 0.0, w, h)
             views: StudioPanels::Box = StudioPanels::box(StudioPanels::GAP,
                 StudioPanels::TOOLBAR, StudioPanels::main_width(w),
@@ -1275,43 +1328,45 @@ module Studio:
                 "Mocap Studio workspace",
                 "Editing regions for inspecting and cleaning character motion.",
                 workspace, StudioAccessibility::WORKSPACE, none,
-                StudioAccessibility::TOOLBAR, none, "")
+                StudioAccessibility::TOOLBAR, none, none, true, false, "")
             accessibility_node(UiCore::AccessibilityRole.Group,
                 "Playback and editing toolbar",
                 "Playback, undo, file, display, and cleanup actions.",
                 StudioPanels::box(0.0, 0.0, w, StudioPanels::TOOLBAR),
-                StudioAccessibility::TOOLBAR,
-                StudioAccessibility::WORKSPACE, none,
-                StudioAccessibility::VIEWPORTS, "")
+                StudioAccessibility::TOOLBAR, StudioAccessibility::WORKSPACE,
+                StudioAccessibility::toolbar_control_id(0),
+                StudioAccessibility::VIEWPORTS, none, true, false, "")
+            publish_toolbar_accessibility(t, HistoryPolicy::can_undo(history.cursor), HistoryPolicy::can_redo(history.cursor, history.count))
             accessibility_node(UiCore::AccessibilityRole.Group,
                 "Character views",
                 "Perspective, front, and side views of the character.",
                 views, StudioAccessibility::VIEWPORTS,
                 StudioAccessibility::WORKSPACE, none,
-                StudioAccessibility::CURVES, "")
+                StudioAccessibility::CURVES, none, true, false, "")
             accessibility_node(UiCore::AccessibilityRole.Group,
                 "Motion curves",
                 "Animation curves for the selected joint.",
                 StudioPanels::curve_box(w, h), StudioAccessibility::CURVES,
                 StudioAccessibility::WORKSPACE, none,
-                StudioAccessibility::TIMELINE, "")
+                StudioAccessibility::TIMELINE, none, true, false, "")
             accessibility_node(UiCore::AccessibilityRole.Group,
                 "Timeline and foot contacts",
                 "Animation timeline, operation range, and foot contact markers.",
                 StudioPanels::timeline_box(w, h), StudioAccessibility::TIMELINE,
                 StudioAccessibility::WORKSPACE, none,
-                StudioAccessibility::SIDEBAR, "")
+                StudioAccessibility::SIDEBAR, none, true, false, "")
             accessibility_node(UiCore::AccessibilityRole.Group,
                 "Cleanup operations",
                 "Operation stack, cleanup settings, and parameters.",
                 StudioPanels::sidebar_box(w, h), StudioAccessibility::SIDEBAR,
                 StudioAccessibility::WORKSPACE, none,
-                StudioAccessibility::STATUS, "")
+                StudioAccessibility::STATUS, none, true, false, "")
             accessibility_node(UiCore::AccessibilityRole.Status,
                 "Studio status",
                 "Current editing, cleanup, and playback status.",
                 StudioPanels::status_box(w, h), StudioAccessibility::STATUS,
-                StudioAccessibility::WORKSPACE, none, none, message(s))
+                StudioAccessibility::WORKSPACE, none, none, none, true, false,
+                message(s))
 
         def camera_input(i: i64, dx: f32, dy: f32) -> void:
             if view(i) is opened:
@@ -1970,7 +2025,7 @@ def app_init() -> void:
     Studio::init()
 
 def app_widget_event(widget: usize, event: i32) -> void:
-    pass
+    Studio::toolbar_accessibility_action(widget, event)
 
 def app_event(event: UiCore::Event) -> void:
     Studio::event(event)
