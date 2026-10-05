@@ -65,6 +65,7 @@ module Studio:
         global mutable export_path: cstr = "build/studio_export.glb"
         const REPLACE_TAKE: i64 = 1
         const REPLACE_SESSION: i64 = 2
+        const REPLACE_CLOSE: i64 = 3
         global mutable pending_replacement: i64 = 0
         # Chrome: the "?" sheet, whether the take failed to load, and the
         # toolbar button under the pointer (for its tooltip).
@@ -76,8 +77,12 @@ module Studio:
         global mutable file_menu_focus: i64 = 0
         global mutable file_menu_hover: i64 = -1
         global mutable replacement_prompt_open: bool = false
+        global mutable replacement_is_close: bool = false
         global mutable replacement_focus: i64 = StudioReplacement::FOCUS_SAVE
         global mutable replacement_save_failed: bool = false
+        # One-shot authorization consumed by the synchronous native close
+        # callback after Save or Discard is chosen in the confirmation panel.
+        global mutable close_authorized: bool = false
         # Last one-click clean: permille of slide and spikes removed, or -1.
         global mutable gain_slide: i64 = -1
         global mutable gain_spikes: i64 = -1
@@ -728,8 +733,18 @@ module Studio:
             return StudioReplacement::DISCARD if replacement_focus == StudioReplacement::FOCUS_DISCARD
             StudioReplacement::CANCEL
 
+        def finish_close() -> void can[Ui.Window]:
+            replacement_prompt_open <- false
+            replacement_is_close <- false
+            replacement_save_failed <- false
+            pending_replacement <- 0
+            close_authorized <- true
+            touch()
+            UiAppKitCanvas::close()
+
         def perform_replacement(kind: i64, p: cstr) -> void can Unsafe.PointerCast:
             replacement_prompt_open <- false
+            replacement_is_close <- false
             replacement_save_failed <- false
             file_menu_open <- false
             pending_replacement <- 0
@@ -752,6 +767,7 @@ module Studio:
                 touch()
                 return
             pending_replacement <- kind
+            replacement_is_close <- false
             mutable dirty: bool = false
             if history_ready:
                 dirty <- HistoryState::dirty(&history)
@@ -770,6 +786,7 @@ module Studio:
             return if action == StudioReplacement::NONE
             if action == StudioReplacement::CANCEL:
                 replacement_prompt_open <- false
+                replacement_is_close <- false
                 replacement_save_failed <- false
                 pending_replacement <- 0
                 say_file("replacement cancelled; session unchanged", path)
@@ -782,7 +799,33 @@ module Studio:
                     replacement_save_failed <- true
                     touch()
                     return
+            if kind == REPLACE_CLOSE:
+                finish_close()
+                return
             perform_replacement(kind, pending)
+
+        def request_window_close() -> void can[Ui.Window]:
+            # This bit is set only for the second, programmatic close request
+            # made after the user chooses Save or Discard in the prompt.
+            if close_authorized:
+                close_authorized <- false
+                return
+            if replacement_prompt_open:
+                UiAppKitCanvas::veto_close()
+                return
+            mutable dirty: bool = false
+            if history_ready:
+                dirty <- HistoryState::dirty(&history)
+            if StudioReplacement::needs_prompt(clip != null, dirty):
+                pending_replacement <- REPLACE_CLOSE
+                replacement_prompt_open <- true
+                replacement_is_close <- true
+                replacement_focus <- StudioReplacement::initial_focus()
+                replacement_save_failed <- false
+                file_menu_open <- false
+                help_open <- false
+                UiAppKitCanvas::veto_close()
+                touch()
 
         def replacement_prompt_key(code: UiCore::Key) -> void:
             if code == UiCore::Key.Escape:
@@ -1070,7 +1113,7 @@ module Studio:
             StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
-            StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed)
+            StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close)
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
@@ -1714,6 +1757,8 @@ module Studio:
 
         def event(incoming: UiCore::Event) -> void:
             match incoming:
+                UiCore::Event.Quit:
+                    request_window_close()
                 UiCore::PointerEvent.Down(at, button):
                     pointer_down(at.x, at.y, button)
                 UiCore::PointerEvent.Up(at, button):
