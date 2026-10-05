@@ -290,7 +290,9 @@ visually verified solely from offscreen rendering.
       location, age and size; exclude source takes, open documents and current
       session references; let users review a cleanup selection before moving
       recoverable items to Trash. Report freed space and make retention rules
-      and Restore easy to find.
+      and Restore easy to find. `StudioStorageCleanupPolicy` now proves the
+      eligibility and review gates; filesystem enumeration, canonical-path
+      evidence and the recoverable Trash/Restore UI remain open.
 
 **Exit:** keyboard-only and pointer-only import/save/restore/export paths;
 all dirty-close and failure branches exercised; no clipped controls at the
