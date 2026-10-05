@@ -513,3 +513,21 @@ revision without changing any historical proof statuses.
   `total * 1000 / total == 1000`. `test/studio_character.elisa` checks the
   monotone law exhaustively for every total up to 256 pending prover support
   for division monotonicity lemmas.
+
+## Prover artifact identity audit (2026-10-05)
+
+- G85 (open, build/replay identity): the current `../elisa-proof-mocap`
+  checkout is clean on `mocap-cleaner-proofs` at `632e4eb1`, but its built
+  `elisa-proof` manifest names source head `00146e4d` and says the source was
+  dirty; no matching replay manifest is present. That binary reports
+  `proof/fade_laws.elisa` as `proved_with_replay_gaps / unknown / open` with
+  134 of 150 certificates replayed and 16 gaps on call-dependent
+  `Fade::ramp`, `weight` and `ease` summaries, with no failed or unproven
+  goals. The latest cleaner check at semantic revision `866d1320416958d`
+  reports 132 cached files and no rechecks, alongside broad unrelated
+  `proved/0 -> unknown/0` transitions. The current prover source change
+  concerns mutable local/captured loop bindings, which fade does not use.
+  This points to a stale/mixed checker or replay product, not a fade kernel
+  defect. Rebuild the prover and replay tool from the same source revision,
+  verify their manifests, then check a tiny direct-summary fixture and the
+  fade laws before considering any baseline change.
