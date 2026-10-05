@@ -1,11 +1,12 @@
-# A persisted finding annotation is tied to the source-bound session identity
-# and to the complete detector result row. No process-local build counter is
-# included. Bump ANALYSIS_SCHEMA when finding semantics change.
+# A persisted finding annotation is tied to source-bound session identity and
+# the complete detector row. No process-local build counter is serialized.
+# Bump ANALYSIS_SCHEMA when detector finding semantics change.
 include "../issues.elisa"
+
 module SessionIssueAnnotationPolicy:
     public:
         const MAX_RECORDS: i64 = 256
-        const ANALYSIS_SCHEMA: i64 = 1
+        const ANALYSIS_SCHEMA: i64 = 2
         const MAX_SEVERITY: i64 = 1000
         const MAX_FRAMES: i64 = 10000000
 
@@ -19,6 +20,10 @@ module SessionIssueAnnotationPolicy:
             peak_value: i64
             threshold: i64
 
+        struct Stored:
+            analysis_frames: i64
+            finding: Record
+
         def interval_valid(r: Record, frame_count: i64) -> bool:
             ensure result == (r.first_frame >= 0 and r.first_frame <= r.last_frame and r.last_frame < frame_count and r.peak_frame >= r.first_frame and r.peak_frame <= r.last_frame)
             return r.first_frame >= 0 and r.first_frame <= r.last_frame and r.last_frame < frame_count and r.peak_frame >= r.first_frame and r.peak_frame <= r.last_frame
@@ -30,9 +35,8 @@ module SessionIssueAnnotationPolicy:
         def valid(r: Record, frame_count: i64) -> bool:
             return frame_count >= 1 and frame_count <= MAX_FRAMES and interval_valid(r, frame_count) and values_valid(r)
 
-        # A persisted intent is restored only when every stable detector
-        # result field agrees. The outer session identity binds source bytes,
-        # animation, frame count and rig; ANALYSIS_SCHEMA binds semantics.
+        # The outer tag-6 identity binds source bytes, animation, source frame
+        # count and rig; Stored.analysis_frames binds the retimed output.
         def same_interval(a: Record, b: Record) -> bool:
             ensure result == (a.first_frame == b.first_frame and a.last_frame == b.last_frame and a.peak_frame == b.peak_frame)
             return a.first_frame == b.first_frame and a.last_frame == b.last_frame and a.peak_frame == b.peak_frame
@@ -49,14 +53,16 @@ module SessionIssueAnnotationPolicy:
             ensure result == (same_interval(a, b) and same_issue_kind(a, b) and same_measurement(a, b))
             return same_interval(a, b) and same_issue_kind(a, b) and same_measurement(a, b)
 
+        def output_frames_match(saved_frames: i64, current_frames: i64) -> bool:
+            ensure result == (saved_frames == current_frames)
+            return saved_frames == current_frames
+
         def record_from_issue(issue: StudioIssues::Issue) -> Record:
             Record{first_frame: issue.first_frame, last_frame: issue.last_frame, issue_type: issue.issue_type, subject_id: issue.subject_id, peak_frame: issue.peak_frame, severity: issue.severity, peak_value: issue.peak_value, threshold: issue.threshold}
 
-        # `source_revision` is intentionally omitted: it is a process-local
-        # stale-row guard. Exact source/animation identity comes from tag 6.
-        def matches_issue(record: Record, issue: StudioIssues::Issue) -> bool:
-            issue.selectable and record.first_frame == issue.first_frame and record.last_frame == issue.last_frame and record.issue_type == issue.issue_type and record.subject_id == issue.subject_id and record.peak_frame == issue.peak_frame and record.severity == issue.severity and record.peak_value == issue.peak_value and record.threshold == issue.threshold
+        def stored_from_issue(issue: StudioIssues::Issue, analysis_frames: i64) -> Stored:
+            Stored{analysis_frames: analysis_frames, finding: record_from_issue(issue)}
 
-        def record_count_ok(count: i64) -> bool:
-            ensure result == (count >= 0 and count <= MAX_RECORDS)
-            return count >= 0 and count <= MAX_RECORDS
+        # `source_revision` is intentionally omitted; it is process-local.
+        def matches_issue(record: Stored, issue: StudioIssues::Issue, analysis_frames: i64) -> bool:
+            issue.selectable and output_frames_match(record.analysis_frames, analysis_frames) and same_analysis(record.finding, record_from_issue(issue))
