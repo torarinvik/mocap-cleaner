@@ -479,6 +479,12 @@ were individually proved and added as reviewed rows; the remaining shifts have
 not been mass-rebaselined. Keep this check result distinct from a fully green
 proof-baseline run.
 
+The custom-overlay viewport visibility policy is now included in the reviewed
+baseline: `src/studio/modal_policy.elisa` proves 2/2 obligations and
+`proof/studio_modal_policy_laws.elisa` proves 18/18 with no certificate gaps.
+Its focused runtime test passes. These rows record the current semantic
+revision without changing any historical proof statuses.
+
 ## Issue grouping proof gap (2026-10-05)
 
 - G83 (closed): parser annotations for `mutable name: T` are now imported into

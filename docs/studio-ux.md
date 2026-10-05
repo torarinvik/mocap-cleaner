@@ -36,6 +36,14 @@ verified the fix for overlapping cleanup metrics and ranked-finding controls;
 the sidebar's duplicate inline shortcut list was removed in favor of the
 visible shortcut sheet. The M0 visual-exercise item remains open.
 
+The next live check found hosted 3D viewport layers covering the shortcut
+sheet. The proved `StudioModalPolicy` now removes those layers beneath blocking
+canvas dialogs. The complete help sheet is legible, and all three viewports
+return after the `?` toggle closes it. Captures are recorded in
+`docs/studio-capability-matrix.md`; replacement, legacy-session and export
+dialogs remain to be reviewed on screen. The dedicated test passed, and both
+the policy and laws proved (2/2 and 18/18 obligations).
+
 | # | Audit item | Before | Decision / outcome |
 |---|---|---|---|
 | 1 | First-run state | Blank grey views | `chrome_screen`: if no take is loaded, the views show "Open a take to start", the command line to use, and "press A / ?". If loading fails, a separate failed screen appears (red). |

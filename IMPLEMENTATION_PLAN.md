@@ -160,7 +160,12 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       covering the ranked-findings card; a proved sidebar layout now separates
       those areas. This partial review is recorded in
       `docs/studio-capability-matrix.md`; the remaining interactions still
-      need on-screen review.
+      need on-screen review. The shortcut sheet was also obscured by hosted
+      native viewport layers. A proved modal policy now removes those layers
+      while a blocking canvas sheet is open and presents them again when it
+      closes; the help sheet and viewport restoration were visually checked.
+      Replacement, legacy-session and export dialogs still need the same
+      on-screen readability and dismissal review.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.

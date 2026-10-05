@@ -64,3 +64,13 @@ controls and operation stack are legible at this display size. Redundant inline
 shortcut lists were removed; the visible shortcut sheet and toolbar tooltips
 remain. This is one partial window review; file panels, dialogs, small-window
 behavior, keyboard-only use, VoiceOver and other journeys remain unreviewed.
+
+The first shortcut-sheet capture showed its text dimmed beneath the native
+hosted viewport surfaces. A proved modal policy now removes all three hosted
+layers while the shortcut sheet or another blocking canvas dialog is active.
+The 2026-10-05 help-sheet capture at `build/studio-modal-help2.png` shows the
+complete sheet unobscured; after toggling it closed, the capture at
+`build/studio-modal-restored2.png` confirms all three animated viewports
+return. The temporary blank view regions while a modal is open are intentional.
+Other modal types, window sizes and keyboard/focus flows still need individual
+review.
