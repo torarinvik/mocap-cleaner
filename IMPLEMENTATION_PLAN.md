@@ -163,9 +163,10 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       supplement confirms the Reset and Duplicate controls are visible, the
       reset scopes and empty-state disabled actions are clear, click-away
       dismisses Reset, and pointer Duplicate inserts/selects an adjacent copy
-      with one undo. The supplement also records that Escape closed the whole
-      window while Reset was open. Resolve this Escape/back-routing failure,
-      then verify Escape dismisses Reset without closing Studio. Review
+      with one undo. The first review caught an Escape/back-routing failure;
+      commit `aaa5624` registers the Studio workspace with `UiNavigation`, and
+      the rebuilt valid-take review confirms Escape dismisses Reset while
+      keeping the window open. Verify Escape on the other layers and review
       replacement, legacy-session and export dialogs for readability and
       dismissal at the minimum window size. Complete Duplicate edge-state
       feedback (no selection and full stack), native `Cmd-D`, text-entry

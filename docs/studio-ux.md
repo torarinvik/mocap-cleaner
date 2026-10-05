@@ -49,11 +49,15 @@ click outside closes the popover. Duplicate inserts an exact copy after the
 selected step, selects it, and records one undo step. The visible button,
 `Cmd-D`, and a named native accessibility action share the same transition;
 the button explains when no operation is selected or the stack is full. The
-focused accessibility test passes. The Studio compiled with these routes
-before a later accessibility-ID-only correction; the updated tree identities
-pass the focused test, but the final corrected app has not yet been rebuilt or
-reviewed in a valid-take window. VoiceOver activation and minimum-size layout
-review remain open.
+focused accessibility test passes. A current-source compile-only build was
+opened with a valid take at 2880 × 1800. Pointer Duplicate inserted and selected
+an adjacent copy, and one undo restored the original stack. Reset showed its
+three scopes, disabled empty actions, and closed on click-away. The first run
+exposed that Escape closed the window; commit `aaa5624` adds the Studio
+workspace to the shared back-navigation stack, and a rebuilt run confirmed
+Escape now closes Reset while keeping the window open. CUA modifier injection
+did not verify native `Cmd-D`. VoiceOver activation, minimum-size layout and
+the other Escape layers remain open.
 
 The next live check found hosted 3D viewport layers covering the shortcut
 sheet. The proved `StudioModalPolicy` now removes those layers beneath blocking

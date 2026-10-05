@@ -113,10 +113,13 @@ plain-key actions, so this run does not establish native Command-chord behavior
 or text-entry ownership. Both temporary edits were undone or discarded by a
 fresh launch. No file was saved, and the source stack was restored.
 
-Pressing Escape while the Reset popover was open closed the Studio window in
-this run instead of dismissing only the popover. The running-window review
-therefore fails the Escape requirement and needs a back-routing fix or a
-verified native event path before sign-off. Minimum-window layout, native
-VoiceOver activation, filter interaction, and the broader take workflow are
-still open. This supplement supersedes the earlier failed-load-only note for
-Reset and Duplicate visibility; it does not close the full M0 exercise.
+Pressing Escape while the Reset popover was open initially closed the Studio
+window. Commit `aaa5624` registers the Studio workspace with `UiNavigation`,
+allowing the AppKit back router to forward Escape to the Studio's ordered
+dismissal logic. After rebuilding that commit, Escape closed the Reset menu
+while leaving the valid take and Studio window open. The CUA modifier gestures
+remain inconclusive for Command chords. Minimum-window layout, native
+VoiceOver activation, filter interaction, Escape on other layers, and the
+broader take workflow are still open. This supplement supersedes the earlier
+failed-load-only note for Reset and Duplicate visibility; it does not close the
+full M0 exercise.
