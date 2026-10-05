@@ -73,6 +73,7 @@ not by weakening a gate after a regression.
 | Cleanup quality | Each reference case passes its declared per-frame and aggregate quality gates, plus visual review; intentional fast movement remains recognizable. |
 | Responsiveness | On the agreed reference take, target 60 Hz playback and drag preview, p95 interaction processing below 50 ms; display a job state for work exceeding 100 ms. Measure p95/p99 frame times and dropped frames. |
 | Work preservation | Dirty-close, cancelled file panels, failed writes, interrupted computation, source mismatch and recovery fixtures lose no committed edits. |
+| Recoverable cleanup | An animator can disable/remove one correction, undo a cleanup, restore the original result, and identify generated files safe to remove; no source take is selected for deletion. |
 | Precision | Frame ranges, units, bone scopes, contact anchors and export animation selection are visible and survive session round-trip. |
 | Accessibility | Core import–review–correct–export flow works using keyboard alone, without color-only signals, and with supported native accessibility semantics. |
 
@@ -170,6 +171,13 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       48-byte formatting slot. Studio text slots now preserve up to 128 bytes;
       the animation, timing and cleanup summaries were rechecked in the live
       dialog and a regression test covers the full label.
+      Contact endpoint and whole-interval keyboard nudges, plus finding
+      filters and per-analysis ignore/restore, now have policy and Studio
+      wiring. The latest running-window check used the failed-load screen:
+      navigation and its empty state are separated, but filter chips did not
+      appear there and the take picker did not open. Repeat with a valid take
+      before accepting these controls; verify labels, focus, click targets,
+      reset, ignore/restore, shortcut help and spoken values.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
@@ -277,6 +285,12 @@ visually verified solely from offscreen rendering.
       newer schemas without replacing current work.
 - [ ] Add in-app recent takes/sessions with missing-file handling and Clear
       recents. Remember paths as preferences, not embedded source copies.
+- [ ] Add local storage cleanup for Studio-managed recovery snapshots,
+      abandoned temporary exports and generated reports. Show item type,
+      location, age and size; exclude source takes, open documents and current
+      session references; let users review a cleanup selection before moving
+      recoverable items to Trash. Report freed space and make retention rules
+      and Restore easy to find.
 
 **Exit:** keyboard-only and pointer-only import/save/restore/export paths;
 all dirty-close and failure branches exercised; no clipped controls at the
@@ -315,21 +329,22 @@ agreed minimum window size. Sources unchanged.
       threshold and confidence or uncertainty reason. Retain exact frames
       behind visual bins; never attach an unknown aggregate finding to an
       arbitrary joint.
-- [ ] Filter findings by detector, limb, severity and unresolved status.
 - [ ] Link exact issue selection to the curves and inspector, focus a known
       subject, and optionally frame the affected region in the viewport.
 - [ ] Explain each issue in ordinary language with source/result readings:
       slide, penetration, jitter, spike, pole jump, seam or balance warning.
       Show detector settings and analysis revision in advanced details.
-- [ ] Let users mark intentional motion/ignore a finding without modifying
-      animation. Persist annotations separately from cleanup operations and
-      revalidate their scope after retiming.
+- [ ] Persist finding dispositions in sessions with source, animation and
+      analysis identity. After retime or source changes, either remap an
+      annotation under a proved scope rule or show it as expired and let the
+      user reapply it; never silently suppress a newly generated finding.
 - [ ] Distinguish confirmed user contacts from inferred contacts. Show low
       confidence and data limitations; balance and ballistic heuristics must
       not be presented as ground-truth physical validity.
-- [ ] Carry the current stale-result gate into asynchronous analysis and keep
-      visible status, row selection, filters and navigation synchronized with
-      the displayed document revision.
+- [ ] Keep visible status, row selection, filter counts and navigation
+      synchronized with the displayed document revision. Validate compact
+      controls at the minimum window size and provide a discoverable way to
+      inspect each available filter choice.
 
 **Exit:** an unfamiliar rig can be configured without source edits; selecting
 any issue reaches its exact relevant frame; unsupported capabilities explain
@@ -374,6 +389,10 @@ positives before enabling recommendations.
       Drag ordering must have equivalent move buttons and keyboard actions.
 - [ ] Coalesce a slider or numeric edit into one undo transaction. Invalid
       numeric drafts and cancelled drags leave no history entry.
+- [ ] Make cleanup reset paths explicit and reversible: bypass one operation,
+      remove one operation, clear only contact edits, clear only local pose
+      corrections, or restore the original source result. Show the scope before
+      a broad reset and make each accepted reset one undoable transaction.
 - [ ] Add saved recipes with named/versioned settings, rig requirements,
       relative or absolute scope semantics, and preview before replacement.
       Separate factory presets from user recipes; preserve edited recipes.
@@ -435,10 +454,12 @@ state. No recommendation passes solely on aggregate improvement.
       cancellation leave the saved contact state untouched. Validate range
       handles at the minimum supported window size and on long takes.
 - [ ] Add timeline zoom/pan, fitted range, visible row labels, draggable handles
-      with usable hit targets, numeric interval fields and keyboard nudging.
-      Exact one-frame edits must work on long clips. Complete accessible
-      alternatives for timeline navigation, range editing and contact review,
-      then visually verify focus, labels and live action availability.
+      with usable hit targets and numeric interval fields. Exact one-frame
+      edits must work on long clips. Keep the shipped whole-range and endpoint
+      keyboard nudges undoable and discoverable through help, status feedback
+      and native accessibility actions. Complete accessible alternatives for
+      timeline navigation and contact review, then visually verify focus,
+      labels and live action availability.
 - [ ] Show automatic versus edited intervals, lock/pivot choice, anchor point,
       target surface, blend-in/out and confidence. Users can revert an interval
       without deleting other contact edits.
@@ -527,9 +548,11 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
 - [ ] Move expensive load/analysis/rebuild/export work out of the UI event
       path using an engine-supported worker/job boundary. Prototype safe Elisa
       ownership first; do not share mutable clip buffers unsafely.
-- [ ] Introduce document revision and job identity. Apply results only to the
-      matching document/revision; supersede queued edits and discard stale
-      results after undo, take changes or new settings.
+- [ ] Connect the tested cancellation and supersession rules in
+      `src/studio/job_policy.elisa` to each asynchronous load, analysis, rebuild
+      and export commit point. Give each job a document revision and identity;
+      apply results only to the matching revision and discard stale results
+      after undo, take changes or new settings.
 - [ ] Show progress/stage, cancellation and last valid preview. Coalesce rapid
       parameter changes; avoid spawning unbounded work per pointer event.
 - [ ] Keep playback/time mapping deterministic when results arrive; preserve
@@ -557,14 +580,16 @@ never silently loses edits. No representation rewrite without a measured need.
 
 Do not offer root extraction/in-place conversion or key reduction until that
 semantics has its own implementation, review fields and quality validation.
-- [ ] Reload the derived GLB and compare animation channels/poses, contacts,
-      duration and untouched nodes/skins/meshes against expected output.
-      Compare evaluated output against the reviewed revision. Surface a clear
-      distinction between file-write validation and motion-quality review.
+- [ ] Add semantic round-trip fixtures for animation selection, evaluated
+      poses, duration, contact/key timing and untouched nodes/skins/meshes on
+      top of the publisher's current reload and byte-equality check. Compare
+      evaluated output against the reviewed revision. Surface a clear
+      distinction between file integrity and motion-quality review.
 - [ ] Extend the current `.report.json` and `.report.txt` sidecars with truthful
-      tool/dependency versions, policy thresholds, operation/recipe and rig
-      settings, and detailed retime provenance. Replace non-cryptographic
-      residues with source/output hashes only when the exact source and
+      tool/dependency versions, detector thresholds, complete operation and
+      rig settings, and detailed retime provenance. Keep unavailable values
+      explicitly identified until the export snapshot can provide them. Add
+      cryptographic source/output hashes only when the exact source and
       validated output bytes are available to the publisher.
 
 ### 11.2 Studio batch and repeatability (P1)
