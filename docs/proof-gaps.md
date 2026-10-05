@@ -545,3 +545,15 @@ laws prove 59/59 with no replay gaps. The isolated contact-frame kernel and
 laws have no unproven obligations (9/9 and 23/23), but remain `unknown` only
 because their certificates hit the same replay gap described in G85. Review
 new rows after the prover/replay products are rebuilt from matching sources.
+
+## Contact frame limit expansion (2026-10-06)
+
+- The contact endpoint and stored-edit caps now match the timeline's
+  10,000,000-frame limit. The focused endpoint laws remain proven (23/23),
+  while expanding `StudioContactEditor::MAX_FRAMES` broadens symbolic nudge
+  obligations: `studio_contact_editor_laws` reports 5 unknown/timeouts and
+  `studio_contact_nudge_laws` reports 9 unresolved obligations. These are
+  arithmetic proof-budget gaps at the larger bound, not runtime failures. The
+  focused executable tests pass through the new cap. Follow up in
+  `../elisa-proof-mocap` with bounded arithmetic/case lemmas before recording
+  the larger nudge domain as fully proved.

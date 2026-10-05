@@ -33,7 +33,10 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
    preserves contact output and edit-order precedence and supports undo/redo.
    The selected side and 1-based
    frame number stay visible in the editor. To change a run's extent, drag its
-   start or end handle (6 px grip). Clicking a run body or a gap only selects
+   start or end handle (6 px grip), or type a 1-based start/end frame and press
+   Enter. Typed edits accept the timeline's 1..10,000,000 frame range; an
+   out-of-clip or interval-inverting value leaves the authored range intact
+   and explains why it was rejected. Clicking a run body or a gap only selects
    and scrubs. Every edit is
    in undo/redo (Z / Y).
 6. **,** and **.** shorten or lengthen the carry blend (1..24 frames).
