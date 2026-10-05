@@ -44,6 +44,14 @@ return after the `?` toggle closes it. Captures are recorded in
 dialogs remain to be reviewed on screen. The dedicated test passed, and both
 the policy and laws proved (2/2 and 18/18 obligations).
 
+Opening the export review then exposed summary rows silently truncated at 48
+bytes. The fixed 128-byte text slots display the complete animation, timing and
+cleanup details in the live capture; `test/studio_text.elisa` verifies the
+entire long label survives formatting. The dialog was cancelled without
+writing an export. This finding and capture are in
+`docs/studio-capability-matrix.md`; the next full check will include the new
+test.
+
 | # | Audit item | Before | Decision / outcome |
 |---|---|---|---|
 | 1 | First-run state | Blank grey views | `chrome_screen`: if no take is loaded, the views show "Open a take to start", the command line to use, and "press A / ?". If loading fails, a separate failed screen appears (red). |

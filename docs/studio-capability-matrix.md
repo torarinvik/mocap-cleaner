@@ -74,3 +74,12 @@ complete sheet unobscured; after toggling it closed, the capture at
 return. The temporary blank view regions while a modal is open are intentional.
 Other modal types, window sizes and keyboard/focus flows still need individual
 review.
+
+Opening Export Review with **E** found three summary rows cut off at the former
+48-byte `StudioText` slot, even though the dialog had room to show them. The
+slot now allows 128 bytes, and
+`build/studio-audit-export-review-fixed.png` confirms the selected animation,
+source/output timing and cleanup settings are complete at 2880 × 1800. The
+destination and Export button were not activated; no export was written.
+`test/studio_text.elisa` protects the long-label case. Small-window wrapping
+and exceptionally long animation names still need review.

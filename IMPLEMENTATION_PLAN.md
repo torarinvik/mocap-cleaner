@@ -166,6 +166,10 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       closes; the help sheet and viewport restoration were visually checked.
       Replacement, legacy-session and export dialogs still need the same
       on-screen readability and dismissal review.
+      The first export-review capture also exposed summary text stopping at a
+      48-byte formatting slot. Studio text slots now preserve up to 128 bytes;
+      the animation, timing and cleanup summaries were rechecked in the live
+      dialog and a regression test covers the full label.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
