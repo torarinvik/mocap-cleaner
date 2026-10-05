@@ -1,9 +1,41 @@
 # A completed background result is usable only for the displayed document
-# revision and the currently active job generation.
+# revision and the currently requested job generation. Cancellation is sticky
+# for that request. Publication is functional: a rejected result returns the
+# prior valid value unchanged.
 module StudioJobPolicy:
     public:
         const REJECT: i64 = 0
         const APPLY: i64 = 1
+
+        # The expanded form is used by async callers that retain a cancellation
+        # bit while a worker is finishing. Generation zero means no request.
+        def lifecycle_decision(displayed_revision: i64, requested_generation: i64,
+                               result_revision: i64, result_generation: i64,
+                               cancelled: bool) -> i64:
+            requires displayed_revision >= 0
+            requires requested_generation >= 0
+            requires result_revision >= 0
+            requires result_generation >= 0
+            ensure result == REJECT or result == APPLY
+            ensure result == APPLY or cancelled or requested_generation == 0 or displayed_revision != result_revision or requested_generation != result_generation
+            ensure result == REJECT or not cancelled
+            ensure result == REJECT or displayed_revision == result_revision
+            ensure result == REJECT or requested_generation == result_generation
+            ensure result == REJECT or requested_generation > 0
+            return REJECT if cancelled
+            return REJECT if requested_generation == 0
+            return REJECT if displayed_revision != result_revision
+            return REJECT if requested_generation != result_generation
+            APPLY
+
+        # Preserve a previously published valid value when an async result is
+        # stale, superseded, inactive, or cancelled. Values are opaque integers
+        # here so the gate remains independent of evaluator result shape.
+        def publish_value(last_valid: i64, result_value: i64, decision: i64) -> i64:
+            requires decision == REJECT or decision == APPLY
+            ensure result == (result_value if decision == APPLY else last_valid)
+            return result_value if decision == APPLY
+            last_valid
 
         # Generations are positive and must be freshly assigned to each job;
         # zero means there is no active job. Revisions identify document content.
