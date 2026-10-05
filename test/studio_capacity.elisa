@@ -1,0 +1,47 @@
+# Headless capacity boundaries for fixed studio state and pure cache policies.
+# These exercise the boundary values without opening a running UI window.
+include "../src/studio/state/timeline_state.elisa"
+include "../src/studio/state/stack_state.elisa"
+include "../src/core/perf_cache.elisa"
+
+def main() -> i32:
+    # Timeline accepts its configured ceiling and clamps one frame above it.
+    at: TimelineState::State = TimelineState::create(Timeline::MAX_FRAMES)
+    above: TimelineState::State = TimelineState::create(Timeline::MAX_FRAMES + 1)
+    return 1 if at.count != 10000000 or above.count != at.count
+
+    # The foot/contact editor accepts frame 999,999 in a million-frame
+    # feature range; frame 1,000,000 is outside that range.
+    return 2 if not StudioContactEditor::selection_valid(StackState::LEFT, 999999, StudioContactEditor::MAX_FRAMES)
+    return 3 if StudioContactEditor::selection_valid(StackState::LEFT, 1000000, StudioContactEditor::MAX_FRAMES)
+
+    # Cleanup operation stack: 15th insertion is below capacity, 16th is at,
+    # and the next insertion is rejected without changing the count.
+    mutable ops: StackState::Stack = StackState::empty()
+    for i in 0..<15 |ops|:
+        return 4 if not StackState::add(&ops, Ops::despike(0, 9, -1, 1))
+    return 5 if ops.count != 15
+    return 6 if not StackState::add(&ops, Ops::despike(0, 9, -1, 1))
+    return 7 if ops.count != 16
+    return 8 if StackState::add(&ops, Ops::despike(0, 9, -1, 1)) or ops.count != 16
+
+    # Contact records share a 32-entry capacity across all four sides.
+    mutable edits: StackState::Stack = StackState::empty()
+    for i in 0..<31 |edits|:
+        return 9 if not StackState::add_edit(&edits, StackState::LEFT, i, i, true)
+    return 10 if edits.edit_count != 31
+    return 11 if not StackState::add_edit(&edits, StackState::RIGHT_HAND, 31, 31, true)
+    return 12 if edits.edit_count != 32
+    return 13 if StackState::add_edit(&edits, StackState::LEFT, 32, 32, true) or edits.edit_count != 32
+
+    # Retime bands: eight disjoint valid bands fit; the ninth is rejected.
+    mutable bands: StackState::Stack = StackState::empty()
+    for i in 0..<8 |bands|:
+        return 14 if not StackState::add_band(&bands, i * 2, i * 2, 1000, 32)
+    return 15 if bands.band_count != 8
+    return 16 if StackState::add_band(&bands, 20, 20, 1000, 32) or bands.band_count != 8
+
+    # Cache slot numbering is valid for the last supported track ordinal.
+    return 17 if PerfCache::slot(65534, 3) != 262139
+    return 18 if PerfCache::bank_size(65535) != 262144
+    return 0
