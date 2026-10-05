@@ -10,6 +10,7 @@
 include "text.elisa"
 include "scene.elisa"
 include "../chrome.elisa"
+include "../file_policy.elisa"
 include "../../../build/generated/studio_icon_paths.elisa"
 
 module StudioDraw:
@@ -120,6 +121,8 @@ module StudioPanels:
         const ADD_KINDS: i64 = 5
         const CURVE_SEGMENTS: i64 = 40
         const MARKER_BINS: i64 = 120
+        const FILE_MENU_ROW: f32 = 28.0
+        const FILE_MENU_WIDTH: f32 = 190.0
 
         # Toolbar actions, in button order.
         const A_PLAY: i64 = 0
@@ -558,6 +561,61 @@ module StudioPanels:
                     return HIT_UP * 100 + i if px >= r.x + r.w - 86.0
                     return HIT_SELECT * 100 + i
             return -1
+
+        # The labelled File control sits in the sidebar title row. Its popup
+        # opens downwards over the panel so it remains reachable at any size.
+        def file_button_box(sb: Box) -> Box:
+            box(sb.x + sb.w - 76.0, sb.y + 8.0, 64.0, 28.0)
+
+        def file_popup_box(sb: Box) -> Box:
+            box(sb.x + sb.w - FILE_MENU_WIDTH - 8.0, sb.y + 38.0, FILE_MENU_WIDTH, FILE_MENU_ROW * StudioFilePolicy::ROWS.f32() + 8.0)
+
+        def file_popup_contains(sb: Box, px: f32, py: f32) -> bool:
+            inside(file_popup_box(sb), px, py)
+
+        def file_popup_row(sb: Box, px: f32, py: f32) -> i64:
+            p: Box = file_popup_box(sb)
+            return -1 if not inside(p, px, py)
+            row: i64 = ((py - p.y - 4.0) / FILE_MENU_ROW).i64()
+            return row if row >= 0 and row < StudioFilePolicy::ROWS else -1
+
+        def file_menu_label(row: i64) -> sview:
+            return "Open Take..." if row == 0
+            return "Open Session..." if row == 1
+            return "Save Session" if row == 2
+            return "Save Session As..." if row == 3
+            return "Export Cleaned GLB" if row == 4
+            "Export As..."
+
+        def file_menu_shortcut(row: i64) -> sview:
+            return "Cmd-O" if row == 0
+            return "Cmd-Shift-O" if row == 1
+            return "Cmd-S" if row == 2
+            return "Cmd-Shift-S" if row == 3
+            return "E" if row == 4
+            "Cmd-E"
+
+        def file_menu_panel(sb: Box, opened: bool, has_take: bool, focus: i64, hover: i64) -> void:
+            button: Box = file_button_box(sb)
+            StudioDraw::rect(button.x, button.y, button.w, button.h, StudioDraw::color(58, 52, 40) if opened else StudioDraw::panel())
+            StudioDraw::bold(button.x + 10.0, button.y + 6.0, 13.0, "File", StudioDraw::ink())
+            StudioDraw::tri(button.x + button.w - 17.0, button.y + 11.0, button.x + button.w - 7.0, button.y + 11.0, button.x + button.w - 12.0, button.y + 17.0, StudioDraw::muted())
+            return if not opened
+            popup: Box = file_popup_box(sb)
+            StudioDraw::rect(popup.x, popup.y, popup.w, popup.h, StudioDraw::color(21, 24, 31))
+            StudioDraw::segment(popup.x, popup.y, popup.x + popup.w, popup.y, 1.0, StudioDraw::color(82, 91, 108))
+            StudioDraw::segment(popup.x + popup.w, popup.y, popup.x + popup.w, popup.y + popup.h, 1.0, StudioDraw::color(82, 91, 108))
+            StudioDraw::segment(popup.x + popup.w, popup.y + popup.h, popup.x, popup.y + popup.h, 1.0, StudioDraw::color(82, 91, 108))
+            StudioDraw::segment(popup.x, popup.y + popup.h, popup.x, popup.y, 1.0, StudioDraw::color(82, 91, 108))
+            for row in 0..<StudioFilePolicy::ROWS |row, popup, focus, hover, has_take|:
+                y: f32 = popup.y + 4.0 + row.f32() * FILE_MENU_ROW
+                enabled: bool = StudioFilePolicy::enabled(StudioFilePolicy::action(row), has_take)
+                col: UiCore::Color = StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117)
+                if row == focus or row == hover:
+                    StudioDraw::rect(popup.x + 4.0, y, popup.w - 8.0, FILE_MENU_ROW, StudioDraw::color(47, 55, 70))
+                    StudioDraw::rect(popup.x + 4.0, y + 4.0, 2.0, FILE_MENU_ROW - 8.0, StudioDraw::accent()) if row == focus
+                StudioDraw::text(popup.x + 14.0, y + 7.0, 12.0, file_menu_label(row), col)
+                StudioDraw::text(popup.x + popup.w - 78.0, y + 7.0, 10.0, file_menu_shortcut(row), StudioDraw::muted() if enabled else StudioDraw::color(75, 80, 91))
 
         # Frame rate of the loaded clip, set by the app when a clip is built.
         global mutable shown_rate: i64 = Timeline::RATE

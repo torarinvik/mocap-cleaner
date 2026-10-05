@@ -63,6 +63,10 @@ module Studio:
         global mutable help_open: bool = false
         global mutable load_failed: bool = false
         global mutable hover_button: i64 = -1
+        # The sidebar File menu is keyboard navigable as well as clickable.
+        global mutable file_menu_open: bool = false
+        global mutable file_menu_focus: i64 = 0
+        global mutable file_menu_hover: i64 = -1
         # Last one-click clean: permille of slide and spikes removed, or -1.
         global mutable gain_slide: i64 = -1
         global mutable gain_spikes: i64 = -1
@@ -632,6 +636,43 @@ module Studio:
                 export_path <- chosen
                 export_clip()
 
+        def dispatch_file_action(action: i64) -> void:
+            if action == StudioFilePolicy::OPEN_TAKE:
+                open_take()
+            elif action == StudioFilePolicy::OPEN_SESSION:
+                open_session()
+            elif action == StudioFilePolicy::SAVE:
+                save_session()
+            elif action == StudioFilePolicy::SAVE_AS:
+                save_session_as()
+            elif action == StudioFilePolicy::EXPORT_CURRENT:
+                export_clip()
+            elif action == StudioFilePolicy::EXPORT_AS:
+                export_as()
+
+        def activate_file_menu(row: i64) -> void:
+            return if row < 0 or row >= StudioFilePolicy::ROWS
+            action: i64 = StudioFilePolicy::activate(row, clip != null)
+            return if action == StudioFilePolicy::NONE
+            file_menu_open <- false
+            file_menu_hover <- -1
+            touch()
+            dispatch_file_action(action)
+
+        def file_menu_key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Escape:
+                file_menu_open <- false
+                file_menu_hover <- -1
+                touch()
+            elif code == UiCore::Key.Up:
+                file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, -1, clip != null)
+                touch()
+            elif code == UiCore::Key.Down:
+                file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, 1, clip != null)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                activate_file_menu(file_menu_focus)
+
         def open_take() -> void:
             if FilePanel::open("glb", "Open a motion-capture take") is chosen:
                 load_take(chosen)
@@ -890,6 +931,7 @@ module Studio:
                     StudioRetime::overlay(StudioPanels::timeline_box(w, h), c, &s, &selection, t.frame)
                     StudioRetime::controls(StudioPanels::curve_box(w, h), RetimeState::ready(&selection) or band_focus >= 0, retime_speed, typing, typed_view())
                     StudioPanels::cleanup_readout(StudioPanels::sidebar_box(w, h), c, readout_value(shown_slide, c.slide_after), readout_value(shown_sink, c.sink_after), readout_value(shown_hand_slide, c.hand_slide_after), s.blend)
+                    StudioPanels::file_menu_panel(StudioPanels::sidebar_box(w, h), file_menu_open, true, file_menu_focus, file_menu_hover)
                     UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
                     drawn_frame <- t.frame
             screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
@@ -1023,6 +1065,19 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            if file_menu_open:
+                if StudioPanels::inside(StudioPanels::file_button_box(sb), x, y):
+                    file_menu_open <- false
+                    file_menu_hover <- -1
+                    touch()
+                    return
+                if StudioPanels::file_popup_contains(sb, x, y):
+                    activate_file_menu(StudioPanels::file_popup_row(sb, x, y)) if button == 0
+                    return
+                file_menu_open <- false
+                file_menu_hover <- -1
+                touch()
             a: i64 = StudioPanels::toolbar_hit(x, y)
             if a >= 0:
                 toolbar_action(a)
@@ -1036,8 +1091,14 @@ module Studio:
                 scrubbing <- true
                 scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
                 return
-            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
             if StudioPanels::inside(sb, x, y):
+                if StudioPanels::inside(StudioPanels::file_button_box(sb), x, y) and button == 0:
+                    file_menu_open <- true
+                    file_menu_focus <- 0
+                    file_menu_hover <- -1
+                    help_open <- false
+                    touch()
+                    return
                 s: StackState::Stack = current_stack()
                 hit: i64 = StudioPanels::stack_hit(sb, s, x, y)
                 if hit >= 0:
@@ -1085,6 +1146,15 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if file_menu_open:
+                sb: StudioPanels::Box = StudioPanels::sidebar_box(UiCore::viewport_width(), UiCore::viewport_height())
+                row: i64 = StudioPanels::file_popup_row(sb, x, y)
+                if row != file_menu_hover:
+                    file_menu_hover <- row
+                    if row >= 0 and StudioFilePolicy::enabled(StudioFilePolicy::action(row), clip != null):
+                        file_menu_focus <- row
+                    touch()
+                return
             over: i64 = StudioPanels::toolbar_hit(x, y)
             if over != hover_button:
                 hover_button <- over
@@ -1271,6 +1341,8 @@ module Studio:
                 gizmo_mode: gizmo_mode
             }
             f <- StudioFocus::after_focus_lost(f)
+            file_menu_open <- false
+            file_menu_hover <- -1
             modifiers <- f.modifiers
             drag_view <- f.drag_view
             drag_button <- f.drag_button.i32()
@@ -1466,11 +1538,14 @@ module Studio:
                 file <- StudioShortcuts::e_chord(modifiers)
             if file != StudioShortcuts::FILE_NONE:
                 modifiers <- 0
-                open_take() if file == StudioShortcuts::OPEN_TAKE
-                open_session() if file == StudioShortcuts::OPEN_SESSION
-                save_session() if file == StudioShortcuts::SAVE
-                save_session_as() if file == StudioShortcuts::SAVE_AS
-                export_as() if file == StudioShortcuts::EXPORT_AS
+                dispatch_file_action(StudioFilePolicy::OPEN_TAKE) if file == StudioShortcuts::OPEN_TAKE
+                dispatch_file_action(StudioFilePolicy::OPEN_SESSION) if file == StudioShortcuts::OPEN_SESSION
+                dispatch_file_action(StudioFilePolicy::SAVE) if file == StudioShortcuts::SAVE
+                dispatch_file_action(StudioFilePolicy::SAVE_AS) if file == StudioShortcuts::SAVE_AS
+                dispatch_file_action(StudioFilePolicy::EXPORT_AS) if file == StudioShortcuts::EXPORT_AS
+                return
+            if file_menu_open:
+                file_menu_key(code)
                 return
             if code == UiCore::Key.Slash and not command:
                 help_open <- StudioChrome::help_after(help_open, true, false)
