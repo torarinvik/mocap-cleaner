@@ -243,8 +243,10 @@ visually verified solely from offscreen rendering.
       uses Save and Quit / Discard and Quit / Cancel; failed saves keep the
       prompt open. Exercise close, quit and save-failure paths on screen.
       Separate unsaved work warnings from ordinary status.
-- [ ] Make session saves atomic using a temporary derived file and rename;
-      detect permission, disk-space and partial-write failures.
+- [x] Make session saves atomic using a unique temporary sibling and rename.
+      Check complete writes, flush, fsync, close and commit results; remove the
+      temporary on failure, preserve an existing session and explain that a
+      failed save may be caused by its path, permissions or available disk space.
 - [ ] Extend sessions with source identity/hash, animation identity, rig
       profile, units/floor, all exposed operation parameters and local repairs.
       Version the schema and preserve older supported sessions via migration.
