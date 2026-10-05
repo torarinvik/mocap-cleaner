@@ -179,6 +179,7 @@ module Studio:
         global mutable accessibility_contact_plant_widget: usize = 0
         global mutable accessibility_contact_lift_widget: usize = 0
         global mutable accessibility_contact_reset_widget: usize = 0
+        global mutable accessibility_contact_delete_widget: usize = 0
         global mutable accessibility_contact_ready: bool = false
 
         global mutable drag_view: i64 = -1
@@ -583,7 +584,7 @@ module Studio:
                 contact_selected_side <- p.side
                 contact_selected_frame <- p.frame
                 scrub_to(p.frame)
-                status <- "contact frame selected; choose Plant frame or Lift frame"
+                status <- "contact frame selected; choose Plant, Lift, Reset frame, or Delete interval"
                 nudged_row <- -1
                 status_file <- null
                 touch()
@@ -616,6 +617,28 @@ module Studio:
                     touch()
                     return
                 mutable s: StackState::Stack = current_stack()
+                if action == StudioContactEditor::DELETE:
+                    index: i64 = StackState::edit_index_at(s, contact_selected_side, contact_selected_frame)
+                    if index >= 0:
+                        removed: StackState::FootEdit = s.edits[index]
+                        if StackState::delete_edit_at(&s, contact_selected_side, contact_selected_frame):
+                            commit(s, true)
+                            StudioText::begin()
+                            StudioText::put("Deleted ")
+                            StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                            StudioText::put(" interval frames ")
+                            StudioText::put_i(removed.first + 1)
+                            StudioText::put(" to ")
+                            StudioText::put_i(removed.last + 1)
+                            status <- StudioText::view()
+                        else:
+                            status <- "could not delete contact interval"
+                    else:
+                        status <- "no authored contact interval at this frame"
+                    nudged_row <- -1
+                    status_file <- null
+                    touch()
+                    return
                 if action == StudioContactEditor::RESET:
                     if StackState::reset_edit_at(&s, contact_selected_side, contact_selected_frame):
                         commit(s, true)
@@ -1778,7 +1801,8 @@ module Studio:
             accessibility_contact_plant_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_contact_lift_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_contact_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE
+            accessibility_contact_delete_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE and accessibility_contact_delete_widget != UiFlat::NONE
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -1809,6 +1833,9 @@ module Studio:
                     return
                 elif widget == accessibility_contact_reset_widget:
                     contact_apply(StudioContactEditor::RESET)
+                    return
+                elif widget == accessibility_contact_delete_widget:
+                    contact_apply(StudioContactEditor::DELETE)
                     return
             if accessibility_warning_ready and export_warning_detail_open and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_warning_previous_widget:
@@ -1941,6 +1968,7 @@ module Studio:
                 mutable current: StackState::Stack = current_stack()
                 reset_enabled: bool = valid and StackState::has_edit_at(current, contact_selected_side, contact_selected_frame)
                 UiFlat::set_enabled(accessibility_contact_reset_widget, reset_enabled)
+                UiFlat::set_enabled(accessibility_contact_delete_widget, reset_enabled)
                 none: usize = StudioAccessibility::NO_NODE
                 next: usize = StudioAccessibility::CONTACT_EDITOR_LIFT
                 mutable value: sview = "Select a contact row and frame first"
@@ -1972,6 +2000,13 @@ module Studio:
                     StudioAccessibility::CONTACT_EDITOR_RESET,
                     StudioAccessibility::TIMELINE, none, none,
                     accessibility_contact_reset_widget, reset_enabled, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Delete selected contact interval",
+                    "Remove the newest authored contact interval covering the selected frame. Earlier overrides or automatic detection become visible again. The edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::DELETE),
+                    StudioAccessibility::CONTACT_EDITOR_DELETE,
+                    StudioAccessibility::TIMELINE, none, none,
+                    accessibility_contact_delete_widget, reset_enabled, false, value)
 
         def publish_export_warning_detail_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_warning_ready
@@ -2733,6 +2768,8 @@ module Studio:
                 contact_apply(StudioContactEditor::LIFT)
             elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.U:
                 contact_apply(StudioContactEditor::RESET)
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.Delete:
+                contact_apply(StudioContactEditor::DELETE)
             elif band_focus >= 0 and (code == UiCore::Key.Delete or code == UiCore::Key.Backspace):
                 remove_band()
             elif code == UiCore::Key.R:

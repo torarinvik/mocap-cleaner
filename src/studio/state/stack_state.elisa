@@ -14,7 +14,7 @@ module StackState:
         const MAX_STRENGTH: i64 = 64
         const MAX_EDGE: i64 = 120
         # Hand contact edits kept per stack (timeline contact-bar edits).
-        const MAX_EDITS: i64 = 32
+        const MAX_EDITS: i64 = StudioContactEditor::MAX_EDITS
         const LEFT: i64 = 0
         const RIGHT: i64 = 1
         const LEFT_HAND: i64 = 2
@@ -87,11 +87,37 @@ module StackState:
             s.edit_count <- s.edit_count + 1
             return true
 
-        def has_edit_at(s: Stack&, side: i64, frame: i64) -> bool:
-            for i in 0..<s.edit_count |i, s, side, frame|:
+        # Return the newest authored interval containing this frame. Later
+        # edits win, so deleting this entry reveals the previous authored or
+        # detected state for its full interval.
+        def edit_index_at(s: Stack&, side: i64, frame: i64) -> i64:
+            requires s.edit_count >= 0
+            requires s.edit_count <= MAX_EDITS
+            ensure result >= -1
+            ensure result < s.edit_count
+            mutable found: i64 = -1
+            for i in 0..<s.edit_count |i, s, side, frame, found|:
                 e: FootEdit = s.edits[i]
-                return true if e.side == side and frame >= e.first and frame <= e.last
-            false
+                found <- i if e.side == side and frame >= e.first and frame <= e.last
+            found
+
+        # Delete the newest authored interval at the selected frame. Removing
+        # the whole interval is explicit and undoable; it does not split the
+        # underlying edit or disturb neighboring entries.
+        def delete_edit_at(s: mutable Stack&, side: i64, frame: i64) -> bool:
+            return false if s.edit_count <= 0 or s.edit_count > MAX_EDITS
+            return false if side < LEFT or side > RIGHT_HAND or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
+            removed: i64 = edit_index_at(s, side, frame)
+            return false if removed < 0
+            old_count: i64 = s.edit_count
+            for i in 0..<(old_count - 1) |i, s, removed, old_count|:
+                source: i64 = StudioContactEditor::delete_source_index(i, removed, old_count)
+                s.edits[i] <- s.edits[source]
+            s.edit_count <- old_count - 1
+            true
+
+        def has_edit_at(s: Stack&, side: i64, frame: i64) -> bool:
+            edit_index_at(s, side, frame) >= 0
 
         # Remove one output frame from every authored edit for this side.
         # Splitting each affected range preserves its order, so later edits
