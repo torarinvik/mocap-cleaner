@@ -251,7 +251,11 @@ and almost all of that is the prover.
       slide and spike reduction.
 - [x] Native open/save panels (engine `FilePanel`): Cmd-O take, Cmd-Shift-O session,
       Cmd-Shift-S save as, Cmd-E export as; take swap resets caches and history.
-- [ ] Drag-and-drop a take onto the window (needs an elisa-ui AppKit drop target).
+- [x] Drag-and-drop a take onto the window. The AppKit canvas accepts one local
+      file URL and calls the Studio hook synchronously. The hook checks the
+      window handle, copies the borrowed path into app-owned storage, and loads
+      through the same take-swap path as the Open panel; failed loads preserve
+      the current take. Both the elisa-ui example and Studio build and link.
 - [x] Toolbar icons: vendored Lucide (ISC) plus custom mocap SVGs,
       flattened to strokes by `tools/svg_icons.py` (`test/studio_icons`).
 - [x] Units and readable names on strength/edge controls.
