@@ -464,3 +464,12 @@ now prove completely with every certificate replayed.
 The sibling prover's JSON report for `proof/key_weight_laws.elisa` has no
 findings: all 5 functions are proved, all 60 goals replay, and no replay gaps
 remain.
+
+## Local check baseline (2026-10-05)
+
+`scripts/check.sh` records the reviewed per-file state and unproven-goal count
+in `scripts/proof-baseline.tsv`. The current corpus has 51 proved, 16 unknown
+and 24 unsupported files. The last two states are existing prover gaps or
+impure driver modules, so the check reports them and fails only if a file gets
+worse, a new file lacks review, or a report is missing. Improvements pass and
+can be folded into the baseline when the corpus is intentionally re-reviewed.

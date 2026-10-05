@@ -85,6 +85,6 @@ for f in src/*/*.elisa proof/*.elisa; do
     line=$(cat "$base.txt" 2>/dev/null)
     tag=""; [ -f "$base.cached" ] && tag=" (cached)"
     echo "proof $f: $line$tag"
-    echo "$line" | grep -q "state: proved" || status=1
 done
+python3 scripts/check_proof_baseline.py src/*/*.elisa proof/*.elisa || status=1
 exit $status
