@@ -1,6 +1,6 @@
 # Mocap Cleaner — Product and Implementation Plan
 
-Updated 2026-10-05. This is the remaining-work roadmap. Completed work has
+Updated 2026-10-06. This is the remaining-work roadmap. Completed work has
 been removed; its implementation history remains in Git. Existing kernels,
 CLI tools, studio controls, caches and reports are the starting point for
 these milestones, not tasks to rebuild.
@@ -164,7 +164,10 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       and export dialogs for readability and dismissal at the minimum window
       size. The existing partial review and its evidence are documented in the
       matrix; failed-load review did not establish valid-take picker, filter or
-      reset behavior.
+      reset behavior. Also verify Duplicate is visibly labelled, disabled with
+      a reason without a usable selection or at capacity, inserts immediately
+      after the selected step, selects the copy, and undoes in one Cmd-Z. Check
+      `Cmd-D`, that numeric/text entry consumes it, and its VoiceOver action.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
@@ -426,12 +429,6 @@ positives before enabling recommendations.
 - [ ] Explain ordering and fixed pipeline stages, including contact-dependent
       stages, final pins and retime. Reject or explain invalid moves; never
       suggest that a displayed order differs from evaluation order.
-- [ ] Expose Duplicate with a clear visible label, keyboard and accessible
-      action. Route it through the bounded state transition, preserve every
-      operation field, and record exactly one undo entry. Disable it with an
-      explanation at invalid selection or capacity. Rename, bypass-all and
-      before-this-step review remain P1. Drag ordering must have equivalent
-      move buttons and keyboard actions.
 - [ ] Coalesce a slider or numeric edit into one undo transaction. Invalid
       numeric drafts and cancelled drags leave no history entry.
 - [ ] Add saved recipes with named/versioned settings, rig requirements,
