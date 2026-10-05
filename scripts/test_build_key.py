@@ -54,7 +54,15 @@ def main():
     digest = hashlib.sha256(b"mocap-cleaner-test-build-v1\0")
     digest.update(f"{platform.system()}:{platform.machine()}:{sys.version}\0".encode())
     digest.update((sys.argv[1] + "\0-emit exe\0ELISA_ALLOW_STALE_STAGE1=1").encode())
-    for name in sorted(k for k in os.environ if k.startswith(("ELISA_", "LLVM_"))):
+    tool_env = {
+        "ELISAC", "ELISA_STAGE1_BIN", "ELISA_RUNTIME_OBJ", "ELISA_CLANG",
+        "ELISA_AR", "LLVM_CONFIG",
+    }
+    tool_env.update(
+        name for name in os.environ
+        if name.startswith(("ELISA_HOST_", "ELISA_TARGET_"))
+    )
+    for name in sorted(tool_env & os.environ.keys()):
         digest.update(f"{name}={os.environ[name]}\0".encode())
 
     for repo in (ROOT, ROOT.parent / "elisa-engine-mocap", ROOT.parent / "elisa-ui"):
