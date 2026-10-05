@@ -491,7 +491,7 @@ can be folded into the baseline when the corpus is intentionally re-reviewed.
 
 ## Character binding coverage gap (2026-10-05)
 
-- G84 (prover gap): `proof/studio_character_bind_laws.elisa` proves 76
+- G84 (prover gap): `proof/studio_character_bind_laws.elisa` proves 82
   obligations and leaves one unknown. `coverage_is_monotone` needs
   `bound * 1000 / total <= (bound + 1) * 1000 / total` for `0 < total <=
   65535`, which is monotonicity of truncating division by a symbolic divisor
