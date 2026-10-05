@@ -204,12 +204,10 @@ visually verified solely from offscreen rendering.
 ### 6.2 Commands, focus and accessibility
 
 - [ ] Complete visible Edit/View/Cleanup/Help command paths and context menus
-      where appropriate. The sidebar File menu now exposes take/session open,
-      session save and cleaned GLB export, with keyboard navigation and shared
-      native-action dispatch. Its row availability has a proved policy and a
-      headless test. The rest of the command surface still needs one registry
-      for labels, shortcuts, enablement and dispatch; support a searchable
-      command palette (P1).
+      where appropriate. Centralize labels, shortcuts, enablement and dispatch
+      so menus, toolbar controls, contextual actions and shortcuts stay in
+      sync. Add a searchable command palette (P1) after the primary paths are
+      consistent.
 - [ ] Make tab order, focus rings, button activation and list navigation
       consistent. Text entry owns typing keys; playback/cleanup shortcuts
       must not fire while entering a number or searching.
@@ -231,22 +229,11 @@ visually verified solely from offscreen rendering.
 
 ### 6.3 Document lifecycle and recovery
 
-- [ ] Define clean/dirty/saving/recoverable document states and a saved-state
-      identity. Undo back to the saved state clears dirty correctly.
-- [ ] Finish dirty-document confirmation for close/quit. Open Take, toolbar
-      Open, file drop and Open Session now stage a replacement and offer Save,
-      Discard or Cancel; a failed save keeps the prompt and dirty edits. The
-      choice focus and prompt-trigger policies have contracts, laws and a
-      headless test. The native window close now raises a synchronous Quit
-      request and reuses the same panel with Save and Close / Discard and Close
-      / Cancel. Cmd-Q now reaches AppKit's synchronous termination decision and
-      uses Save and Quit / Discard and Quit / Cancel; failed saves keep the
-      prompt open. Exercise close, quit and save-failure paths on screen.
-      Separate unsaved work warnings from ordinary status.
-- [x] Make session saves atomic using a unique temporary sibling and rename.
-      Check complete writes, flush, fsync, close and commit results; remove the
-      temporary on failure, preserve an existing session and explain that a
-      failed save may be caused by its path, permissions or available disk space.
+- [ ] Exercise replacement, window-close and Cmd-Q prompts on screen,
+      including Save/Discard/Cancel, Escape, repeated close requests and save
+      failures. Confirm that failed saves preserve the prompt and edits, and
+      that cancellation leaves the document usable. Keep unsaved-work warnings
+      visually distinct from ordinary status feedback.
 - [ ] Extend sessions with source identity/hash, animation identity, rig
       profile, units/floor, all exposed operation parameters and local repairs.
       Version the schema and preserve older supported sessions via migration.
@@ -651,16 +638,16 @@ Start in this order; each row should become several small reviewable commits.
 
 | Slice | Concrete result | Evidence needed before moving on |
 |---|---|---|
-| 1 | M0 studio audit and corrected current-behavior docs | Running-window captures, gap matrix, measured limits. |
-| 2 | Shared commands/focus rules plus labelled Open, Save, Compare and Export paths | Pointer and keyboard journey; text fields cannot trigger global cleanup. |
-| 3 | Dirty-state model, safe replacement/close and atomic session save | Save/Discard/Cancel and failure scenarios preserve work. |
-| 4 | Animation/rig/floor setup with actionable validation | Valid, ambiguous and incompatible rig fixtures. |
-| 5 | Selectable issue list linked to timeline, joint and metrics | Exact frame selection and stale-analysis handling. |
-| 6 | Suggested-cleanup preview and complete inspector for one existing tool | Apply/cancel/undo parity; local preservation metrics. |
-| 7 | Select-first contact editor with interval/anchor controls | One-frame precision, keyboard equivalent, transition quality. |
-| 8 | Revision-safe background rebuild and recovery | Rapid edits, undo and take swap reject stale results; measured latency. |
-| 9 | Complete existing tool exposure and reviewed export | Session/CLI/preview/export semantic parity. |
-| 10 | Corpus expansion, user trials and release qualification | All P0 gates; unresolved limits documented. |
+| 1 | M0 studio audit, corrected current-behavior docs and interaction specifications | Running-window captures, gap matrix, measured limits and reviewed first-use flows. |
+| 2 | Finish command discovery, focus rules and accessible alternatives | Pointer and keyboard journeys; text fields cannot trigger global cleanup; focus survives dialogs and panels. |
+| 3 | Session source identity, animation/rig compatibility and safe rebind review | Same-source restore succeeds; changed source, animation or rig cannot silently receive stale edits. |
+| 4 | Animation/rig/floor setup with actionable validation | Valid, ambiguous and incompatible rig fixtures; users can resolve warnings without source edits. |
+| 5 | Selectable issue list linked to timeline, joint and metrics | Exact frame selection, understandable issue summary and stale-analysis handling. |
+| 6 | Suggested-cleanup preview and complete inspector for one existing tool | Apply/cancel/undo parity; local preservation metrics; user can explain the effect before accepting. |
+| 7 | Select-first contact editor with interval/anchor controls | One-frame precision, keyboard equivalent, transition quality and visible compromises. |
+| 8 | Revision-safe background rebuild and bounded recovery | Rapid edits, undo and take swap reject stale results; cancellation preserves the last valid preview. |
+| 9 | Complete existing tool exposure and reviewed export | Session/CLI/preview/export semantic parity; output reopens and matches the reviewed revision. |
+| 10 | Corpus expansion, user trials and release qualification | All P0 gates; unresolved limits documented; first-time users finish the core journey without coaching. |
 
 Keep the plan driven by the user's full task: understand the capture, make a
 controlled repair, see whether it helped, retain the work, and deliver an
