@@ -147,6 +147,10 @@ module Studio:
         global mutable framed: bool = false
         global mutable accessibility_toolbar_widgets: usize[StudioPanels::BUTTONS.usize()] = zeroed
         global mutable accessibility_toolbar_ready: bool = false
+        global mutable accessibility_review_ack_widget: usize = 0
+        global mutable accessibility_review_cancel_widget: usize = 0
+        global mutable accessibility_review_export_widget: usize = 0
+        global mutable accessibility_review_ready: bool = false
 
         global mutable drag_view: i64 = -1
         global mutable drag_button: i32 = -1
@@ -800,13 +804,13 @@ module Studio:
             if code == UiCore::Key.Escape:
                 cancel_export_review()
             elif code == UiCore::Key.Left or code == UiCore::Key.Up:
-                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1)
+                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1, current_export_warnings())
                 touch()
             elif code == UiCore::Key.Right or code == UiCore::Key.Down:
-                export_review_focus <- StudioExportReview::move_focus(export_review_focus, 1)
+                export_review_focus <- StudioExportReview::move_focus(export_review_focus, 1, current_export_warnings())
                 touch()
             elif code == UiCore::Key.Tab:
-                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1 if StudioShortcuts::shift(modifiers) else 1)
+                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1 if StudioShortcuts::shift(modifiers) else 1, current_export_warnings())
                 touch()
             elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
                 activate_export_review(export_review_focus)
@@ -1389,7 +1393,7 @@ module Studio:
             if export_review_open and clip is c:
                 StudioPanels::export_review_panel(w, h, true, export_review_path, anim_name, c, s,
                     current_export_warnings(), export_review_acknowledged, export_review_focus)
-            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open and not export_review_open:
+            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
                 if timeline is current_timeline:
                     publish_accessibility(w, h, s, current_timeline)
             scale: f32 = UiAppKitCanvas::backing_scale()
@@ -1440,6 +1444,10 @@ module Studio:
                 return if widget == UiFlat::NONE or widget != action.usize()
                 accessibility_toolbar_widgets[action.usize()] <- widget
             accessibility_toolbar_ready <- true
+            accessibility_review_ack_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_review_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_review_export_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -1461,17 +1469,65 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if accessibility_review_ready and export_review_open and event == UiConst::WidgetEvent.Click.i32():
+                if widget == accessibility_review_ack_widget:
+                    activate_export_review(StudioExportReview::ACKNOWLEDGE)
+                    return
+                elif widget == accessibility_review_cancel_widget:
+                    activate_export_review(StudioExportReview::CANCEL)
+                    return
+                elif widget == accessibility_review_export_widget:
+                    activate_export_review(StudioExportReview::EXPORT)
+                    return
             return if not accessibility_toolbar_ready or event != UiConst::WidgetEvent.Click.i32()
             action: i64 = StudioAccessibility::toolbar_action_for_widget(widget)
             toolbar_action(action) if action >= 0
 
         # Publish stable region landmarks and actionable toolbar controls.
         def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, action: usize, enabled: bool, selected: bool, text_value: sview) -> void:
+            focused: bool = export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT))
             UiCore::accessibility_with_metadata(role, label, help_text,
                 UiCore::Rect(b.x, b.y, b.w, b.h), id, action,
-                enabled, false, selected, 0.0,
+                enabled, focused, selected, 0.0,
                 text_value, "", revision.usize(), 0, 0, parent_id,
                 first_child_id, next_sibling_id, 0.0, 1.0, false)
+
+        def publish_export_review_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_review_ready
+            none: usize = StudioAccessibility::NO_NODE
+            warnings: i64 = current_export_warnings()
+            dialog: StudioPanels::Box = StudioPanels::export_review_dialog_box(w, h)
+            accessibility_node(UiCore::AccessibilityRole.Dialog,
+                "Review cleaned export",
+                "Review the destination, retained animation details, cleanup steps, and quality notes before exporting.",
+                dialog, StudioAccessibility::EXPORT_REVIEW, none,
+                StudioAccessibility::export_review_first_child(warnings), none,
+                none, true, false, "")
+            if warnings > 0:
+                mutable acknowledgement: sview = "Not acknowledged"
+                acknowledgement <- "Acknowledged" if export_review_acknowledged
+                accessibility_node(UiCore::AccessibilityRole.CheckBox,
+                    "I reviewed the quality notes",
+                    "Required before exporting while quality warnings are present.",
+                    StudioPanels::export_review_ack_box(w, h),
+                    StudioAccessibility::REVIEW_ACKNOWLEDGEMENT,
+                    StudioAccessibility::EXPORT_REVIEW,
+                    none, StudioAccessibility::REVIEW_CANCEL,
+                    accessibility_review_ack_widget, true,
+                    export_review_acknowledged, acknowledgement)
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Cancel export review", "Close this review without writing a file.",
+                StudioPanels::export_review_button_box(w, h, StudioExportReview::CANCEL),
+                StudioAccessibility::REVIEW_CANCEL, StudioAccessibility::EXPORT_REVIEW,
+                none, StudioAccessibility::REVIEW_EXPORT,
+                accessibility_review_cancel_widget, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Export GLB", "Write and validate the cleaned GLB at the displayed destination.",
+                StudioPanels::export_review_button_box(w, h, StudioExportReview::EXPORT),
+                StudioAccessibility::REVIEW_EXPORT, StudioAccessibility::EXPORT_REVIEW,
+                none, none, accessibility_review_export_widget,
+                StudioExportReview::export_enabled(warnings, export_review_acknowledged),
+                false, "")
 
         def publish_toolbar_accessibility(t: TimelineState::State&, can_undo: bool, can_redo: bool) -> void:
             return if not accessibility_toolbar_ready
@@ -1492,6 +1548,9 @@ module Studio:
         def publish_accessibility(w: f32, h: f32, s: StackState::Stack&, t: TimelineState::State&) -> void:
             none: usize = StudioAccessibility::NO_NODE
             return if not accessibility_toolbar_ready
+            if export_review_open:
+                publish_export_review_accessibility(w, h)
+                return
             workspace: StudioPanels::Box = StudioPanels::box(0.0, 0.0, w, h)
             views: StudioPanels::Box = StudioPanels::box(StudioPanels::GAP,
                 StudioPanels::TOOLBAR, StudioPanels::main_width(w),
