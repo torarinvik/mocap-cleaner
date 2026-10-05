@@ -9,11 +9,38 @@ mkdir -p build/test
 rm -rf build/folder-test && mkdir -p build/folder-test/sub.glb
 touch build/folder-test/a.glb build/folder-test/b.glb build/folder-test/C.GLB build/folder-test/.hidden.glb build/folder-test/c.txt
 status=0
-# Derived icon geometry for test/studio_icons.elisa (also made by build_studio.sh).
-python3 tools/svg_icons.py build/generated/studio_icon_paths.elisa >/dev/null || status=1
-for t in test/*.elisa; do
+check_jobs=${CHECK_JOBS:-4}
+case $check_jobs in
+    ''|*[!0-9]*) echo "CHECK_JOBS must be a positive integer" >&2; exit 2 ;;
+    0) echo "CHECK_JOBS must be a positive integer" >&2; exit 2 ;;
+esac
+build_test() {
+    t=$1
     name=$(basename "$t" .elisa)
     if ELISA_ALLOW_STALE_STAGE1=1 "$ELISAC" -emit exe -o "build/test/$name" "$t" >"build/test/$name.log" 2>&1; then
+        echo ok >"build/test/$name.status"
+    else
+        echo failed >"build/test/$name.status"
+    fi
+}
+# Derived icon geometry for test/studio_icons.elisa (also made by build_studio.sh).
+python3 tools/svg_icons.py build/generated/studio_icon_paths.elisa >/dev/null || status=1
+# Compile in bounded parallel batches; test executables still run in file order
+# because several share generated fixtures under build/.
+rm -f build/test/*.status
+active=0
+for t in test/*.elisa; do
+    build_test "$t" &
+    active=$((active + 1))
+    if [ "$active" -ge "$check_jobs" ]; then
+        wait || true
+        active=0
+    fi
+done
+[ "$active" -eq 0 ] || wait || true
+for t in test/*.elisa; do
+    name=$(basename "$t" .elisa)
+    if [ "$(cat "build/test/$name.status" 2>/dev/null)" = ok ]; then
         "build/test/$name"; rc=$?
         echo "test  $name: rc=$rc"; [ $rc -eq 0 ] || status=1
     else
