@@ -32,3 +32,13 @@ files alongside its export workflow. Tool/dependency versions, SHA-256 source
 and output hashes, policy thresholds, and full retime provenance still need
 to be added by the Studio integration when those values can be recorded
 truthfully.
+
+Studio writes `<export>.report.json` and `<export>.report.txt` as atomic
+same-directory sidecars after the validated GLB rename succeeds. The source
+label is the loaded take's basename. The report includes the available
+detector metrics and the foot/hand cleanup toggles; operation parameters,
+tool versions, and detailed retime provenance are explicitly outside this
+snapshot. Output identity is calculated from the validated temporary GLB
+before it is renamed. A sidecar failure does not roll back the GLB; Studio
+reports that the GLB succeeded while report sidecars failed, with the
+destination path available for retry.

@@ -24,6 +24,7 @@ include "../accessibility.elisa"
 include "../export_policy.elisa"
 include "../export_review.elisa"
 include "../export_result.elisa"
+include "../export_report.elisa"
 include "export_publisher.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
@@ -104,6 +105,7 @@ module Studio:
         global mutable export_path_inspector_page: i64 = 0
         global mutable export_path_inspector_focus: i64 = StudioExportPathReview::DONE
         global mutable export_result_open: bool = false
+        global mutable export_report_saved: bool = false
         global mutable export_result_path: cstr = ""
         global mutable export_result_focus: i64 = StudioExportResult::OPEN
         global mutable replacement_prompt_open: bool = false
@@ -1354,9 +1356,12 @@ module Studio:
                         touch()
                         return false
                     if StudioExportPublisher::commit(temporary, destination):
+                        report_saved: bool = write_export_report(destination, temporary)
+                        export_report_saved <- report_saved
                         FilePanel::release_path(temporary)
                         export_path <- destination
-                        say_file("exported and validated", destination)
+                        say_file("exported and validated; report saved", destination) if report_saved
+                        say_file("GLB exported and validated; report sidecars could not be saved beside destination", destination) if not report_saved
                         FilePanel::note_recent(destination)
                         _ = puts(destination)
                         export_result_path <- destination
@@ -1371,6 +1376,105 @@ module Studio:
                     say_file(StudioExportValidation::message(prepare_error), destination)
                 touch()
             false
+
+        # Reports are best-effort sidecars after the GLB's atomic commit. The
+        # source label is a basename, and fingerprints remain explicitly
+        # non-cryptographic residues. Values unavailable in the current export
+        # snapshot (tool versions and detailed retime provenance) are omitted.
+        def write_export_report(destination: cstr, validated_path: cstr) -> bool can Unsafe.PointerCast:
+            if clip is c:
+                return write_export_report_for(c, destination, validated_path)
+            false
+
+        def write_export_report_for(c: StudioModel::Clip&, destination: cstr, validated_path: cstr) -> bool can Unsafe.PointerCast:
+            written: GlbDocument::Document = catch GlbDocument::load(validated_path):
+                value: value
+                error failure: return false
+            output_identity: StudioSourceFingerprint::Fingerprint? = StudioModel::fingerprint(&written)
+            mutable output_fp: StudioSourceFingerprint::Fingerprint = zeroed
+            if output_identity is found_fp:
+                output_fp <- found_fp
+            else:
+                return false
+            mutable name_start: usize = 0
+            mutable path_end: usize = 0
+            while path_end < 4096 and destination[path_end] != 0:
+                if destination[path_end] == 47 or destination[path_end] == 92:
+                    name_start <- path_end + 1
+                path_end <- path_end + 1
+            return false if path_end == 0 or path_end >= 4096 or name_start >= path_end
+            StudioText::begin()
+            for index in name_start..<path_end |index, path|:
+                StudioText::byte(path[index])
+            source_name: sview = StudioText::view()
+            active_stack: StackState::Stack = current_stack()
+            mutable settings: darray[StudioExportReport::Setting] = []
+            settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "enabled"}) if active_stack.feet
+            settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "disabled"}) if not active_stack.feet
+            settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "enabled"}) if active_stack.hands
+            settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "disabled"}) if not active_stack.hands
+            assumptions: darray[sview] = [
+                "Frame rate is an integer estimate; durations are floored to milliseconds.",
+                "Fingerprints are non-cryptographic studio-residue-v1 values.",
+                "Tool versions and detailed retime provenance are unavailable.",
+                "Only foot and hand cleanup toggles are reported; other operation parameters are not included."]
+            metrics: StudioExportReport::Metrics = StudioExportReport::Metrics{
+                changed_channels: c.changed,
+                spikes_before: c.spikes_before,
+                spikes_after: c.spikes_after,
+                foot_slide_before_um: c.slide_before,
+                foot_slide_after_um: c.slide_after,
+                foot_sink_before_um: c.sink_before,
+                foot_sink_after_um: c.sink_after,
+                hand_slide_before_um: c.hand_slide_before,
+                hand_slide_after_um: c.hand_slide_after,
+                balance_impossible_frames: c.impossible_frames}
+            mutable warnings: darray[StudioExportReport::Warning] = []
+            if c.impossible_frames > 0:
+                warnings.push(StudioExportReport::Warning{category: "balance", severity: StudioExportReport::WARNING, message: "Frames marked impossible by the Studio balance detector."})
+            if c.spikes_after > c.spikes_before:
+                warnings.push(StudioExportReport::Warning{category: "spikes", severity: StudioExportReport::WARNING, message: "Detected spike frames increased after cleanup."})
+            if c.slide_after > c.slide_before:
+                warnings.push(StudioExportReport::Warning{category: "foot_slide", severity: StudioExportReport::WARNING, message: "Measured planted-foot slide increased after cleanup."})
+            if c.sink_after > c.sink_before:
+                warnings.push(StudioExportReport::Warning{category: "foot_sink", severity: StudioExportReport::WARNING, message: "Measured foot sink increased after cleanup."})
+            if c.hand_slide_after > c.hand_slide_before:
+                warnings.push(StudioExportReport::Warning{category: "hand_slide", severity: StudioExportReport::WARNING, message: "Measured hand slide increased after cleanup."})
+            data: StudioExportReport::Data = StudioExportReport::Data{
+                source_name: source_name,
+                source_fingerprint_first: c.source_fingerprint.first,
+                source_fingerprint_second: c.source_fingerprint.second,
+                output_fingerprint_first: output_fp.first,
+                output_fingerprint_second: output_fp.second,
+                animation_name: anim_name, animation_index: c.anim.i64(),
+                input_frames: c.source_frames, input_fps: c.rate,
+                output_frames: c.frames, output_fps: c.rate,
+                settings: settings, assumptions: assumptions, metrics: metrics,
+                warnings: warnings}
+            json: darray[u8] = StudioExportReport::json(&data)
+            summary: darray[u8] = StudioExportReport::summary(&data)
+            mutable json_path: u8[4128] = zeroed
+            mutable text_path: u8[4128] = zeroed
+            for index in 0..<path_end |destination, json_path, text_path|:
+                json_path[index] <- destination[index]
+                text_path[index] <- destination[index]
+            suffix_json: cstr = ".report.json"
+            suffix_text: cstr = ".report.txt"
+            mutable a: usize = 0
+            mutable b: usize = 0
+            while suffix_json[a] != 0:
+                json_path[path_end + a] <- suffix_json[a]
+                a <- a + 1
+            while suffix_text[b] != 0:
+                text_path[path_end + b] <- suffix_text[b]
+                b <- b + 1
+            json_path[path_end + a] <- 0
+            text_path[path_end + b] <- 0
+            json_cstr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
+            text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
+            json_ok: bool = StudioExportPublisher::write_sidecar(json_cstr, json)
+            text_ok: bool = StudioExportPublisher::write_sidecar(text_cstr, summary)
+            json_ok and text_ok
 
         # ---- native file panels (modal) --------------------------------
         def save_session_as() -> void:
@@ -1951,7 +2055,7 @@ module Studio:
                 StudioPanels::export_path_inspector_panel(w, h, true, export_review_path,
                     export_path_inspector_page, export_path_inspector_focus)
             if export_result_open:
-                StudioPanels::export_result_panel(w, h, true, export_result_path, export_result_focus)
+                StudioPanels::export_result_panel(w, h, true, export_result_path, export_result_focus, export_report_saved)
             if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
                 if timeline is current_timeline:
                     publish_accessibility(w, h, s, current_timeline)

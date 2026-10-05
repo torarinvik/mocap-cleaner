@@ -21,6 +21,16 @@ extern export_unlink(path: u8&) -> i32 can[Blocking.IO]
 extern export_rename(source: u8&, destination: u8&) -> i32 can[Blocking.IO]
 @link_name("strdup")
 extern export_strdup(path: cstr) -> cstr? can[Memory.Allocate]
+@link_name("fdopen")
+extern export_fdopen(descriptor: i32, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+@link_name("fwrite")
+extern export_fwrite(bytes: u8&, size: usize, count: usize, file: mutable heap void&) -> usize can[Blocking.IO]
+@link_name("fflush")
+extern export_fflush(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("fileno")
+extern export_fileno(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("fclose")
+extern export_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
 
 module StudioExportPublisher:
     public:
@@ -84,6 +94,47 @@ module StudioExportPublisher:
         # Removes an uncommitted temporary; harmless after a successful rename.
         def discard(temporary: cstr) -> void:
             _ = export_unlink(temporary.cast[u8&])
+
+        # Atomically writes a sidecar in the same directory. A failed report
+        # write never changes the already-published GLB.
+        def write_sidecar(path: cstr, bytes: darray[u8]&) -> bool:
+            mutable length: usize = 0
+            while length < EXPORT_PATH_CAPACITY and path[length] != 0:
+                length <- length + 1
+            return false if length == 0 or length >= EXPORT_PATH_CAPACITY
+            mutable temporary: u8[EXPORT_TEMP_CAPACITY] = zeroed
+            for index in 0..<length |path, temporary|:
+                temporary[index] <- path[index]
+            suffix: cstr = ".mocap-report-XXXXXX"
+            mutable suffix_length: usize = 0
+            while suffix[suffix_length] != 0:
+                temporary[length + suffix_length] <- suffix[suffix_length]
+                suffix_length <- suffix_length + 1
+            temporary[length + suffix_length] <- 0
+            descriptor: i32 = export_mkstemp(&temporary[0])
+            return false if descriptor < 0
+            file: mutable heap void&? = export_fdopen(descriptor, "wb".cast[u8&])
+            if file == null:
+                _ = export_close(descriptor)
+                _ = export_unlink(&temporary[0])
+                return false
+            handle: mutable heap void& = file
+            mutable wrote: usize = 0
+            if bytes.count > 0:
+                wrote <- export_fwrite(&bytes[0], 1, bytes.count, handle)
+            flushed: i32 = export_fflush(handle)
+            file_descriptor: i32 = export_fileno(handle)
+            mutable synced: i32 = -1
+            if file_descriptor >= 0:
+                synced <- export_fsync(file_descriptor)
+            closed: i32 = export_fclose(handle)
+            if wrote != bytes.count or flushed != 0 or synced != 0 or closed != 0:
+                _ = export_unlink(&temporary[0])
+                return false
+            if export_rename(&temporary[0], path.cast[u8&]) != 0:
+                _ = export_unlink(&temporary[0])
+                return false
+            true
 
     private:
         def save_document(doc: GlbDocument::Document&, path: cstr) -> bool:
