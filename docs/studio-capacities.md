@@ -33,6 +33,15 @@ there is no boundary test, the behavior remains an M0 verification task.
 
 ## Product interpretation and verification work
 
+The current Studio rebuild path is synchronous. `src/studio/job_policy.elisa`
+defines the integration contract for cleanup or evaluation work moved to a
+background job: increment the document revision whenever displayed content
+changes, assign each job a fresh positive generation, and apply a result only
+when both its captured revision and generation still match the displayed
+document and active job. Clearing the active generation rejects completed or
+cancelled work. The kernel is policy groundwork; it does not make rebuild
+asynchronous by itself.
+
 - These values are implementation bounds, not recommended take sizes or
   service-level guarantees. A take may load while a particular studio feature
   cannot operate over its entire duration.
