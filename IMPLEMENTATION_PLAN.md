@@ -231,8 +231,9 @@ visually verified solely from offscreen rendering.
       sync. Add a searchable command palette (P1) after the primary paths are
       consistent.
 - [ ] Make tab order, focus rings, button activation and list navigation
-      consistent. Text entry owns typing keys; playback/cleanup shortcuts
-      must not fire while entering a number or searching.
+      consistent. Verify numeric drafts and future search fields through the
+      running-window keyboard path, including focus announcements and field
+      dismissal.
 - [ ] Make every gesture available through a labelled alternative: range
       fields for drags, menu actions for contact edits, numeric transforms
       for gizmos, buttons for navigation and stack ordering.
@@ -534,9 +535,9 @@ state. No recommendation passes solely on aggregate improvement.
       Provide Cancel and preserve selection through undo/redo.
 - [ ] Expose existing pole/twist/pelvis controls with chain visualization and
       joint motion feedback. Verify roll-bone mapping before redistribution.
-- [ ] Complete the existing retime inspector: source/output interval, exact
-      duration, blend, selected band, overlap rules and mapped contact/key
-      positions. Clarify whether every frame field uses source or output time.
+- [ ] Complete the existing retime inspector: selected source/output
+      intervals, exact duration, blend, selected band, overlap rules and
+      mapped contact/key positions. Make frame units explicit on each field.
 - [ ] Expose opt-in ballistic/momentum tools with applicability warnings,
       assumptions and drift/error readouts. Keep heuristic physics separate
       from a guarantee of a physically valid motion.
@@ -626,11 +627,11 @@ semantics has its own implementation, review fields and quality validation.
       top of the publisher's current reload and byte-equality check. Compare
       evaluated output against the reviewed revision. Surface a clear
       distinction between file integrity and motion-quality review.
-- [ ] Populate the schema-v2 `.report.json` and `.report.txt` provenance fields
-      from one immutable export snapshot: tool/dependency versions, detector
-      thresholds, complete operation and rig settings, and detailed retime
-      provenance. Keep each explicit unavailable reason until the publisher
-      can supply that exact value. Add cryptographic source/output hashes only
+- [ ] Complete the remaining schema-v2 `.report.json` and `.report.txt`
+      provenance from one immutable export snapshot: rig configuration,
+      tool/dependency versions, detector thresholds and per-frame retime
+      mapping. Keep explicit unavailable reasons until the publisher can
+      supply those exact values. Add cryptographic source/output hashes only
       when the exact source and validated output bytes are available.
 
 ### 11.2 Studio batch and repeatability (P1)
