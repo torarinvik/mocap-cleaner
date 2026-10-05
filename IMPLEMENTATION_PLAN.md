@@ -184,9 +184,14 @@ and almost all of that is the prover.
       Status: search reductions are present in the designated proof worktree.
       A fresh proof-only run over all 91 source and proof files took 51.09 s;
       the unchanged cached run took 0.14 s.
-- [ ] Full `scripts/check.sh` completes under 60 s, including its existing
-      test and CLI checks. The script also runs tests, so this timing still
-      needs an explicitly authorized full run.
+- [x] Full `scripts/check.sh` completes under 60 s, including its existing
+      test and CLI checks.
+      Status: on 2026-10-05, a run rebuilt all 36 test binaries and completed
+      in 35.46 s with the proof cache warm; a warm repeat completed in 25.45 s
+      with all 36 test builds and 91 proof reports reused. Every runtime test
+      and CLI check returned 0, and the reviewed proof baseline had no
+      regressions. Test builds use a source/toolchain content key, bounded
+      parallel compilation, and a dynamic test worker pool.
 - [x] Incremental proofs: hash each source file plus the prover binary and
       skip re-proving unchanged files (`build/proof/<hash>.txt`).
       Status: `scripts/prove.py` keys each result on the file, its transitive
