@@ -203,9 +203,13 @@ visually verified solely from offscreen rendering.
 
 ### 6.2 Commands, focus and accessibility
 
-- [ ] Add visible File/Edit/View/Cleanup/Help command paths and context menus
-      where appropriate. Define one command registry for labels, shortcuts,
-      enablement and dispatch; support a searchable command palette (P1).
+- [ ] Complete visible Edit/View/Cleanup/Help command paths and context menus
+      where appropriate. The sidebar File menu now exposes take/session open,
+      session save and cleaned GLB export, with keyboard navigation and shared
+      native-action dispatch. Its row availability has a proved policy and a
+      headless test. The rest of the command surface still needs one registry
+      for labels, shortcuts, enablement and dispatch; support a searchable
+      command palette (P1).
 - [ ] Make tab order, focus rings, button activation and list navigation
       consistent. Text entry owns typing keys; playback/cleanup shortcuts
       must not fire while entering a number or searching.

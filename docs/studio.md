@@ -1,6 +1,6 @@
 # Mocap Studio (Phase 2)
 
-An interactive window for cleaning one clip. It shows three engine viewports, a curve view, a timeline and the operation stack. Open a take with the toolbar's folder button, **Cmd-O**, or by dropping one GLB onto the window. Every stack edit uses the same operation pipeline that the CLI exports, so the reviewed result and exported result share cleanup semantics.
+An interactive window for cleaning one clip. It shows three engine viewports, a curve view, a timeline and the operation stack. Open a take with the toolbar's folder button, **Cmd-O**, or by dropping one GLB onto the window. Once a take is loaded, the sidebar's labelled **File** menu provides take/session open, session save and cleaned GLB export actions. Every stack edit uses the same operation pipeline that the CLI exports, so the reviewed result and exported result share cleanup semantics.
 
 ```
 scripts/build_studio.sh                      # build, run studio tests, prove kernels
@@ -15,13 +15,13 @@ build/mocap_studio [clip.glb [animation]]    # default: boxing black-boxer.glb, 
 | Views | perspective (top), front and side (bottom). Drag orbits, right-drag pans, scroll zooms, a click picks a joint (it drives the curve view), F frames. |
 | Curves | the picked bone's rotation channel (translation if it has none). Each component is shown dim for the source and bright for the cleaned clip. |
 | Timeline | 1 s ruler, source spike strip, cleaned problem markers coloured by severity, left/right foot and hand contact bars, retime bands, the selected operation's scope band, and the playhead. Click or drag to scrub. Contact bars are editable; retime selection uses Shift-drag. |
-| Sidebar | clip and cleanup metrics, history position, add buttons (Despike, Smooth, Median, Wring, Seam), and one row per operation with enable, up/down and remove. |
+| Sidebar | File menu; clip and cleanup metrics; history position; add buttons (Despike, Smooth, Median, Wring, Seam); and one row per operation with enable, up/down and remove. The File menu supports pointer use, Up/Down navigation, Enter/Space activation and Escape dismissal. |
 
 The status bar adds `* Unsaved changes` when the current cleanup stack differs from the last successfully saved session snapshot. Undoing or redoing back to that snapshot clears the marker. Export writes the cleaned animation; it does not save the editable session. The app does not yet warn before closing or replacing a take with unsaved session changes.
 
 ## Keys
 
-The keys include Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O, plus K (foot cleanup), J (hand cleanup), W (worst foot slide), and `,` `.` (contact blend). **Cmd-Z** undoes and **Cmd-Shift-Z** redoes; plain Z/Y also work. File commands include **Cmd-O** open take, **Cmd-Shift-O** open session, **Cmd-S** save session, **Cmd-Shift-S** save as, **E** export to the current path, and **Cmd-E** export as. Press `?` for the full shortcut sheet. The timeline's foot and hand rows are editable: drag a contact's ends, click a run to lift it, and click a gap to plant. See `docs/foot-workflow.md`. Shift-F toggles the frame-time overlay; plain F frames the views.
+The keys include Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O, plus K (foot cleanup), J (hand cleanup), W (worst foot slide), and `,` `.` (contact blend). **Cmd-Z** undoes and **Cmd-Shift-Z** redoes; plain Z/Y also work. File commands are available from the labelled File menu and as shortcuts: **Cmd-O** open take, **Cmd-Shift-O** open session, **Cmd-S** save session, **Cmd-Shift-S** save as, **E** export to the current path, and **Cmd-E** export as. Press `?` for the full shortcut sheet. The timeline's foot and hand rows are editable: drag a contact's ends, click a run to lift it, and click a gap to plant. See `docs/foot-workflow.md`. Shift-F toggles the frame-time overlay; plain F frames the views.
 
 The default export path is `build/studio_export.glb`; Cmd-E opens the native Save panel to choose another destination. The default session path is `build/studio_session.txt`. Both are derived files. Exports and session saves have not yet been qualified for atomic replacement, source-path collision handling or disk-failure recovery; see the active roadmap.
 
@@ -29,7 +29,7 @@ The default export path is `build/studio_export.glb`; Cmd-E opens the native Sav
 
 | Path | Role | Checked by |
 |---|---|---|
-| `src/studio/{timeline,history,stack_policy,view}.elisa` | proved integer kernels (frame/time/pixel maps, undo cursor, stack index moves, curve and severity mapping) | elisa-proof, `*_laws.elisa` |
+| `src/studio/{timeline,history,stack_policy,view,file_policy}.elisa` | proved integer kernels (frame/time/pixel maps, undo cursor, stack index moves, curve and severity mapping, File menu action availability) | elisa-proof, `*_laws.elisa` |
 | `src/studio/state/*` | value-level state: timeline, operation stack, history ring, clip sampling | `test/studio_state.elisa`, `test/studio_clip.elisa` |
 | `src/studio/app/model.elisa`, `scene.elisa` | loaded clip plus cleaned copy; 3D draw list (grid, ghost, onion, trails or heat, contacts, skeleton) | `test/studio_capture.elisa` (offscreen PNGs `build/studio_{perspective,front,side}.png`) |
 | `src/studio/state/perf_state.elisa`, `src/core/perf_cache.elisa`, `src/ops/rig_cache.elisa` | Phase 6 caches: edit window, windowed joint tracks and detectors, drag-chain preview, curve memo, rig-stack cache split at foot lock | `test/studio_perf.elisa`, `test/studio_rebuild.elisa`; `perf_cache` by `proof/perf_cache_laws.elisa` |
