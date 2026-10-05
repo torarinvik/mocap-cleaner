@@ -16,6 +16,7 @@ include "scene.elisa"
 include "panels.elisa"
 include "retime_panel.elisa"
 include "../shortcuts.elisa"
+include "../focus.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
 
@@ -133,6 +134,7 @@ module Studio:
         global mutable band_focus: i64 = -1
         global mutable slider_drag: bool = false
         global mutable retime_speed: i64 = 1000
+        global mutable slider_start_speed: i64 = 1000
         global mutable typing: bool = false
         global mutable typed: u8[8] = zeroed
         global mutable typed_len: i64 = 0
@@ -1055,6 +1057,7 @@ module Studio:
                 return true
             if StudioPanels::inside(StudioRetime::slider_box(cb), x, y):
                 slider_drag <- true
+                slider_start_speed <- retime_speed
                 retime_speed <- StudioRetime::slider_speed(cb, x)
                 touch()
                 return true
@@ -1243,6 +1246,49 @@ module Studio:
             status <- "gizmo drag cancelled"
             nudged_row <- -1
             status_file <- null
+            touch()
+
+        # A native focus loss may suppress the matching pointer-up. Cancel
+        # every unfinished gesture so it cannot commit when focus returns.
+        def focus_lost() -> void:
+            was_gizmo: bool = gizmo_view >= 0
+            mutable f: StudioFocus::Interaction = StudioFocus::Interaction{
+                modifiers: modifiers,
+                drag_view: drag_view,
+                drag_button: drag_button.i64(),
+                scrubbing: scrubbing,
+                selecting: selecting,
+                slider_drag: slider_drag,
+                retime_speed: retime_speed,
+                slider_start_speed: slider_start_speed,
+                edge_drag_band: edge_drag.band,
+                contact_press: FootState::active(&foot_press),
+                gizmo_view: gizmo_view,
+                typing: typing,
+                selection_active: selection.active,
+                gizmo_mode: gizmo_mode
+            }
+            f <- StudioFocus::after_focus_lost(f)
+            modifiers <- f.modifiers
+            drag_view <- f.drag_view
+            drag_button <- f.drag_button.i32()
+            scrubbing <- f.scrubbing
+            selecting <- f.selecting
+            slider_drag <- f.slider_drag
+            retime_speed <- f.retime_speed
+            edge_drag <- RetimeState::no_drag()
+            foot_press <- FootState::idle()
+            gizmo_view <- f.gizmo_view
+            typing <- f.typing
+            typed_len <- 0
+            selection <- RetimeState::none() if not f.selection_active else selection
+            if was_gizmo:
+                gizmo_cancel()
+            else:
+                gizmo_drag <- null
+                gizmo_goal <- null
+                readout_angle <- -1
+                readout_mm <- -1
             touch()
 
         # Escape peels one layer: the sheet, a drag, a contact press, the
@@ -1458,7 +1504,7 @@ module Studio:
                 UiCore::KeyEvent.Up(code):
                     modifier(code, false)
                 UiCore::Event.FocusLost:
-                    modifiers <- 0
+                    focus_lost()
                 _:
                     pass
             UiCore::request_frame_after(0.001)
