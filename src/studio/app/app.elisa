@@ -176,6 +176,9 @@ module Studio:
         global mutable accessibility_result_folder_widget: usize = 0
         global mutable accessibility_result_done_widget: usize = 0
         global mutable accessibility_result_ready: bool = false
+        global mutable accessibility_contact_plant_widget: usize = 0
+        global mutable accessibility_contact_lift_widget: usize = 0
+        global mutable accessibility_contact_ready: bool = false
 
         global mutable drag_view: i64 = -1
         global mutable drag_button: i32 = -1
@@ -188,6 +191,8 @@ module Studio:
         # contact row (StackState::LEFT/RIGHT or -1), and the readout
         # transition (values shown before the last rebuild, and its start).
         global mutable foot_press: FootState::Press = FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
+        global mutable contact_selected_side: i64 = StudioContactEditor::NO_SIDE
+        global mutable contact_selected_frame: i64 = -1
         global mutable hover_row: i64 = -1
         global mutable shown_slide: i64 = 0
         global mutable shown_sink: i64 = 0
@@ -403,6 +408,8 @@ module Studio:
                     u.looping <- t.looping
                     u.divisor <- t.divisor
                     set_timeline(TimelineState::scrub(u, t.frame * n / t.count))
+                    contact_selected_side <- StudioContactEditor::NO_SIDE
+                    contact_selected_frame <- -1
 
         # ---- retiming ------------------------------------------------------
         # Speed for the selection (a new band or the band under it), else for
@@ -570,13 +577,59 @@ module Studio:
         def contact_up(x: f32) -> void:
             p: FootState::Press = foot_press
             foot_press <- FootState::idle()
+            delta_x: i64 = (x - down_x).i64()
+            if not StudioContactEditor::is_drag(delta_x):
+                contact_selected_side <- p.side
+                contact_selected_frame <- p.frame
+                scrub_to(p.frame)
+                status <- "contact frame selected; choose Plant frame or Lift frame"
+                nudged_row <- -1
+                status_file <- null
+                touch()
+                return
             tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+            if p.part != StudioFoot::FIRST and p.part != StudioFoot::LAST:
+                contact_selected_side <- p.side
+                contact_selected_frame <- p.frame
+                scrub_to(p.frame)
+                status <- "select a frame first or drag a run endpoint"
+                touch()
+                return
             mutable s: StackState::Stack = current_stack()
             if FootState::release(&s, &p, StudioPanels::timeline_frame(tb, x, frames()), frames()):
                 commit(s, true)
-                status <- "contact edited"
+                status <- "contact endpoint moved"
                 nudged_row <- -1
                 status_file <- null
+            contact_selected_side <- p.side
+            contact_selected_frame <- StudioPanels::timeline_frame(tb, x, frames())
+            touch()
+
+        # Apply an explicit Plant/Lift action to the selected output frame.
+        def contact_apply(action: i64) -> void:
+            return if not StudioContactEditor::action_valid(action)
+            if clip is c:
+                if not StudioContactEditor::selection_valid(
+                    contact_selected_side, contact_selected_frame, c.frames):
+                    status <- "select a contact row and frame first"
+                    touch()
+                    return
+                mutable s: StackState::Stack = current_stack()
+                if StackState::add_edit(&s, contact_selected_side,
+                    contact_selected_frame, contact_selected_frame,
+                    StudioContactEditor::plants(action)):
+                    commit(s, true)
+                    StudioText::begin()
+                    StudioText::put("Planted " if action == StudioContactEditor::PLANT else "Lifted ")
+                    StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                    StudioText::put(" at frame ")
+                    StudioText::put_i(contact_selected_frame + 1)
+                    status <- StudioText::view()
+                else:
+                    status <- "contact edit limit reached; undo an edit before adding another"
+                nudged_row <- -1
+                status_file <- null
+                touch()
 
         def set_timeline(t: TimelineState::State) -> void:
             timeline <- t
@@ -1364,6 +1417,8 @@ module Studio:
             path <- candidate_path
             memo <- move fresh
             clip <- null
+            contact_selected_side <- StudioContactEditor::NO_SIDE
+            contact_selected_frame <- -1
             built_stack <- null
             shown_slide <- 0
             shown_sink <- 0
@@ -1594,7 +1649,11 @@ module Studio:
                     StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
                     perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
+                    StudioPanels::contact_editor_panel(StudioPanels::timeline_box(w, h),
+                        contact_selected_side, contact_selected_frame, c.frames)
                     StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
+                    StudioPanels::contact_selection_marker(StudioPanels::timeline_box(w, h),
+                        contact_selected_side, contact_selected_frame, c.frames)
                     StudioRetime::overlay(StudioPanels::timeline_box(w, h), c, &s, &selection, t.frame)
                     StudioRetime::controls(StudioPanels::curve_box(w, h), RetimeState::ready(&selection) or band_focus >= 0, retime_speed, typing, typed_view())
                     StudioPanels::cleanup_readout(StudioPanels::sidebar_box(w, h), c, readout_value(shown_slide, c.slide_after), readout_value(shown_sink, c.sink_after), readout_value(shown_hand_slide, c.hand_slide_after), s.blend)
@@ -1696,6 +1755,9 @@ module Studio:
             accessibility_result_folder_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_result_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_result_ready <- accessibility_result_open_widget != UiFlat::NONE and accessibility_result_folder_widget != UiFlat::NONE and accessibility_result_done_widget != UiFlat::NONE
+            accessibility_contact_plant_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_contact_lift_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -1717,6 +1779,13 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if accessibility_contact_ready and event == UiConst::WidgetEvent.Click.i32():
+                if widget == accessibility_contact_plant_widget:
+                    contact_apply(StudioContactEditor::PLANT)
+                    return
+                elif widget == accessibility_contact_lift_widget:
+                    contact_apply(StudioContactEditor::LIFT)
+                    return
             if accessibility_warning_ready and export_warning_detail_open and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_warning_previous_widget:
                     activate_export_warning_detail(StudioExportPathReview::PREVIOUS)
@@ -1837,6 +1906,38 @@ module Studio:
                     none, none, accessibility_review_export_widget,
                     StudioExportReview::export_enabled(warnings, export_review_acknowledged),
                     false, "")
+
+        def publish_contact_editor_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_contact_ready
+            if clip is c:
+                valid: bool = StudioContactEditor::selection_valid(
+                    contact_selected_side, contact_selected_frame, c.frames)
+                UiFlat::set_enabled(accessibility_contact_plant_widget, valid)
+                UiFlat::set_enabled(accessibility_contact_lift_widget, valid)
+                none: usize = StudioAccessibility::NO_NODE
+                next: usize = StudioAccessibility::CONTACT_EDITOR_LIFT
+                mutable value: sview = "Select a contact row and frame first"
+                if valid:
+                    StudioText::begin()
+                    StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                    StudioText::put(" frame ")
+                    StudioText::put_i(contact_selected_frame + 1)
+                    value <- StudioText::view()
+                tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Plant selected contact frame",
+                    "Override automatic contact detection as planted on the selected frame. This edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::PLANT),
+                    StudioAccessibility::CONTACT_EDITOR_PLANT,
+                    StudioAccessibility::TIMELINE, none, next,
+                    accessibility_contact_plant_widget, valid, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Lift selected contact frame",
+                    "Override automatic contact detection as lifted on the selected frame. This edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::LIFT),
+                    StudioAccessibility::CONTACT_EDITOR_LIFT,
+                    StudioAccessibility::TIMELINE, none, none,
+                    accessibility_contact_lift_widget, valid, false, value)
 
         def publish_export_warning_detail_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_warning_ready
@@ -2045,7 +2146,7 @@ module Studio:
                 "Timeline and foot contacts",
                 "Animation timeline, operation range, and foot contact markers.",
                 StudioPanels::timeline_box(w, h), StudioAccessibility::TIMELINE,
-                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::WORKSPACE, StudioAccessibility::CONTACT_EDITOR_PLANT,
                 StudioAccessibility::SIDEBAR, none, true, false, "")
             accessibility_node(UiCore::AccessibilityRole.Group,
                 "Cleanup operations",
@@ -2053,6 +2154,7 @@ module Studio:
                 StudioPanels::sidebar_box(w, h), StudioAccessibility::SIDEBAR,
                 StudioAccessibility::WORKSPACE, none,
                 StudioAccessibility::STATUS, none, true, false, "")
+            publish_contact_editor_accessibility(w, h)
             accessibility_node(UiCore::AccessibilityRole.Status,
                 "Studio status",
                 "Current editing, cleanup, and playback status.",
@@ -2209,6 +2311,10 @@ module Studio:
                 toolbar_action(a)
                 return
             tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+            if StudioPanels::inside(tb, x, y) and StudioPanels::contact_editor_contains(tb, x, y):
+                contact_action: i64 = StudioPanels::contact_editor_hit(tb, x, y)
+                contact_apply(contact_action) if button == 0 and contact_action >= 0
+                return
             if button == 0:
                 return if retime_down(tb, StudioPanels::curve_box(w, h), x, y)
             if StudioPanels::inside(tb, x, y) and button == 0:
@@ -2344,7 +2450,8 @@ module Studio:
                 touch()
                 return
             tbh: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
-            row: i64 = StudioPanels::contact_row(tbh, y) if StudioPanels::inside(tbh, x, y) else -1
+            timeline_strip: StudioPanels::Box = StudioPanels::strip(tbh)
+            row: i64 = StudioPanels::contact_row(tbh, y) if StudioPanels::inside(timeline_strip, x, y) else -1
             if row != hover_row:
                 hover_row <- row
                 touch()
@@ -2586,6 +2693,10 @@ module Studio:
                 touch()
             elif StudioShortcuts::shift(modifiers) and preset_key(code) >= 0:
                 retime_to(RetimeState::preset(preset_key(code)))
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.P:
+                contact_apply(StudioContactEditor::PLANT)
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.L:
+                contact_apply(StudioContactEditor::LIFT)
             elif band_focus >= 0 and (code == UiCore::Key.Delete or code == UiCore::Key.Backspace):
                 remove_band()
             elif code == UiCore::Key.R:

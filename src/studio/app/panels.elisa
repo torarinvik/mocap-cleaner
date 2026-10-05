@@ -10,6 +10,7 @@
 include "text.elisa"
 include "scene.elisa"
 include "../chrome.elisa"
+include "../contact_editor.elisa"
 include "../file_policy.elisa"
 include "../replacement.elisa"
 include "../legacy_session_prompt.elisa"
@@ -204,7 +205,7 @@ module StudioPanels:
 
         # Inner strip of the timeline the frames map onto.
         def strip(t: Box) -> Box:
-            box(t.x + 12.0, t.y, t.w - 24.0, t.h)
+            box(t.x + 12.0, t.y, t.w - 196.0, t.h)
 
         def button_x(i: i64) -> f32:
             groups: i64 = (1 if i >= A_UNDO else 0) + (1 if i >= A_TRAILS else 0) + (1 if i >= A_FRAME else 0) + (1 if i >= A_CLEAN else 0)
@@ -283,7 +284,7 @@ module StudioPanels:
             return "[ / ]  strength    B  bones    I / O  scope in / out at playhead" if i == 7
             return "PgUp / PgDn  move operation    Delete  remove" if i == 8
             return "K feet  J hands    , / . blend    W worst foot slide" if i == 9
-            return "Drag a contact bar to edit a hand or foot span" if i == 10
+            return "Select a contact frame; Shift-P plants, Shift-L lifts; drag a run end" if i == 10
             return "R / V  rotate / translate gizmo (drag to key a correction)" if i == 11
             return "Cmd-Z  undo    Cmd-Shift-Z (or Y)  redo" if i == 12
             return "FILE" if i == 13
@@ -445,8 +446,6 @@ module StudioPanels:
             StudioDraw::text(tb.x + 200.0, tb.y + tb.h - 20.0, 12.0, "R foot", StudioDraw::color(240, 220, 90))
             StudioDraw::text(tb.x + 250.0, tb.y + tb.h - 20.0, 12.0, "L hand", StudioDraw::color(100, 190, 255))
             StudioDraw::text(tb.x + 300.0, tb.y + tb.h - 20.0, 12.0, "R hand", StudioDraw::color(255, 150, 100))
-            StudioDraw::text(tb.x + 360.0, tb.y + tb.h - 20.0, 12.0, StudioText::pair("spikes ", c.spikes_before, " -> ", c.spikes_after), StudioDraw::muted())
-            StudioDraw::text(tb.x + 510.0, tb.y + tb.h - 20.0, 12.0, StudioText::number("balance impossible: ", c.impossible_frames), StudioDraw::color(240, 70, 70) if c.impossible_frames > 0 else StudioDraw::muted())
 
         # Frames the balance detector reports as impossible, binned like the
         # problem markers (a bin shows the worst state of its frames).
@@ -1248,8 +1247,8 @@ module StudioPanels:
             StudioDraw::text(sb.x + 12.0, help - 80.0, 11.0, "Shift-1..7 preset  = type speed  Esc", StudioDraw::accent())
             StudioDraw::text(sb.x + 12.0, help - 64.0, 11.0, "Drag band edge  Del band", StudioDraw::accent())
             StudioDraw::text(sb.x + 12.0, help - 48.0, 11.0, "K feet  J hands  W worst slide  , . blend", StudioDraw::accent())
-            StudioDraw::text(sb.x + 12.0, help - 32.0, 11.0, "Contact bars: drag ends,", StudioDraw::accent())
-            StudioDraw::text(sb.x + 12.0, help - 16.0, 11.0, "click run lifts, click gap plants", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 32.0, 11.0, "Contacts: click selects; Shift-P plants", StudioDraw::accent())
+            StudioDraw::text(sb.x + 12.0, help - 16.0, 11.0, "Shift-L lifts; drag a run endpoint", StudioDraw::accent())
 
         # ---- foot cleanup ------------------------------------------------
         # Rows of the timeline strip a press on a contact bar lands in:
@@ -1261,6 +1260,60 @@ module StudioPanels:
             return StackState::LEFT_HAND if py >= s.y + 68.0 and py < s.y + 80.0
             return StackState::RIGHT_HAND if py >= s.y + 80.0 and py < s.y + 92.0
             -1
+
+        def contact_side_label(side: i64) -> sview:
+            return "Left foot" if side == StackState::LEFT
+            return "Right foot" if side == StackState::RIGHT
+            return "Left hand" if side == StackState::LEFT_HAND
+            return "Right hand" if side == StackState::RIGHT_HAND
+            "No contact selected"
+
+        def contact_editor_button_box(tb: Box, action: i64) -> Box:
+            x: f32 = tb.x + tb.w - 176.0 + action.f32() * 82.0
+            box(x, tb.y + 58.0, 74.0, 26.0)
+
+        def contact_editor_hit(tb: Box, px: f32, py: f32) -> i64:
+            for action in 0..<StudioContactEditor::ACTION_COUNT |action, tb, px, py|:
+                return action if inside(contact_editor_button_box(tb, action), px, py)
+            -1
+
+        def contact_editor_contains(tb: Box, px: f32, py: f32) -> bool:
+            panel: Box = box(tb.x + tb.w - 176.0, tb.y + 2.0, 168.0, 90.0)
+            inside(panel, px, py)
+
+        def contact_editor_panel(tb: Box, side: i64, frame: i64, frames: i64) -> void:
+            valid: bool = StudioContactEditor::selection_valid(side, frame, frames)
+            x: f32 = tb.x + tb.w - 176.0
+            StudioDraw::rect(x, tb.y + 2.0, 168.0, 90.0, StudioDraw::color(31, 35, 44))
+            StudioDraw::bold(x + 8.0, tb.y + 6.0, 11.0, "Contact edit", StudioDraw::ink())
+            if valid:
+                StudioText::begin()
+                StudioText::put(contact_side_label(side))
+                StudioText::put(" · frame ")
+                StudioText::put_i(frame + 1)
+                StudioDraw::text(x + 8.0, tb.y + 28.0, 10.0, StudioText::view(), StudioDraw::muted())
+            else:
+                StudioDraw::text(x + 8.0, tb.y + 28.0, 9.0, "Click a row/frame first;", StudioDraw::muted())
+                StudioDraw::text(x + 8.0, tb.y + 40.0, 9.0, "selection does not edit it.", StudioDraw::muted())
+            for action in 0..<StudioContactEditor::ACTION_COUNT |action, tb, valid|:
+                b: Box = contact_editor_button_box(tb, action)
+                label: sview = "Plant" if action == StudioContactEditor::PLANT else "Lift"
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel() if valid else StudioDraw::color(34, 37, 44))
+                StudioDraw::text(b.x + 12.0, b.y + 7.0, 10.0, label,
+                    StudioDraw::ink() if valid else StudioDraw::color(100, 105, 117))
+
+        def contact_selection_marker(tb: Box, side: i64, frame: i64, frames: i64) -> void:
+            return if not StudioContactEditor::selection_valid(side, frame, frames)
+            s: Box = strip(tb)
+            mutable y: f32 = s.y + 45.0
+            if side == StackState::RIGHT:
+                y <- s.y + 57.0
+            elif side == StackState::LEFT_HAND:
+                y <- s.y + 69.0
+            elif side == StackState::RIGHT_HAND:
+                y <- s.y + 81.0
+            x: f32 = frame_x(s, frame, frames)
+            StudioDraw::rect(x - 2.0, y - 2.0, 4.0, 12.0, StudioDraw::ink())
 
         def cue_color(cue: i64) -> UiCore::Color:
             return StudioDraw::color(110, 220, 130) if cue == StudioFoot::BETTER
