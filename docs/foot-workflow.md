@@ -1,8 +1,8 @@
-# Foot cleanup workflow
+# Foot and hand cleanup workflow
 
-How the studio fixes sliding and sinking feet, what is proved, what is only
-tested, and what is still open. Metrics are in micro-units (µm on a
-metre-scaled rig), summed over planted frames of the boxing clips.
+How the studio fixes sliding and sinking feet and planted hands, what is proved,
+what is only tested, and what is still open. Metrics are in micro-units (µm on
+a metre-scaled rig), summed over planted frames of the boxing clips.
 
 ## Workflow in the studio
 
@@ -26,6 +26,15 @@ metre-scaled rig), summed over planted frames of the boxing clips.
    key away.
 8. In the 3D views (T trails), planted stretches of each foot trail are drawn
    as a bright doubled line on top of the trail.
+
+## Hand contacts
+
+Hand cleanup is opt-in with **J**; the session saves this toggle. The two hand
+rows sit below the foot rows in the timeline (L hand blue, R hand orange) and
+use the same drag, lift, plant, undo and redo gestures. The sidebar shows the
+hand slide before and after the lock. **A** / Auto runs Fix all: the boxing
+preset plus both foot and hand locks as one undoable edit, with spike, balance,
+foot slide/sink and hand slide metrics shown together.
 
 ## Per-clip metrics (all boxing clips, `test/foot_clips.elisa`)
 

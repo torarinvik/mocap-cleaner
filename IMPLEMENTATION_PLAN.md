@@ -206,12 +206,16 @@ and almost all of that is the prover.
       run. Jab: edit to the last op 520 of 1560 op runs, ~4 ms vs ~10 ms;
       unchanged stack ~2 ms. CLI output is byte-identical; the batch sees
       little reuse across different takes (cold runs cost about the same).
-- [ ] Cache the rig stack: split it at the contact-edit boundary, so the
+- [x] Cache the rig stack: split it at the contact-edit boundary, so the
       lock/pivot dependency on contacts invalidates only the downstream part.
       Status: `RigCache::run_clip_cached` (`src/ops/rig_cache.elisa`) snapshots
-      before the first foot lock; a contact edit reruns 2 of 5 steps
-      (~13 ms vs ~23 ms), equal to `RigOps::run_clip`. Partial: library and
-      tests only; the studio does not run the rig stack yet.
+      before the first contact-reading lock. `StudioModel::Memo` owns the
+      cache; channel operations and gizmo corrections advance its source
+      revision, while contact edits, lock toggles and blend changes use the
+      cache key. The studio now applies and stores the cached rig clip during
+      rebuilds. Existing library measurements: a contact edit reruns 2 of 5
+      steps (~13 ms vs ~23 ms), equal to `RigOps::run_clip`. Studio end-to-end
+      timing has not been remeasured.
 - [x] Range-limited re-evaluation: a correction or op scoped to frames A..B
       recomputes only A..B plus its fade margins.
       Status: `StudioPerf::edit_window` + windowed `joint_tracks`/`problems`/
@@ -241,7 +245,8 @@ and almost all of that is the prover.
 - [x] First-run and load-failure screens; status bar (frame, time, fps,
       selection, last clean gain).
 - [x] Session save/load (Cmd-S / Cmd-Shift-O, ops + contact edits), undoable.
-- [x] Session version 2 saves gizmo corrections; version 1 files still load.
+- [x] Session version 3 saves gizmo corrections and the hand-lock toggle;
+      versions 1 and 2 still load.
 - [x] One-click clean with the boxing preset (A / Auto) with before/after
       slide and spike reduction.
 - [x] Native open/save panels (engine `FilePanel`): Cmd-O take, Cmd-Shift-O session,
@@ -258,7 +263,10 @@ and almost all of that is the prover.
 - [x] W jumps to the worst slide frame and frames the foot; worst-slide markers on the timeline.
 - [x] Planted trail segments drawn distinctly; hover highlight; blend keys; sidebar hints.
 - [x] Proved kernels (`src/studio/foot_policy.elisa` + `_laws`), headless test `test/studio_foot.elisa`, per-clip gate `test/foot_clips.elisa`.
-      Status: done 2026-10-02. Verified headless only; the app compiles but was not run on screen. Knee-pop gate is tolerant, an open trade-off in `docs/foot-workflow.md`.
+      Status: done 2026-10-02. Hand toggle, editable hand contact rows and
+      before/after hand slide are now in the studio. App build verified on
+      2026-10-05; this pass did not run headless tests or inspect the window.
+      Knee-pop gate is tolerant, an open trade-off in `docs/foot-workflow.md`.
 
 **Range retiming.**
 - [x] Non-destructive `Retime{first,last,speed}` op (0.1x..4x, eased blend),
@@ -322,9 +330,11 @@ and almost all of that is the prover.
       the ops-file round trip, zero detections on every boxer clip, and a held marked span.
       `check.sh` confirms `--op hands` leaves the boxer byte-identical. Detection uses only
       the floor plane; rope and wall planes come from user-marked spans.
-      Follow-up: studio integration (toggle, hand contact bars, hand slide readout).
-- [ ] One-click "Fix all" in the studio: apply the preset, then show
+- [x] One-click "Fix all" in the studio: apply the preset, then show
       before/after metrics per detector.
+      Status: A / toolbar applies the boxing preset plus foot and hand locks
+      as one undoable change. The sidebar shows spike count, balance-impossible
+      frames, foot slide and sink, and hand slide before and after.
 - [x] Report diff between two runs (regression check for preset changes).
       Status: done 2026-10-02. `mocap-cleaner diff a.json b.json [--tolerance PCT] [--floor N]
       [--html out.html]` compares lower-is-better metrics (`*_after`, `*_after_um`,
@@ -332,7 +342,8 @@ and almost all of that is the prover.
       a `clips` array. Exit codes: 0 clean, 1 regression, 2 unreadable input. Kernel
       `src/core/regress.elisa` and `proof/regress_laws.elisa` are proved, and
       `test/report_diff.elisa` covers it.
-      Follow-up: per-clip JSON in `clean --report` (today the report holds one total).
+      Follow-up: per-clip JSON in `clean --report` is implemented as a `clips`
+      array with a named metrics object for each processed animation.
 
 ## Proofs (elisa-proof)
 
