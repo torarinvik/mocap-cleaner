@@ -33,18 +33,25 @@ def main() -> i32:
     _ = StackState::add_edit(&s, StackState::LEFT, 20, 30, true)
     _ = StackState::add_edit(&s, StackState::RIGHT, 40, 41, false)
     _ = StackState::add_edit(&s, StackState::LEFT_HAND, 52, 60, true)
+    _ = StackState::add_band(&s, 12, 24, 680, 100)
+    mutable saved_band: StackState::Band = s.bands[0]
+    saved_band.blend <- 9
+    saved_band.enabled <- false
+    s.bands[0] <- saved_band
     fix: Corrections::Correction = Corrections::Correction{enabled: true, node: 17, key: 60, first: 50, last: 70, rotation: Geometry::Quat{x: 0.0, y: 0.0, z: 0.130526, w: 0.991445}, translation: Geometry::Vec3{x: 0.0125, y: -0.5, z: 0.0}}
     _ = StackState::add_fix(&s, fix)
     mutable text: darray[u8] = []
     SessionState::encode_session(&s, identity, &text)
     if SessionState::decode_session(&text, 100, 30, identity, false) is withfix:
         return 30 if withfix.fix_count != 1 or not fix_near(fix, withfix.fixes[0])
+        return 51 if withfix.band_count != 1 or withfix.bands[0].first != 12 or withfix.bands[0].last != 24 or withfix.bands[0].speed != 680 or withfix.bands[0].blend != 9 or withfix.bands[0].enabled
         # A correction on a missing node is dropped after identity is checked.
         small_identity: SessionState::SourceIdentity = SessionState::SourceIdentity{first: identity.first, second: identity.second, animation: identity.animation, frames: identity.frames, nodes: 10}
         mutable small_text: darray[u8] = []
         SessionState::encode_session(&s, small_identity, &small_text)
         if SessionState::decode_session(&small_text, 100, 10, small_identity, false) is fewer:
             return 31 if fewer.fix_count != 0 or fewer.count != 2
+            return 50 if fewer.band_count != 1
         else:
             return 32
     else:
@@ -113,6 +120,13 @@ def main() -> i32:
         return 11 if d.edit_count != 0
     else:
         return 12
+    # Invalid, overlapping, or out-of-clip retime records are discarded.
+    mutable malformed_bands: darray[u8] = []
+    text_of("mocap-studio session 4\n6 193847 120395 1 100 30\n7 0 9 1000 4 1\n7 5 15 1000 4 1\n7 100 105 1000 4 1\n7 8 12 1000 4 1\n7 50 59 99999 4 1\n", &malformed_bands)
+    if SessionState::decode_session(&malformed_bands, 100, 30, identity, false) is clean_bands:
+        return 52 if clean_bands.band_count != 1 or clean_bands.bands[0].first != 0 or clean_bands.bands[0].last != 9
+    else:
+        return 53
     # No header: refused.
     mutable nohead: darray[u8] = []
     text_of("2 0 1 0 5 -1 2 8\n", &nohead)

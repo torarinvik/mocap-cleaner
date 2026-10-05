@@ -20,6 +20,7 @@
 # longer take, or edited by hand, still loads safely; unknown operation
 # kinds and malformed lines are skipped.
 include "stack_state.elisa"
+include "session_band_policy.elisa"
 include "../chrome.elisa"
 include "../../io/ops_file.elisa"
 
@@ -55,6 +56,9 @@ module SessionState:
         const TAG_FIX: i64 = 4
         const TAG_HANDS: i64 = 5
         const TAG_IDENTITY: i64 = 6
+        # Optional v4 extension. Older readers ignore unknown tags, so the
+        # source-bound v4 envelope remains compatible.
+        const TAG_BAND: i64 = 7
 
         const SAVE_ERROR_NONE: i64 = 0
         const SAVE_ERROR_PATH: i64 = 1
@@ -147,6 +151,13 @@ module SessionState:
             for i in 0..<s.fix_count |s, out, q, t|:
                 c: Corrections::Correction = s.fixes[i]
                 f: darray[i64] = [TAG_FIX, 1 if c.enabled else 0, c.node, c.key, c.first, c.last, to_micro(c.rotation.x, q), to_micro(c.rotation.y, q), to_micro(c.rotation.z, q), to_micro(c.rotation.w, q), to_micro(c.translation.x, t), to_micro(c.translation.y, t), to_micro(c.translation.z, t)]
+                for k in 0..<f.count:
+                    out.push(32) if k > 0
+                    OpsFile::push_number(out, f[k])
+                out.push(10)
+            for i in 0..<s.band_count |s, out|:
+                b: StackState::Band = s.bands[i]
+                f: darray[i64] = [TAG_BAND, b.first, b.last, b.speed, b.blend, 1 if b.enabled else 0]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
@@ -257,6 +268,22 @@ module SessionState:
                     elif tag == TAG_FIX and fields.count == 13:
                         if fix_from(&fields, frames, nodes) is fix:
                             _ = StackState::add_fix(&s, fix)
+                    elif tag == TAG_BAND and fields.count == 6:
+                        # Unlike legacy operation fields, bands must be
+                        # wholly valid: silently clamping a range/speed could
+                        # change the timing the user authored.
+                        first: i64 = fields[1]
+                        last: i64 = fields[2]
+                        speed: i64 = fields[3]
+                        blend: i64 = fields[4]
+                        enabled: i64 = fields[5]
+                        if SessionBandPolicy::band_record_valid(first, last, speed, blend, enabled, frames):
+                            if StackState::add_band(&s, first, last, speed, frames):
+                                at: i64 = s.band_count - 1
+                                mutable band: StackState::Band = s.bands[at]
+                                band.blend <- blend
+                                band.enabled <- enabled == 1
+                                s.bands[at] <- band
                 cur.clear()
             return null if version == StudioChrome::CHROME_VERSION and (identity_count != 1 or not identity_matches)
             s.selected <- -1 if s.count == 0 else 0
