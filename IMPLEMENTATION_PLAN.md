@@ -225,6 +225,14 @@ visually verified solely from offscreen rendering.
 - [ ] Provide native accessibility roles, names, values, actions and focus
       announcements through elisa-ui/host facilities. Prototype timeline and
       viewport alternatives early; document any platform blockers.
+      The first verified foundation now publishes stable workspace and
+      region landmarks plus live status in edit mode (`src/studio/accessibility.elisa`,
+      `proof/studio_accessibility_laws.elisa`, `test/studio_accessibility.elisa`).
+      Individual controls, action routes, values, focus announcements, guide
+      screens, dialogs and VoiceOver task completion remain open; keep this
+      acceptance item unchecked until users can complete the core workflow.
+      Remove irrelevant native actions surfaced on non-interactive landmarks;
+      the current AppKit tree lists Increment/Decrement on region groups.
 - [ ] Distinguish source/result and issue severity with labels, symbols and
       line styles as well as color. Respect reduced-motion settings for
       decorative transitions; maintain readable text contrast.
@@ -646,7 +654,7 @@ Start in this order; each row should become several small reviewable commits.
 | Slice | Concrete result | Evidence needed before moving on |
 |---|---|---|
 | 1 | M0 studio audit, corrected current-behavior docs and interaction specifications | Running-window captures, gap matrix, measured limits and reviewed first-use flows. |
-| 2 | Finish command discovery, focus rules and accessible alternatives | Pointer and keyboard journeys; text fields cannot trigger global cleanup; focus survives dialogs and panels. |
+| 2 | Finish command discovery, focus rules and accessible alternatives | Pointer and keyboard journeys; native tree names every primary control and exposes the correct role/value/action/focus without irrelevant group actions; dialogs and status are announced; VoiceOver and keyboard users finish the core tasks; text fields cannot trigger global cleanup; focus survives dialogs and panels. |
 | 3 | Missing/changed source locate flow, rig-profile persistence and safe rebind review | Locate succeeds for renamed files; mismatched animation/rig cannot receive stale edits; rebind review shows exactly which stored settings remain valid. |
 | 4 | Animation/rig/floor setup with actionable validation | Valid, ambiguous and incompatible rig fixtures; users can resolve warnings without source edits. |
 | 5 | Selectable issue list linked to timeline, joint and metrics | Exact frame selection, understandable issue summary and stale-analysis handling. |
