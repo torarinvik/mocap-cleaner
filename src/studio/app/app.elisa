@@ -20,6 +20,7 @@ include "../focus.elisa"
 include "../replacement.elisa"
 include "../accessibility.elisa"
 include "../export_policy.elisa"
+include "../export_review.elisa"
 include "export_publisher.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
@@ -82,6 +83,11 @@ module Studio:
         global mutable file_menu_open: bool = false
         global mutable file_menu_focus: i64 = 0
         global mutable file_menu_hover: i64 = -1
+        global mutable export_review_open: bool = false
+        global mutable export_review_acknowledged: bool = false
+        global mutable export_review_focus: i64 = StudioExportReview::EXPORT
+        global mutable export_review_path: cstr = ""
+        global mutable export_review_overwrite: bool = false
         global mutable replacement_prompt_open: bool = false
         global mutable replacement_is_close: bool = false
         global mutable replacement_is_termination: bool = false
@@ -732,7 +738,80 @@ module Studio:
             return "Export blocked: destination is not a regular file" if reason == StudioExportPolicy::NOT_REGULAR_FILE
             return "Export blocked: replace confirmation is required"
 
-        def export_clip(destination: cstr, overwrite_confirmed: bool) -> bool:
+        def current_export_warnings() -> i64:
+            if clip is c:
+                return StudioExportPolicy::warning_count(
+                    c.impossible_frames,
+                    c.spikes_before, c.spikes_after,
+                    c.slide_before, c.slide_after,
+                    c.sink_before, c.sink_after,
+                    c.hand_slide_before, c.hand_slide_after)
+            0
+
+        def request_export(destination: cstr, overwrite_confirmed: bool) -> void:
+            if clip is c:
+                reason: i64 = export_reason(destination, overwrite_confirmed)
+                if reason != StudioExportPolicy::ALLOW and reason != StudioExportPolicy::OVERWRITE_UNCONFIRMED:
+                    say_file(export_error(reason), destination)
+                    touch()
+                    return
+                export_review_open <- true
+                export_review_path <- destination
+                export_review_overwrite <- overwrite_confirmed
+                export_review_acknowledged <- false
+                export_review_focus <- StudioExportReview::initial_focus(current_export_warnings())
+                help_open <- false
+                file_menu_open <- false
+                touch()
+
+        def cancel_export_review() -> void:
+            return if not export_review_open
+            destination: cstr = export_review_path
+            export_review_open <- false
+            export_review_path <- ""
+            export_review_acknowledged <- false
+            say_file("Export cancelled; no file was written", destination)
+            touch()
+
+        def activate_export_review(focus: i64) -> void:
+            return if not export_review_open
+            if focus == StudioExportReview::ACKNOWLEDGE:
+                if current_export_warnings() > 0:
+                    export_review_acknowledged <- not export_review_acknowledged
+                    touch()
+                return
+            if focus == StudioExportReview::CANCEL:
+                cancel_export_review()
+                return
+            warnings: i64 = current_export_warnings()
+            if not StudioExportReview::export_enabled(warnings, export_review_acknowledged):
+                export_review_focus <- StudioExportReview::ACKNOWLEDGE
+                say_file("Review the quality notes before exporting", export_review_path)
+                touch()
+                return
+            destination: cstr = export_review_path
+            overwrite_confirmed: bool = export_review_overwrite
+            export_review_open <- false
+            export_review_path <- ""
+            export_review_acknowledged <- false
+            _ = perform_export(destination, overwrite_confirmed)
+
+        def export_review_key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Escape:
+                cancel_export_review()
+            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1)
+                touch()
+            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                export_review_focus <- StudioExportReview::move_focus(export_review_focus, 1)
+                touch()
+            elif code == UiCore::Key.Tab:
+                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1 if StudioShortcuts::shift(modifiers) else 1)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                activate_export_review(export_review_focus)
+
+        def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool:
             if clip is c:
                 mutable allows_overwrite: bool = overwrite_confirmed
                 mutable reason: i64 = export_reason(destination, allows_overwrite)
@@ -807,7 +886,7 @@ module Studio:
         def export_as() -> void:
             return if clip == null
             if FilePanel::save("glb", export_path, "Export the cleaned take") is chosen:
-                _ = export_clip(chosen, true)
+                request_export(chosen, true)
 
         def dispatch_file_action(action: i64) -> void:
             if action == StudioFilePolicy::OPEN_TAKE:
@@ -819,7 +898,7 @@ module Studio:
             elif action == StudioFilePolicy::SAVE_AS:
                 save_session_as()
             elif action == StudioFilePolicy::EXPORT_CURRENT:
-                _ = export_clip(export_path, false)
+                request_export(export_path, false)
             elif action == StudioFilePolicy::EXPORT_AS:
                 export_as()
 
@@ -890,6 +969,7 @@ module Studio:
 
         def request_replacement(p: cstr, kind: i64, allow_legacy: bool) -> void can Unsafe.PointerCast:
             return if kind != REPLACE_TAKE and kind != REPLACE_SESSION
+            cancel_export_review() if export_review_open
             if replacement_prompt_open or legacy_prompt_open:
                 status <- "finish or cancel the pending replacement first"
                 status_file <- null
@@ -981,6 +1061,7 @@ module Studio:
             if close_authorized:
                 close_authorized <- false
                 return
+            cancel_export_review() if export_review_open
             if legacy_prompt_open:
                 legacy_prompt_open <- false
                 pending_replacement <- 0
@@ -1305,7 +1386,10 @@ module Studio:
             StudioPanels::help_sheet(w, h) if help_open
             StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close, replacement_is_termination)
             StudioPanels::legacy_session_prompt_panel(w, h, legacy_prompt_open, legacy_prompt_focus)
-            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
+            if export_review_open and clip is c:
+                StudioPanels::export_review_panel(w, h, true, export_review_path, anim_name, c, s,
+                    current_export_warnings(), export_review_acknowledged, export_review_focus)
+            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open and not export_review_open:
                 if timeline is current_timeline:
                     publish_accessibility(w, h, s, current_timeline)
             scale: f32 = UiAppKitCanvas::backing_scale()
@@ -1527,7 +1611,7 @@ module Studio:
             elif a == StudioPanels::A_OPEN:
                 open_take()
             elif a == StudioPanels::A_EXPORT:
-                _ = export_clip(export_path, false)
+                request_export(export_path, false)
             elif a == StudioPanels::A_BALANCE:
                 toggle_flag(StudioScene::BALANCE)
                 if clip is c:
@@ -1542,6 +1626,12 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if export_review_open:
+                hit: i64 = StudioPanels::export_review_hit(w, h, x, y, current_export_warnings())
+                if button == 0 and hit >= 0:
+                    export_review_focus <- hit
+                    activate_export_review(hit)
+                return
             if legacy_prompt_open:
                 index: i64 = StudioPanels::legacy_session_button_hit(w, h, x, y)
                 if button == 0 and index >= 0:
@@ -1636,6 +1726,12 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if export_review_open:
+                hit: i64 = StudioPanels::export_review_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y, current_export_warnings())
+                if hit >= 0 and hit != export_review_focus:
+                    export_review_focus <- hit
+                    touch()
+                return
             if legacy_prompt_open:
                 index: i64 = StudioPanels::legacy_session_button_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
                 if index >= 0 and index != legacy_prompt_focus:
@@ -1689,6 +1785,7 @@ module Studio:
             last_y <- y
 
         def pointer_up(x: f32, y: f32) -> void:
+            return if export_review_open
             return if legacy_prompt_open
             if selecting:
                 selecting <- false
@@ -1981,7 +2078,7 @@ module Studio:
             elif code == UiCore::Key.F:
                 frame_all()
             elif code == UiCore::Key.E:
-                _ = export_clip(export_path, false)
+                request_export(export_path, false)
             elif code == UiCore::Key.LeftBracket:
                 edit_selected(7, -1)
             elif code == UiCore::Key.RightBracket:
@@ -2031,6 +2128,9 @@ module Studio:
         # plain keys go to the single-key bindings.
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
+            if export_review_open:
+                export_review_key(code)
+                return
             if legacy_prompt_open:
                 if code == UiCore::Key.Escape:
                     resolve_legacy_session(StudioLegacyPrompt::CANCEL)
@@ -2095,7 +2195,7 @@ module Studio:
                 UiCore::PointerEvent.Move(at):
                     pointer_move(at.x, at.y)
                 UiCore::PointerEvent.Scroll(at, delta):
-                    if not legacy_prompt_open and not replacement_prompt_open:
+                    if not export_review_open and not legacy_prompt_open and not replacement_prompt_open:
                         v: i64 = view_at(at.x, at.y)
                         if v >= 0:
                             zoom(v, 1 if delta.y > 0.0 else (-1 if delta.y < 0.0 else 0))

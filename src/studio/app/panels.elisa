@@ -14,6 +14,7 @@ include "../file_policy.elisa"
 include "../replacement.elisa"
 include "../legacy_session_prompt.elisa"
 include "../accessibility.elisa"
+include "../export_review.elisa"
 include "../../../build/generated/studio_icon_paths.elisa"
 
 module StudioDraw:
@@ -697,6 +698,131 @@ module StudioPanels:
                 StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
                 label: sview = "Load legacy session" if index == StudioLegacyPrompt::FOCUS_LOAD else "Cancel"
                 StudioDraw::bold(b.x + 11.0, b.y + 11.0, 12.0, label, StudioDraw::ink())
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
+
+        def export_review_dialog_box(w: f32, h: f32) -> Box:
+            box((w - 700.0) / 2.0, (h - 520.0) / 2.0, 700.0, 520.0)
+
+        def export_review_ack_box(w: f32, h: f32) -> Box:
+            d: Box = export_review_dialog_box(w, h)
+            box(d.x + 24.0, d.y + 386.0, d.w - 48.0, 28.0)
+
+        def export_review_button_box(w: f32, h: f32, focus: i64) -> Box:
+            d: Box = export_review_dialog_box(w, h)
+            x: f32 = d.x + 360.0 if focus == StudioExportReview::CANCEL else d.x + 526.0
+            box(x, d.y + 454.0, 150.0, 38.0)
+
+        def export_review_hit(w: f32, h: f32, px: f32, py: f32, warnings: i64) -> i64:
+            if warnings > 0 and inside(export_review_ack_box(w, h), px, py):
+                return StudioExportReview::ACKNOWLEDGE
+            return StudioExportReview::CANCEL if inside(export_review_button_box(w, h, StudioExportReview::CANCEL), px, py)
+            return StudioExportReview::EXPORT if inside(export_review_button_box(w, h, StudioExportReview::EXPORT), px, py)
+            -1
+
+        def path_preview(path: cstr) -> sview can Unsafe.PointerCast:
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                length <- length + 1
+            start: usize = length - 46 if length > 46 else 0
+            StudioText::begin()
+            StudioText::put("…") if start > 0
+            for index in start..<length |index, path|:
+                StudioText::byte(path[index])
+            StudioText::view()
+
+        def active_operation_count(s: StackState::Stack&) -> i64:
+            mutable count: i64 = 0
+            for index in 0..<s.count |index, s|:
+                count <- count + 1 if s.ops[index].enabled
+            count
+
+        def export_warning_row(y: f32, label: sview, before: i64, after: i64) -> void:
+            StudioText::begin()
+            StudioText::put(label)
+            mm_put(before)
+            StudioText::put(" -> ")
+            mm_put(after)
+            d: Box = export_review_dialog_box(UiCore::viewport_width(), UiCore::viewport_height())
+            StudioDraw::text(d.x + 36.0, y, 11.0, StudioText::view(), StudioDraw::color(245, 145, 100))
+
+        def export_review_panel(w: f32, h: f32, opened: bool, destination: cstr,
+                                animation: cstr, c: StudioModel::Clip&,
+                                s: StackState::Stack&, warnings: i64,
+                                acknowledged: bool, focus: i64) -> void:
+            return if not opened
+            d: Box = export_review_dialog_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 22.0, 19.0, "Review cleaned export", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 50.0, 12.0, "Check the output details and quality notes before publishing.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 80.0, 11.0, "Destination (must be inside build):", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 99.0, 12.0, path_preview(destination), StudioDraw::ink())
+
+            StudioText::begin()
+            StudioText::put("Current animation: ")
+            StudioPanels::file_name_put(animation)
+            StudioText::put("  ·  all ")
+            StudioText::put_i(GlbDocument::animation_count(c.cleaned).i64())
+            StudioText::put(" animations retained")
+            StudioDraw::text(d.x + 24.0, d.y + 135.0, 12.0, StudioText::view(), StudioDraw::ink())
+            StudioText::begin()
+            StudioText::put("Source duration: ")
+            StudioText::put_i(c.frames)
+            StudioText::put(" frames at ")
+            StudioText::put_i(c.rate)
+            StudioText::put(" fps")
+            StudioDraw::text(d.x + 24.0, d.y + 158.0, 12.0, StudioText::view(), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 178.0, 11.0, "Rig: source hierarchy preserved", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 198.0, 11.0, "Root motion: preserved from source", StudioDraw::muted())
+            StudioText::begin()
+            StudioText::put("Cleanup: ")
+            StudioText::put_i(active_operation_count(s))
+            StudioText::put(" active steps, ")
+            StudioText::put_i(s.fix_count)
+            StudioText::put(" corrections, feet ")
+            StudioText::put("on" if s.feet else "off")
+            StudioText::put(", hands ")
+            StudioText::put("on" if s.hands else "off")
+            StudioDraw::text(d.x + 24.0, d.y + 218.0, 11.0, StudioText::view(), StudioDraw::muted())
+
+            StudioDraw::bold(d.x + 24.0, d.y + 250.0, 12.0, "Quality review", StudioDraw::ink())
+            if warnings == 0:
+                StudioDraw::text(d.x + 24.0, d.y + 274.0, 11.0, "No unresolved balance frames or worsened tracked metrics.", StudioDraw::color(150, 210, 160))
+            else:
+                StudioDraw::text(d.x + 24.0, d.y + 272.0, 11.0, StudioText::number("Review required · warning categories: ", warnings), StudioDraw::color(245, 175, 95))
+                mutable row_y: f32 = d.y + 294.0
+                if c.impossible_frames > 0:
+                    StudioDraw::text(d.x + 36.0, row_y, 11.0, StudioText::number("Unresolved balance frames: ", c.impossible_frames), StudioDraw::color(245, 145, 100))
+                    row_y <- row_y + 17.0
+                if c.spikes_after > c.spikes_before:
+                    StudioDraw::text(d.x + 36.0, row_y, 11.0, StudioText::pair("Spikes increased: ", c.spikes_before, " -> ", c.spikes_after), StudioDraw::color(245, 145, 100))
+                    row_y <- row_y + 17.0
+                if c.slide_after > c.slide_before:
+                    export_warning_row(row_y, "Foot slide increased: ", c.slide_before, c.slide_after)
+                    row_y <- row_y + 17.0
+                if c.sink_after > c.sink_before:
+                    export_warning_row(row_y, "Foot sink increased: ", c.sink_before, c.sink_after)
+                    row_y <- row_y + 17.0
+                if c.hand_slide_after > c.hand_slide_before:
+                    export_warning_row(row_y, "Hand slide increased: ", c.hand_slide_before, c.hand_slide_after)
+
+                ack: Box = export_review_ack_box(w, h)
+                StudioDraw::rect(ack.x, ack.y, ack.w, ack.h, StudioDraw::color(47, 55, 70) if focus == StudioExportReview::ACKNOWLEDGE else StudioDraw::panel())
+                StudioDraw::rect(ack.x + 8.0, ack.y + 6.0, 16.0, 16.0, StudioDraw::color(44, 49, 60))
+                StudioDraw::rect(ack.x + 11.0, ack.y + 9.0, 10.0, 10.0, StudioDraw::accent()) if acknowledged
+                StudioDraw::text(ack.x + 34.0, ack.y + 6.0, 11.0, "I reviewed these notes and want to export this result.", StudioDraw::ink())
+
+            StudioDraw::text(d.x + 24.0, d.y + 430.0, 10.0, "Tab / arrows move   Space acknowledges   Enter selects   Esc cancels", StudioDraw::muted())
+            for option in 1..<3 |option, w, h, focus, warnings, acknowledged|:
+                b: Box = export_review_button_box(w, h, option)
+                enabled: bool = option != StudioExportReview::EXPORT or StudioExportReview::export_enabled(warnings, acknowledged)
+                selected: bool = option == focus
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
+                StudioDraw::text(b.x + 13.0, b.y + 11.0, 12.0, "Cancel" if option == StudioExportReview::CANCEL else "Export GLB", StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117))
                 StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
 
         # Frame rate of the loaded clip, set by the app when a clip is built.
