@@ -285,11 +285,14 @@ visually verified solely from offscreen rendering.
       session references; let users review a cleanup selection before moving
       recoverable items to Trash. Report item count and bytes moved, and explain
       that Finder must empty Trash to reclaim disk space. Make retention rules
-      and Restore easy to find. `StudioStorageCleanupPolicy` proves the
+      and Restore easy to find. `StudioStorageCleanupPolicy` defines the
       eligibility and review gates. `../elisa-engine-mocap` now supplies a
       macOS move/restore adapter that checks build-root containment and records
-      Trash-item identity; Studio inventory, durable receipt storage and the
-      user workflow remain open.
+      Trash-item identity. The policy fails closed for changed or unverified
+      inventory identity and gives each a separate protection reason; the
+      focused executable covers these cases and direct identity-gate proof laws
+      establish the enum separation. Studio inventory, durable receipt storage
+      and the user workflow remain open.
 
 #### Storage cleanup and Restore experience
 

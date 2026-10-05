@@ -22,6 +22,12 @@ module StudioStorageCleanupPolicy:
         const PROTECT_SESSION_REFERENCE: i64 = 6
         const PROTECT_INVALID_FACTS: i64 = 7
         const PROTECT_RETENTION: i64 = 8
+        const PROTECT_IDENTITY_CHANGED: i64 = 9
+        const PROTECT_IDENTITY_UNVERIFIED: i64 = 10
+
+        const IDENTITY_UNVERIFIED: i64 = 0
+        const IDENTITY_MATCHES: i64 = 1
+        const IDENTITY_CHANGED: i64 = 2
 
         struct Facts:
             kind: i64
@@ -31,6 +37,7 @@ module StudioStorageCleanupPolicy:
             source_take: bool
             open_document: bool
             session_referenced: bool
+            identity_state: i64
             age_days: i64
             retention_days: i64
             size_bytes: i64
@@ -40,18 +47,18 @@ module StudioStorageCleanupPolicy:
             kind >= RECOVERY and kind < KIND_COUNT
 
         def facts_valid(item: Facts) -> bool:
-            kind_supported(item.kind) and item.age_days >= 0 and item.age_days <= MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= MAX_ITEM_BYTES
+            kind_supported(item.kind) and item.identity_state >= IDENTITY_UNVERIFIED and item.identity_state <= IDENTITY_CHANGED and item.age_days >= 0 and item.age_days <= MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= MAX_ITEM_BYTES
 
         # Report one deterministic explanation for the first applicable
         # protection rule. The UI can map these stable codes to localized text.
         def protection_reason(item: Facts) -> i64:
-            ensure result >= PROTECT_NONE and result <= PROTECT_RETENTION
-            PROTECT_UNMANAGED if not item.studio_managed else PROTECT_OUTSIDE_BUILD if not item.canonical_under_build else PROTECT_SYMLINK if item.symlink else PROTECT_SOURCE_TAKE if item.source_take else PROTECT_OPEN_DOCUMENT if item.open_document else PROTECT_SESSION_REFERENCE if item.session_referenced else PROTECT_INVALID_FACTS if not facts_valid(item) else PROTECT_RETENTION if item.age_days < item.retention_days else PROTECT_NONE
+            ensure result >= PROTECT_NONE and result <= PROTECT_IDENTITY_UNVERIFIED
+            PROTECT_UNMANAGED if not item.studio_managed else PROTECT_OUTSIDE_BUILD if not item.canonical_under_build else PROTECT_SYMLINK if item.symlink else PROTECT_SOURCE_TAKE if item.source_take else PROTECT_OPEN_DOCUMENT if item.open_document else PROTECT_SESSION_REFERENCE if item.session_referenced else PROTECT_INVALID_FACTS if not facts_valid(item) else PROTECT_IDENTITY_CHANGED if item.identity_state == IDENTITY_CHANGED else PROTECT_IDENTITY_UNVERIFIED if item.identity_state != IDENTITY_MATCHES else PROTECT_RETENTION if item.age_days < item.retention_days else PROTECT_NONE
 
         # Safe candidates must be generated and inside the canonical build
         # root, unreferenced by the open document/session, and past retention.
         def eligible(item: Facts) -> bool:
-            ensure result or not item.studio_managed or not item.canonical_under_build or item.symlink or item.source_take or item.open_document or item.session_referenced or not facts_valid(item) or item.age_days < item.retention_days
+            ensure result or not item.studio_managed or not item.canonical_under_build or item.symlink or item.source_take or item.open_document or item.session_referenced or not facts_valid(item) or item.identity_state != IDENTITY_MATCHES or item.age_days < item.retention_days
             protection_reason(item) == PROTECT_NONE
 
         # Moving one item to Trash requires a deliberate review and explicit

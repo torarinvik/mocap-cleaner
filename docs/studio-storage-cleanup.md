@@ -5,8 +5,10 @@ offered in a future cleanup review. It currently recognizes recovery
 snapshots, abandoned temporary exports, and generated reports. A candidate
 must be Studio-managed, resolve canonically under `build/`, be older than its
 configured retention period, and not be a symlink, source take, open document,
-or file referenced by a session. The final Trash action also requires that the
-item was selected, reviewed, and explicitly confirmed.
+or file referenced by a session. The candidate identity must also be freshly
+verified against the inventory record; a changed identity or missing identity
+verification is protected. The final Trash action also requires that the item
+was selected, reviewed, and explicitly confirmed.
 
 The policy receives filesystem facts from its caller. It does not inspect
 paths, determine symlink identity, move files, or empty Trash. The engine now
@@ -22,7 +24,8 @@ receipts for the caller.
 `protection_reason` returns a stable numeric reason for the first applicable
 protection rule, including unmanaged files, paths outside `build/`, symlinks,
 source takes, open or session-referenced files, invalid facts, and items still
-inside retention. `PROTECT_NONE` means the item passes the policy. Inventory
+inside retention. Changed or unverified file identity has a distinct reason.
+`PROTECT_NONE` means the item passes the policy. Inventory
 UI can map these codes to user-facing explanations while keeping the same
 eligibility decision used by the Trash action. The reason reports only the
 first blocker; after that blocker is resolved, a refreshed inventory may show
