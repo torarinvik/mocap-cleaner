@@ -179,9 +179,14 @@ byte-identical, or within the existing test tolerances.
 
 **Proof loop (developer speed).** The full `scripts/check.sh` takes 185 s,
 and almost all of that is the prover.
-- [ ] Prover hot spots: `congruence_goal`, `disjunct_modus_ponens`,
-      `linear_fact_parts` (in progress in `elisa-proof-mocap`); `build.sh`
-      defaults to O2. Target: check.sh under 60 s.
+- [x] Prover hot spots: `congruence_goal`, `disjunct_modus_ponens`,
+      `linear_fact_parts`; `build.sh` defaults to O2.
+      Status: search reductions are present in the designated proof worktree.
+      A fresh proof-only run over all 91 source and proof files took 51.09 s;
+      the unchanged cached run took 0.14 s.
+- [ ] Full `scripts/check.sh` completes under 60 s, including its existing
+      test and CLI checks. The script also runs tests, so this timing still
+      needs an explicitly authorized full run.
 - [x] Incremental proofs: hash each source file plus the prover binary and
       skip re-proving unchanged files (`build/proof/<hash>.txt`).
       Status: `scripts/prove.py` keys each result on the file, its transitive
