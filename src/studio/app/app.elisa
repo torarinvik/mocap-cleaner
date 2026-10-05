@@ -180,6 +180,7 @@ module Studio:
         global mutable accessibility_contact_lift_widget: usize = 0
         global mutable accessibility_contact_reset_widget: usize = 0
         global mutable accessibility_contact_delete_widget: usize = 0
+        global mutable accessibility_contact_merge_widget: usize = 0
         global mutable accessibility_contact_ready: bool = false
 
         global mutable drag_view: i64 = -1
@@ -584,7 +585,7 @@ module Studio:
                 contact_selected_side <- p.side
                 contact_selected_frame <- p.frame
                 scrub_to(p.frame)
-                status <- "contact frame selected; choose Plant, Lift, Reset frame, or Delete interval"
+                status <- "contact frame selected; choose Plant/Lift, Reset, Delete or Merge as available"
                 nudged_row <- -1
                 status_file <- null
                 touch()
@@ -635,6 +636,34 @@ module Studio:
                             status <- "could not delete contact interval"
                     else:
                         status <- "no authored contact interval at this frame"
+                    nudged_row <- -1
+                    status_file <- null
+                    touch()
+                    return
+                if action == StudioContactEditor::MERGE:
+                    selected: i64 = StackState::edit_index_at(s, contact_selected_side, contact_selected_frame)
+                    neighbor: i64 = StackState::merge_neighbor_index(s, selected)
+                    if neighbor >= 0:
+                        keep: i64 = selected if selected < neighbor else neighbor
+                        remove: i64 = neighbor if selected < neighbor else selected
+                        a: StackState::FootEdit = s.edits[keep]
+                        b: StackState::FootEdit = s.edits[remove]
+                        first: i64 = a.first if a.first < b.first else b.first
+                        last: i64 = a.last if a.last > b.last else b.last
+                        if StackState::merge_edit_at(&s, contact_selected_side, contact_selected_frame):
+                            commit(s, true)
+                            StudioText::begin()
+                            StudioText::put("Merged ")
+                            StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                            StudioText::put(" intervals frames ")
+                            StudioText::put_i(first + 1)
+                            StudioText::put(" to ")
+                            StudioText::put_i(last + 1)
+                            status <- StudioText::view()
+                        else:
+                            status <- "could not merge contact intervals"
+                    else:
+                        status <- "no adjacent same-state contact interval to merge"
                     nudged_row <- -1
                     status_file <- null
                     touch()
@@ -1700,9 +1729,11 @@ module Studio:
                         contact_edit_first <- selected_edit.first
                         contact_edit_last <- selected_edit.last
                     contact_reset_available: bool = contact_edit_index >= 0
+                    contact_merge_available: bool = StackState::can_merge_edit_at(s, contact_selected_side, contact_selected_frame)
                     StudioPanels::contact_editor_panel(StudioPanels::timeline_box(w, h),
                         contact_selected_side, contact_selected_frame, c.frames,
-                        contact_reset_available, contact_edit_first, contact_edit_last)
+                        contact_reset_available, contact_edit_first, contact_edit_last,
+                        contact_merge_available)
                     StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
                     StudioPanels::contact_selection_marker(StudioPanels::timeline_box(w, h),
                         contact_selected_side, contact_selected_frame, c.frames)
@@ -1811,7 +1842,8 @@ module Studio:
             accessibility_contact_lift_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_contact_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_contact_delete_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE and accessibility_contact_delete_widget != UiFlat::NONE
+            accessibility_contact_merge_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE and accessibility_contact_delete_widget != UiFlat::NONE and accessibility_contact_merge_widget != UiFlat::NONE
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -1845,6 +1877,9 @@ module Studio:
                     return
                 elif widget == accessibility_contact_delete_widget:
                     contact_apply(StudioContactEditor::DELETE)
+                    return
+                elif widget == accessibility_contact_merge_widget:
+                    contact_apply(StudioContactEditor::MERGE)
                     return
             if accessibility_warning_ready and export_warning_detail_open and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_warning_previous_widget:
@@ -1978,6 +2013,8 @@ module Studio:
                 reset_enabled: bool = valid and StackState::has_edit_at(current, contact_selected_side, contact_selected_frame)
                 UiFlat::set_enabled(accessibility_contact_reset_widget, reset_enabled)
                 UiFlat::set_enabled(accessibility_contact_delete_widget, reset_enabled)
+                merge_enabled: bool = valid and StackState::can_merge_edit_at(current, contact_selected_side, contact_selected_frame)
+                UiFlat::set_enabled(accessibility_contact_merge_widget, merge_enabled)
                 none: usize = StudioAccessibility::NO_NODE
                 next: usize = StudioAccessibility::CONTACT_EDITOR_LIFT
                 mutable value: sview = "Select a contact row and frame first"
@@ -2014,15 +2051,22 @@ module Studio:
                     "Remove authored contact overrides from only this output frame so the detector's result is used. The edit is undoable and saved with the session.",
                     StudioPanels::contact_editor_button_box(tb, StudioContactEditor::RESET),
                     StudioAccessibility::CONTACT_EDITOR_RESET,
-                    StudioAccessibility::TIMELINE, none, none,
+                    StudioAccessibility::TIMELINE, none, StudioAccessibility::CONTACT_EDITOR_DELETE,
                     accessibility_contact_reset_widget, reset_enabled, false, value)
                 accessibility_node(UiCore::AccessibilityRole.Button,
                     "Delete selected contact interval",
                     "Remove the newest authored contact interval covering the selected frame. Earlier overrides or automatic detection become visible again. The edit is undoable and saved with the session.",
                     StudioPanels::contact_editor_button_box(tb, StudioContactEditor::DELETE),
                     StudioAccessibility::CONTACT_EDITOR_DELETE,
-                    StudioAccessibility::TIMELINE, none, none,
+                    StudioAccessibility::TIMELINE, none, StudioAccessibility::CONTACT_EDITOR_MERGE,
                     accessibility_contact_delete_widget, reset_enabled, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Merge adjacent contact interval",
+                    "Merge the selected interval with a directly adjacent interval only when both have the same side and planted or lifted state. The resulting contact track is unchanged. The edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::MERGE),
+                    StudioAccessibility::CONTACT_EDITOR_MERGE,
+                    StudioAccessibility::TIMELINE, none, none,
+                    accessibility_contact_merge_widget, merge_enabled, false, value)
 
         def publish_export_warning_detail_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_warning_ready

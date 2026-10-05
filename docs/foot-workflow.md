@@ -24,7 +24,9 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
    authored override. Delete or **Shift-Delete** removes the newest authored
    interval containing the selected frame; its full 1-based range is shown
    before removal and repeated in the status line afterward. Delete is undoable.
-   Reset remains frame-local. The selected side and 1-based
+   Reset remains frame-local. Merge appears when that interval touches an
+   authored interval for the same side and state; it joins the two without
+   changing contact output and can be undone. The selected side and 1-based
    frame number stay visible in the editor. To change a run's extent, drag its
    start or end handle (6 px grip). Clicking a run body or a gap only selects
    and scrubs. Every edit is
@@ -39,7 +41,7 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
 
 Hand cleanup is opt-in with **J**; the session saves this toggle. The two hand
 rows sit below the foot rows in the timeline (L hand blue, R hand orange) and
-use the same select-first Plant/Lift/Reset, interval Delete and run-end drag
+use the same select-first Plant/Lift/Reset, interval Delete/Merge and run-end drag
 behavior. The sidebar shows the hand slide before and after the lock. **A** /
 Auto runs Fix all: the boxing preset plus both foot and hand locks as one
 undoable edit, with spike, balance, foot slide/sink and hand slide metrics
@@ -92,6 +94,8 @@ after ≤ before + 1 mm.
 - [x] Reset one frame to automatic detection without changing neighboring frames
 - [x] Delete the newest authored interval at the selected frame and preserve
       its prior override/detection result
+- [x] Merge adjacent same-side, same-state authored intervals without changing
+      the contact output
 - [x] Existing contact-run endpoint dragging
 - [x] Live slide/sink before/after readout with green/red cues
 - [x] Smooth readout transition (proved `progress`/`mix` ramp)
@@ -112,8 +116,9 @@ after ≤ before + 1 mm.
 - **Proved** (`src/studio/contact_editor.elisa` + `_laws`): valid exact-frame
   selections, explicit Plant/Lift/Reset/Delete action mapping, the half-open
   interval plan for removing one frame, stable interval compaction after
-  deletion, and the click-versus-drag threshold. Accessibility laws cover all
-  four action identities in the timeline tree.
+  deletion, safe merge eligibility and range bounds, and the click-versus-drag
+  threshold. Accessibility laws cover all five action identities in the
+  timeline tree.
 - **Tested headless only** (`test/studio_foot.elisa`): stack fields and
   history, press/release on a 100-frame row, apply-edits replay, the model
   build with feet off and on (readout, cue, worst frame, marker count, a lift
@@ -121,8 +126,10 @@ after ≤ before + 1 mm.
 - **Tested headless only** (`test/studio_contact_editor.elisa`,
   `test/studio_accessibility.elisa`): contact selection/action policy,
   resetting overlapping intervals while preserving later edit order, deleting
-  the newest overlapping interval and compacting unaffected edits, atomic
-  reset-capacity failure, and stable Plant/Lift/Reset/Delete semantic
+  the newest overlapping interval and compacting unaffected edits, merging
+  forward and reverse adjacent ranges, refusing different-state/side, gapped
+  or overlapping intervals, merge undo/redo, atomic reset-capacity failure,
+  and stable Plant/Lift/Reset/Delete/Merge semantic
   identities. These do not exercise native pointer routing or screen-reader
   activation.
 - **Not tested at all** (needs a window): key dispatch, pointer routing to
