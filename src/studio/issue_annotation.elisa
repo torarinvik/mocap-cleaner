@@ -1,0 +1,73 @@
+# Session-local intent annotations for findings. Ignoring a finding changes
+# only this bounded annotation store; it never changes the take or detector.
+include "issues.elisa"
+
+module StudioIssueAnnotation:
+    public:
+        const MAX_ANNOTATIONS: i64 = 256
+        const UNRESOLVED: i64 = 0
+        const IGNORED: i64 = 1
+
+        struct Annotation:
+            active: mutable bool
+            first_frame: i64
+            last_frame: i64
+            issue_type: i64
+            subject_id: i64
+            source_revision: i64
+
+        struct Store:
+            annotations: mutable Annotation[256]
+            count: mutable i64
+
+        # Finding identity is tied to the exact analyzed revision and interval.
+        # A rebuilt finding therefore requires an explicit new user decision.
+        def same_finding(issue: StudioIssues::Issue, a: Annotation) -> bool:
+            ensure result == (issue.first_frame == a.first_frame and issue.last_frame == a.last_frame and issue.issue_type == a.issue_type and issue.subject_id == a.subject_id and issue.source_revision == a.source_revision)
+            issue.first_frame == a.first_frame and issue.last_frame == a.last_frame and issue.issue_type == a.issue_type and issue.subject_id == a.subject_id and issue.source_revision == a.source_revision
+
+        def valid_issue(issue: StudioIssues::Issue) -> bool:
+            issue.selectable and issue.first_frame >= 0 and issue.first_frame <= issue.last_frame and issue.peak_frame >= issue.first_frame and issue.peak_frame <= issue.last_frame and issue.issue_type >= 0 and issue.subject_id >= -1 and issue.source_revision >= 0 and issue.severity >= 0 and issue.severity <= StudioIssues::MAX_SEVERITY
+
+        def marked_index(store: Store&, issue: StudioIssues::Issue) -> i64:
+            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            mutable found: i64 = -1
+            for i in 0..<store.count |i, store, issue, found|:
+                a: Annotation = store.annotations[i.usize()]
+                found <- i if a.active and same_finding(issue, a)
+            found
+
+        # Return the first reusable slot, or the next unallocated slot. -1
+        # means every bounded slot currently holds an ignored finding.
+        def available_slot(store: Store&) -> i64:
+            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            for i in 0..<store.count |i, store|:
+                return i if not store.annotations[i.usize()].active
+            return store.count if store.count < MAX_ANNOTATIONS
+            -1
+
+        def disposition(store: Store&, issue: StudioIssues::Issue) -> i64:
+            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            ensure result == UNRESOLVED or result == IGNORED
+            IGNORED if valid_issue(issue) and marked_index(store, issue) >= 0 else UNRESOLVED
+
+        # Mark as intentional. Repeating the same request is harmless; at
+        # capacity the store is left intact and the caller can explain why.
+        def ignore(store: mutable Store&, issue: StudioIssues::Issue) -> bool:
+            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            return false if not valid_issue(issue)
+            return true if marked_index(store, issue) >= 0
+            slot: i64 = available_slot(store)
+            return false if slot < 0
+            store.annotations[slot.usize()] <- Annotation{active: true, first_frame: issue.first_frame, last_frame: issue.last_frame, issue_type: issue.issue_type, subject_id: issue.subject_id, source_revision: issue.source_revision}
+            store.count <- store.count + 1 if slot == store.count
+            true
+
+        # Restore a finding to unresolved. A missing mark is already restored.
+        def restore(store: mutable Store&, issue: StudioIssues::Issue) -> bool:
+            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            return false if not valid_issue(issue)
+            index: i64 = marked_index(store, issue)
+            return true if index < 0
+            store.annotations[index.usize()].active <- false
+            true
