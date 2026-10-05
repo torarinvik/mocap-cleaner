@@ -183,6 +183,8 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 The CLI-to-studio source inventory is recorded in
 `docs/studio-capability-matrix.md`; that inventory identifies existing
 capabilities and UI integration gaps without duplicating kernels.
+Existing motion-quality evidence and missing corpus categories are inventoried
+in `docs/quality-corpus-status.md`; that inventory is not a release benchmark.
 
 **Exit:** a capability/evidence matrix, reproducible corpus and benchmarks,
 and screen flows with explicit acceptance criteria. No feature is declared
