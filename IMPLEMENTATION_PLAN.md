@@ -535,9 +535,6 @@ never silently loses edits. No representation rewrite without a measured need.
 
 ### 11.1 Reviewed export (P0)
 
-- [ ] Complete source context in export review: show the rig/profile identity
-      when one is available, and state clearly when the file has no reusable
-      profile. Never imply retargeting when only the source hierarchy is kept.
 - [ ] Make the full destination inspectable for nested/long paths, including
       the exact filename, without clipping the dialog at minimum window size.
 - [ ] Link each quality warning to its matching metric or exact timeline issue.
