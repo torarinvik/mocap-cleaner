@@ -18,6 +18,7 @@ include "../accessibility.elisa"
 include "../issues.elisa"
 include "../issue_browser_policy.elisa"
 include "../issue_filter_policy.elisa"
+include "../reset_scope.elisa"
 include "../sidebar_layout.elisa"
 include "../export_review.elisa"
 include "../export_path_review.elisa"
@@ -134,11 +135,16 @@ module StudioPanels:
         const MARKER_BINS: i64 = 120
         const FILE_MENU_ROW: f32 = 28.0
         const FILE_MENU_WIDTH: f32 = 190.0
+        const RESET_MENU_WIDTH: f32 = 276.0
+        const RESET_MENU_HEIGHT: f32 = 148.0
         const ISSUE_ROWS: i64 = StudioIssueBrowserPolicy::ROWS
         const ISSUE_FILTERED_ROWS: i64 = 1
         const ISSUE_PREVIOUS: i64 = StudioIssueBrowserPolicy::PREVIOUS
         const ISSUE_NEXT: i64 = StudioIssueBrowserPolicy::NEXT
         const ISSUE_WORST: i64 = StudioIssueBrowserPolicy::WORST
+        const RESET_CLEAR_CONTACTS: i64 = StudioResetScope::CLEAR_CONTACTS
+        const RESET_CLEAR_CORRECTIONS: i64 = StudioResetScope::CLEAR_CORRECTIONS
+        const RESET_RESTORE_SOURCE: i64 = StudioResetScope::RESTORE_SOURCE
         const ISSUE_GROUP_ID: usize = StudioIssueBrowserPolicy::GROUP_ID
         const ISSUE_PREVIOUS_ID: usize = StudioIssueBrowserPolicy::PREVIOUS_ID
         const ISSUE_NEXT_ID: usize = StudioIssueBrowserPolicy::NEXT_ID
@@ -573,6 +579,45 @@ module StudioPanels:
 
         def row_box(sb: Box, i: i64) -> Box:
             box(sb.x + 8.0, sb.y + StudioSidebarLayout::OPERATION_ROW_TOP.f32() + i.f32() * StudioSidebarLayout::OPERATION_ROW_STEP.f32(), sb.w - 16.0, ROW)
+
+        def reset_menu_button_box(sb: Box) -> Box:
+            box(sb.x + sb.w - 88.0, sb.y + StudioSidebarLayout::STACK_HEADING_TOP.f32() - 2.0, 76.0, 23.0)
+
+        def reset_menu_box(sb: Box) -> Box:
+            box(sb.x + 12.0, sb.y + StudioSidebarLayout::STACK_HEADING_BOTTOM.f32() + 4.0, RESET_MENU_WIDTH, RESET_MENU_HEIGHT)
+
+        def reset_menu_item_box(sb: Box, slot: i64) -> Box:
+            box(reset_menu_box(sb).x + 6.0, reset_menu_box(sb).y + 25.0 + slot.f32() * 32.0, RESET_MENU_WIDTH - 12.0, 30.0)
+
+        def reset_menu_contains(sb: Box, px: f32, py: f32) -> bool:
+            inside(reset_menu_box(sb), px, py)
+
+        def reset_menu_hit(sb: Box, s: StackState::Stack&, px: f32, py: f32) -> i64:
+            return RESET_CLEAR_CONTACTS if inside(reset_menu_item_box(sb, 0), px, py) and StudioResetScope::enabled(RESET_CLEAR_CONTACTS, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            return RESET_CLEAR_CORRECTIONS if inside(reset_menu_item_box(sb, 1), px, py) and StudioResetScope::enabled(RESET_CLEAR_CORRECTIONS, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            return RESET_RESTORE_SOURCE if inside(reset_menu_item_box(sb, 2), px, py) and StudioResetScope::enabled(RESET_RESTORE_SOURCE, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            -1
+
+        def reset_menu_panel(sb: Box, s: StackState::Stack&, open: bool) -> void:
+            trigger: Box = reset_menu_button_box(sb)
+            StudioDraw::rect(trigger.x, trigger.y, trigger.w, trigger.h, StudioDraw::color(61, 52, 38) if open else StudioDraw::panel())
+            StudioDraw::text(trigger.x + 8.0, trigger.y + 5.0, 10.0, "Reset…", StudioDraw::ink())
+            return if not open
+            menu: Box = reset_menu_box(sb)
+            StudioDraw::rect(menu.x, menu.y, menu.w, menu.h, StudioDraw::color(18, 21, 28))
+            StudioDraw::bold(menu.x + 8.0, menu.y + 6.0, 11.0, "Choose reset scope", StudioDraw::ink())
+            for slot in 0..<3 |slot, sb, s, menu|:
+                item: Box = reset_menu_item_box(sb, slot)
+                action: i64 = StudioResetScope::CLEAR_CONTACTS + slot
+                enabled: bool = StudioResetScope::enabled(action, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+                broad: bool = action == RESET_RESTORE_SOURCE
+                col: UiCore::Color = StudioDraw::color(57, 47, 35) if broad and enabled else StudioDraw::color(42, 47, 58) if enabled else StudioDraw::color(31, 34, 41)
+                StudioDraw::rect(item.x, item.y, item.w, item.h, col)
+                label: sview = "Clear contact overrides" if slot == 0 else "Clear local corrections" if slot == 1 else "Restore source result"
+                StudioDraw::text(item.x + 7.0, item.y + 3.0, 10.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
+                detail: sview = "Return frames to automatic detection" if slot == 0 else "Keep operations and contact edits" if slot == 1 else "Remove operations, corrections, contacts, locks and retiming"
+                StudioDraw::text(item.x + 7.0, item.y + 17.0, 8.0, detail, StudioDraw::muted())
+            StudioDraw::text(menu.x + 8.0, menu.y + 127.0, 8.0, "Esc closes · row trash removes one operation", StudioDraw::muted())
 
         # Ranked issue browser occupies the sidebar above cleanup controls.
         # The filter, navigation and finding rows have separate hit regions;
