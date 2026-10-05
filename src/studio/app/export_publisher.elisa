@@ -1,0 +1,94 @@
+# Prepare an exported GLB beside its destination, validate the bytes by
+# reloading them, and publish with one same-filesystem rename. The destination
+# remains untouched until commit succeeds.
+include "../../../../elisa-engine-mocap/src/assets/glb_document.elisa"
+
+const EXPORT_PATH_CAPACITY: usize = 4096
+const EXPORT_TEMP_CAPACITY: usize = 4128
+
+@link_name("mkstemp")
+extern export_mkstemp(path_template: u8&) -> i32 can[Blocking.IO]
+@link_name("close")
+extern export_close(descriptor: i32) -> i32 can[Blocking.IO]
+@link_name("open")
+extern export_open(path: u8&, flags: i32) -> i32 can[Blocking.IO]
+@link_name("fsync")
+extern export_fsync(descriptor: i32) -> i32 can[Blocking.IO]
+@link_name("unlink")
+extern export_unlink(path: u8&) -> i32 can[Blocking.IO]
+@link_name("rename")
+extern export_rename(source: u8&, destination: u8&) -> i32 can[Blocking.IO]
+@link_name("strdup")
+extern export_strdup(path: cstr) -> cstr? can[Memory.Allocate]
+
+module StudioExportPublisher:
+    public:
+        # Creates and validates a private sibling temporary. The caller owns
+        # the returned path and must either commit or discard it, then release
+        # the path string with FilePanel::release_path.
+        def prepare(doc: GlbDocument::Document&, destination: cstr) -> cstr?:
+            mutable destination_length: usize = 0
+            while destination_length < EXPORT_PATH_CAPACITY and destination[destination_length] != 0:
+                destination_length <- destination_length + 1
+            return null if destination_length == 0 or destination_length >= EXPORT_PATH_CAPACITY
+
+            mutable temporary: u8[EXPORT_TEMP_CAPACITY] = zeroed
+            for index in 0..<destination_length |destination, temporary|:
+                temporary[index] <- destination[index]
+            suffix: cstr = ".mocap-export-XXXXXX"
+            mutable suffix_length: usize = 0
+            while suffix[suffix_length] != 0:
+                temporary[destination_length + suffix_length] <- suffix[suffix_length]
+                suffix_length <- suffix_length + 1
+            temporary[destination_length + suffix_length] <- 0
+
+            descriptor: i32 = export_mkstemp(&temporary[0])
+            return null if descriptor < 0
+            if export_close(descriptor) != 0:
+                _ = export_unlink(&temporary[0])
+                return null
+
+            temporary_path: cstr = (&temporary[0]).cast[cstr] can Unsafe.PointerCast
+            if not save_document(doc, temporary_path):
+                _ = export_unlink(&temporary[0])
+                return null
+
+            # O_RDWR (2) lets fsync flush the file on both Darwin and Linux.
+            read_descriptor: i32 = export_open(&temporary[0], 2)
+            if read_descriptor < 0:
+                _ = export_unlink(&temporary[0])
+                return null
+            synced: i32 = export_fsync(read_descriptor)
+            closed: i32 = export_close(read_descriptor)
+            if synced != 0 or closed != 0:
+                _ = export_unlink(&temporary[0])
+                return null
+
+            if not matches_after_reload(doc, temporary_path):
+                _ = export_unlink(&temporary[0])
+                return null
+
+            if export_strdup(temporary_path) is retained_path:
+                return retained_path
+            _ = export_unlink(&temporary[0])
+            null
+
+        def commit(temporary: cstr, destination: cstr) -> bool:
+            export_rename(temporary.cast[u8&], destination.cast[u8&]) == 0
+
+        # Removes an uncommitted temporary; harmless after a successful rename.
+        def discard(temporary: cstr) -> void:
+            _ = export_unlink(temporary.cast[u8&])
+
+    private:
+        def save_document(doc: GlbDocument::Document&, path: cstr) -> bool:
+            wrote: usize = catch GlbDocument::save(doc, path):
+                value: value
+                error failure: return false
+            wrote == GlbDocument::byte_count(doc)
+
+        def matches_after_reload(doc: GlbDocument::Document&, path: cstr) -> bool:
+            written: GlbDocument::Document = catch GlbDocument::load(path):
+                value: value
+                error failure: return false
+            GlbDocument::first_difference(doc, written) == -1

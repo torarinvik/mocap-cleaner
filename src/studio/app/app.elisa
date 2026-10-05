@@ -20,6 +20,7 @@ include "../focus.elisa"
 include "../replacement.elisa"
 include "../accessibility.elisa"
 include "../export_policy.elisa"
+include "export_publisher.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
 
@@ -733,9 +734,11 @@ module Studio:
 
         def export_clip(destination: cstr, overwrite_confirmed: bool) -> bool:
             if clip is c:
-                mutable reason: i64 = export_reason(destination, overwrite_confirmed)
+                mutable allows_overwrite: bool = overwrite_confirmed
+                mutable reason: i64 = export_reason(destination, allows_overwrite)
                 if reason == StudioExportPolicy::OVERWRITE_UNCONFIRMED:
                     if FilePanel::confirm_replace(destination):
+                        allows_overwrite <- true
                         reason <- export_reason(destination, true)
                     else:
                         say_file("Export cancelled; existing file kept", destination)
@@ -745,15 +748,41 @@ module Studio:
                     say_file(export_error(reason), destination)
                     touch()
                     return false
-                if StudioModel::save_cleaned(c, destination):
-                    export_path <- destination
-                    say_file("exported", destination)
-                    FilePanel::note_recent(destination)
-                    _ = puts(destination)
-                    touch()
-                    return true
+
+                if StudioExportPublisher::prepare(c.cleaned, destination) is temporary:
+                    # Recheck after writing and validating the temporary so a
+                    # destination that changed during export cannot be silently
+                    # replaced. Publication is a single same-directory rename.
+                    reason <- export_reason(destination, allows_overwrite)
+                    if reason == StudioExportPolicy::OVERWRITE_UNCONFIRMED:
+                        if FilePanel::confirm_replace(destination):
+                            allows_overwrite <- true
+                            reason <- export_reason(destination, true)
+                        else:
+                            StudioExportPublisher::discard(temporary)
+                            FilePanel::release_path(temporary)
+                            say_file("Export cancelled; existing file kept", destination)
+                            touch()
+                            return false
+                    if reason != StudioExportPolicy::ALLOW:
+                        StudioExportPublisher::discard(temporary)
+                        FilePanel::release_path(temporary)
+                        say_file(export_error(reason), destination)
+                        touch()
+                        return false
+                    if StudioExportPublisher::commit(temporary, destination):
+                        FilePanel::release_path(temporary)
+                        export_path <- destination
+                        say_file("exported and validated", destination)
+                        FilePanel::note_recent(destination)
+                        _ = puts(destination)
+                        touch()
+                        return true
+                    StudioExportPublisher::discard(temporary)
+                    FilePanel::release_path(temporary)
+                    say_file("export failed; destination kept", destination)
                 else:
-                    say_file("export failed; check path, permissions or disk space", destination)
+                    say_file("export failed validation or could not be written", destination)
                 touch()
             false
 

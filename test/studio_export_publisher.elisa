@@ -1,0 +1,88 @@
+# The publisher keeps an existing destination until a validated sibling GLB
+# is committed, then writes exactly the document bytes without touching source.
+include "../src/studio/app/export_publisher.elisa"
+
+@link_name("fopen")
+extern test_fopen(path: u8&, mode: u8&) -> mutable heap void&?
+@link_name("fwrite")
+extern test_fwrite(bytes: u8&, size: usize, count: usize, file: mutable heap void&) -> usize
+@link_name("fread")
+extern test_fread(bytes: mutable u8&, size: usize, count: usize, file: mutable heap void&) -> usize
+@link_name("fclose")
+extern test_fclose(file: mutable heap void&) -> i32
+@link_name("unlink")
+extern test_unlink(path: u8&) -> i32
+@link_name("free")
+extern test_free(pointer: mutable void&) -> void
+extern puts(text: cstr) -> i64
+
+def text_length(text: cstr) -> usize:
+    mutable length: usize = 0
+    while text[length] != 0:
+        length <- length + 1
+    length
+
+def write_text(path: cstr, text: cstr) -> bool:
+    file: mutable heap void&? = test_fopen(path.cast[u8&], "wb".cast[u8&])
+    if file is stream:
+        length: usize = text_length(text)
+        wrote: usize = test_fwrite(text.cast[u8&], 1, length, stream)
+        closed: i32 = test_fclose(stream)
+        return wrote == length and closed == 0
+    false
+
+def file_equals(path: cstr, expected: cstr) -> bool:
+    file: mutable heap void&? = test_fopen(path.cast[u8&], "rb".cast[u8&])
+    if file is stream:
+        mutable actual: u8[32] = zeroed
+        length: usize = text_length(expected)
+        got: usize = test_fread(&actual[0], 1, length + 1, stream)
+        closed: i32 = test_fclose(stream)
+        return false if got != length or closed != 0
+        for index in 0..<length |actual, expected|:
+            return false if actual[index] != expected[index]
+        return true
+    false
+
+def document_equals(path: cstr, expected: GlbDocument::Document&) -> bool:
+    actual: GlbDocument::Document = catch GlbDocument::load(path):
+        value: value
+        error failure: return false
+    GlbDocument::first_difference(expected, actual) == -1
+
+def main() -> i64:
+    source: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    target: cstr = "build/studio-export-publisher-test.glb"
+    _ = test_unlink(target.cast[u8&])
+    original: GlbDocument::Document = catch GlbDocument::load(source):
+        value: value
+        error failure: return 1
+
+    return 2 if not write_text(target, "old destination")
+    if StudioExportPublisher::prepare(original, target) is temporary:
+        if not file_equals(target, "old destination"):
+            StudioExportPublisher::discard(temporary)
+            test_free(temporary.cast[mutable void&])
+            _ = test_unlink(target.cast[u8&])
+            return 3
+        if not StudioExportPublisher::commit(temporary, target):
+            StudioExportPublisher::discard(temporary)
+            test_free(temporary.cast[mutable void&])
+            _ = test_unlink(target.cast[u8&])
+            return 4
+        test_free(temporary.cast[mutable void&])
+    else:
+        _ = test_unlink(target.cast[u8&])
+        return 5
+
+    if not document_equals(target, original):
+        _ = test_unlink(target.cast[u8&])
+        return 6
+
+    if not document_equals(source, original):
+        _ = test_unlink(target.cast[u8&])
+        return 7
+
+    _ = test_unlink(target.cast[u8&])
+    _ = puts("studio export publisher: atomic GLB round trip and source preservation pass")
+    0
