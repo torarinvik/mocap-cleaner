@@ -1,7 +1,8 @@
 # elisa-proof gaps found by the mocap cleaner
 
-Fixes are developed in the `../elisa-proof-mocap` worktree, on branch
-`mocap-cleaner-proofs`.
+Historically, fixes were developed in the `../elisa-proof-mocap` worktree on
+branch `mocap-cleaner-proofs`. That work was merged into the sibling
+`../elisa-proof` history at `6a816257`.
 
 | # | Gap | Example | Status |
 |---|---|---|---|
@@ -457,3 +458,9 @@ now prove completely with every certificate replayed.
   unproven, etc.). The baseline predates 3244c9d/0c1a6df/e723e71; proven rose
   more in each (cli main 1488 -> 2779), i.e. G68 exposed more goals. cli main
   was already 1171 unproven before 19611a2; this commit changes no counts.
+
+## Current key-weight certificate status (2026-10-05)
+
+The sibling prover's JSON report for `proof/key_weight_laws.elisa` has no
+findings: all 5 functions are proved, all 60 goals replay, and no replay gaps
+remain.

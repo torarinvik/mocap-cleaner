@@ -195,8 +195,12 @@ and almost all of that is the prover.
       never-timed files start first, then longest first (glb_tracks 94 s,
       presets 80 s, rig_cache 80 s, ...). `PROOF_JOBS` defaults to
       `os.cpu_count()`.
-- [ ] Fix the 6 certificate-replay gaps so `key_weight` and
+- [x] Fix the 6 certificate-replay gaps so `key_weight` and
       `key_weight_laws` reach "proved".
+      Status: the prover changes are now in the sibling `elisa-proof` main
+      history (merge `6a816257`). Current JSON output reports 5/5 functions
+      proved, 60/60 goals replayed, and zero findings for
+      `proof/key_weight_laws.elisa`.
 
 **Interactive studio (user-visible latency).**
 - [x] Wire `Ops::evaluate_cached` into the studio, so stack edits rerun only
