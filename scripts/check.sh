@@ -80,21 +80,45 @@ if wait "$cli_build_pid"; then
     if [ -f "$boxer" ]; then
         rm -rf build/cli-test && mkdir -p build/cli-test/in build/cli-test/out
         cp "$boxer" build/cli-test/in/
-        build/mocap-cleaner clean "$boxer" --preset boxing -o build/cli-test/out.glb --report build/cli-test/r.json >/dev/null; rc=$?
-        grep -q '"ok": true' build/cli-test/r.json 2>/dev/null || rc=9
-        echo "cli   clean -o --report: rc=$rc"; [ $rc -eq 0 ] || status=1
-        build/mocap-cleaner batch build/cli-test/out build/cli-test/in >/dev/null; rc=$?
-        grep -q "black-boxer.glb" build/cli-test/out/report.html 2>/dev/null || rc=9
-        echo "cli   batch folder: rc=$rc"; [ $rc -eq 0 ] || status=1
-        # --op hands finds no planted hand on the boxer: output is byte-identical.
-        build/mocap-cleaner clean "$boxer" --preset boxing --op hands -o build/cli-test/hands.glb --report build/cli-test/h.json >/dev/null; rc=$?
-        cmp -s build/cli-test/out.glb build/cli-test/hands.glb || rc=9
-        build/mocap-cleaner diff build/cli-test/r.json build/cli-test/h.json --html build/cli-test/diff.html >/dev/null || rc=8
-        echo "cli   hands + diff: rc=$rc"; [ $rc -eq 0 ] || status=1
-        build/mocap-cleaner clean "$boxer" --preset raw --anim jab --retime 10:40:0.5 --save-ops build/cli-test/rt.ops -o build/cli-test/rt.glb >build/cli-test/rt.txt; rc=$?
-        grep -q "^9 1 10 40 " build/cli-test/rt.ops 2>/dev/null || rc=9
-        grep -q "retime frames after: 123" build/cli-test/rt.txt || rc=8
-        echo "cli   clean --retime: rc=$rc"; [ $rc -eq 0 ] || status=1
+        cli_clean() {
+            build/mocap-cleaner clean "$boxer" --preset boxing -o build/cli-test/out.glb --report build/cli-test/r.json >/dev/null
+            rc=$?
+            grep -q '"ok": true' build/cli-test/r.json 2>/dev/null || rc=9
+            echo "$rc" >build/cli-test/clean.status
+        }
+        cli_batch() {
+            build/mocap-cleaner batch build/cli-test/out build/cli-test/in >/dev/null
+            rc=$?
+            grep -q "black-boxer.glb" build/cli-test/out/report.html 2>/dev/null || rc=9
+            echo "$rc" >build/cli-test/batch.status
+        }
+        cli_retime() {
+            build/mocap-cleaner clean "$boxer" --preset raw --anim jab --retime 10:40:0.5 --save-ops build/cli-test/rt.ops -o build/cli-test/rt.glb >build/cli-test/rt.txt
+            rc=$?
+            grep -q "^9 1 10 40 " build/cli-test/rt.ops 2>/dev/null || rc=9
+            grep -q "retime frames after: 123" build/cli-test/rt.txt || rc=8
+            echo "$rc" >build/cli-test/retime.status
+        }
+        cli_hands() {
+            # --op hands finds no planted hand on the boxer: output is byte-identical.
+            build/mocap-cleaner clean "$boxer" --preset boxing --op hands -o build/cli-test/hands.glb --report build/cli-test/h.json >/dev/null
+            rc=$?
+            cmp -s build/cli-test/out.glb build/cli-test/hands.glb || rc=9
+            build/mocap-cleaner diff build/cli-test/r.json build/cli-test/h.json --html build/cli-test/diff.html >/dev/null || rc=8
+            echo "$rc" >build/cli-test/hands.status
+        }
+        cli_clean & clean_pid=$!
+        cli_batch & batch_pid=$!
+        cli_retime & retime_pid=$!
+        wait "$clean_pid" || true
+        cli_hands & hands_pid=$!
+        wait "$batch_pid" || true
+        wait "$retime_pid" || true
+        wait "$hands_pid" || true
+        rc=$(cat build/cli-test/clean.status); echo "cli   clean -o --report: rc=$rc"; [ "$rc" -eq 0 ] || status=1
+        rc=$(cat build/cli-test/batch.status); echo "cli   batch folder: rc=$rc"; [ "$rc" -eq 0 ] || status=1
+        rc=$(cat build/cli-test/hands.status); echo "cli   hands + diff: rc=$rc"; [ "$rc" -eq 0 ] || status=1
+        rc=$(cat build/cli-test/retime.status); echo "cli   clean --retime: rc=$rc"; [ "$rc" -eq 0 ] || status=1
     fi
 else
     echo "cli   BUILD FAILED (build/test/cli.log)"; status=1
