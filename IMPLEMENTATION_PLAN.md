@@ -157,17 +157,21 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 - [ ] Complete a valid-take running-window exercise of file panels/drop,
       mesh/x-ray, every view, selection, curves, playback, contacts, gizmos,
       retime, undo, sessions and export. Record the exact build, outcomes and
-      screenshots in `docs/studio-capability-matrix.md`. Verify contact nudges
+      screenshots in `docs/studio-capability-matrix.md`. Review contact nudges
       and finding filters on screen, including labels, focus, hit targets,
-      Reset scope explanations, disabled states, click-away, Escape, status
-      feedback, undo, and ignore/restore. Review replacement, legacy-session
-      and export dialogs for readability and dismissal at the minimum window
-      size. The existing partial review and its evidence are documented in the
-      matrix; failed-load review did not establish valid-take picker, filter or
-      reset behavior. Also verify Duplicate is visibly labelled, disabled with
-      a reason without a usable selection or at capacity, inserts immediately
-      after the selected step, selects the copy, and undoes in one Cmd-Z. Check
-      `Cmd-D`, that numeric/text entry consumes it, and its VoiceOver action.
+      status feedback, ignore/restore, and undo. The 2026-10-06 valid-take
+      supplement confirms the Reset and Duplicate controls are visible, the
+      reset scopes and empty-state disabled actions are clear, click-away
+      dismisses Reset, and pointer Duplicate inserts/selects an adjacent copy
+      with one undo. The supplement also records that Escape closed the whole
+      window while Reset was open. Resolve this Escape/back-routing failure,
+      then verify Escape dismisses Reset without closing Studio. Review
+      replacement, legacy-session and export dialogs for readability and
+      dismissal at the minimum window size. Complete Duplicate edge-state
+      feedback (no selection and full stack), native `Cmd-D`, text-entry
+      ownership, and VoiceOver activation. The CUA `super+D` and `super+O`
+      gestures reached plain-key actions, so they do not count as native
+      Command-chord evidence.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.

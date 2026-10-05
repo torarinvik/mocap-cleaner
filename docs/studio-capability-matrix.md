@@ -1,6 +1,6 @@
 # CLI and studio capability matrix
 
-Updated 2026-10-05 from `src/cli/main.elisa`, `src/studio/app/`,
+Updated 2026-10-06 from `src/cli/main.elisa`, `src/studio/app/`,
 `src/studio/state/`, `src/ops/` and the existing studio UX notes. This is a
 code-reading inventory, not an on-screen usability sign-off. “Available” means
 there is a reachable product path in the current source; headless coverage or
@@ -91,3 +91,32 @@ not visible. The folder control also did not open the native take picker in
 this attempt. No source take was opened or changed, so filter appearance,
 hit-target behavior, native accessibility actions and contact nudge shortcuts
 still need review on a valid take.
+
+### 2026-10-06 valid-take supplement
+
+Built the current `main` source at `1b25338` with
+`STUDIO_SKIP_CHECKS=1 scripts/build_studio.sh`, refreshed the generated UI
+smoke app, and opened the read-only `black-boxer.glb` / `jab` fixture at
+2880 × 1800. The build completed with the script's warning that the optional
+`studio-globals` Stage 1 compiler was unavailable. The rig, metrics, findings
+panel and operation stack rendered; no session or export was saved.
+
+The operation-stack heading visibly labels **Duplicate** and **Reset…**.
+Pointer Duplicate inserted an adjacent copy, selected it, updated the visible
+metrics and reported the undo affordance; one undo restored the original
+three-operation stack. The Reset popover showed all three distinct scopes.
+Clear contacts and Clear local corrections were visibly disabled when empty;
+Restore source result was enabled, and clicking outside dismissed the menu.
+The CUA `super+D` gesture toggled the selected operation, while `super+O`
+changed its scope to frame 0. These gestures appear to have reached the
+plain-key actions, so this run does not establish native Command-chord behavior
+or text-entry ownership. Both temporary edits were undone or discarded by a
+fresh launch. No file was saved, and the source stack was restored.
+
+Pressing Escape while the Reset popover was open closed the Studio window in
+this run instead of dismissing only the popover. The running-window review
+therefore fails the Escape requirement and needs a back-routing fix or a
+verified native event path before sign-off. Minimum-window layout, native
+VoiceOver activation, filter interaction, and the broader take workflow are
+still open. This supplement supersedes the earlier failed-load-only note for
+Reset and Duplicate visibility; it does not close the full M0 exercise.
