@@ -321,10 +321,6 @@ agreed minimum window size. Sources unchanged.
 - [ ] Explain each issue in ordinary language with source/result readings:
       slide, penetration, jitter, spike, pole jump, seam or balance warning.
       Show detector settings and analysis revision in advanced details.
-- [ ] Persist finding dispositions in sessions with source, animation and
-      analysis identity. After retime or source changes, either remap an
-      annotation under a proved scope rule or show it as expired and let the
-      user reapply it; never silently suppress a newly generated finding.
 - [ ] Distinguish confirmed user contacts from inferred contacts. Show low
       confidence and data limitations; balance and ballistic heuristics must
       not be presented as ground-truth physical validity.
@@ -372,18 +368,19 @@ positives before enabling recommendations.
 - [ ] Explain ordering and fixed pipeline stages, including contact-dependent
       stages, final pins and retime. Reject or explain invalid moves; never
       suggest that a displayed order differs from evaluation order.
-- [ ] Expose Duplicate with a clear label, keyboard and accessible action;
-      wire the existing bounded state action into one undo transaction,
-      disable it with an explanation at invalid selection or capacity, and
-      preserve every operation field. Rename, bypass-all and before-this-step
-      review remain P1. Drag ordering must have equivalent move buttons and
-      keyboard actions.
+- [ ] Expose Duplicate with a clear visible label, keyboard and accessible
+      action. Route it through the bounded state transition, preserve every
+      operation field, and record exactly one undo entry. Disable it with an
+      explanation at invalid selection or capacity. Rename, bypass-all and
+      before-this-step review remain P1. Drag ordering must have equivalent
+      move buttons and keyboard actions.
 - [ ] Coalesce a slider or numeric edit into one undo transaction. Invalid
       numeric drafts and cancelled drags leave no history entry.
-- [ ] Make cleanup reset paths explicit and reversible: bypass one operation,
-      remove one operation, clear only contact edits, clear only local pose
-      corrections, or restore the original source result. Show the scope before
-      a broad reset and make each accepted reset one undoable transaction.
+- [ ] Add a visible Reset menu for clearing authored contact edits, clearing
+      local pose corrections, or restoring the source result. Explain each
+      scope, show unavailable actions as disabled, and keep every accepted
+      action in one undo step. Removing or bypassing one operation stays with
+      its row and must remain distinct from the broad reset choices.
 - [ ] Add saved recipes with named/versioned settings, rig requirements,
       relative or absolute scope semantics, and preview before replacement.
       Separate factory presets from user recipes; preserve edited recipes.
@@ -444,13 +441,12 @@ state. No recommendation passes solely on aggregate improvement.
 - [ ] Show a contextual preview while an endpoint is dragged and make
       cancellation leave the saved contact state untouched. Validate range
       handles at the minimum supported window size and on long takes.
-- [ ] Add timeline zoom/pan, fitted range, visible row labels, draggable handles
-      with usable hit targets and numeric interval fields. Exact one-frame
-      edits must work on long clips. Keep the shipped whole-range and endpoint
-      keyboard nudges undoable and discoverable through help, status feedback
-      and native accessibility actions. Complete accessible alternatives for
-      timeline navigation and contact review, then visually verify focus,
-      labels and live action availability.
+- [ ] Add timeline zoom/pan, fitted range, visible row labels and draggable
+      handles with usable hit targets. Visually verify the shipped 1-based
+      endpoint fields and keyboard nudges on valid takes, including focus,
+      invalid drafts, clip boundaries, long clips and the minimum window size.
+      Align the numeric-field limit with the supported clip length, and expose
+      contact selection and edits through native accessibility actions.
 - [ ] Show automatic versus edited intervals, lock/pivot choice, anchor point,
       target surface, blend-in/out and confidence. Users can revert an interval
       without deleting other contact edits.
