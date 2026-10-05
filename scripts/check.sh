@@ -23,6 +23,17 @@ build_test() {
         echo failed >"build/test/$name.status"
     fi
 }
+run_test() {
+    name=$(basename "$1" .elisa)
+    if [ "$(cat "build/test/$name.status" 2>/dev/null)" != ok ]; then
+        echo build-failed >"build/test/$name.run.status"
+    elif "build/test/$name" >"build/test/$name.run.log" 2>&1; then
+        echo 0 >"build/test/$name.run.status"
+    else
+        rc=$?
+        echo "$rc" >"build/test/$name.run.status"
+    fi
+}
 # Derived icon geometry for test/studio_icons.elisa (also made by build_studio.sh).
 python3 tools/svg_icons.py build/generated/studio_icon_paths.elisa >/dev/null || status=1
 # Compile in bounded parallel batches; test executables still run in file order
@@ -38,13 +49,26 @@ for t in test/*.elisa; do
     fi
 done
 [ "$active" -eq 0 ] || wait || true
+rm -f build/test/*.run.status
+for t in test/*.elisa; do
+    run_test "$t" &
+    active=$((active + 1))
+    if [ "$active" -ge "$check_jobs" ]; then
+        wait || true
+        active=0
+    fi
+done
+[ "$active" -eq 0 ] || wait || true
 for t in test/*.elisa; do
     name=$(basename "$t" .elisa)
-    if [ "$(cat "build/test/$name.status" 2>/dev/null)" = ok ]; then
-        "build/test/$name"; rc=$?
-        echo "test  $name: rc=$rc"; [ $rc -eq 0 ] || status=1
+    if [ "$(cat "build/test/$name.run.status" 2>/dev/null)" = build-failed ]; then
+        echo "test  $name: BUILD FAILED (build/test/$name.log)"
+        status=1
     else
-        echo "test  $name: BUILD FAILED (build/test/$name.log)"; status=1
+        cat "build/test/$name.run.log"
+        rc=$(cat "build/test/$name.run.status" 2>/dev/null || echo 1)
+        echo "test  $name: rc=$rc"
+        [ "$rc" -eq 0 ] || status=1
     fi
 done
 # CLI built through elisa_build_run.py (scripts/build.sh), in the plan's form, and a folder batch with its HTML report.
