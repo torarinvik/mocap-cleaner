@@ -41,6 +41,7 @@ size; successful removal can report space moved to Trash, while moving to
 Trash remains recoverable. Emptying Trash stays under Finder's control.
 
 Retention days are explicit inputs so preferences can be configured and
-displayed by the UI. This kernel does not impose defaults. `proof/` covers the
-exclusion and confirmation rules; `test/studio_storage_cleanup_policy.elisa`
-covers boundary examples. No file operation is implemented by this policy.
+displayed by the UI. This kernel does not impose defaults. The focused
+executable checks boundary examples; its proof file currently replays 351 of
+353 obligations. The two open explanation-code and exact-sum laws are tracked
+in `docs/proof-gaps.md`. No file operation is implemented by this policy.

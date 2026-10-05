@@ -557,3 +557,15 @@ new rows after the prover/replay products are rebuilt from matching sources.
   focused executable tests pass through the new cap. Follow up in
   `../elisa-proof-mocap` with bounded arithmetic/case lemmas before recording
   the larger nudge domain as fully proved.
+
+## Storage cleanup policy laws (2026-10-06)
+
+- G86: `proof/studio_storage_cleanup_policy_laws.elisa` proves 351 of 353
+  obligations with all 351 certificates replayed. The two open laws are
+  `eligible_items_have_no_protection_reason` (the verified eligibility gates
+  do not yet establish the exact zero-valued explanation code through the
+  reason-function summary) and `selected_bytes_never_overflow` (the verifier
+  does not close the exact-sum claim from the safe subtraction bound through
+  `next_total_bytes`). The eligibility, review/confirmation, and bounded-total
+  kernels themselves are verified; focused executable coverage passes. Keep
+  these two laws open until the proof kernel can derive those exact summaries.
