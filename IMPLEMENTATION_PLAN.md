@@ -535,8 +535,6 @@ never silently loses edits. No representation rewrite without a measured need.
 
 ### 11.1 Reviewed export (P0)
 
-- [ ] Make the full destination inspectable for nested/long paths, including
-      the exact filename, without clipping the dialog at minimum window size.
 - [ ] Link each quality warning to its matching metric or exact timeline issue.
       Returning to the review must preserve the destination and acknowledgement
       state; changing the cleanup must invalidate the old acknowledgement.
