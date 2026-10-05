@@ -535,17 +535,17 @@ never silently loses edits. No representation rewrite without a measured need.
 
 ### 11.1 Reviewed export (P0)
 
-- [ ] Finish export review semantics and interaction: identify the selected
-      animation and state which other animations are retained unchanged; show
-      the exact output path/filename, duration/rate, source rig or profile,
-      root-motion behavior, active operation names/settings and unresolved
-      warnings. A warning must link to its relevant frame or metric. Require an
-      explicit acknowledgement before a warned result can be exported. Verify
-      the dialog at minimum supported size and complete keyboard, pointer and
-      screen-reader journeys.
-- [ ] Provide intentional export controls only for supported semantics.
-      Root extraction/in-place conversion or key reduction requires a separate
-      implemented and validated policy before offering a checkbox.
+- [ ] Complete source context in export review: show the rig/profile identity
+      when one is available, and state clearly when the file has no reusable
+      profile. Never imply retargeting when only the source hierarchy is kept.
+- [ ] Make the full destination inspectable for nested/long paths, including
+      the exact filename, without clipping the dialog at minimum window size.
+- [ ] Link each quality warning to its matching metric or exact timeline issue.
+      Returning to the review must preserve the destination and acknowledgement
+      state; changing the cleanup must invalidate the old acknowledgement.
+
+Do not offer root extraction/in-place conversion or key reduction until that
+semantics has its own implementation, review fields and quality validation.
 - [ ] Reload the derived GLB and compare animation channels/poses, contacts,
       duration and untouched nodes/skins/meshes against expected output.
       Compare evaluated output against the reviewed revision. Surface a clear
@@ -592,7 +592,8 @@ single-take output agree for identical settings.
       captures with real native-window checks for input routing and GPU paths.
       Exercise export-warning acknowledgement, disabled Export, result-dialog
       focus, Open Result, Show in Folder, missing/failed outputs and Done/Escape.
-      Confirm the editable session remains separate from the published GLB.
+      Confirm the editable session remains separate from the published GLB;
+      complete the review/result journeys with keyboard and VoiceOver.
 - [ ] Capture and review visual states at supported window sizes/scales:
       first run, malformed input, busy/cancelled job, missing rig roles, dense
       timeline, long paths, export warnings/result, help and restored session.
