@@ -233,9 +233,12 @@ visually verified solely from offscreen rendering.
 
 - [ ] Define clean/dirty/saving/recoverable document states and a saved-state
       identity. Undo back to the saved state clears dirty correctly.
-- [ ] On close, take replacement or quit with edits: offer Save, Discard,
-      Cancel. A cancelled/failed save keeps the document open and dirty.
-      Separate unsaved work warnings from ordinary non-modal status.
+- [ ] Finish dirty-document confirmation for close/quit and Open Session. Open
+      Take, toolbar Open and file drop now stage a replacement and offer Save,
+      Discard or Cancel; a failed save keeps the prompt and dirty edits. The
+      choice focus policy has contracts, laws and a headless test. The native
+      close/quit path and loading a session over dirty edits still need the
+      same protection. Separate unsaved work warnings from ordinary status.
 - [ ] Make session saves atomic using a temporary derived file and rename;
       detect permission, disk-space and partial-write failures.
 - [ ] Extend sessions with source identity/hash, animation identity, rig
