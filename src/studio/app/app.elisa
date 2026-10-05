@@ -21,6 +21,7 @@ include "../replacement.elisa"
 include "../accessibility.elisa"
 include "../export_policy.elisa"
 include "../export_review.elisa"
+include "../export_result.elisa"
 include "export_publisher.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
@@ -88,6 +89,9 @@ module Studio:
         global mutable export_review_focus: i64 = StudioExportReview::EXPORT
         global mutable export_review_path: cstr = ""
         global mutable export_review_overwrite: bool = false
+        global mutable export_result_open: bool = false
+        global mutable export_result_path: cstr = ""
+        global mutable export_result_focus: i64 = StudioExportResult::OPEN
         global mutable replacement_prompt_open: bool = false
         global mutable replacement_is_close: bool = false
         global mutable replacement_is_termination: bool = false
@@ -151,6 +155,10 @@ module Studio:
         global mutable accessibility_review_cancel_widget: usize = 0
         global mutable accessibility_review_export_widget: usize = 0
         global mutable accessibility_review_ready: bool = false
+        global mutable accessibility_result_open_widget: usize = 0
+        global mutable accessibility_result_folder_widget: usize = 0
+        global mutable accessibility_result_done_widget: usize = 0
+        global mutable accessibility_result_ready: bool = false
 
         global mutable drag_view: i64 = -1
         global mutable drag_button: i32 = -1
@@ -815,6 +823,49 @@ module Studio:
             elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
                 activate_export_review(export_review_focus)
 
+        def cancel_export_result() -> void:
+            return if not export_result_open
+            export_result_open <- false
+            export_result_path <- ""
+            touch()
+
+        def activate_export_result(action: i64) -> void:
+            return if not export_result_open
+            destination: cstr = export_result_path
+            if action == StudioExportResult::DONE:
+                cancel_export_result()
+                return
+            if action == StudioExportResult::OPEN:
+                if FilePanel::open_file(destination):
+                    cancel_export_result()
+                    say_file("opened exported result", destination)
+                else:
+                    say_file("could not open the result in its default application", destination)
+                    touch()
+                return
+            if action == StudioExportResult::SHOW_IN_FOLDER:
+                if FilePanel::show_in_folder(destination):
+                    cancel_export_result()
+                    say_file("showing exported result in Finder", destination)
+                else:
+                    say_file("could not show the result in Finder", destination)
+                    touch()
+
+        def export_result_key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Escape:
+                cancel_export_result()
+            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                export_result_focus <- StudioExportResult::move_focus(export_result_focus, -1)
+                touch()
+            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                export_result_focus <- StudioExportResult::move_focus(export_result_focus, 1)
+                touch()
+            elif code == UiCore::Key.Tab:
+                export_result_focus <- StudioExportResult::move_focus(export_result_focus, -1 if StudioShortcuts::shift(modifiers) else 1)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                activate_export_result(export_result_focus)
+
         def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool:
             if clip is c:
                 mutable allows_overwrite: bool = overwrite_confirmed
@@ -859,6 +910,9 @@ module Studio:
                         say_file("exported and validated", destination)
                         FilePanel::note_recent(destination)
                         _ = puts(destination)
+                        export_result_path <- destination
+                        export_result_focus <- StudioExportResult::OPEN
+                        export_result_open <- true
                         touch()
                         return true
                     StudioExportPublisher::discard(temporary)
@@ -973,6 +1027,7 @@ module Studio:
 
         def request_replacement(p: cstr, kind: i64, allow_legacy: bool) -> void can Unsafe.PointerCast:
             return if kind != REPLACE_TAKE and kind != REPLACE_SESSION
+            cancel_export_result() if export_result_open
             cancel_export_review() if export_review_open
             if replacement_prompt_open or legacy_prompt_open:
                 status <- "finish or cancel the pending replacement first"
@@ -1065,6 +1120,7 @@ module Studio:
             if close_authorized:
                 close_authorized <- false
                 return
+            cancel_export_result() if export_result_open
             cancel_export_review() if export_review_open
             if legacy_prompt_open:
                 legacy_prompt_open <- false
@@ -1393,6 +1449,8 @@ module Studio:
             if export_review_open and clip is c:
                 StudioPanels::export_review_panel(w, h, true, export_review_path, anim_name, c, s,
                     current_export_warnings(), export_review_acknowledged, export_review_focus)
+            if export_result_open:
+                StudioPanels::export_result_panel(w, h, true, export_result_path, export_result_focus)
             if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
                 if timeline is current_timeline:
                     publish_accessibility(w, h, s, current_timeline)
@@ -1448,6 +1506,10 @@ module Studio:
             accessibility_review_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_export_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE
+            accessibility_result_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_result_folder_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_result_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_result_ready <- accessibility_result_open_widget != UiFlat::NONE and accessibility_result_folder_widget != UiFlat::NONE and accessibility_result_done_widget != UiFlat::NONE
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -1469,6 +1531,16 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if accessibility_result_ready and export_result_open and event == UiConst::WidgetEvent.Click.i32():
+                if widget == accessibility_result_open_widget:
+                    activate_export_result(StudioExportResult::OPEN)
+                    return
+                elif widget == accessibility_result_folder_widget:
+                    activate_export_result(StudioExportResult::SHOW_IN_FOLDER)
+                    return
+                elif widget == accessibility_result_done_widget:
+                    activate_export_result(StudioExportResult::DONE)
+                    return
             if accessibility_review_ready and export_review_open and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_review_ack_widget:
                     activate_export_review(StudioExportReview::ACKNOWLEDGE)
@@ -1485,7 +1557,7 @@ module Studio:
 
         # Publish stable region landmarks and actionable toolbar controls.
         def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, action: usize, enabled: bool, selected: bool, text_value: sview) -> void:
-            focused: bool = export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT))
+            focused: bool = (export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT))) or (export_result_open and ((id == StudioAccessibility::RESULT_OPEN and export_result_focus == StudioExportResult::OPEN) or (id == StudioAccessibility::RESULT_SHOW_IN_FOLDER and export_result_focus == StudioExportResult::SHOW_IN_FOLDER) or (id == StudioAccessibility::RESULT_DONE and export_result_focus == StudioExportResult::DONE)))
             UiCore::accessibility_with_metadata(role, label, help_text,
                 UiCore::Rect(b.x, b.y, b.w, b.h), id, action,
                 enabled, focused, selected, 0.0,
@@ -1529,6 +1601,34 @@ module Studio:
                 StudioExportReview::export_enabled(warnings, export_review_acknowledged),
                 false, "")
 
+        def publish_export_result_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_result_ready
+            none: usize = StudioAccessibility::NO_NODE
+            dialog: StudioPanels::Box = StudioPanels::export_result_dialog_box(w, h)
+            accessibility_node(UiCore::AccessibilityRole.Dialog,
+                "Export complete",
+                "The cleaned GLB was published and validated. Choose Open Result, Show in Folder, or Done.",
+                dialog, StudioAccessibility::EXPORT_RESULT, none,
+                StudioAccessibility::export_result_first_child(), none,
+                none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Open Result", "Open the committed GLB in your default application.",
+                StudioPanels::export_result_button_box(w, h, StudioExportResult::OPEN),
+                StudioAccessibility::RESULT_OPEN, StudioAccessibility::EXPORT_RESULT,
+                none, StudioAccessibility::RESULT_SHOW_IN_FOLDER,
+                accessibility_result_open_widget, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Show in Folder", "Reveal the committed GLB in Finder.",
+                StudioPanels::export_result_button_box(w, h, StudioExportResult::SHOW_IN_FOLDER),
+                StudioAccessibility::RESULT_SHOW_IN_FOLDER, StudioAccessibility::EXPORT_RESULT,
+                none, StudioAccessibility::RESULT_DONE,
+                accessibility_result_folder_widget, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Done", "Close the result panel and return to Studio.",
+                StudioPanels::export_result_button_box(w, h, StudioExportResult::DONE),
+                StudioAccessibility::RESULT_DONE, StudioAccessibility::EXPORT_RESULT,
+                none, none, accessibility_result_done_widget, true, false, "")
+
         def publish_toolbar_accessibility(t: TimelineState::State&, can_undo: bool, can_redo: bool) -> void:
             return if not accessibility_toolbar_ready
             none: usize = StudioAccessibility::NO_NODE
@@ -1548,6 +1648,9 @@ module Studio:
         def publish_accessibility(w: f32, h: f32, s: StackState::Stack&, t: TimelineState::State&) -> void:
             none: usize = StudioAccessibility::NO_NODE
             return if not accessibility_toolbar_ready
+            if export_result_open:
+                publish_export_result_accessibility(w, h)
+                return
             if export_review_open:
                 publish_export_review_accessibility(w, h)
                 return
@@ -1685,6 +1788,12 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if export_result_open:
+                hit: i64 = StudioPanels::export_result_hit(w, h, x, y)
+                if button == 0 and hit >= 0:
+                    export_result_focus <- hit
+                    activate_export_result(hit)
+                return
             if export_review_open:
                 hit: i64 = StudioPanels::export_review_hit(w, h, x, y, current_export_warnings())
                 if button == 0 and hit >= 0:
@@ -1785,6 +1894,12 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if export_result_open:
+                hit: i64 = StudioPanels::export_result_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if hit >= 0 and hit != export_result_focus:
+                    export_result_focus <- hit
+                    touch()
+                return
             if export_review_open:
                 hit: i64 = StudioPanels::export_review_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y, current_export_warnings())
                 if hit >= 0 and hit != export_review_focus:
@@ -1844,6 +1959,7 @@ module Studio:
             last_y <- y
 
         def pointer_up(x: f32, y: f32) -> void:
+            return if export_result_open
             return if export_review_open
             return if legacy_prompt_open
             if selecting:
@@ -2187,6 +2303,9 @@ module Studio:
         # plain keys go to the single-key bindings.
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
+            if export_result_open:
+                export_result_key(code)
+                return
             if export_review_open:
                 export_review_key(code)
                 return
@@ -2254,7 +2373,7 @@ module Studio:
                 UiCore::PointerEvent.Move(at):
                     pointer_move(at.x, at.y)
                 UiCore::PointerEvent.Scroll(at, delta):
-                    if not export_review_open and not legacy_prompt_open and not replacement_prompt_open:
+                    if not export_result_open and not export_review_open and not legacy_prompt_open and not replacement_prompt_open:
                         v: i64 = view_at(at.x, at.y)
                         if v >= 0:
                             zoom(v, 1 if delta.y > 0.0 else (-1 if delta.y < 0.0 else 0))
