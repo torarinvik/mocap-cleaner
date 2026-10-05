@@ -157,22 +157,19 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 - [ ] Complete a valid-take running-window exercise of file panels/drop,
       mesh/x-ray, every view, selection, curves, playback, contacts, gizmos,
       retime, undo, sessions and export. Record the exact build, outcomes and
-      screenshots in `docs/studio-capability-matrix.md`. Review contact nudges
-      and finding filters on screen, including labels, focus, hit targets,
-      status feedback, ignore/restore, and undo. The 2026-10-06 valid-take
-      supplement confirms the Reset and Duplicate controls are visible, the
-      reset scopes and empty-state disabled actions are clear, click-away
-      dismisses Reset, and pointer Duplicate inserts/selects an adjacent copy
-      with one undo. The first review caught an Escape/back-routing failure;
-      commit `aaa5624` registers the Studio workspace with `UiNavigation`, and
-      the rebuilt valid-take review confirms Escape dismisses Reset while
-      keeping the window open. Verify Escape on the other layers and review
-      replacement, legacy-session and export dialogs for readability and
-      dismissal at the minimum window size. Complete Duplicate edge-state
-      feedback (no selection and full stack), native `Cmd-D`, text-entry
-      ownership, and VoiceOver activation. The CUA `super+D` and `super+O`
-      gestures reached plain-key actions, so they do not count as native
-      Command-chord evidence.
+      screenshots in `docs/studio-capability-matrix.md`. Review contact
+      nudges and finding filters on screen, including focus, hit targets,
+      issue-row selection, ignore/restore and undo. Commit `93e2e15` fixes the
+      filter geometry; on the read-only 97-frame, 54-bone `jab` take the chips
+      render, severity advances to 250‰ with status feedback, the filtered
+      empty state updates, and Reset restores defaults. This take has no
+      findings, so finding-row and intent actions remain unverified. Verify
+      Escape on every remaining layer and review replacement, legacy-session
+      and export dialogs for readability and dismissal at the minimum window
+      size. Complete Duplicate edge-state feedback (no selection and full
+      stack), native `Cmd-D`, text-entry ownership, and VoiceOver activation.
+      The CUA `super+D` and `super+O` gestures reached plain-key actions, so
+      they do not count as native Command-chord evidence.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
@@ -180,8 +177,9 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       screenshot of both it and the following dirty-document prompt.
 - [ ] Complete running-window review of capacity behavior. Record limit
       feedback, atomicity, memory and accessibility/draw overflow; close the
-      still-unverified capacity cases in `docs/studio-capacities.md` and
-      resolve the 1,000,000 versus 10,000,000 frame feature boundary.
+      still-unverified capacity cases in `docs/studio-capacities.md`. Contact
+      edit limits now align with the 10,000,000-frame timeline; visually check
+      fields/nudges at that boundary and close the larger-domain proof gaps.
 - [ ] Establish benchmark takes: short boxing, walking/running, idle jitter,
       turns, jumps/landings, planted hands, unusual proportions, noisy input,
       long clips and multi-animation GLBs. Use licensed or synthetic fixtures;
@@ -500,8 +498,9 @@ state. No recommendation passes solely on aggregate improvement.
       handles with usable hit targets. Visually verify the shipped 1-based
       endpoint fields and keyboard nudges on valid takes, including focus,
       invalid drafts, clip boundaries, long clips and the minimum window size.
-      Align the numeric-field limit with the supported clip length, and expose
-      contact selection and edits through native accessibility actions.
+      The numeric frame limit now matches the supported 10,000,000-frame clip;
+      visually verify that boundary and expose contact selection and edits
+      through native accessibility actions.
 - [ ] Show automatic versus edited intervals, lock/pivot choice, anchor point,
       target surface, blend-in/out and confidence. Users can revert an interval
       without deleting other contact edits.
@@ -627,12 +626,12 @@ semantics has its own implementation, review fields and quality validation.
       top of the publisher's current reload and byte-equality check. Compare
       evaluated output against the reviewed revision. Surface a clear
       distinction between file integrity and motion-quality review.
-- [ ] Extend the current `.report.json` and `.report.txt` sidecars with truthful
-      tool/dependency versions, detector thresholds, complete operation and
-      rig settings, and detailed retime provenance. Keep unavailable values
-      explicitly identified until the export snapshot can provide them. Add
-      cryptographic source/output hashes only when the exact source and
-      validated output bytes are available to the publisher.
+- [ ] Populate the schema-v2 `.report.json` and `.report.txt` provenance fields
+      from one immutable export snapshot: tool/dependency versions, detector
+      thresholds, complete operation and rig settings, and detailed retime
+      provenance. Keep each explicit unavailable reason until the publisher
+      can supply that exact value. Add cryptographic source/output hashes only
+      when the exact source and validated output bytes are available.
 
 ### 11.2 Studio batch and repeatability (P1)
 

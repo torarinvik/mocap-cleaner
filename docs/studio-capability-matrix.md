@@ -119,7 +119,23 @@ allowing the AppKit back router to forward Escape to the Studio's ordered
 dismissal logic. After rebuilding that commit, Escape closed the Reset menu
 while leaving the valid take and Studio window open. The CUA modifier gestures
 remain inconclusive for Command chords. Minimum-window layout, native
-VoiceOver activation, filter interaction, Escape on other layers, and the
-broader take workflow are still open. This supplement supersedes the earlier
+VoiceOver activation, finding-row/intent actions, Escape on other layers, and
+the broader take workflow are still open. This supplement supersedes the earlier
 failed-load-only note for Reset and Duplicate visibility; it does not close the
 full M0 exercise.
+
+### 2026-10-06 finding-filter follow-up
+
+The filter labels and controls were absent because `issue_filter_box` returned
+the Reset rectangle for every field; its four chip rectangles and hit targets
+therefore overlapped Reset. Commit `93e2e15` returns a field's own rectangle.
+After `STUDIO_SKIP_CHECKS=1 scripts/build_studio.sh`, the rebuilt UI smoke app
+opened the same read-only `black-boxer.glb` / `jab` take. The four chips were
+visible. Clicking the severity chip advanced it from 0‰ to 250‰, changed the
+empty-state message to “No findings match these filters,” and announced
+“finding filters updated.” Reset returned it to “Sev≥0‰” and “No motion
+findings,” with “finding filters cleared” status. No session or export was
+saved and the source take remained untouched. This fixture has no findings, so
+finding-row selection, ignore/restore and annotation undo remain unreviewed;
+focus indication, VoiceOver activation and minimum-window layout also remain
+open.
