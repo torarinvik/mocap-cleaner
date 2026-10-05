@@ -468,11 +468,16 @@ remain.
 ## Local check baseline (2026-10-05)
 
 `scripts/check.sh` records the reviewed per-file state and unproven-goal count
-in `scripts/proof-baseline.tsv`. The current corpus has 69 proved, 16 unknown
-and 24 unsupported files across 109 checked files. The last two states are existing prover gaps or
-impure driver modules, so the check reports them and fails only if a file gets
-worse, a new file lacks review, or a report is missing. Improvements pass and
-can be folded into the baseline when the corpus is intentionally re-reviewed.
+in `scripts/proof-baseline.tsv`. The 109-file snapshot recorded here had 69
+proved, 16 unknown and 24 unsupported files. These counts describe that
+snapshot, not the current corpus. The latest full run on 2026-10-05 rebuilt and
+passed all 54 runtime tests and CLI checks, but the proof-baseline gate needs
+review under the current semantic revision `866d1320416958d`: it reports broad
+proved-to-unknown shifts, six existing unproven-count increases and ten source
+or proof files without reviewed rows. The new sidebar layout source and laws
+were individually proved and added as reviewed rows; the remaining shifts have
+not been mass-rebaselined. Keep this check result distinct from a fully green
+proof-baseline run.
 
 ## Issue grouping proof gap (2026-10-05)
 

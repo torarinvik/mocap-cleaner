@@ -6,10 +6,14 @@ the logic behind the chrome is a proved kernel (`src/studio/chrome.elisa` and
 `chrome_laws.elisa`, plus `test/studio_session.elisa`).
 
 Verification: the File menu, export destination and legacy-prompt policies
-have laws and headless tests. With the integration prover configured,
-`scripts/check.sh` passes all 47 runtime tests, CLI checks and the 114-entry proof baseline with zero
-regressions; the baseline still contains explicitly reported unknown and
-unsupported proof obligations. On 2026-10-05, I
+have laws and headless tests. The last full `scripts/check.sh` run on
+2026-10-05 rebuilt and passed all 54 runtime tests and the CLI checks. Its
+proof-baseline gate needs review under the current prover semantic revision:
+the old baseline reports broad proved-to-unknown shifts, six existing
+unproven-count increases and missing rows for recently added proofs. Those
+statuses have not been mass-rebaselined. The new sidebar layout source and laws
+were separately proved (2/2 and 6/6 obligations) with the current prover. On
+2026-10-05, I
 inspected a loaded `black-boxer.glb` / `jab` studio window at 2880 × 1600
 display pixels. That view exposed the curve bone label colliding with the
 retime slider; commit `99a3d34` moved the selected-bone label into its own
@@ -26,8 +30,11 @@ controls still lack individual semantics apart from the timeline's Plant,
 Lift, Reset, Delete, Merge and Split buttons; these actions have stable names, selected-frame
 values, roles and native routes, but have not yet been exercised with VoiceOver. Focus announcements,
 guide screens, dialogs and VoiceOver task completion remain open. File/menu flows, the legacy
-warning, close prompts and minimum-size behavior remain unverified. The M0
-visual-exercise item remains open.
+warning, close prompts and minimum-size behavior remain unverified. A follow-up
+2880 × 1800 capture loaded with `black-boxer.glb` / `jab` found and then
+verified the fix for overlapping cleanup metrics and ranked-finding controls;
+the sidebar's duplicate inline shortcut list was removed in favor of the
+visible shortcut sheet. The M0 visual-exercise item remains open.
 
 | # | Audit item | Before | Decision / outcome |
 |---|---|---|---|

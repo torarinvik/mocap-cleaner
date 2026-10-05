@@ -56,11 +56,11 @@ an internal kernel by itself does not make a feature available to an animator.
 On 2026-10-05, I opened the current build with the external
 `black-boxer.glb` / `jab` take on a 2880 × 1800 display. The audit capture is
 `build/studio-audit-current.png` (local build output, not a benchmark input).
-The character, three viewport panes, curves and timeline are visible, but the
-sidebar's ranked-findings card is not usable: the cleanup readout is drawn over
-its heading, status, navigation buttons and empty-state text. The same sidebar
-also repeats most shortcuts inline even though the toolbar already offers a
-shortcut sheet. Fix the findings/readout layout and remove redundant inline
-shortcut clutter before marking this interaction reviewed. This is one partial
-window review; file panels, dialogs, small-window behavior, keyboard-only use,
-VoiceOver and other journeys remain unreviewed.
+The first capture showed the cleanup readout drawn over the sidebar's
+ranked-findings heading, status, navigation buttons and empty-state text. A
+proved sidebar layout policy now separates those sections, and the follow-up
+capture at `build/studio-audit-sidebar-fixed.png` confirms the metrics, finding
+controls and operation stack are legible at this display size. Redundant inline
+shortcut lists were removed; the visible shortcut sheet and toolbar tooltips
+remain. This is one partial window review; file panels, dialogs, small-window
+behavior, keyboard-only use, VoiceOver and other journeys remain unreviewed.

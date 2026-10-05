@@ -156,6 +156,11 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 - [ ] Exercise the running studio: file panels/drop, mesh/x-ray, all views,
       selection, curves, playback, contacts, gizmos, retime, help, undo,
       sessions and export. Record pass/fail, exact build and screenshots.
+      The first loaded-window review on 2026-10-05 found the cleanup metrics
+      covering the ranked-findings card; a proved sidebar layout now separates
+      those areas. This partial review is recorded in
+      `docs/studio-capability-matrix.md`; the remaining interactions still
+      need on-screen review.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
