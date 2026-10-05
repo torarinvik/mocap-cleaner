@@ -231,6 +231,9 @@ module Studio:
         global mutable foot_press: FootState::Press = FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
         global mutable contact_selected_side: i64 = StudioContactEditor::NO_SIDE
         global mutable contact_selected_frame: i64 = -1
+        global mutable contact_draft_target: i64 = -1
+        global mutable contact_draft_side: i64 = StudioContactEditor::NO_SIDE
+        global mutable contact_draft_frame: i64 = -1
         global mutable hover_row: i64 = -1
         global mutable shown_slide: i64 = 0
         global mutable shown_sink: i64 = 0
@@ -657,6 +660,7 @@ module Studio:
                     u.looping <- t.looping
                     u.divisor <- t.divisor
                     set_timeline(TimelineState::scrub(u, t.frame * n / t.count))
+                    contact_cancel_frame_draft() if contact_draft_target >= 0
                     contact_selected_side <- StudioContactEditor::NO_SIDE
                     contact_selected_frame <- -1
 
@@ -700,7 +704,8 @@ module Studio:
         def text_input(text: sview) -> void:
             return if not typing or text.len <= 0 or text.data == null
             for i in 0..<text.len.usize():
-                if typed_len < 8 and text.data[i] != 61:
+                is_digit: bool = text.data[i] >= 48 and text.data[i] <= 57
+                if typed_len < 8 and ((contact_draft_target >= 0 and is_digit) or (contact_draft_target < 0 and text.data[i] != 61)):
                     typed[typed_len.usize()] <- text.data[i]
                     typed_len <- typed_len + 1
             touch()
@@ -833,7 +838,7 @@ module Studio:
                 scrub_to(p.frame)
                 selected: StackState::Stack = current_stack()
                 authored: bool = StackState::edit_index_at(selected, p.side, p.frame) >= 0
-                status <- "interval selected; Shift+Left/Right move, Shift+Up/Down last, Shift+[/] first" if authored else "contact frame selected; choose Plant/Lift, Reset, Delete or Merge as available"
+                status <- "interval selected; First/Last: click, type a 1-based frame, Enter; Shift+Arrows nudge" if authored else "contact frame selected; choose Plant/Lift, Reset, Delete or Merge as available"
                 nudged_row <- -1
                 status_file <- null
                 touch()
@@ -890,6 +895,97 @@ module Studio:
                 StudioText::begin()
                 StudioText::put("Moved " if target == StudioContactEditor::NUDGE_INTERVAL else "Adjusted ")
                 StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                StudioText::put(" interval to frames ")
+                StudioText::put_i(plan.first + 1)
+                StudioText::put("–")
+                StudioText::put_i(plan.last + 1)
+                status <- StudioText::view()
+                nudged_row <- -1
+                status_file <- null
+                touch()
+
+        def contact_draft_value() -> i64:
+            return -1 if typed_len <= 0
+            mutable value: i64 = 0
+            for i in 0..<typed_len.usize() |i, value|:
+                value <- value * 10 + typed[i].i64() - 48
+            value
+
+        def contact_begin_frame_draft(target: i64) -> void:
+            if clip is c:
+                return if target != StudioContactEditor::NUDGE_FIRST and target != StudioContactEditor::NUDGE_LAST
+                if not StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, c.frames):
+                    status <- "select a contact row and frame first"
+                    touch()
+                    return
+                s: StackState::Stack = current_stack()
+                if StackState::edit_index_at(s, contact_selected_side, contact_selected_frame) < 0:
+                    status <- "select a frame inside an authored contact interval first"
+                    touch()
+                    return
+                contact_draft_target <- target
+                contact_draft_side <- contact_selected_side
+                contact_draft_frame <- contact_selected_frame
+                typing <- true
+                typed_len <- 0
+                status <- "type a 1-based frame; Enter applies, Escape cancels"
+                touch()
+            else:
+                status <- "load a take and select an authored contact interval first"
+                touch()
+
+        def contact_cancel_frame_draft() -> void:
+            contact_draft_target <- -1
+            contact_draft_side <- StudioContactEditor::NO_SIDE
+            contact_draft_frame <- -1
+            typed_len <- 0
+            typing <- false
+            status <- "contact frame edit cancelled"
+            touch()
+
+        def contact_commit_frame_draft() -> void:
+            return if contact_draft_target < 0
+            if clip is c:
+                if contact_selected_side != contact_draft_side or contact_selected_frame != contact_draft_frame:
+                    contact_cancel_frame_draft()
+                    status <- "selection changed; contact frame edit cancelled"
+                    touch()
+                    return
+                requested: i64 = contact_draft_value()
+                if requested < 1:
+                    status <- "enter a frame number from 1 to the clip length"
+                    touch()
+                    return
+                mutable s: StackState::Stack = current_stack()
+                index: i64 = StackState::edit_index_at(s, contact_draft_side, contact_draft_frame)
+                if index < 0:
+                    contact_cancel_frame_draft()
+                    status <- "authored contact interval no longer exists"
+                    touch()
+                    return
+                original: StackState::FootEdit = s.edits[index]
+                plan: StudioContactEditor::FramePlan = StudioContactEditor::frame_plan(
+                    original.first, original.last, c.frames, contact_draft_target, requested)
+                if not plan.valid:
+                    status <- "frame is outside the clip or would invert the contact interval"
+                    touch()
+                    return
+                s.edits[index] <- StackState::FootEdit{side: original.side,
+                    first: plan.first, last: plan.last, planted: original.planted}
+                edit_side: i64 = contact_draft_side
+                contact_draft_target <- -1
+                contact_draft_side <- StudioContactEditor::NO_SIDE
+                contact_draft_frame <- -1
+                typing <- false
+                typed_len <- 0
+                if contact_selected_frame < plan.first:
+                    contact_selected_frame <- plan.first
+                elif contact_selected_frame > plan.last:
+                    contact_selected_frame <- plan.last
+                commit(s, true)
+                StudioText::begin()
+                StudioText::put("Set ")
+                StudioText::put(StudioPanels::contact_side_label(edit_side))
                 StudioText::put(" interval to frames ")
                 StudioText::put_i(plan.first + 1)
                 StudioText::put("–")
@@ -1909,6 +2005,7 @@ module Studio:
             path_slot <- candidate_slot
             path <- candidate_path
             memo <- move fresh
+            contact_cancel_frame_draft() if contact_draft_target >= 0
             clip <- null
             contact_selected_side <- StudioContactEditor::NO_SIDE
             contact_selected_frame <- -1
@@ -2191,7 +2288,8 @@ module Studio:
                     StudioPanels::contact_editor_panel(StudioPanels::timeline_box(w, h),
                         contact_selected_side, contact_selected_frame, c.frames,
                         contact_reset_available, contact_edit_first, contact_edit_last,
-                        contact_merge_available, contact_split_available)
+                        contact_merge_available, contact_split_available,
+                        contact_draft_target, contact_draft_value())
                     StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
                     StudioPanels::contact_selection_marker(StudioPanels::timeline_box(w, h),
                         contact_selected_side, contact_selected_frame, c.frames)
@@ -3015,6 +3113,13 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if contact_draft_target >= 0:
+                draft_tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+                draft_stack: StackState::Stack = current_stack()
+                draft_valid: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, frames()) and StackState::edit_index_at(draft_stack, contact_selected_side, contact_selected_frame) >= 0
+                draft_hit: i64 = StudioPanels::contact_editor_hit(draft_tb, x, y, draft_valid)
+                if draft_hit != StudioPanels::CONTACT_EDIT_FIRST and draft_hit != StudioPanels::CONTACT_EDIT_LAST:
+                    contact_cancel_frame_draft()
             if export_warning_detail_open:
                 hit: i64 = StudioPanels::export_warning_detail_hit(w, h, x, y)
                 warnings: i64 = current_export_warnings()
@@ -3100,8 +3205,17 @@ module Studio:
                 return
             tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
             if StudioPanels::inside(tb, x, y) and StudioPanels::contact_editor_contains(tb, x, y):
-                contact_action: i64 = StudioPanels::contact_editor_hit(tb, x, y)
-                contact_apply(contact_action) if button == 0 and contact_action >= 0
+                mutable s: StackState::Stack = current_stack()
+                authored: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, frames()) and StackState::edit_index_at(s, contact_selected_side, contact_selected_frame) >= 0
+                contact_action: i64 = StudioPanels::contact_editor_hit(tb, x, y, authored)
+                if button == 0:
+                    if contact_action == StudioPanels::CONTACT_EDIT_FIRST:
+                        contact_begin_frame_draft(StudioContactEditor::NUDGE_FIRST)
+                    elif contact_action == StudioPanels::CONTACT_EDIT_LAST:
+                        contact_begin_frame_draft(StudioContactEditor::NUDGE_LAST)
+                    elif contact_action >= 0:
+                        contact_cancel_frame_draft() if contact_draft_target >= 0
+                        contact_apply(contact_action)
                 return
             if button == 0:
                 return if retime_down(tb, StudioPanels::curve_box(w, h), x, y)
@@ -3396,6 +3510,7 @@ module Studio:
         # A native focus loss may suppress the matching pointer-up. Cancel
         # every unfinished gesture so it cannot commit when focus returns.
         def focus_lost() -> void:
+            contact_cancel_frame_draft() if contact_draft_target >= 0
             was_gizmo: bool = gizmo_view >= 0
             mutable f: StudioFocus::Interaction = StudioFocus::Interaction{
                 modifiers: modifiers,
@@ -3463,16 +3578,21 @@ module Studio:
 
         def key(code: UiCore::Key) -> void:
             if typing and code == UiCore::Key.Enter:
-                typing <- false
-                v: i64 = typed_speed()
-                if v > 0:
-                    retime_to(v)
+                if contact_draft_target >= 0:
+                    contact_commit_frame_draft()
                 else:
-                    status <- "speed must be 0.1 to 4"
+                    typing <- false
+                    v: i64 = typed_speed()
+                    if v > 0:
+                        retime_to(v)
+                    else:
+                        status <- "speed must be 0.1 to 4"
                 touch()
             elif typing and code == UiCore::Key.Backspace:
                 typed_len <- typed_len - 1 if typed_len > 0 else 0
                 touch()
+            elif typing and code == UiCore::Key.Escape and contact_draft_target >= 0:
+                contact_cancel_frame_draft()
             elif typing and code != UiCore::Key.Escape:
                 pass
             elif code == UiCore::Key.Equal:
