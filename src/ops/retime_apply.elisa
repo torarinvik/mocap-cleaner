@@ -40,11 +40,10 @@ module RetimeApply:
 
         # Enabled retime ops as kernel-validated ranges, sorted by first frame.
         # A range that overlaps one kept earlier in the stack is dropped.
-        def ranges_of(ops: darray[RigOps::RigOp]&, frames: i64) -> darray[Range]:
+        def ranges_of(ops: darray[RigOps::RigOp]&, frames: i64, out: mutable darray[Range]&):
+            out.clear()
             if frames < 2 or frames > Retime::MAX_FRAMES:
-                none: darray[Range] = []
-                return move none
-            mutable out: darray[Range] = []
+                return
             for op in ops:
                 continue if not op.enabled or op.kind != RigOps::RigKind.Retime
                 continue if not Retime::range_ok(op.first, op.last, frames)
@@ -60,7 +59,7 @@ module RetimeApply:
                     out[j] <- out[j - 1]
                     out[j - 1] <- held
                     j <- j - 1
-            return move out
+            return
 
         # The shape `ranges_of` guarantees for every range it returns
         # (range_ok, clamp_speed, clamp_blend). `source_times` skips anything
@@ -147,11 +146,10 @@ module RetimeApply:
         # Source time (milli-frames) of every output frame. Starts at 0, steps
         # by the range step of the range that changes it (UNIT elsewhere) and
         # lands exactly on the last source frame.
-        def source_times(frames: i64, ranges: darray[Range]&) -> darray[i64]:
+        def source_times(frames: i64, ranges: darray[Range]&, out: mutable darray[i64]&):
+            out.clear()
             if frames < 1 or frames > Retime::MAX_FRAMES:
-                none: darray[i64] = []
-                return move none
-            out: mutable darray[i64] = []
+                return
             out.push(0)
             end: i64 = Retime::time_of(frames - 1)
             t: mutable i64 = 0
@@ -179,7 +177,7 @@ module RetimeApply:
                             t <- stop
                             active <- -1
                 out.push(t)
-            return move out
+            return
 
         def identity(times: darray[i64]&, frames: i64) -> bool:
             return false if times.count.i64() != frames
@@ -272,8 +270,10 @@ module RetimeApply:
         def apply(doc: GlbDocument::Document&, animation: usize, ops: darray[RigOps::RigOp]&, rep: mutable Report&) -> GlbDocument::Document:
             c: Rig::Clip = Rig::load(doc, animation)
             frames: i64 = c.frames
-            ranges: darray[Range] = ranges_of(ops, frames)
-            times: darray[i64] = source_times(frames, &ranges)
+            mutable ranges: darray[Range] = []
+            ranges_of(ops, frames, &ranges)
+            mutable times: darray[i64] = []
+            source_times(frames, &ranges, &times)
             rep <- report_of(&ranges, &times, frames)
             return GlbDocument::copy(doc) if ranges.count == 0 or identity(&times, frames)
             channels: usize = GlbDocument::channel_count(doc, animation)
