@@ -155,6 +155,11 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 - [ ] Exercise the running studio: file panels/drop, mesh/x-ray, all views,
       selection, curves, playback, contacts, gizmos, retime, help, undo,
       sessions and export. Record pass/fail, exact build and screenshots.
+- [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
+      a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
+      mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
+      Check the warning at the minimum supported window size and record a
+      screenshot of both it and the following dirty-document prompt.
 - [ ] Reconcile documented behavior with code. Remove obsolete claims about
       absent mesh rendering, export paths and plain-only undo shortcuts.
       Label remaining headless-only and unverified behavior explicitly.
@@ -231,12 +236,14 @@ visually verified solely from offscreen rendering.
 
 - [ ] Exercise replacement, window-close and Cmd-Q prompts on screen,
       including Save/Discard/Cancel, Escape, repeated close requests and save
-      failures. Confirm that failed saves preserve the prompt and edits, and
-      that cancellation leaves the document usable. Keep unsaved-work warnings
-      visually distinct from ordinary status feedback.
-- [ ] Extend sessions with source identity/hash, animation identity, rig
-      profile, units/floor, all exposed operation parameters and local repairs.
-      Version the schema and preserve older supported sessions via migration.
+      failures. Confirm that unreadable, damaged and mismatched sessions are
+      rejected before the dirty-document prompt; failed saves preserve the
+      prompt and edits; and cancellation leaves the document usable. Keep
+      unsaved-work warnings visually distinct from ordinary status feedback.
+- [ ] Persist reusable rig profiles, units/floor settings and every exposed
+      cleanup parameter alongside the existing v4 source/animation identity
+      and local repairs. Version the next schema and define migration behavior
+      that preserves the original file until the user saves the migrated copy.
 - [ ] Resolve missing or changed sources with Locate source and explicit
       rebind review. Never silently apply old bone indices to a different rig.
 - [ ] Add bounded autosave/recovery snapshots in `build/`, a clear Restore
@@ -640,7 +647,7 @@ Start in this order; each row should become several small reviewable commits.
 |---|---|---|
 | 1 | M0 studio audit, corrected current-behavior docs and interaction specifications | Running-window captures, gap matrix, measured limits and reviewed first-use flows. |
 | 2 | Finish command discovery, focus rules and accessible alternatives | Pointer and keyboard journeys; text fields cannot trigger global cleanup; focus survives dialogs and panels. |
-| 3 | Session source identity, animation/rig compatibility and safe rebind review | Same-source restore succeeds; changed source, animation or rig cannot silently receive stale edits. |
+| 3 | Missing/changed source locate flow, rig-profile persistence and safe rebind review | Locate succeeds for renamed files; mismatched animation/rig cannot receive stale edits; rebind review shows exactly which stored settings remain valid. |
 | 4 | Animation/rig/floor setup with actionable validation | Valid, ambiguous and incompatible rig fixtures; users can resolve warnings without source edits. |
 | 5 | Selectable issue list linked to timeline, joint and metrics | Exact frame selection, understandable issue summary and stale-analysis handling. |
 | 6 | Suggested-cleanup preview and complete inspector for one existing tool | Apply/cancel/undo parity; local preservation metrics; user can explain the effect before accepting. |
