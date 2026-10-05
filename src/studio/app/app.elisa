@@ -1710,6 +1710,62 @@ module Studio:
                 touch()
             false
 
+        def report_integer(value: i64) -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            StudioText::put_i(value)
+            StudioText::view()
+
+        def report_indexed_name(prefix: sview, index: i64) -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            StudioText::put(prefix)
+            StudioText::put_i(index)
+            StudioText::view()
+
+        def report_operation(operation: Ops::Operation) -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            match operation.kind:
+                Ops::Kind.Despike:
+                    StudioText::put("despike")
+                Ops::Kind.PinContacts:
+                    StudioText::put("pin_contacts")
+                Ops::Kind.CloseSeam:
+                    StudioText::put("close_seam")
+                Ops::Kind.SmoothPath:
+                    StudioText::put("smooth_path")
+                Ops::Kind.LimitWring:
+                    StudioText::put("limit_wring")
+                Ops::Kind.Median:
+                    StudioText::put("median")
+            StudioText::put(";enabled=")
+            StudioText::put("true") if operation.enabled
+            StudioText::put("false") if not operation.enabled
+            StudioText::put(";frames=")
+            StudioText::put_i(operation.first)
+            StudioText::put("..")
+            StudioText::put_i(operation.last)
+            StudioText::put(";bones=")
+            StudioText::put_i(operation.bones)
+            StudioText::put(";strength=")
+            StudioText::put_i(operation.strength)
+            StudioText::put(";edge_frames=")
+            StudioText::put_i(operation.edge)
+            StudioText::view()
+
+        def report_band(band: StackState::Band) -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            StudioText::put("enabled=")
+            StudioText::put("true") if band.enabled
+            StudioText::put("false") if not band.enabled
+            StudioText::put(";source_frames=")
+            StudioText::put_i(band.first)
+            StudioText::put("..")
+            StudioText::put_i(band.last)
+            StudioText::put(";speed_permille=")
+            StudioText::put_i(band.speed)
+            StudioText::put(";blend_frames=")
+            StudioText::put_i(band.blend)
+            StudioText::view()
+
         # Reports are best-effort sidecars after the GLB's atomic commit. The
         # source label is a basename, and fingerprints remain explicitly
         # non-cryptographic residues. Values unavailable in the current export
@@ -1746,11 +1802,19 @@ module Studio:
             settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "disabled"}) if not active_stack.feet
             settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "enabled"}) if active_stack.hands
             settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "disabled"}) if not active_stack.hands
+            settings.push(StudioExportReport::Setting{name: "cleanup_blend_frames", value: report_integer(active_stack.blend)})
+            for index in 0..<active_stack.count |settings, active_stack|:
+                operation: Ops::Operation = active_stack.ops[index]
+                settings.push(StudioExportReport::Setting{name: report_indexed_name("operation_", index), value: report_operation(operation)})
+            for index in 0..<active_stack.band_count |settings, active_stack|:
+                band: StackState::Band = active_stack.bands[index]
+                settings.push(StudioExportReport::Setting{name: report_indexed_name("retime_band_", index), value: report_band(band)})
+            settings.push(StudioExportReport::Setting{name: "retime_applied", value: "true"}) if c.retimed
+            settings.push(StudioExportReport::Setting{name: "retime_applied", value: "false"}) if not c.retimed
             assumptions: darray[sview] = [
                 "Frame rate is an integer estimate; durations are floored to milliseconds.",
                 "Fingerprints are non-cryptographic studio-residue-v1 values.",
-                "Tool versions and detailed retime provenance are unavailable.",
-                "Only foot and hand cleanup toggles are reported; other operation parameters are not included."]
+                "Operation fields and retime bands are reported from the active stack at export; detailed rig settings and per-frame source-time mapping are unavailable."]
             metrics: StudioExportReport::Metrics = StudioExportReport::Metrics{
                 changed_channels: c.changed,
                 spikes_before: c.spikes_before,
