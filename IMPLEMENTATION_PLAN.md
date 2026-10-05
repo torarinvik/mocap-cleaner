@@ -224,17 +224,14 @@ visually verified solely from offscreen rendering.
       modifiers and leaves committed document edits unchanged.
 - [ ] Provide native accessibility roles, names, values, actions and focus
       announcements through elisa-ui/host facilities. Prototype timeline and
-      viewport alternatives early; document any platform blockers.
-      The verified foundation publishes stable workspace/region landmarks
-      and live status. All 19 toolbar controls now have native button or
-      checkbox roles, shortcut-aware names, working action routes, current
-      toggle values and correct Undo/Redo availability; the identity mapping
-      has laws and a test (`src/studio/accessibility.elisa`,
-      `proof/studio_accessibility_laws.elisa`, `test/studio_accessibility.elisa`).
-      Other panel controls, focus announcements, guide screens, dialogs and
-      VoiceOver task completion remain open; keep this item unchecked until
-      users can complete the core workflow. Remove irrelevant Increment and
-      Decrement actions surfaced by AppKit on non-adjustable nodes.
+      viewport alternatives early; document any platform blockers. Add
+      semantics for operation rows, timeline/contact controls, viewport
+      selection and guide screens. Represent dialogs with an announced
+      heading, concise instructions, available choices and predictable focus;
+      restore focus to the invoking control after dismissal. Ensure role
+      actions match the actual control and never expose unrelated actions.
+      Validate a keyboard-only and VoiceOver import–review–repair–compare–export
+      path, including search/numeric fields that must swallow global shortcuts.
 - [ ] Distinguish source/result and issue severity with labels, symbols and
       line styles as well as color. Respect reduced-motion settings for
       decorative transitions; maintain readable text contrast.
@@ -656,7 +653,7 @@ Start in this order; each row should become several small reviewable commits.
 | Slice | Concrete result | Evidence needed before moving on |
 |---|---|---|
 | 1 | M0 studio audit, corrected current-behavior docs and interaction specifications | Running-window captures, gap matrix, measured limits and reviewed first-use flows. |
-| 2 | Finish command discovery, focus rules and accessible alternatives | Pointer and keyboard journeys; native tree names every primary control and exposes the correct role/value/action/focus without irrelevant group actions; dialogs and status are announced; VoiceOver and keyboard users finish the core tasks; text fields cannot trigger global cleanup; focus survives dialogs and panels. |
+| 2 | Finish command discovery, focus rules and accessible alternatives | Pointer and keyboard journeys; native tree gives every primary control a clear name, role-appropriate actions, correct value and useful focus; dialogs and status are announced; VoiceOver and keyboard users finish the core tasks; text fields cannot trigger global cleanup; focus survives dialogs and panels. |
 | 3 | Missing/changed source locate flow, rig-profile persistence and safe rebind review | Locate succeeds for renamed files; mismatched animation/rig cannot receive stale edits; rebind review shows exactly which stored settings remain valid. |
 | 4 | Animation/rig/floor setup with actionable validation | Valid, ambiguous and incompatible rig fixtures; users can resolve warnings without source edits. |
 | 5 | Selectable issue list linked to timeline, joint and metrics | Exact frame selection, understandable issue summary and stale-analysis handling. |
