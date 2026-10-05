@@ -18,10 +18,13 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
 5. Select a contact on the timeline's foot rows (L green, R yellow). Clicking
    a row and frame scrubs there and selects that exact output frame; it never
    edits the contact. Use the Plant or Lift button in the timeline editor, or
-   **Shift-P** / **Shift-L**, to set a one-frame override. The selected side
-   and 1-based frame number stay visible in the editor. To change a run's
-   extent, drag its start or end handle (6 px grip). Clicking a run body or a
-   gap only selects and scrubs. Every edit is in undo/redo (Z / Y).
+   **Shift-P** / **Shift-L**, to set a one-frame override. Use Reset or
+   **Shift-U** to remove this frame from authored overrides and return it to
+   automatic detection; Reset is disabled when the selected frame has no
+   authored override. The selected side and 1-based frame number stay visible
+   in the editor. To change a run's extent, drag its start or end handle (6 px
+   grip). Clicking a run body or a gap only selects and scrubs. Every edit is
+   in undo/redo (Z / Y).
 6. **,** and **.** shorten or lengthen the carry blend (1..24 frames).
 7. **K** toggles foot cleanup, recorded in history, so before/after is one
    key away.
@@ -32,10 +35,11 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
 
 Hand cleanup is opt-in with **J**; the session saves this toggle. The two hand
 rows sit below the foot rows in the timeline (L hand blue, R hand orange) and
-use the same select-first, one-frame Plant/Lift and run-end drag behavior. The
-sidebar shows the hand slide before and after the lock. **A** / Auto runs Fix
-all: the boxing preset plus both foot and hand locks as one undoable edit, with
-spike, balance, foot slide/sink and hand slide metrics shown together.
+use the same select-first, one-frame Plant/Lift/Reset and run-end drag
+behavior. The sidebar shows the hand slide before and after the lock. **A** /
+Auto runs Fix all: the boxing preset plus both foot and hand locks as one
+undoable edit, with spike, balance, foot slide/sink and hand slide metrics
+shown together.
 
 ## Per-clip metrics (all boxing clips, `test/foot_clips.elisa`)
 
@@ -81,6 +85,7 @@ after ≤ before + 1 mm.
 - [x] K fixes the feet (history-recorded toggle; default on)
 - [x] Contact-row clicks select and scrub without changing contact data
 - [x] Plant/Lift one selected frame with a button or shortcut; edits undo/redo
+- [x] Reset one frame to automatic detection without changing neighboring frames
 - [x] Existing contact-run endpoint dragging
 - [x] Live slide/sink before/after readout with green/red cues
 - [x] Smooth readout transition (proved `progress`/`mix` ramp)
@@ -99,20 +104,21 @@ after ≤ before + 1 mm.
   planted/lifted decision, new-span bounds, before/after cue, marker
   threshold, worst-frame scan step, transition ramp and mix.
 - **Proved** (`src/studio/contact_editor.elisa` + `_laws`): valid exact-frame
-  selections, explicit Plant/Lift action mapping and the click-versus-drag
-  threshold. Accessibility laws cover the two action identities in the
-  timeline tree.
+  selections, explicit Plant/Lift/Reset action mapping, the half-open interval
+  plan for removing one frame, and the click-versus-drag threshold.
+  Accessibility laws cover all three action identities in the timeline tree.
 - **Tested headless only** (`test/studio_foot.elisa`): stack fields and
   history, press/release on a 100-frame row, apply-edits replay, the model
   build with feet off and on (readout, cue, worst frame, marker count, a lift
   edit emptying the contact row).
 - **Tested headless only** (`test/studio_contact_editor.elisa`,
-  `test/studio_accessibility.elisa`): contact selection/action policy and
-  stable Plant/Lift semantic identities. These do not exercise native pointer
-  routing or screen-reader activation.
+  `test/studio_accessibility.elisa`): contact selection/action policy,
+  resetting overlapping intervals while preserving later edit order, atomic
+  capacity failure, and stable Plant/Lift/Reset semantic identities. These do
+  not exercise native pointer routing or screen-reader activation.
 - **Not tested at all** (needs a window): key dispatch, pointer routing to
   contact-row selection and endpoint dragging, visible button enablement,
-  Shift-P/Shift-L activation, native semantic-button activation, hover,
+  Shift-P/Shift-L/Shift-U activation, native semantic-button activation, hover,
   drawing of markers/readout/trails, and camera framing on W. The studio app
   builds successfully, but this contact-editor revision has not been exercised
   in a window; no screenshots were taken.

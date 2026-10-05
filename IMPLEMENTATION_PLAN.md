@@ -413,14 +413,15 @@ state. No recommendation passes solely on aggregate improvement.
 
 ### 9.1 Contact editor
 
-- [ ] Add explicit Split, Merge, Delete and Reset detection actions. Show a
+- [ ] Add explicit Split, Merge and Delete actions. Show a
       contextual preview while an endpoint is dragged and make cancellation
       leave the saved contact state untouched.
 - [ ] Add timeline zoom/pan, fitted range, visible row labels, draggable handles
       with usable hit targets, numeric interval fields and keyboard nudging.
-      Exact one-frame edits must work on long clips. Plant/Lift now apply to an
-      explicitly selected frame through buttons or Shift-P/Shift-L; remaining
-      timeline controls still need accessible alternatives and visual review.
+      Exact one-frame edits must work on long clips. Plant, Lift and Reset now
+      apply to an explicitly selected frame through buttons or Shift-P/L/U;
+      remaining timeline controls still need accessible alternatives and
+      visual review.
 - [ ] Show automatic versus edited intervals, lock/pivot choice, anchor point,
       target surface, blend-in/out and confidence. Users can revert an interval
       without deleting other contact edits.
