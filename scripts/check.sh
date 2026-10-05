@@ -24,21 +24,9 @@ build_test() {
         echo failed >"build/test/$name.status"
     fi
 }
-run_test() {
-    name=$(basename "$1" .elisa)
-    if [ "$(cat "build/test/$name.status" 2>/dev/null)" != ok ]; then
-        echo build-failed >"build/test/$name.run.status"
-    elif "build/test/$name" >"build/test/$name.run.log" 2>&1; then
-        echo 0 >"build/test/$name.run.status"
-    else
-        rc=$?
-        echo "$rc" >"build/test/$name.run.status"
-    fi
-}
 # Derived icon geometry for test/studio_icons.elisa (also made by build_studio.sh).
 python3 tools/svg_icons.py build/generated/studio_icon_paths.elisa >/dev/null || status=1
-# Compile in bounded parallel batches; test executables still run in file order
-# because several share generated fixtures under build/.
+# Compile in bounded parallel batches.
 rm -f build/test/*.status
 active=0
 pids=
@@ -56,32 +44,7 @@ for pid in $pids; do wait "$pid" || true; done
 # The CLI build is independent of the test executables and overlaps their run.
 ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1 &
 cli_build_pid=$!
-rm -f build/test/*.run.status
-active=0
-pids=
-for t in test/*.elisa; do
-    run_test "$t" &
-    pids="$pids $!"
-    active=$((active + 1))
-    if [ "$active" -ge "$check_jobs" ]; then
-        for pid in $pids; do wait "$pid" || true; done
-        pids=
-        active=0
-    fi
-done
-for pid in $pids; do wait "$pid" || true; done
-for t in test/*.elisa; do
-    name=$(basename "$t" .elisa)
-    if [ "$(cat "build/test/$name.run.status" 2>/dev/null)" = build-failed ]; then
-        echo "test  $name: BUILD FAILED (build/test/$name.log)"
-        status=1
-    else
-        cat "build/test/$name.run.log"
-        rc=$(cat "build/test/$name.run.status" 2>/dev/null || echo 1)
-        echo "test  $name: rc=$rc"
-        [ "$rc" -eq 0 ] || status=1
-    fi
-done
+python3 scripts/run_tests.py "$check_jobs" test/*.elisa || status=1
 # CLI built through elisa_build_run.py (scripts/build.sh), in the plan's form, and a folder batch with its HTML report.
 boxer=../elisa-boxing-game/build/dual-stance/black/black-boxer.glb
 if wait "$cli_build_pid"; then
