@@ -5,13 +5,18 @@ undone, every action is discoverable (a label, a tooltip or the `?` sheet), and
 the logic behind the chrome is a proved kernel (`src/studio/chrome.elisa` and
 `chrome_laws.elisa`, plus `test/studio_session.elisa`).
 
-Verification: the File menu policy and laws prove with zero open obligations;
-`test/studio_file_policy.elisa` passes; the studio compiles with
-`STUDIO_SKIP_CHECKS=1 scripts/build_studio.sh`; and
-`ELISA_PROOF=../elisa-proof-worktrees/integration-20261004/build/elisa-proof scripts/check.sh`
-passes all 39 runtime tests, CLI checks and the 97-file proof baseline. The
-window was not inspected on screen. Layout, colours and tooltip placement
-still need a visual check.
+Verification: the File menu and legacy-prompt policies have laws and headless
+tests. The current `scripts/check.sh` run passes 40 runtime tests, the CLI
+checks and all 101 proof-baseline entries with no regressions. The studio also
+builds and its studio tests pass. On 2026-10-05, I inspected a loaded
+`black-boxer.glb` / `jab` studio window at 2880 × 1600 display pixels. That
+view exposed the curve bone label colliding with the retime slider; commit
+`99a3d34` moved the selected-bone label into its own row. The accessibility
+tree exposed only the native window and app menus, with no canvas controls.
+CUA input then failed with `noWindowsAvailable`, so file/menu actions, the
+legacy warning, close prompts and minimum-size behavior remain unverified.
+The screenshot was visible in the audit session but could not be saved as a
+workspace artifact; the M0 visual-exercise item remains open.
 
 | # | Audit item | Before | Decision / outcome |
 |---|---|---|---|
