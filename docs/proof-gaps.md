@@ -471,7 +471,7 @@ remain.
 in `scripts/proof-baseline.tsv`. The 109-file snapshot recorded here had 69
 proved, 16 unknown and 24 unsupported files. These counts describe that
 snapshot, not the current corpus. The latest full run on 2026-10-05 rebuilt and
-passed all 55 runtime tests and CLI checks, including the focused modal-policy
+passed all 56 runtime tests and CLI checks, including the focused modal-policy
 test, but the proof-baseline gate needs
 review under the current semantic revision `866d1320416958d`: it reports broad
 proved-to-unknown shifts, six existing unproven-count increases and ten source

@@ -7,7 +7,7 @@ the logic behind the chrome is a proved kernel (`src/studio/chrome.elisa` and
 
 Verification: the File menu, export destination and legacy-prompt policies
 have laws and headless tests. The last full `scripts/check.sh` run on
-2026-10-05 rebuilt and passed all 55 runtime tests and the CLI checks. Its
+2026-10-05 rebuilt and passed all 56 runtime tests and the CLI checks. Its
 proof-baseline gate needs review under the current prover semantic revision:
 the old baseline reports broad proved-to-unknown shifts, six existing
 unproven-count increases and missing rows for recently added proofs. Those
@@ -49,8 +49,9 @@ bytes. The fixed 128-byte text slots display the complete animation, timing and
 cleanup details in the live capture; `test/studio_text.elisa` verifies the
 entire long label survives formatting. The dialog was cancelled without
 writing an export. This finding and capture are in
-`docs/studio-capability-matrix.md`; the next full check will include the new
-test.
+`docs/studio-capability-matrix.md`. The latest full check rebuilt and passed
+all 56 runtime tests and all four CLI checks; the proof-baseline gate still
+reports the previously documented semantic shifts and unrelated missing rows.
 
 | # | Audit item | Before | Decision / outcome |
 |---|---|---|---|
