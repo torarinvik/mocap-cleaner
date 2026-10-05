@@ -49,6 +49,10 @@ module StudioStorageCleanupPolicy:
         def facts_valid(item: Facts) -> bool:
             kind_supported(item.kind) and item.identity_state >= IDENTITY_UNVERIFIED and item.identity_state <= IDENTITY_CHANGED and item.age_days >= 0 and item.age_days <= MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= MAX_ITEM_BYTES
 
+        def retention_elapsed(age_days: i64, retention_days: i64) -> bool:
+            ensure result == (age_days >= retention_days)
+            age_days >= retention_days
+
         # Report one deterministic explanation for the first applicable
         # protection rule. The UI can map these stable codes to localized text.
         def protection_reason(item: Facts) -> i64:
@@ -58,8 +62,24 @@ module StudioStorageCleanupPolicy:
         # Safe candidates must be generated and inside the canonical build
         # root, unreferenced by the open document/session, and past retention.
         def eligible(item: Facts) -> bool:
-            ensure result or not item.studio_managed or not item.canonical_under_build or item.symlink or item.source_take or item.open_document or item.session_referenced or not facts_valid(item) or item.identity_state != IDENTITY_MATCHES or item.age_days < item.retention_days
-            protection_reason(item) == PROTECT_NONE
+            ensure not result or item.studio_managed
+            ensure not result or item.canonical_under_build
+            ensure not result or not item.symlink
+            ensure not result or not item.source_take
+            ensure not result or not item.open_document
+            ensure not result or not item.session_referenced
+            ensure not result or facts_valid(item)
+            ensure not result or item.identity_state == IDENTITY_MATCHES
+            ensure not (result and not retention_elapsed(item.age_days, item.retention_days))
+            return false if not item.studio_managed
+            return false if not item.canonical_under_build
+            return false if item.symlink
+            return false if item.source_take
+            return false if item.open_document
+            return false if item.session_referenced
+            return false if not facts_valid(item)
+            return false if item.identity_state != IDENTITY_MATCHES
+            retention_elapsed(item.age_days, item.retention_days)
 
         # Moving one item to Trash requires a deliberate review and explicit
         # confirmation after the item has passed the safety filter.
