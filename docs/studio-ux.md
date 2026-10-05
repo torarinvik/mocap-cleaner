@@ -7,12 +7,16 @@ the logic behind the chrome is a proved kernel (`src/studio/chrome.elisa` and
 
 Verification: the File menu, export destination and legacy-prompt policies
 have laws and headless tests. The last full `scripts/check.sh` run on
-2026-10-05 rebuilt and passed all 56 runtime tests and the CLI checks. Its
-proof-baseline gate needs review under the current prover semantic revision:
-the old baseline reports broad proved-to-unknown shifts, six existing
-unproven-count increases and missing rows for recently added proofs. Those
-statuses have not been mass-rebaselined. The new sidebar layout source and laws
-were separately proved (2/2 and 6/6 obligations) with the current prover. On
+2026-10-05 rebuilt and passed all 59 runtime tests and all four CLI checks.
+The check exited 1 at the proof-baseline gate under semantic revision
+`866d1320416958d`: it reports broad proved-to-unknown shifts, six existing
+unproven-count increases, and missing reviewed rows for new proofs. Those
+statuses have not been mass-rebaselined. The issue-filter policy and job
+policy laws proved 57/57 and 109/109 obligations in this run. The issue
+annotation, browser, accessibility and revised sidebar proofs still have
+unsupported or open obligations; their limits remain visible in the reports.
+The earlier sidebar layout source and laws had proved (2/2 and 6/6 obligations)
+before its latest geometry adjustment. On
 2026-10-05, I
 inspected a loaded `black-boxer.glb` / `jab` studio window at 2880 × 1600
 display pixels. That view exposed the curve bone label colliding with the
@@ -50,8 +54,13 @@ cleanup details in the live capture; `test/studio_text.elisa` verifies the
 entire long label survives formatting. The dialog was cancelled without
 writing an export. This finding and capture are in
 `docs/studio-capability-matrix.md`. The latest full check rebuilt and passed
-all 56 runtime tests and all four CLI checks; the proof-baseline gate still
-reports the previously documented semantic shifts and unrelated missing rows.
+all 59 runtime tests and all four CLI checks. It exited 1 because the
+proof-baseline gate still reports the previously documented semantic shifts
+and missing reviewed rows. A failed-load window review of the new finding
+controls confirmed that navigation no longer overlaps the empty-state label,
+but the filter chips were not visible and the take picker did not open; repeat
+the interaction review on a valid loaded take before treating those controls
+as verified.
 
 | # | Audit item | Before | Decision / outcome |
 |---|---|---|---|
