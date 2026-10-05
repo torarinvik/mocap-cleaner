@@ -14,6 +14,9 @@ module StudioContactEditor:
         const ACTION_COUNT: i64 = 6
         const MAX_EDITS: i64 = 32
         const DRAG_SLOP: i64 = 3
+        const NUDGE_FIRST: i64 = 0
+        const NUDGE_LAST: i64 = 1
+        const NUDGE_INTERVAL: i64 = 2
 
         struct ResetPlan:
             count: i64
@@ -31,6 +34,34 @@ module StudioContactEditor:
             valid: bool
             left_last: i64
             right_first: i64
+
+        struct NudgePlan:
+            # Invalid requests are atomic no-ops: endpoints remain unchanged.
+            valid: bool
+            first: i64
+            last: i64
+
+        # Move one inclusive endpoint or translate the full inclusive range by
+        # an exact signed frame count. Requests that cross a clip boundary or
+        # invert the interval are rejected without partial movement.
+        def nudge_plan(first: i64, last: i64, frame_count: i64, target: i64, delta: i64) -> NudgePlan:
+            requires frame_count >= 1
+            requires frame_count <= MAX_FRAMES
+            requires first >= 0
+            requires first <= last
+            requires last < frame_count
+            ensure result.valid == (delta != 0 and (target == NUDGE_FIRST and delta >= 0 - first and delta <= last - first or target == NUDGE_LAST and delta >= first - last and delta <= frame_count - 1 - last or target == NUDGE_INTERVAL and delta >= 0 - first and delta <= frame_count - 1 - last))
+            ensure result.first >= 0
+            ensure result.first <= result.last
+            ensure result.last < frame_count
+            ensure not result.valid or result.first == (first + delta if target == NUDGE_FIRST or target == NUDGE_INTERVAL else first)
+            ensure not result.valid or result.last == (last + delta if target == NUDGE_LAST or target == NUDGE_INTERVAL else last)
+            ensure result.valid or result.first == first
+            ensure result.valid or result.last == last
+            valid: bool = delta != 0 and (target == NUDGE_FIRST and delta >= 0 - first and delta <= last - first or target == NUDGE_LAST and delta >= first - last and delta <= frame_count - 1 - last or target == NUDGE_INTERVAL and delta >= 0 - first and delta <= frame_count - 1 - last)
+            moved_first: i64 = first + delta if valid and (target == NUDGE_FIRST or target == NUDGE_INTERVAL) else first
+            moved_last: i64 = last + delta if valid and (target == NUDGE_LAST or target == NUDGE_INTERVAL) else last
+            NudgePlan{valid: valid, first: moved_first, last: moved_last}
 
         # Split immediately before `frame`: the selected frame starts the
         # right interval. Both pieces retain the same inclusive endpoints,
