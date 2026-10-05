@@ -1,0 +1,82 @@
+# Bounded issue rows assembled from per-frame detector samples. Adjacent frames
+# with the same detector type and source revision become one selectable row.
+module StudioIssues:
+    public:
+        const MAX_SEVERITY: i64 = 1000
+
+        struct Sample:
+            frame: i64
+            issue_type: i64
+            subject_id: i64
+            source_revision: i64
+            severity: i64
+            value: i64
+            threshold: i64
+
+        struct Issue:
+            selectable: bool
+            first_frame: i64
+            last_frame: i64
+            peak_frame: i64
+            issue_type: i64
+            subject_id: i64
+            source_revision: i64
+            severity: i64
+            peak_value: i64
+            threshold: i64
+
+        def valid(s: Sample) -> bool:
+            return s.frame >= 0 and s.issue_type >= 0 and s.subject_id >= -1 and s.source_revision >= 0 and s.severity >= 0 and s.severity <= MAX_SEVERITY and s.value >= 0 and s.threshold >= 0
+
+        def same_group(a: Issue, s: Sample) -> bool:
+            return same_identity(a.issue_type, a.subject_id, a.source_revision, s.issue_type, s.subject_id, s.source_revision) and adjacent(a.last_frame, s.frame)
+
+        def adjacent(last_frame: i64, frame: i64) -> bool:
+            ensure result == (frame == last_frame + 1)
+            return frame == last_frame + 1
+
+        def same_identity(a_type: i64, a_subject: i64, a_revision: i64, b_type: i64, b_subject: i64, b_revision: i64) -> bool:
+            ensure result == (a_type == b_type and a_subject == b_subject and a_revision == b_revision)
+            return a_type == b_type and a_subject == b_subject and a_revision == b_revision
+
+        # Peak order is deterministic: greater severity, then greater distance
+        # above threshold, then the earlier frame. All detector quantities are
+        # integer fixed point (severity permille; detector-specific value units).
+        def peak_wins(severity: i64, value: i64, threshold: i64, frame: i64, old_severity: i64, old_value: i64, old_threshold: i64, old_frame: i64) -> bool:
+            return true if severity > old_severity
+            return false if severity < old_severity
+            margin: i64 = value - threshold
+            old_margin: i64 = old_value - old_threshold
+            return true if margin > old_margin
+            return false if margin < old_margin
+            return frame < old_frame
+
+        def begin(s: Sample) -> Issue:
+            return Issue{selectable: true, first_frame: s.frame, last_frame: s.frame, peak_frame: s.frame, issue_type: s.issue_type, subject_id: s.subject_id, source_revision: s.source_revision, severity: s.severity, peak_value: s.value, threshold: s.threshold}
+
+        def add(a: Issue, s: Sample) -> Issue:
+            requires same_group(a, s)
+            if peak_wins(s.severity, s.value, s.threshold, s.frame, a.severity, a.peak_value, a.threshold, a.peak_frame):
+                return Issue{selectable: a.selectable, first_frame: a.first_frame, last_frame: s.frame, peak_frame: s.frame, issue_type: a.issue_type, subject_id: a.subject_id, source_revision: a.source_revision, severity: s.severity, peak_value: s.value, threshold: s.threshold}
+            return Issue{selectable: a.selectable, first_frame: a.first_frame, last_frame: s.frame, peak_frame: a.peak_frame, issue_type: a.issue_type, subject_id: a.subject_id, source_revision: a.source_revision, severity: a.severity, peak_value: a.peak_value, threshold: a.threshold}
+
+        # Input is in nondecreasing frame order. Invalid samples are ignored.
+        # A revision or type change starts a distinct row even at adjacent frames.
+        def group(samples: darray[Sample]&) -> darray[Issue]:
+            mutable rows: darray[Issue] = []
+            mutable active: bool = false
+            mutable current: Issue = zeroed
+            mutable previous_frame: i64 = -1
+            for s in samples |rows, active, current, previous_frame|:
+                if valid(s) and s.frame >= previous_frame:
+                    if active and same_group(current, s):
+                        current <- add(current, s)
+                    else:
+                        if active:
+                            rows.push(current)
+                        current <- begin(s)
+                        active <- true
+                    previous_frame <- s.frame
+            if active:
+                rows.push(current)
+            return rows
