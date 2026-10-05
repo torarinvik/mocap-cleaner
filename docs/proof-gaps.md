@@ -531,3 +531,17 @@ revision without changing any historical proof statuses.
   defect. Rebuild the prover and replay tool from the same source revision,
   verify their manifests, then check a tiny direct-summary fixture and the
   fade laws before considering any baseline change.
+
+## Full check after session annotation and contact-frame slices (2026-10-05)
+
+`scripts/check.sh` rebuilt and passed all 64 runtime tests. The four CLI
+checks (clean/report, folder batch, hands/diff and retime) also passed. The
+proof pass used the recorded semantic revision `866d1320416958d`: it reported
+138 cached files and 8 direct proof runs, then exited at the baseline gate.
+That gate still reports the G85-related broad `proved -> unknown` replay
+shifts, increased open counts in existing files, and files without reviewed
+baseline rows; no broad baseline update was made. The new session annotation
+laws prove 59/59 with no replay gaps. The isolated contact-frame kernel and
+laws have no unproven obligations (9/9 and 23/23), but remain `unknown` only
+because their certificates hit the same replay gap described in G85. Review
+new rows after the prover/replay products are rebuilt from matching sources.
