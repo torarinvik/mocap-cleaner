@@ -1,0 +1,42 @@
+# Pure authorization rules for publishing a cleaned take. Filesystem facts
+# (canonical paths, links and file identity) come from the host adapter; this
+# kernel decides whether those facts permit an export.
+module StudioExportPolicy:
+    public:
+        const ALLOW: i64 = 0
+        const PATH_UNRESOLVED: i64 = 1
+        const OUTSIDE_BUILD: i64 = 2
+        const SOURCE_COLLISION: i64 = 3
+        const SYMBOLIC_LINK: i64 = 4
+        const NOT_REGULAR_FILE: i64 = 5
+        const OVERWRITE_UNCONFIRMED: i64 = 6
+
+        # Canonical paths must be absolute and `root` must not end in a slash.
+        # The separator check prevents `/project/build-old` from being treated
+        # as a child of `/project/build`.
+        def inside_build(root: darray[u8]&, target: darray[u8]&) -> bool:
+            return false if root.count <= 1 or target.count <= root.count
+            return false if root[root.count - 1] == 47
+            for index in 0..<root.count |root, target, index|:
+                return false if root[index] != target[index]
+            target[root.count] == 47
+
+        # Reject by reason, in order of most useful recovery guidance. An
+        # existing target is replaceable only after the caller has obtained an
+        # explicit overwrite confirmation (for example, from NSSavePanel).
+        def decision(path_resolved: bool, target_inside_build: bool,
+                     same_as_source: bool, target_exists: bool,
+                     target_is_symlink: bool, target_is_regular: bool,
+                     overwrite_confirmed: bool) -> i64:
+            requires target_exists or not target_is_symlink
+            requires target_exists or not target_is_regular
+            ensure result >= ALLOW
+            ensure result <= OVERWRITE_UNCONFIRMED
+            ensure result != ALLOW or (path_resolved and target_inside_build and not same_as_source and not target_is_symlink and (not target_exists or (target_is_regular and overwrite_confirmed)))
+            return PATH_UNRESOLVED if not path_resolved
+            return OUTSIDE_BUILD if not target_inside_build
+            return SOURCE_COLLISION if same_as_source
+            return SYMBOLIC_LINK if target_is_symlink
+            return NOT_REGULAR_FILE if target_exists and not target_is_regular
+            return OVERWRITE_UNCONFIRMED if target_exists and not overwrite_confirmed
+            ALLOW
