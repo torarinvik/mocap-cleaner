@@ -27,12 +27,8 @@ def add_file(digest, path):
 
 def add_repo(digest, repo):
     try:
-        head = subprocess.check_output(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
-        ).strip()
-        diff = subprocess.check_output(
-            ["git", "-C", str(repo), "diff", "--binary", "HEAD"],
-            stderr=subprocess.DEVNULL,
+        tracked = subprocess.check_output(
+            ["git", "-C", str(repo), "ls-files", "-z"], stderr=subprocess.DEVNULL
         )
         untracked = subprocess.check_output(
             ["git", "-C", str(repo), "ls-files", "--others", "--exclude-standard", "-z"],
@@ -41,8 +37,10 @@ def add_repo(digest, repo):
     except (OSError, subprocess.CalledProcessError):
         digest.update(f"missing-git:{repo.resolve()}".encode() + b"\0")
         return
-    digest.update(str(repo.resolve()).encode() + b"\0" + head + b"\0" + diff + b"\0")
-    for raw_path in sorted(filter(None, untracked.split(b"\0"))):
+    digest.update(str(repo.resolve()).encode() + b"\0")
+    paths = set(filter(None, tracked.split(b"\0")))
+    paths.update(filter(None, untracked.split(b"\0")))
+    for raw_path in sorted(paths):
         relative = Path(os.fsdecode(raw_path))
         if relative.suffix not in SOURCE_SUFFIXES:
             continue
@@ -59,7 +57,7 @@ def main():
     for name in sorted(k for k in os.environ if k.startswith(("ELISA_", "LLVM_"))):
         digest.update(f"{name}={os.environ[name]}\0".encode())
 
-    for repo in (ROOT, ROOT.parent / "elisa-engine-mocap", ROOT.parent / "elisa-ui", compiler_root):
+    for repo in (ROOT, ROOT.parent / "elisa-engine-mocap", ROOT.parent / "elisa-ui"):
         add_repo(digest, repo)
 
     for name in ("ELISAC", "ELISA_STAGE1_BIN", "ELISA_RUNTIME_OBJ", "ELISA_CLANG", "ELISA_AR", "LLVM_CONFIG"):
@@ -67,7 +65,10 @@ def main():
         if value:
             add_file(digest, value)
 
-    add_file(digest, compiler_root / "bin" / "elisac-stage1")
+    add_file(
+        digest,
+        os.environ.get("ELISA_STAGE1_BIN", compiler_root / "bin" / "elisac-stage1"),
+    )
     runtime = os.environ.get("ELISA_RUNTIME_OBJ")
     if runtime and runtime != "none":
         add_file(digest, runtime)
@@ -79,6 +80,11 @@ def main():
     if not Path(clang).is_file():
         clang = shutil.which("clang") or clang
     add_file(digest, clang)
+    llvm_ar = os.environ.get("ELISA_AR") or str(Path(llvm_config).parent / "llvm-ar")
+    if not Path(llvm_ar).is_file():
+        llvm_ar = shutil.which("ar") or llvm_ar
+    add_file(digest, llvm_config)
+    add_file(digest, llvm_ar)
 
     add_file(digest, ROOT / "build" / "generated" / "studio_icon_paths.elisa")
     print(digest.hexdigest())
