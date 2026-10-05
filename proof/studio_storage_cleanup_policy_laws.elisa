@@ -1,0 +1,52 @@
+# Storage cleanup accepts only old, generated, unreferenced build artifacts.
+include "../src/studio/storage_cleanup_policy.elisa"
+
+module StudioStorageCleanupPolicyLaws:
+    public:
+        def eligible_artifact_is_under_verified_build_root(item: StudioStorageCleanupPolicy::Facts) -> bool:
+            requires item.studio_managed
+            requires item.canonical_under_build
+            requires not item.symlink
+            requires not item.source_take
+            requires not item.open_document
+            requires not item.session_referenced
+            requires item.age_days >= item.retention_days
+            requires StudioStorageCleanupPolicy::facts_valid(item)
+            ensure result
+            StudioStorageCleanupPolicy::eligible(item)
+
+        def symlinks_are_never_candidates(item: StudioStorageCleanupPolicy::Facts) -> bool:
+            requires item.symlink
+            ensure not result
+            StudioStorageCleanupPolicy::eligible(item)
+
+        def source_takes_are_never_candidates(item: StudioStorageCleanupPolicy::Facts) -> bool:
+            requires item.source_take
+            ensure not result
+            StudioStorageCleanupPolicy::eligible(item)
+
+        def open_or_referenced_files_are_never_candidates(item: StudioStorageCleanupPolicy::Facts) -> bool:
+            requires item.open_document or item.session_referenced
+            ensure not result
+            StudioStorageCleanupPolicy::eligible(item)
+
+        def unreviewed_selection_cannot_be_trashed(item: StudioStorageCleanupPolicy::Facts, selected: bool, confirmed: bool) -> bool:
+            requires StudioStorageCleanupPolicy::eligible(item)
+            requires selected
+            requires confirmed
+            ensure not result
+            StudioStorageCleanupPolicy::may_trash(item, selected, false, confirmed)
+
+        def unconfirmed_selection_cannot_be_trashed(item: StudioStorageCleanupPolicy::Facts, selected: bool, reviewed: bool) -> bool:
+            requires StudioStorageCleanupPolicy::eligible(item)
+            requires selected
+            requires reviewed
+            ensure not result
+            StudioStorageCleanupPolicy::may_trash(item, selected, reviewed, false)
+
+        def selected_bytes_never_overflow(current: i64, item: StudioStorageCleanupPolicy::Facts) -> bool:
+            requires current >= 0 and current <= StudioStorageCleanupPolicy::MAX_ITEM_BYTES
+            requires StudioStorageCleanupPolicy::eligible(item)
+            requires item.size_bytes <= StudioStorageCleanupPolicy::MAX_ITEM_BYTES - current
+            ensure result == current + item.size_bytes
+            StudioStorageCleanupPolicy::next_total_bytes(current, item) == current + item.size_bytes

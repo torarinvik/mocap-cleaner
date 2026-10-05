@@ -1,0 +1,53 @@
+# Safe eligibility and review rules for removing Studio-managed artifacts.
+# Filesystem identity and canonical-path checks belong to the caller; this
+# kernel only accepts already-verified evidence and never performs I/O.
+module StudioStorageCleanupPolicy:
+    public:
+        const RECOVERY: i64 = 0
+        const TEMP_EXPORT: i64 = 1
+        const GENERATED_REPORT: i64 = 2
+        const KIND_COUNT: i64 = 3
+        const MAX_AGE_DAYS: i64 = 365000
+        const MAX_RETENTION_DAYS: i64 = 3650
+        const MAX_ITEM_BYTES: i64 = 1000000000000000
+
+        struct Facts:
+            kind: i64
+            studio_managed: bool
+            canonical_under_build: bool
+            symlink: bool
+            source_take: bool
+            open_document: bool
+            session_referenced: bool
+            age_days: i64
+            retention_days: i64
+            size_bytes: i64
+
+        def kind_supported(kind: i64) -> bool:
+            ensure result == (kind >= RECOVERY and kind < KIND_COUNT)
+            kind >= RECOVERY and kind < KIND_COUNT
+
+        def facts_valid(item: Facts) -> bool:
+            kind_supported(item.kind) and item.age_days >= 0 and item.age_days <= MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= MAX_ITEM_BYTES
+
+        # Safe candidates must be generated and inside the canonical build
+        # root, unreferenced by the open document/session, and past retention.
+        def eligible(item: Facts) -> bool:
+            ensure result or not item.studio_managed or not item.canonical_under_build or item.symlink or item.source_take or item.open_document or item.session_referenced or not facts_valid(item) or item.age_days < item.retention_days
+            facts_valid(item) and item.studio_managed and item.canonical_under_build and not item.symlink and not item.source_take and not item.open_document and not item.session_referenced and item.age_days >= item.retention_days
+
+        # Moving one item to Trash requires a deliberate review and explicit
+        # confirmation after the item has passed the safety filter.
+        def may_trash(item: Facts, selected: bool, reviewed: bool, confirmed: bool) -> bool:
+            ensure result == (eligible(item) and selected and reviewed and confirmed)
+            eligible(item) and selected and reviewed and confirmed
+
+        # Keep the displayed reclaimable-space total bounded. An overflow or
+        # malformed item is rejected without changing the prior total.
+        def next_total_bytes(current: i64, item: Facts) -> i64:
+            requires current >= 0
+            requires current <= MAX_ITEM_BYTES
+            ensure result >= 0
+            ensure result <= MAX_ITEM_BYTES
+            ensure result == (current + item.size_bytes if eligible(item) and item.size_bytes <= MAX_ITEM_BYTES - current else current)
+            current + item.size_bytes if eligible(item) and item.size_bytes <= MAX_ITEM_BYTES - current else current
