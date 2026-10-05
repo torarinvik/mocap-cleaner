@@ -8,10 +8,10 @@ the logic behind the chrome is a proved kernel (`src/studio/chrome.elisa` and
 Verification: the File menu policy and laws prove with zero open obligations;
 `test/studio_file_policy.elisa` passes; the studio compiles with
 `STUDIO_SKIP_CHECKS=1 scripts/build_studio.sh`; and
-`ELISA_PROOF=../elisa-proof/build/elisa-proof scripts/check.sh` passes all 38
-runtime tests, CLI checks and the 95-file proof baseline. The window was not
-inspected on screen. Layout, colours and tooltip placement still need a visual
-check.
+`ELISA_PROOF=../elisa-proof-worktrees/integration-20261004/build/elisa-proof scripts/check.sh`
+passes all 39 runtime tests, CLI checks and the 97-file proof baseline. The
+window was not inspected on screen. Layout, colours and tooltip placement
+still need a visual check.
 
 | # | Audit item | Before | Decision / outcome |
 |---|---|---|---|
