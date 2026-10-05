@@ -547,9 +547,11 @@ semantics has its own implementation, review fields and quality validation.
       duration and untouched nodes/skins/meshes against expected output.
       Compare evaluated output against the reviewed revision. Surface a clear
       distinction between file-write validation and motion-quality review.
-- [ ] Export a human-readable summary and machine-readable report containing
-      source/output hashes, animation identities, tool/dependency versions,
-      recipe/rig settings, metrics, thresholds and warnings.
+- [ ] Extend the current `.report.json` and `.report.txt` sidecars with truthful
+      tool/dependency versions, policy thresholds, operation/recipe and rig
+      settings, and detailed retime provenance. Replace non-cryptographic
+      residues with source/output hashes only when the exact source and
+      validated output bytes are available to the publisher.
 
 ### 11.2 Studio batch and repeatability (P1)
 
