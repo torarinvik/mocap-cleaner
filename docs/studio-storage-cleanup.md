@@ -19,6 +19,15 @@ requires the original destination to be absent and the Trash item to match
 the receipt. The adapter does not enumerate the Studio inventory or persist
 receipts for the caller.
 
+`protection_reason` returns a stable numeric reason for the first applicable
+protection rule, including unmanaged files, paths outside `build/`, symlinks,
+source takes, open or session-referenced files, invalid facts, and items still
+inside retention. `PROTECT_NONE` means the item passes the policy. Inventory
+UI can map these codes to user-facing explanations while keeping the same
+eligibility decision used by the Trash action. The reason reports only the
+first blocker; after that blocker is resolved, a refreshed inventory may show
+the next one.
+
 Studio integration must obtain canonical-path, file-type, source-identity,
 and reference evidence from the engine/file-system boundary immediately
 before showing and acting on the review. If a fact is missing or invalid, the

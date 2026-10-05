@@ -11,6 +11,18 @@ module StudioStorageCleanupPolicy:
         const MAX_RETENTION_DAYS: i64 = 3650
         const MAX_ITEM_BYTES: i64 = 1000000000000000
 
+        # Stable, UI-neutral reasons let inventory views explain why an
+        # artifact is protected without duplicating the safety predicate.
+        const PROTECT_NONE: i64 = 0
+        const PROTECT_UNMANAGED: i64 = 1
+        const PROTECT_OUTSIDE_BUILD: i64 = 2
+        const PROTECT_SYMLINK: i64 = 3
+        const PROTECT_SOURCE_TAKE: i64 = 4
+        const PROTECT_OPEN_DOCUMENT: i64 = 5
+        const PROTECT_SESSION_REFERENCE: i64 = 6
+        const PROTECT_INVALID_FACTS: i64 = 7
+        const PROTECT_RETENTION: i64 = 8
+
         struct Facts:
             kind: i64
             studio_managed: bool
@@ -30,11 +42,17 @@ module StudioStorageCleanupPolicy:
         def facts_valid(item: Facts) -> bool:
             kind_supported(item.kind) and item.age_days >= 0 and item.age_days <= MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= MAX_ITEM_BYTES
 
+        # Report one deterministic explanation for the first applicable
+        # protection rule. The UI can map these stable codes to localized text.
+        def protection_reason(item: Facts) -> i64:
+            ensure result >= PROTECT_NONE and result <= PROTECT_RETENTION
+            PROTECT_UNMANAGED if not item.studio_managed else PROTECT_OUTSIDE_BUILD if not item.canonical_under_build else PROTECT_SYMLINK if item.symlink else PROTECT_SOURCE_TAKE if item.source_take else PROTECT_OPEN_DOCUMENT if item.open_document else PROTECT_SESSION_REFERENCE if item.session_referenced else PROTECT_INVALID_FACTS if not facts_valid(item) else PROTECT_RETENTION if item.age_days < item.retention_days else PROTECT_NONE
+
         # Safe candidates must be generated and inside the canonical build
         # root, unreferenced by the open document/session, and past retention.
         def eligible(item: Facts) -> bool:
             ensure result or not item.studio_managed or not item.canonical_under_build or item.symlink or item.source_take or item.open_document or item.session_referenced or not facts_valid(item) or item.age_days < item.retention_days
-            facts_valid(item) and item.studio_managed and item.canonical_under_build and not item.symlink and not item.source_take and not item.open_document and not item.session_referenced and item.age_days >= item.retention_days
+            protection_reason(item) == PROTECT_NONE
 
         # Moving one item to Trash requires a deliberate review and explicit
         # confirmation after the item has passed the safety filter.
