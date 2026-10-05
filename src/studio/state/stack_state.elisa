@@ -6,6 +6,7 @@ include "../../ops/stack.elisa"
 include "../stack_policy.elisa"
 include "../../ops/corrections.elisa"
 include "../foot_policy.elisa"
+include "../contact_editor.elisa"
 include "../../core/retime.elisa"
 
 module StackState:
@@ -81,9 +82,47 @@ module StackState:
         # Append a contact edit; ignored when full or empty.
         def add_edit(s: mutable Stack&, side: i64, first: i64, last: i64, planted: bool) -> bool:
             return false if s.edit_count < 0 or s.edit_count >= MAX_EDITS
-            return false if first > last or first < 0 or side < LEFT or side > RIGHT_HAND
+            return false if first > last or first < 0 or last >= StudioContactEditor::MAX_FRAMES or side < LEFT or side > RIGHT_HAND
             s.edits[s.edit_count] <- FootEdit{side: side, first: first, last: last, planted: planted}
             s.edit_count <- s.edit_count + 1
+            return true
+
+        def has_edit_at(s: Stack&, side: i64, frame: i64) -> bool:
+            for i in 0..<s.edit_count |i, s, side, frame|:
+                e: FootEdit = s.edits[i]
+                return true if e.side == side and frame >= e.first and frame <= e.last
+            false
+
+        # Remove one output frame from every authored edit for this side.
+        # Splitting each affected range preserves its order, so later edits
+        # continue to win on every frame except the one reset to detection.
+        def reset_edit_at(s: mutable Stack&, side: i64, frame: i64) -> bool:
+            return false if s.edit_count < 0 or s.edit_count > MAX_EDITS
+            return false if side < LEFT or side > RIGHT_HAND or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
+            mutable next: FootEdit[32] = zeroed
+            mutable next_count: i64 = 0
+            mutable changed: bool = false
+            for i in 0..<s.edit_count |i, s, side, frame, next, next_count, changed|:
+                e: FootEdit = s.edits[i]
+                if e.side == side and frame >= e.first and frame <= e.last:
+                    changed <- true
+                    p: StudioContactEditor::ResetPlan = StudioContactEditor::reset_interval(e.first, e.last, frame)
+                    if p.count >= 1:
+                        return false if next_count >= MAX_EDITS
+                        next[next_count] <- FootEdit{side: e.side, first: p.left_first, last: p.left_end - 1, planted: e.planted}
+                        next_count <- next_count + 1
+                    if p.count == 2:
+                        return false if next_count >= MAX_EDITS
+                        next[next_count] <- FootEdit{side: e.side, first: p.right_first, last: p.right_end - 1, planted: e.planted}
+                        next_count <- next_count + 1
+                else:
+                    return false if next_count >= MAX_EDITS
+                    next[next_count] <- e
+                    next_count <- next_count + 1
+            return false if not changed
+            for i in 0..<MAX_EDITS |i, s, next|:
+                s.edits[i] <- next[i]
+            s.edit_count <- next_count
             return true
 
         # Drop every contact edit.

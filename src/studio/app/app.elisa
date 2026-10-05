@@ -178,6 +178,7 @@ module Studio:
         global mutable accessibility_result_ready: bool = false
         global mutable accessibility_contact_plant_widget: usize = 0
         global mutable accessibility_contact_lift_widget: usize = 0
+        global mutable accessibility_contact_reset_widget: usize = 0
         global mutable accessibility_contact_ready: bool = false
 
         global mutable drag_view: i64 = -1
@@ -615,6 +616,24 @@ module Studio:
                     touch()
                     return
                 mutable s: StackState::Stack = current_stack()
+                if action == StudioContactEditor::RESET:
+                    if StackState::reset_edit_at(&s, contact_selected_side, contact_selected_frame):
+                        commit(s, true)
+                        StudioText::begin()
+                        StudioText::put("Restored ")
+                        StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                        StudioText::put(" frame ")
+                        StudioText::put_i(contact_selected_frame + 1)
+                        StudioText::put(" to automatic detection")
+                        status <- StudioText::view()
+                    elif StackState::has_edit_at(s, contact_selected_side, contact_selected_frame):
+                        status <- "cannot reset this frame: contact edit capacity would be exceeded"
+                    else:
+                        status <- "this frame already follows automatic detection"
+                    nudged_row <- -1
+                    status_file <- null
+                    touch()
+                    return
                 if StackState::add_edit(&s, contact_selected_side,
                     contact_selected_frame, contact_selected_frame,
                     StudioContactEditor::plants(action)):
@@ -1649,8 +1668,9 @@ module Studio:
                     StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
                     perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
+                    contact_reset_available: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, c.frames) and StackState::has_edit_at(s, contact_selected_side, contact_selected_frame)
                     StudioPanels::contact_editor_panel(StudioPanels::timeline_box(w, h),
-                        contact_selected_side, contact_selected_frame, c.frames)
+                        contact_selected_side, contact_selected_frame, c.frames, contact_reset_available)
                     StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
                     StudioPanels::contact_selection_marker(StudioPanels::timeline_box(w, h),
                         contact_selected_side, contact_selected_frame, c.frames)
@@ -1757,7 +1777,8 @@ module Studio:
             accessibility_result_ready <- accessibility_result_open_widget != UiFlat::NONE and accessibility_result_folder_widget != UiFlat::NONE and accessibility_result_done_widget != UiFlat::NONE
             accessibility_contact_plant_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_contact_lift_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE
+            accessibility_contact_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -1785,6 +1806,9 @@ module Studio:
                     return
                 elif widget == accessibility_contact_lift_widget:
                     contact_apply(StudioContactEditor::LIFT)
+                    return
+                elif widget == accessibility_contact_reset_widget:
+                    contact_apply(StudioContactEditor::RESET)
                     return
             if accessibility_warning_ready and export_warning_detail_open and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_warning_previous_widget:
@@ -1914,6 +1938,9 @@ module Studio:
                     contact_selected_side, contact_selected_frame, c.frames)
                 UiFlat::set_enabled(accessibility_contact_plant_widget, valid)
                 UiFlat::set_enabled(accessibility_contact_lift_widget, valid)
+                mutable current: StackState::Stack = current_stack()
+                reset_enabled: bool = valid and StackState::has_edit_at(current, contact_selected_side, contact_selected_frame)
+                UiFlat::set_enabled(accessibility_contact_reset_widget, reset_enabled)
                 none: usize = StudioAccessibility::NO_NODE
                 next: usize = StudioAccessibility::CONTACT_EDITOR_LIFT
                 mutable value: sview = "Select a contact row and frame first"
@@ -1936,8 +1963,15 @@ module Studio:
                     "Override automatic contact detection as lifted on the selected frame. This edit is undoable and saved with the session.",
                     StudioPanels::contact_editor_button_box(tb, StudioContactEditor::LIFT),
                     StudioAccessibility::CONTACT_EDITOR_LIFT,
-                    StudioAccessibility::TIMELINE, none, none,
+                    StudioAccessibility::TIMELINE, none, StudioAccessibility::CONTACT_EDITOR_RESET,
                     accessibility_contact_lift_widget, valid, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Reset selected contact frame to automatic detection",
+                    "Remove authored contact overrides from only this output frame so the detector's result is used. The edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::RESET),
+                    StudioAccessibility::CONTACT_EDITOR_RESET,
+                    StudioAccessibility::TIMELINE, none, none,
+                    accessibility_contact_reset_widget, reset_enabled, false, value)
 
         def publish_export_warning_detail_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_warning_ready
@@ -2697,6 +2731,8 @@ module Studio:
                 contact_apply(StudioContactEditor::PLANT)
             elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.L:
                 contact_apply(StudioContactEditor::LIFT)
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.U:
+                contact_apply(StudioContactEditor::RESET)
             elif band_focus >= 0 and (code == UiCore::Key.Delete or code == UiCore::Key.Backspace):
                 remove_band()
             elif code == UiCore::Key.R:
