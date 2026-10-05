@@ -276,7 +276,8 @@ visually verified solely from offscreen rendering.
       abandoned temporary exports and generated reports. Show item type,
       location, age and size; exclude source takes, open documents and current
       session references; let users review a cleanup selection before moving
-      recoverable items to Trash. Report freed space and make retention rules
+      recoverable items to Trash. Report item count and bytes moved, and explain
+      that Finder must empty Trash to reclaim disk space. Make retention rules
       and Restore easy to find. `StudioStorageCleanupPolicy` proves the
       eligibility and review gates. `../elisa-engine-mocap` now supplies a
       macOS move/restore adapter that checks build-root containment and records
