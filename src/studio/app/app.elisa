@@ -67,6 +67,9 @@ module Studio:
         const REPLACE_SESSION: i64 = 2
         const REPLACE_CLOSE: i64 = 3
         global mutable pending_replacement: i64 = 0
+        global mutable pending_replacement_allows_legacy: bool = false
+        global mutable pending_session_stack: StackState::Stack = zeroed
+        global mutable pending_session_ready: bool = false
         # Chrome: the "?" sheet, whether the take failed to load, and the
         # toolbar button under the pointer (for its tooltip).
         global mutable help_open: bool = false
@@ -81,6 +84,8 @@ module Studio:
         global mutable replacement_is_termination: bool = false
         global mutable replacement_focus: i64 = StudioReplacement::FOCUS_SAVE
         global mutable replacement_save_failed: bool = false
+        global mutable legacy_prompt_open: bool = false
+        global mutable legacy_prompt_focus: i64 = StudioLegacyPrompt::FOCUS_CANCEL
         # One-shot authorization consumed by the synchronous native close
         # callback after Save or Discard is chosen in the confirmation panel.
         global mutable close_authorized: bool = false
@@ -653,23 +658,31 @@ module Studio:
         def save_session() -> void:
             _ = save_session_to_current_path()
 
-        def load_session_at(p: cstr) -> void can Unsafe.PointerCast:
-            if clip is c:
-                if SessionState::load_session(p, frames(), node_total(), session_identity(c), false) is loaded:
-                    commit(loaded, true)
-                    HistoryState::mark_saved(&history)
-                    _ = set_session_path(p)
-                    say_file("session loaded (Cmd-Z to undo) from", session_path)
-                    FilePanel::note_recent(session_path)
-                else:
-                    mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
-                    failure <- "legacy session has no source identity; cannot restore it safely" if SessionState::load_error() == SessionState::LOAD_ERROR_LEGACY
-                    failure <- "session source, animation or rig does not match this take" if SessionState::load_error() == SessionState::LOAD_ERROR_SOURCE
-                    failure <- "session file could not be read" if SessionState::load_error() == SessionState::LOAD_ERROR_READ
-                    say_file(failure, p)
-            else:
-                say_file("open a take before loading a session", p)
+        def install_session(p: cstr, loaded: StackState::Stack, allow_legacy: bool) -> void:
+            commit(loaded, true)
+            HistoryState::mark_saved(&history)
+            _ = set_session_path(p)
+            mutable loaded_message: sview = "session loaded (Cmd-Z to undo) from"
+            loaded_message <- "legacy session loaded; verify joints (Cmd-Z to undo) from" if allow_legacy
+            say_file(loaded_message, session_path)
+            FilePanel::note_recent(session_path)
             touch()
+
+        def resolve_legacy_session(choice: i64) -> void can Unsafe.PointerCast:
+            action: i64 = StudioLegacyPrompt::resolve(legacy_prompt_open, choice)
+            return if action == StudioLegacyPrompt::NONE
+            if action == StudioLegacyPrompt::CANCEL:
+                legacy_prompt_open <- false
+                pending_replacement <- 0
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
+                say_file("legacy session cancelled; current cleanup unchanged", pending_path())
+                touch()
+                return
+            p: cstr = pending_path()
+            legacy_prompt_open <- false
+            touch()
+            request_replacement(p, REPLACE_SESSION, true)
 
         def export_clip() -> void:
             if clip is c:
@@ -697,7 +710,7 @@ module Studio:
                 touch()
                 return
             if FilePanel::open("txt", "Open a saved session for this take") is chosen:
-                request_replacement(chosen, REPLACE_SESSION)
+                request_replacement(chosen, REPLACE_SESSION, false)
 
         def export_as() -> void:
             return if clip == null
@@ -752,6 +765,8 @@ module Studio:
             replacement_is_close <- false
             replacement_save_failed <- false
             pending_replacement <- 0
+            pending_replacement_allows_legacy <- false
+            pending_session_ready <- false
             touch()
             if replacement_is_termination:
                 termination_authorized <- true
@@ -760,22 +775,31 @@ module Studio:
                 close_authorized <- true
                 UiAppKitCanvas::close()
 
-        def perform_replacement(kind: i64, p: cstr) -> void can Unsafe.PointerCast:
+        def perform_replacement(kind: i64, p: cstr, allow_legacy: bool) -> void can Unsafe.PointerCast:
             replacement_prompt_open <- false
+            legacy_prompt_open <- false
             replacement_is_close <- false
             replacement_is_termination <- false
             replacement_save_failed <- false
             file_menu_open <- false
             pending_replacement <- 0
+            pending_replacement_allows_legacy <- false
             touch()
             if kind == REPLACE_TAKE:
+                pending_session_ready <- false
                 load_take_now(p)
             elif kind == REPLACE_SESSION:
-                load_session_at(p)
+                if pending_session_ready:
+                    loaded: StackState::Stack = pending_session_stack
+                    pending_session_ready <- false
+                    install_session(p, loaded, allow_legacy)
+                else:
+                    say_file("session validation expired; open it again", p)
+                    touch()
 
-        def request_replacement(p: cstr, kind: i64) -> void can Unsafe.PointerCast:
+        def request_replacement(p: cstr, kind: i64, allow_legacy: bool) -> void can Unsafe.PointerCast:
             return if kind != REPLACE_TAKE and kind != REPLACE_SESSION
-            if replacement_prompt_open:
+            if replacement_prompt_open or legacy_prompt_open:
                 status <- "finish or cancel the pending replacement first"
                 status_file <- null
                 touch()
@@ -785,7 +809,32 @@ module Studio:
                 status_file <- null
                 touch()
                 return
+            pending_session_ready <- false
+            if kind == REPLACE_SESSION:
+                if clip is c:
+                    if SessionState::load_session(p, frames(), node_total(), session_identity(c), allow_legacy) is prepared:
+                        pending_session_stack <- prepared
+                        pending_session_ready <- true
+                    else:
+                        if not allow_legacy and SessionState::load_error() == SessionState::LOAD_ERROR_LEGACY:
+                            legacy_prompt_open <- true
+                            legacy_prompt_focus <- StudioLegacyPrompt::initial_focus()
+                            file_menu_open <- false
+                            help_open <- false
+                            touch()
+                            return
+                        mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
+                        failure <- "session source, animation or rig does not match this take" if SessionState::load_error() == SessionState::LOAD_ERROR_SOURCE
+                        failure <- "session file could not be read" if SessionState::load_error() == SessionState::LOAD_ERROR_READ
+                        say_file(failure, p)
+                        touch()
+                        return
+                else:
+                    say_file("open a take before loading a session", p)
+                    touch()
+                    return
             pending_replacement <- kind
+            pending_replacement_allows_legacy <- allow_legacy
             replacement_is_close <- false
             replacement_is_termination <- false
             mutable dirty: bool = false
@@ -799,7 +848,7 @@ module Studio:
                 help_open <- false
                 touch()
                 return
-            perform_replacement(kind, pending_path())
+            perform_replacement(kind, pending_path(), allow_legacy)
 
         def resolve_replacement(choice: i64) -> void:
             action: i64 = StudioReplacement::resolve(replacement_prompt_open, choice)
@@ -813,11 +862,14 @@ module Studio:
                 replacement_is_termination <- false
                 replacement_save_failed <- false
                 pending_replacement <- 0
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
                 say_file(cancelled, path)
                 touch()
                 return
             pending: cstr = pending_path()
             kind: i64 = pending_replacement
+            allow_legacy: bool = pending_replacement_allows_legacy
             if action == StudioReplacement::SAVE:
                 if not save_session_to_current_path():
                     replacement_save_failed <- true
@@ -826,7 +878,7 @@ module Studio:
             if kind == REPLACE_CLOSE:
                 finish_close()
                 return
-            perform_replacement(kind, pending)
+            perform_replacement(kind, pending, allow_legacy)
 
         def request_window_close() -> void can[Ui.Window]:
             # AppKit may ask once for application termination and again for the
@@ -838,8 +890,19 @@ module Studio:
             if close_authorized:
                 close_authorized <- false
                 return
+            if legacy_prompt_open:
+                legacy_prompt_open <- false
+                pending_replacement <- 0
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
+                UiAppKitCanvas::veto_close()
+                say_file("legacy session cancelled; current cleanup unchanged", pending_path())
+                touch()
+                return
             if replacement_prompt_open:
                 pending_replacement <- REPLACE_CLOSE
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
                 replacement_is_close <- true
                 replacement_is_termination <- UiAppKitCanvas::is_termination_request()
                 UiAppKitCanvas::veto_close()
@@ -850,6 +913,8 @@ module Studio:
                 dirty <- HistoryState::dirty(&history)
             if StudioReplacement::needs_prompt(clip != null, dirty):
                 pending_replacement <- REPLACE_CLOSE
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
                 replacement_prompt_open <- true
                 replacement_is_close <- true
                 replacement_is_termination <- UiAppKitCanvas::is_termination_request()
@@ -885,7 +950,7 @@ module Studio:
         # per-take cache, the playhead, the gizmo and the undo history start
         # fresh (undo never reaches back into a different take).
         def load_take(p: cstr) -> void can Unsafe.PointerCast:
-            request_replacement(p, REPLACE_TAKE)
+            request_replacement(p, REPLACE_TAKE, false)
 
         def load_take_now(p: cstr) -> void can Unsafe.PointerCast:
             candidate_slot: i64 = spare_path_slot()
@@ -1147,6 +1212,7 @@ module Studio:
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
             StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close, replacement_is_termination)
+            StudioPanels::legacy_session_prompt_panel(w, h, legacy_prompt_open, legacy_prompt_focus)
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
@@ -1272,6 +1338,11 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if legacy_prompt_open:
+                index: i64 = StudioPanels::legacy_session_button_hit(w, h, x, y)
+                if button == 0 and index >= 0:
+                    resolve_legacy_session(StudioLegacyPrompt::LOAD if index == StudioLegacyPrompt::FOCUS_LOAD else StudioLegacyPrompt::CANCEL)
+                return
             if replacement_prompt_open:
                 index: i64 = StudioPanels::replacement_button_hit(w, h, x, y)
                 if button == 0 and index >= 0:
@@ -1361,6 +1432,12 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if legacy_prompt_open:
+                index: i64 = StudioPanels::legacy_session_button_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if index >= 0 and index != legacy_prompt_focus:
+                    legacy_prompt_focus <- index
+                    touch()
+                return
             if replacement_prompt_open:
                 index: i64 = StudioPanels::replacement_button_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
                 if index >= 0 and index != replacement_focus:
@@ -1408,6 +1485,7 @@ module Studio:
             last_y <- y
 
         def pointer_up(x: f32, y: f32) -> void:
+            return if legacy_prompt_open
             if selecting:
                 selecting <- false
                 selection <- RetimeState::none() if not RetimeState::ready(&selection) else selection
@@ -1749,6 +1827,20 @@ module Studio:
         # plain keys go to the single-key bindings.
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
+            if legacy_prompt_open:
+                if code == UiCore::Key.Escape:
+                    resolve_legacy_session(StudioLegacyPrompt::CANCEL)
+                elif code == UiCore::Key.L and not StudioShortcuts::command(modifiers):
+                    resolve_legacy_session(StudioLegacyPrompt::LOAD)
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    legacy_prompt_focus <- StudioLegacyPrompt::move_focus(legacy_prompt_focus, -1)
+                    touch()
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    legacy_prompt_focus <- StudioLegacyPrompt::move_focus(legacy_prompt_focus, 1)
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    resolve_legacy_session(StudioLegacyPrompt::LOAD if legacy_prompt_focus == StudioLegacyPrompt::FOCUS_LOAD else StudioLegacyPrompt::CANCEL)
+                return
             if replacement_prompt_open:
                 replacement_prompt_key(code)
                 return
@@ -1799,9 +1891,10 @@ module Studio:
                 UiCore::PointerEvent.Move(at):
                     pointer_move(at.x, at.y)
                 UiCore::PointerEvent.Scroll(at, delta):
-                    v: i64 = view_at(at.x, at.y)
-                    if v >= 0:
-                        zoom(v, 1 if delta.y > 0.0 else (-1 if delta.y < 0.0 else 0))
+                    if not legacy_prompt_open and not replacement_prompt_open:
+                        v: i64 = view_at(at.x, at.y)
+                        if v >= 0:
+                            zoom(v, 1 if delta.y > 0.0 else (-1 if delta.y < 0.0 else 0))
                 UiCore::KeyEvent.Down(code):
                     key_down(code)
                 UiCore::KeyEvent.Up(code):
