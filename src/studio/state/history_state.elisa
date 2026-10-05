@@ -11,12 +11,24 @@ module HistoryState:
             states: mutable StackState::Stack[64]
             cursor: mutable i64
             count: mutable i64
+            saved_cursor: mutable i64
+            saved_valid: mutable bool
 
         # Reset in place; History (64 stacks) is never copied by value.
         def reset(h: mutable History&, initial: StackState::Stack) -> void:
             h.cursor <- 0
             h.count <- 1
+            h.saved_cursor <- 0
+            h.saved_valid <- true
             h.states[0] <- initial
+
+        # The current stack has just been persisted successfully.
+        def mark_saved(h: mutable History&) -> void:
+            h.saved_cursor <- h.cursor
+            h.saved_valid <- true
+
+        def dirty(h: History&) -> bool:
+            HistoryPolicy::dirty(h.cursor, h.saved_cursor, h.saved_valid)
 
         def current(h: History&) -> StackState::Stack:
             return h.states[h.cursor]
@@ -26,12 +38,15 @@ module HistoryState:
             cur: StackState::Stack = h.states[h.cursor]
             return false if StackState::same(cur, s)
             shift: i64 = HistoryPolicy::push_shift(h.cursor, CAPACITY)
+            saved: i64 = HistoryPolicy::saved_after_record(h.saved_cursor, h.saved_valid, h.cursor, shift)
             if shift == 1:
                 for i in 1..<CAPACITY |h|:
                     h.states[i - 1] <- h.states[i]
             c: i64 = HistoryPolicy::push_cursor(h.cursor, CAPACITY)
             h.count <- HistoryPolicy::push_count(h.cursor, CAPACITY)
             h.cursor <- c
+            h.saved_cursor <- saved
+            h.saved_valid <- saved >= 0
             h.states[c] <- s
             return true
 
