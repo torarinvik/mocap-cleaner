@@ -19,6 +19,7 @@ include "../shortcuts.elisa"
 include "../focus.elisa"
 include "../replacement.elisa"
 include "../accessibility.elisa"
+include "../export_policy.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
 
@@ -687,15 +688,74 @@ module Studio:
             touch()
             request_replacement(p, REPLACE_SESSION, true)
 
-        def export_clip() -> void:
+        def path_bytes(p: cstr) -> darray[u8] can Unsafe.PointerCast:
+            mutable out: darray[u8] = []
+            mutable i: usize = 0
+            while i < PATH_CAPACITY:
+                c: u8 = p[i]
+                return out if c == 0
+                out.push(c)
+                i <- i + 1
+            []
+
+        def export_reason(destination: cstr, overwrite_confirmed: bool) -> i64 can Unsafe.PointerCast:
+            mutable reason: i64 = StudioExportPolicy::PATH_UNRESOLVED
+            if FilePanel::resolve_path("build") is root_path:
+                if FilePanel::resolve_path(destination) is target_path:
+                    root_facts: i64 = FilePanel::path_facts(root_path)
+                    target_facts: i64 = FilePanel::path_facts(target_path)
+                    if root_facts >= 0 and target_facts >= 0:
+                        if (root_facts & FilePanel::PATH_DIRECTORY) == 0:
+                            reason <- StudioExportPolicy::OUTSIDE_BUILD
+                        else:
+                            root_bytes: darray[u8] = path_bytes(root_path)
+                            target_bytes: darray[u8] = path_bytes(target_path)
+                            if root_bytes.count > 0 and target_bytes.count > 0:
+                                reason <- StudioExportPolicy::decision(
+                                    true,
+                                    StudioExportPolicy::inside_build(root_bytes, target_bytes),
+                                    FilePanel::same_identity(path, target_path),
+                                    (target_facts & FilePanel::PATH_EXISTS) != 0,
+                                    (target_facts & FilePanel::PATH_SYMLINK) != 0,
+                                    (target_facts & FilePanel::PATH_REGULAR) != 0,
+                                    overwrite_confirmed)
+                    FilePanel::release_path(target_path)
+                FilePanel::release_path(root_path)
+            reason
+
+        def export_error(reason: i64) -> sview:
+            return "Export blocked: destination could not be resolved" if reason == StudioExportPolicy::PATH_UNRESOLVED
+            return "Export blocked: choose a file inside the build folder" if reason == StudioExportPolicy::OUTSIDE_BUILD
+            return "Export blocked: destination is the source take" if reason == StudioExportPolicy::SOURCE_COLLISION
+            return "Export blocked: destination is a symbolic link" if reason == StudioExportPolicy::SYMBOLIC_LINK
+            return "Export blocked: destination is not a regular file" if reason == StudioExportPolicy::NOT_REGULAR_FILE
+            return "Export blocked: replace confirmation is required"
+
+        def export_clip(destination: cstr, overwrite_confirmed: bool) -> bool:
             if clip is c:
-                if StudioModel::save_cleaned(c, export_path):
-                    say_file("exported", export_path)
-                    FilePanel::note_recent(export_path)
+                mutable reason: i64 = export_reason(destination, overwrite_confirmed)
+                if reason == StudioExportPolicy::OVERWRITE_UNCONFIRMED:
+                    if FilePanel::confirm_replace(destination):
+                        reason <- export_reason(destination, true)
+                    else:
+                        say_file("Export cancelled; existing file kept", destination)
+                        touch()
+                        return false
+                if reason != StudioExportPolicy::ALLOW:
+                    say_file(export_error(reason), destination)
+                    touch()
+                    return false
+                if StudioModel::save_cleaned(c, destination):
+                    export_path <- destination
+                    say_file("exported", destination)
+                    FilePanel::note_recent(destination)
+                    _ = puts(destination)
+                    touch()
+                    return true
                 else:
-                    say_file("export failed for", export_path)
-                _ = puts(export_path)
+                    say_file("export failed; check path, permissions or disk space", destination)
                 touch()
+            false
 
         # ---- native file panels (modal) --------------------------------
         def save_session_as() -> void:
@@ -718,8 +778,7 @@ module Studio:
         def export_as() -> void:
             return if clip == null
             if FilePanel::save("glb", export_path, "Export the cleaned take") is chosen:
-                export_path <- chosen
-                export_clip()
+                _ = export_clip(chosen, true)
 
         def dispatch_file_action(action: i64) -> void:
             if action == StudioFilePolicy::OPEN_TAKE:
@@ -731,7 +790,7 @@ module Studio:
             elif action == StudioFilePolicy::SAVE_AS:
                 save_session_as()
             elif action == StudioFilePolicy::EXPORT_CURRENT:
-                export_clip()
+                _ = export_clip(export_path, false)
             elif action == StudioFilePolicy::EXPORT_AS:
                 export_as()
 
@@ -1439,7 +1498,7 @@ module Studio:
             elif a == StudioPanels::A_OPEN:
                 open_take()
             elif a == StudioPanels::A_EXPORT:
-                export_clip()
+                _ = export_clip(export_path, false)
             elif a == StudioPanels::A_BALANCE:
                 toggle_flag(StudioScene::BALANCE)
                 if clip is c:
@@ -1893,7 +1952,7 @@ module Studio:
             elif code == UiCore::Key.F:
                 frame_all()
             elif code == UiCore::Key.E:
-                export_clip()
+                _ = export_clip(export_path, false)
             elif code == UiCore::Key.LeftBracket:
                 edit_selected(7, -1)
             elif code == UiCore::Key.RightBracket:
