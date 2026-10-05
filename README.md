@@ -43,3 +43,7 @@ mocap-cleaner batch OUTDIR [--preset P] [--op ...] [--jobs N] IN.glb|FOLDER...  
 and report are the same as `--jobs 1`; 6 boxing takes: ~10.5 s serial,
 ~3 s with `--jobs 4`). Reports include CPU time per stage and per op
 (`"time_us"` in JSON, a table in `report.html`).
+
+When a take cannot be loaded or has no usable animations, `clean` reports the
+import problem and exits unsuccessfully without publishing an output GLB.
+Run `scripts/test_cli_import.sh` for the malformed-input regression check.
