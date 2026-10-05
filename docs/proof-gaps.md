@@ -569,3 +569,10 @@ new rows after the prover/replay products are rebuilt from matching sources.
   `next_total_bytes`). The eligibility, review/confirmation, and bounded-total
   kernels themselves are verified; focused executable coverage passes. Keep
   these two laws open until the proof kernel can derive those exact summaries.
+- Prover commit `dc78978d` now permits calls to verified total-pure functions
+  in executable postconditions, with a separate purity/totality check for
+  those callees. Applying it to these two laws did not close either gap:
+  routing `protection_reason` through the full `eligible` summary pushed its
+  postcondition obligations over the proof budget, while the exact-sum
+  postcondition still lacked a verified executable summary. The attempted
+  contract edits were removed; the 351/353 baseline remains authoritative.
