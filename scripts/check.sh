@@ -111,18 +111,22 @@ if wait "$cli_build_pid"; then
             # --op hands finds no planted hand on the boxer: output is byte-identical.
             build/mocap-cleaner clean "$boxer" --preset boxing --op hands -o build/cli-test/hands.glb --report build/cli-test/h.json >/dev/null
             rc=$?
-            cmp -s build/cli-test/out.glb build/cli-test/hands.glb || rc=9
-            build/mocap-cleaner diff build/cli-test/r.json build/cli-test/h.json --html build/cli-test/diff.html >/dev/null || rc=8
-            echo "$rc" >build/cli-test/hands.status
+            echo "$rc" >build/cli-test/hands-clean.status
         }
         cli_clean & clean_pid=$!
         cli_batch & batch_pid=$!
         cli_retime & retime_pid=$!
-        wait "$clean_pid" || true
         cli_hands & hands_pid=$!
+        wait "$clean_pid" || true
         wait "$batch_pid" || true
         wait "$retime_pid" || true
         wait "$hands_pid" || true
+        rc=$(cat build/cli-test/hands-clean.status)
+        if [ "$rc" -eq 0 ]; then
+            cmp -s build/cli-test/out.glb build/cli-test/hands.glb || rc=9
+            build/mocap-cleaner diff build/cli-test/r.json build/cli-test/h.json --html build/cli-test/diff.html >/dev/null || rc=8
+        fi
+        echo "$rc" >build/cli-test/hands.status
         rc=$(cat build/cli-test/clean.status); echo "cli   clean -o --report: rc=$rc"; [ "$rc" -eq 0 ] || status=1
         rc=$(cat build/cli-test/batch.status); echo "cli   batch folder: rc=$rc"; [ "$rc" -eq 0 ] || status=1
         rc=$(cat build/cli-test/hands.status); echo "cli   hands + diff: rc=$rc"; [ "$rc" -eq 0 ] || status=1
