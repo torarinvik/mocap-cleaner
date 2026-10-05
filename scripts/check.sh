@@ -49,6 +49,9 @@ for t in test/*.elisa; do
     fi
 done
 [ "$active" -eq 0 ] || wait || true
+# The CLI build is independent of the test executables and overlaps their run.
+ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1 &
+cli_build_pid=$!
 rm -f build/test/*.run.status
 for t in test/*.elisa; do
     run_test "$t" &
@@ -73,7 +76,7 @@ for t in test/*.elisa; do
 done
 # CLI built through elisa_build_run.py (scripts/build.sh), in the plan's form, and a folder batch with its HTML report.
 boxer=../elisa-boxing-game/build/dual-stance/black/black-boxer.glb
-if ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1; then
+if wait "$cli_build_pid"; then
     if [ -f "$boxer" ]; then
         rm -rf build/cli-test && mkdir -p build/cli-test/in build/cli-test/out
         cp "$boxer" build/cli-test/in/
