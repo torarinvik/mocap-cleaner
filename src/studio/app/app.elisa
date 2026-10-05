@@ -78,11 +78,13 @@ module Studio:
         global mutable file_menu_hover: i64 = -1
         global mutable replacement_prompt_open: bool = false
         global mutable replacement_is_close: bool = false
+        global mutable replacement_is_termination: bool = false
         global mutable replacement_focus: i64 = StudioReplacement::FOCUS_SAVE
         global mutable replacement_save_failed: bool = false
         # One-shot authorization consumed by the synchronous native close
         # callback after Save or Discard is chosen in the confirmation panel.
         global mutable close_authorized: bool = false
+        global mutable termination_authorized: bool = false
         # Last one-click clean: permille of slide and spikes removed, or -1.
         global mutable gain_slide: i64 = -1
         global mutable gain_spikes: i64 = -1
@@ -738,13 +740,18 @@ module Studio:
             replacement_is_close <- false
             replacement_save_failed <- false
             pending_replacement <- 0
-            close_authorized <- true
             touch()
-            UiAppKitCanvas::close()
+            if replacement_is_termination:
+                termination_authorized <- true
+                UiAppKitCanvas::terminate()
+            else:
+                close_authorized <- true
+                UiAppKitCanvas::close()
 
         def perform_replacement(kind: i64, p: cstr) -> void can Unsafe.PointerCast:
             replacement_prompt_open <- false
             replacement_is_close <- false
+            replacement_is_termination <- false
             replacement_save_failed <- false
             file_menu_open <- false
             pending_replacement <- 0
@@ -768,6 +775,7 @@ module Studio:
                 return
             pending_replacement <- kind
             replacement_is_close <- false
+            replacement_is_termination <- false
             mutable dirty: bool = false
             if history_ready:
                 dirty <- HistoryState::dirty(&history)
@@ -785,11 +793,15 @@ module Studio:
             action: i64 = StudioReplacement::resolve(replacement_prompt_open, choice)
             return if action == StudioReplacement::NONE
             if action == StudioReplacement::CANCEL:
+                mutable cancelled: sview = "replacement cancelled; session unchanged"
+                cancelled <- "close cancelled; session unchanged" if replacement_is_close
+                cancelled <- "quit cancelled; session unchanged" if replacement_is_termination
                 replacement_prompt_open <- false
                 replacement_is_close <- false
+                replacement_is_termination <- false
                 replacement_save_failed <- false
                 pending_replacement <- 0
-                say_file("replacement cancelled; session unchanged", path)
+                say_file(cancelled, path)
                 touch()
                 return
             pending: cstr = pending_path()
@@ -805,13 +817,21 @@ module Studio:
             perform_replacement(kind, pending)
 
         def request_window_close() -> void can[Ui.Window]:
+            # AppKit may ask once for application termination and again for the
+            # owned window close. Keep this authorization live through both.
+            if termination_authorized:
+                return
             # This bit is set only for the second, programmatic close request
             # made after the user chooses Save or Discard in the prompt.
             if close_authorized:
                 close_authorized <- false
                 return
             if replacement_prompt_open:
+                pending_replacement <- REPLACE_CLOSE
+                replacement_is_close <- true
+                replacement_is_termination <- UiAppKitCanvas::is_termination_request()
                 UiAppKitCanvas::veto_close()
+                touch()
                 return
             mutable dirty: bool = false
             if history_ready:
@@ -820,6 +840,7 @@ module Studio:
                 pending_replacement <- REPLACE_CLOSE
                 replacement_prompt_open <- true
                 replacement_is_close <- true
+                replacement_is_termination <- UiAppKitCanvas::is_termination_request()
                 replacement_focus <- StudioReplacement::initial_focus()
                 replacement_save_failed <- false
                 file_menu_open <- false
@@ -1113,7 +1134,7 @@ module Studio:
             StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
-            StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close)
+            StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close, replacement_is_termination)
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)

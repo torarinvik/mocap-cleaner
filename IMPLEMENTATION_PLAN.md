@@ -239,9 +239,10 @@ visually verified solely from offscreen rendering.
       choice focus and prompt-trigger policies have contracts, laws and a
       headless test. The native window close now raises a synchronous Quit
       request and reuses the same panel with Save and Close / Discard and Close
-      / Cancel; failed saves keep the prompt open. Route Cmd-Q termination
-      through the same guard, then exercise close, quit and save-failure paths
-      on screen. Separate unsaved work warnings from ordinary status.
+      / Cancel. Cmd-Q now reaches AppKit's synchronous termination decision and
+      uses Save and Quit / Discard and Quit / Cancel; failed saves keep the
+      prompt open. Exercise close, quit and save-failure paths on screen.
+      Separate unsaved work warnings from ordinary status.
 - [ ] Make session saves atomic using a temporary derived file and rename;
       detect permission, disk-space and partial-write failures.
 - [ ] Extend sessions with source identity/hash, animation identity, rig
