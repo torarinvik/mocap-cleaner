@@ -14,6 +14,7 @@ include "../state/timeline_state.elisa"
 include "../state/retime_state.elisa"
 include "../view.elisa"
 include "../../ops/presets.elisa"
+include "../../ops/rig_cache.elisa"
 include "../../physics/rig_physics.elisa"
 include "../overlay_policy.elisa"
 include "../state/perf_state.elisa"
@@ -50,6 +51,8 @@ module StudioModel:
             right_foot: mutable darray[Geometry::Vec3]
             left_contact: mutable darray[bool]
             right_contact: mutable darray[bool]
+            left_hand_contact: mutable darray[bool]
+            right_hand_contact: mutable darray[bool]
             ground: mutable f32
             # Balance (Phase 4) of the cleaned clip, per frame: the centre of
             # mass, StudioOverlay state, and SUPPORT_CORNERS support points
@@ -59,6 +62,7 @@ module StudioModel:
             support: mutable darray[Geometry::Vec3]
             balance_ground: f32
             impossible_frames: i64
+            source_impossible_frames: i64
             threshold: i64
             changed: i64
             spikes_before: i64
@@ -77,10 +81,13 @@ module StudioModel:
             # before and after the fix, per-frame planted slide (worse foot)
             # for the timeline markers, and the worst frame and its foot.
             feet: bool
+            hands: bool
             slide_before: i64
             slide_after: i64
             sink_before: i64
             sink_after: i64
+            hand_slide_before: i64
+            hand_slide_after: i64
             foot_slide: mutable darray[i64]
             worst_frame: i64
             worst_slide: i64
@@ -132,8 +139,17 @@ module StudioModel:
             slot: mutable darray[i64]
             source_problems: mutable darray[i64]
             bank: mutable darray[Ops::Cache]
+            rig_cache: mutable RigCache::Cache
             shortest: i64
             threshold: i64
+            source_impossible_frames: i64
+
+        struct Balanced:
+            com: mutable darray[Geometry::Vec3]
+            states: mutable darray[i64]
+            support: mutable darray[Geometry::Vec3]
+            ground: mutable f32
+            impossible: mutable i64
 
         # Load `path` and find `anim_name` (the first animation when absent).
         # Null when the file or every animation is missing.
@@ -150,7 +166,9 @@ module StudioModel:
                 slot: darray[i64] = StudioClip::slots(src, nodes)
                 sp: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
                 shortest: i64 = StudioPerf::shortest_keys(src, anim)
-                m: Memo = Memo{pristine: src, anim: anim, frames: frames, nodes: nodes, slot: slot, source_problems: sp, bank: [], shortest: shortest, threshold: threshold}
+                mutable source_balance: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0}
+                balance_of(&src, anim, frames, &source_balance)
+                m: Memo = Memo{pristine: src, anim: anim, frames: frames, nodes: nodes, slot: slot, source_problems: sp, bank: [], rig_cache: RigCache::new_cache(), shortest: shortest, threshold: threshold, source_impossible_frames: source_balance.impossible}
                 return move m
             return null
 
@@ -162,7 +180,7 @@ module StudioModel:
                 mutable m: Memo = held
                 none_p: darray[Geometry::Vec3] = []
                 none_i: darray[i64] = []
-                return build_with(&m, s, none_p, none_i, none_i, StudioPerf::full(m.frames))
+                return build_with(&m, s, none_p, none_i, none_i, StudioPerf::full(m.frames), 0)
             return null
 
         # Clean a copy of the memo's source with `s` (through the op caches)
@@ -171,7 +189,7 @@ module StudioModel:
         # frame copies the previous clip's arrays (empty: recompute all).
         # Contacts and balance are non-local and always recomputed. Equal to
         # `build` for the same stack when `w` covers what changed.
-        def build_with(m: mutable Memo&, s: StackState::Stack&, prev_points: darray[Geometry::Vec3]&, prev_problems: darray[i64]&, prev_peaks: darray[i64]&, w: StudioPerf::Window) -> Clip?:
+        def build_with(m: mutable Memo&, s: StackState::Stack&, prev_points: darray[Geometry::Vec3]&, prev_problems: darray[i64]&, prev_peaks: darray[i64]&, w: StudioPerf::Window, source_revision: i64) -> Clip?:
             anim: usize = m.anim
             source_frames: i64 = m.frames
             threshold: i64 = m.threshold
@@ -185,17 +203,21 @@ module StudioModel:
                 _ = Corrections::apply(&cleaned, anim, &fix)
             edits: darray[RigOps::RigOp] = edit_ops(s)
             mutable foot: RigOps::Summary = RigOps::empty_summary()
-            if s.feet:
-                rops: darray[RigOps::RigOp] = foot_ops(s)
-                foot <- RigOps::run(&cleaned, anim, rops, threshold)
+            rops: darray[RigOps::RigOp] = cleanup_ops(s)
+            mutable rig_clip: Rig::Clip = Rig::load(cleaned, anim)
+            if rops.count > 0:
+                foot <- RigCache::run_clip_cached(&rig_clip, rops, threshold, source_revision, &m.rig_cache)
+                foot.changed <- Rig::store(&cleaned, &rig_clip)
             # Retime last: contacts and pins baked into the keys move with it.
             rt_ops: darray[RigOps::RigOp] = retime_ops(s)
             mutable rt: RetimeApply::Report = RetimeApply::empty_report()
             if rt_ops.count > 0:
                 retimed_doc: GlbDocument::Document = RetimeApply::apply(&cleaned, anim, &rt_ops, &rt)
                 cleaned <- move retimed_doc
-            ranges: darray[RetimeApply::Range] = RetimeApply::ranges_of(&rt_ops, source_frames) if rt.applied else []
-            times: darray[i64] = RetimeApply::source_times(source_frames, &ranges)
+            mutable ranges: darray[RetimeApply::Range] = []
+            RetimeApply::ranges_of(&rt_ops, source_frames, &ranges) if rt.applied
+            mutable times: darray[i64] = []
+            RetimeApply::source_times(source_frames, &ranges, &times)
             frames: i64 = times.count.i64()
             win: StudioPerf::Window = StudioPerf::full(frames) if rt.applied else w
             t1: i64 = clock()
@@ -210,8 +232,10 @@ module StudioModel:
             lf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 2, frames)
             rf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 3, frames)
             fps: i64 = StudioClip::rate(&m.pristine, anim)
-            lc: darray[bool] = contacts_of(&cleaned, anim, 0, &edits, lf, fps)
-            rc: darray[bool] = contacts_of(&cleaned, anim, 1, &edits, rf, fps)
+            lc: darray[bool] = contacts_of(&rig_clip, 0, edits, source_frames, lf, fps, times)
+            rc: darray[bool] = contacts_of(&rig_clip, 1, edits, source_frames, rf, fps, times)
+            lhc: darray[bool] = hand_contacts_of(&rig_clip, 0, edits, source_frames, times)
+            rhc: darray[bool] = hand_contacts_of(&rig_clip, 1, edits, source_frames, times)
             fs: darray[i64] = foot_slide(lf, rf, lc, rc)
             worst: (frame: i64, value: i64) = worst_of(fs)
             worst_side: i64 = side_at(lf, rf, lc, rc, worst.frame)
@@ -226,7 +250,7 @@ module StudioModel:
             balance_of(&cleaned, anim, frames, &bal)
             t2: i64 = clock()
             src: GlbDocument::Document = GlbDocument::copy(&m.pristine)
-            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, rate: fps, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side, times: times, source_frames: source_frames, retimed: rt.applied}
+            c: Clip = Clip{source: src, cleaned: cleaned, anim: anim, frames: frames, rate: fps, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, left_hand_contact: lhc, right_hand_contact: rhc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, source_impossible_frames: m.source_impossible_frames, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, hands: s.hands, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, hand_slide_before: foot.hand_before, hand_slide_after: foot.hand_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side, times: times, source_frames: source_frames, retimed: rt.applied}
             return move c
 
         def copy_ints(v: darray[i64]&) -> darray[i64]:
@@ -267,25 +291,46 @@ module StudioModel:
             mutable out: darray[RigOps::RigOp] = []
             for i in 0..<s.edit_count |i, s, out|:
                 e: StackState::FootEdit = s.edits[i]
-                role: i64 = Roles::LEFT_FOOT if e.side == StackState::LEFT else Roles::RIGHT_FOOT
+                mutable role: i64 = Roles::LEFT_FOOT
+                role <- Roles::RIGHT_FOOT if e.side == StackState::RIGHT
+                role <- Roles::LEFT_HAND if e.side == StackState::LEFT_HAND
+                role <- Roles::RIGHT_HAND if e.side == StackState::RIGHT_HAND
                 out.push(RigOps::contact_edit(role, e.first, e.last, e.planted))
             return out
 
-        # The foot fix: the pivot hold with the stack's blend, then the edits.
-        def foot_ops(s: StackState::Stack&) -> darray[RigOps::RigOp]:
+        # Foot and hand locks share the contact edits but keep their own opt-in
+        # switches. RigCache splits before the first lock that reads contacts.
+        def cleanup_ops(s: StackState::Stack&) -> darray[RigOps::RigOp]:
             mutable out: darray[RigOps::RigOp] = []
-            out.push(RigOps::foot_pivot(StudioFoot::blend(s.blend)))
+            out.push(RigOps::foot_pivot(StudioFoot::blend(s.blend))) if s.feet
+            out.push(RigOps::hand_lock(StudioFoot::blend(s.blend))) if s.hands
             for op in edit_ops(s) |op, out|:
-                out.push(op)
+                foot_edit: bool = op.role == Roles::LEFT_FOOT or op.role == Roles::RIGHT_FOOT
+                hand_edit: bool = op.role == Roles::LEFT_HAND or op.role == Roles::RIGHT_HAND
+                out.push(op) if (s.feet and foot_edit) or (s.hands and hand_edit)
             return out
 
-        # Contacts of one foot as the foot fix sees them (detection plus the
-        # hand edits), or the studio's own detection when the rig has no leg.
-        def contacts_of(doc: GlbDocument::Document&, anim: usize, side: i64, edits: darray[RigOps::RigOp]&, track: darray[Geometry::Vec3]&, fps: i64) -> darray[bool]:
-            rig: Rig::Clip = Rig::load(doc, anim)
-            flags: darray[bool] = RigOps::foot_contacts(&rig, side, edits)
-            return flags if flags.count == track.count
+        # Contacts of one foot after detector and hand edits, with a joint
+        # track fallback for rigs without a recognized leg.
+        def remap_contacts(flags: darray[bool]&, times: darray[i64]&) -> darray[bool]:
+            mutable out: darray[bool] = []
+            for k in 0..<times.count |k, flags, times, out|:
+                f: i64 = RetimeApply::source_frame_of(times, k.i64())
+                out.push(flags[f.usize()] if f >= 0 and f < flags.count.i64() else false)
+            return out
+
+        def contacts_of(rig: Rig::Clip&, side: i64, edits: darray[RigOps::RigOp]&, source_frames: i64, track: darray[Geometry::Vec3]&, fps: i64, times: darray[i64]&) -> darray[bool]:
+            flags: darray[bool] = RigOps::foot_contacts(rig, side, edits)
+            return remap_contacts(flags, times) if flags.count == source_frames.usize()
             return StudioClip::contacts(track, fps)
+
+        def hand_contacts_of(rig: Rig::Clip&, side: i64, edits: darray[RigOps::RigOp]&, source_frames: i64, times: darray[i64]&) -> darray[bool]:
+            mutable flags: darray[bool] = RigOps::hand_contacts(rig, side, edits)
+            if flags.count != source_frames.usize():
+                flags.clear()
+                for k in 0..<source_frames:
+                    flags.push(false)
+            return remap_contacts(flags, times)
 
         # Horizontal slide (micro-units) of a planted foot from frame k-1 to k.
         def step_slide(track: darray[Geometry::Vec3]&, flags: darray[bool]&, k: usize) -> i64:
@@ -320,13 +365,6 @@ module StudioModel:
             return StackState::LEFT
 
         const SUPPORT_CORNERS: i64 = 4
-
-        struct Balanced:
-            com: mutable darray[Geometry::Vec3]
-            states: mutable darray[i64]
-            support: mutable darray[Geometry::Vec3]
-            ground: mutable f32
-            impossible: mutable i64
 
         def vec(p: MotionQuat::V) -> Geometry::Vec3:
             Geometry::Vec3{x: p.x.f32(), y: p.y.f32(), z: p.z.f32()}
@@ -444,6 +482,14 @@ module StudioModel:
         def initial_stack() -> StackState::Stack:
             mutable s: StackState::Stack = StackState::from_list(Presets::operations(Presets::Preset.Boxing))
             s.feet <- true
+            return s
+
+        # One-click Fix all also enables the hand lock. Boxing clips have no
+        # detected hand contacts; grounded and rope work gets every contact
+        # cleanup in one reversible edit.
+        def fix_all_stack() -> StackState::Stack:
+            mutable s: StackState::Stack = initial_stack()
+            s.hands <- true
             return s
 
         # A fresh operation of kind index `k` (0..4) over the whole clip.

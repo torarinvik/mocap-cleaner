@@ -16,6 +16,8 @@ module StackState:
         const MAX_EDITS: i64 = 32
         const LEFT: i64 = 0
         const RIGHT: i64 = 1
+        const LEFT_HAND: i64 = 2
+        const RIGHT_HAND: i64 = 3
 
         # One hand edit of a foot's contact track: frames [first, last] of
         # `side` forced planted or lifted. Later edits win.
@@ -46,6 +48,8 @@ module StackState:
             # Foot cleanup (K): planted feet held with a speed-limited carry
             # blended over `blend` frames, after the operations and fixes.
             feet: mutable bool
+            # Hand cleanup is opt-in and shares the carry blend.
+            hands: mutable bool
             blend: mutable i64
             edits: mutable FootEdit[32]
             edit_count: mutable i64
@@ -54,11 +58,16 @@ module StackState:
             band_count: mutable i64
 
         def empty() -> Stack:
-            return Stack{ops: zeroed, count: 0, selected: -1, fixes: zeroed, fix_count: 0, feet: false, blend: StudioFoot::DEFAULT_BLEND, edits: zeroed, edit_count: 0, bands: zeroed, band_count: 0}
+            return Stack{ops: zeroed, count: 0, selected: -1, fixes: zeroed, fix_count: 0, feet: false, hands: false, blend: StudioFoot::DEFAULT_BLEND, edits: zeroed, edit_count: 0, bands: zeroed, band_count: 0}
 
         def set_feet(s: mutable Stack&, on: bool) -> bool:
             return false if s.feet == on
             s.feet <- on
+            return true
+
+        def set_hands(s: mutable Stack&, on: bool) -> bool:
+            return false if s.hands == on
+            s.hands <- on
             return true
 
         # Nudge the foot blend one frame up or down (clamped).
@@ -72,7 +81,7 @@ module StackState:
         # Append a contact edit; ignored when full or empty.
         def add_edit(s: mutable Stack&, side: i64, first: i64, last: i64, planted: bool) -> bool:
             return false if s.edit_count < 0 or s.edit_count >= MAX_EDITS
-            return false if first > last or first < 0 or (side != LEFT and side != RIGHT)
+            return false if first > last or first < 0 or side < LEFT or side > RIGHT_HAND
             s.edits[s.edit_count] <- FootEdit{side: side, first: first, last: last, planted: planted}
             s.edit_count <- s.edit_count + 1
             return true
@@ -252,7 +261,7 @@ module StackState:
 
         def same(a: Stack&, b: Stack&) -> bool:
             return false if a.count != b.count or a.fix_count != b.fix_count
-            return false if a.feet != b.feet or a.blend != b.blend or a.edit_count != b.edit_count
+            return false if a.feet != b.feet or a.hands != b.hands or a.blend != b.blend or a.edit_count != b.edit_count
             return false if a.band_count != b.band_count
             for i in 0..<a.band_count |a, b|:
                 u: Band = a.bands[i]
@@ -262,6 +271,22 @@ module StackState:
                 e: FootEdit = a.edits[i]
                 g: FootEdit = b.edits[i]
                 return false if e.side != g.side or e.first != g.first or e.last != g.last or e.planted != g.planted
+            for i in 0..<a.fix_count |a, b|:
+                p: Corrections::Correction = a.fixes[i]
+                q: Corrections::Correction = b.fixes[i]
+                return false if not Corrections::same(&p, &q)
+            for i in 0..<a.count |a, b|:
+                x: Ops::Operation = a.ops[i]
+                y: Ops::Operation = b.ops[i]
+                return false if x.kind != y.kind or x.enabled != y.enabled or x.first != y.first
+                return false if x.last != y.last or x.bones != y.bones or x.strength != y.strength or x.edge != y.edge
+            return true
+
+        # Whether channel cleanup and gizmo corrections leave the same source
+        # for the downstream rig cache. Contacts, lock toggles, blend and
+        # retime bands do not change this pre-rig source.
+        def same_rig_source(a: Stack&, b: Stack&) -> bool:
+            return false if a.count != b.count or a.fix_count != b.fix_count
             for i in 0..<a.fix_count |a, b|:
                 p: Corrections::Correction = a.fixes[i]
                 q: Corrections::Correction = b.fixes[i]

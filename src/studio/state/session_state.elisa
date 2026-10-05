@@ -2,17 +2,17 @@
 # blend, hand contact edits) saved as text next to the take, so a cleanup
 # can be closed and reopened. Format:
 #
-#   mocap-studio session 2
-#   # 1 feet blend | 2 kind enabled first last bones strength edge | 3 side first last planted | 4 enabled node key first last qx qy qz qw tx ty tz
+#   mocap-studio session 3
+#   # 1 feet blend | 2 kind enabled first last bones strength edge | 3 effector first last planted | 4 enabled node key first last qx qy qz qw tx ty tz | 5 hands
 #   1 1 6
 #   2 0 1 0 239 -1 2 8
 #   3 0 40 52 1
 #   4 1 17 120 110 130 0 0 130526 991445 0 0 0
 #
 # Tag 4 (version 2) is a gizmo correction: quaternion components in
-# millionths, translation in micrometres. Version 1 files still load (they
-# simply have no tag 4 lines); a correction on a node the take does not have
-# is dropped.
+# millionths, translation in micrometres. Tag 5 (version 3) saves the opt-in
+# hand fix. Versions 1 and 2 still load; a correction on a missing node is
+# dropped.
 # Fields are signed decimals (OpsFile's reader). Every value is brought
 # into range by the proved StudioChrome checks, so a session saved on a
 # longer take, or edited by hand, still loads safely; unknown operation
@@ -27,9 +27,10 @@ module SessionState:
         const TAG_OP: i64 = 2
         const TAG_EDIT: i64 = 3
         const TAG_FIX: i64 = 4
+        const TAG_HANDS: i64 = 5
 
         def session_header() -> sview:
-            return "mocap-studio session 2"
+            return "mocap-studio session 3"
 
         def header_prefix() -> sview:
             return "mocap-studio session "
@@ -60,30 +61,35 @@ module SessionState:
             return Ops::Kind.LimitWring if code == 4
             return Ops::Kind.Median
 
-        def encode_session(s: StackState::Stack&) -> darray[u8]:
-            mutable out: darray[u8] = []
-            Report::push_text(&out, session_header())
+        def encode_session(s: StackState::Stack&, out: mutable darray[u8]&):
+            out.clear()
+            Report::push_text(out, session_header())
             out.push(10)
-            Report::push_text(&out, "# 1 feet blend | 2 kind enabled first last bones strength edge | 3 side first last planted")
+            Report::push_text(out, "# 1 feet blend | 2 kind enabled first last bones strength edge | 3 effector first last planted | 4 correction | 5 hands")
             out.push(10)
             head: darray[i64] = [TAG_FEET, 1 if s.feet else 0, s.blend]
             for k in 0..<head.count:
                 out.push(32) if k > 0
-                OpsFile::push_number(&out, head[k])
+                OpsFile::push_number(out, head[k])
+            out.push(10)
+            hands: darray[i64] = [TAG_HANDS, 1 if s.hands else 0]
+            for k in 0..<hands.count:
+                out.push(32) if k > 0
+                OpsFile::push_number(out, hands[k])
             out.push(10)
             for i in 0..<s.count |s, out|:
                 op: Ops::Operation = s.ops[i]
                 f: darray[i64] = [TAG_OP, kind_code(op.kind), 1 if op.enabled else 0, op.first, op.last, op.bones, op.strength, op.edge]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
-                    OpsFile::push_number(&out, f[k])
+                    OpsFile::push_number(out, f[k])
                 out.push(10)
             for i in 0..<s.edit_count |s, out|:
                 e: StackState::FootEdit = s.edits[i]
                 f: darray[i64] = [TAG_EDIT, e.side, e.first, e.last, 1 if e.planted else 0]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
-                    OpsFile::push_number(&out, f[k])
+                    OpsFile::push_number(out, f[k])
                 out.push(10)
             q: f32 = StudioChrome::CHROME_MICRO.f32()
             t: f32 = 1000000.0
@@ -92,9 +98,9 @@ module SessionState:
                 f: darray[i64] = [TAG_FIX, 1 if c.enabled else 0, c.node, c.key, c.first, c.last, to_micro(c.rotation.x, q), to_micro(c.rotation.y, q), to_micro(c.rotation.z, q), to_micro(c.rotation.w, q), to_micro(c.translation.x, t), to_micro(c.translation.y, t), to_micro(c.translation.z, t)]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
-                    OpsFile::push_number(&out, f[k])
+                    OpsFile::push_number(out, f[k])
                 out.push(10)
-            return move out
+            return
 
         # The version on the header line, or 0 when it is missing or one
         # this build cannot read (StudioChrome::session_version_ok).
@@ -175,6 +181,8 @@ module SessionState:
                     if tag == TAG_FEET and fields.count == 3:
                         s.feet <- fields[1] != 0
                         s.blend <- StudioFoot::blend(fields[2])
+                    elif tag == TAG_HANDS and fields.count == 2:
+                        s.hands <- fields[1] != 0
                     elif tag == TAG_OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
                         b: i64 = StudioChrome::session_frame(fields[4], frames)
@@ -192,7 +200,8 @@ module SessionState:
             return s
 
         def save_session(s: StackState::Stack&, path: cstr) -> bool:
-            text: darray[u8] = encode_session(s)
+            mutable text: darray[u8] = []
+            encode_session(s, &text)
             return Report::save(&text, path)
 
         def load_session(path: cstr, frames: i64, nodes: i64) -> StackState::Stack?:

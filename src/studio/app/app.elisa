@@ -81,6 +81,7 @@ module Studio:
         global mutable memo: StudioModel::Memo? = null
         global mutable built_stack: StackState::Stack? = null
         global mutable built: i64 = 0
+        global mutable rig_source_revision: i64 = 0
         global mutable curve_memo: StudioPerf::Curves = zeroed
         global mutable base_models: darray[Geometry::Transform] = zeroed
         global mutable base_locals: darray[Geometry::Transform] = zeroed
@@ -115,6 +116,7 @@ module Studio:
         global mutable hover_row: i64 = -1
         global mutable shown_slide: i64 = 0
         global mutable shown_sink: i64 = 0
+        global mutable shown_hand_slide: i64 = 0
         global mutable readout_start: f64 = 0.0
         # Retiming: Shift-drag selection (output frames), band edge drag,
         # focused band (Delete removes it), slider and typed speed.
@@ -214,8 +216,9 @@ module Studio:
         def rebuild() -> void:
             s: StackState::Stack = current_stack()
             if clip is old:
-                shown_slide <- readout_value(old.slide_after)
-                shown_sink <- readout_value(old.sink_after)
+                shown_slide <- readout_value(shown_slide, old.slide_after)
+                shown_sink <- readout_value(shown_sink, old.sink_after)
+                shown_hand_slide <- readout_value(shown_hand_slide, old.hand_slide_after)
             readout_start <- UiAppKitCanvas::monotonic_time()
             if memo == null:
                 memo <- StudioModel::load(path, anim_name)
@@ -223,16 +226,20 @@ module Studio:
             if memo is held:
                 mutable m: StudioModel::Memo = held
                 memo <- null
+                if built_stack is prior:
+                    rig_source_revision <- rig_source_revision + 1 if not StackState::same_rig_source(prior, s)
+                else:
+                    rig_source_revision <- rig_source_revision + 1
                 w: mutable StudioPerf::Window = StudioPerf::full(m.frames)
                 if clip is c:
                     if built_stack is old:
                         w <- StudioPerf::edit_window(old, s, m.frames, m.shortest)
-                    result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w)
+                    result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w, rig_source_revision)
                 else:
                     none_p: darray[Geometry::Vec3] = []
                     none_i: darray[i64] = []
-                    result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w)
-                memo <- m
+                    result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w, rig_source_revision)
+                memo <- move m
             if result == null:
                 status <- "clip failed to load"
                 nudged_row <- -1
@@ -240,7 +247,7 @@ module Studio:
                 load_failed <- true
                 return
             load_failed <- false
-            clip <- result
+            clip <- move result
             StudioPanels::set_rate(rate())
             sync_count()
             built_stack <- s
@@ -353,10 +360,10 @@ module Studio:
             elapsed: i64 = 0 if ms < 0.0 else (READOUT_MS if ms > READOUT_MS.f64() else ms.i64())
             return StudioFoot::progress(elapsed, READOUT_MS)
 
-        def readout_value(target: i64) -> i64:
+        def readout_value(shown: i64, target: i64) -> i64:
             return target if target < -StudioFoot::LIMIT or target > StudioFoot::LIMIT
-            return target if shown_slide < -StudioFoot::LIMIT or shown_slide > StudioFoot::LIMIT
-            return StudioFoot::mix(shown_slide, target, readout_progress())
+            return target if shown < -StudioFoot::LIMIT or shown > StudioFoot::LIMIT
+            return StudioFoot::mix(shown, target, readout_progress())
 
         # K: foot cleanup on/off, recorded in history.
         def toggle_feet() -> void:
@@ -364,6 +371,15 @@ module Studio:
             if StackState::set_feet(&s, not s.feet):
                 commit(s, true)
                 status <- "feet fixed" if s.feet else "feet off"
+                nudged_row <- -1
+                status_file <- null
+
+        # J: opt-in hand contact cleanup, recorded in history.
+        def toggle_hands() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::set_hands(&s, not s.hands):
+                commit(s, true)
+                status <- "hands fixed" if s.hands else "hands off"
                 nudged_row <- -1
                 status_file <- null
 
@@ -398,18 +414,21 @@ module Studio:
                 touch()
 
         # A press on a contact row; true when it was one.
-        def foot_down(x: f32, y: f32) -> bool:
+        def contact_down(x: f32, y: f32) -> bool:
             tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
             row: i64 = StudioPanels::contact_row(tb, y)
             return false if row < 0
             if clip is c:
                 st: StudioPanels::Box = StudioPanels::strip(tb)
-                fl: darray[bool] = c.left_contact if row == StackState::LEFT else c.right_contact
+                mutable fl: darray[bool] = c.left_contact
+                fl <- c.right_contact if row == StackState::RIGHT
+                fl <- c.left_hand_contact if row == StackState::LEFT_HAND
+                fl <- c.right_hand_contact if row == StackState::RIGHT_HAND
                 foot_press <- FootState::press(fl, row, (x - st.x).i64(), st.w.i64())
                 return true
             false
 
-        def foot_up(x: f32) -> void:
+        def contact_up(x: f32) -> void:
             p: FootState::Press = foot_press
             foot_press <- FootState::idle()
             tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
@@ -502,14 +521,14 @@ module Studio:
             select_row(row)
             edit_selected(kind, 0) if kind != StudioPanels::HIT_SELECT
 
-        # One click clean: the boxing preset (every operation plus the foot
-        # fix) as an undoable edit, then the before/after gain.
+        # One click Fix all: the boxing preset plus foot and hand locks as one
+        # undoable edit; the sidebar shows every detector's before/after.
         def clean_with_preset() -> void:
-            commit(StudioModel::initial_stack(), true)
+            commit(StudioModel::fix_all_stack(), true)
             if clip is c:
                 gain_slide <- gain(c.slide_before, c.slide_after)
                 gain_spikes <- gain(c.spikes_before, c.spikes_after)
-            status <- "cleaned with boxing preset (Cmd-Z to undo)"
+            status <- "Fix all applied (Cmd-Z to undo)"
             nudged_row <- -1
             status_file <- null
             touch()
@@ -584,9 +603,12 @@ module Studio:
                 touch()
                 return
             path <- p
-            memo <- fresh
+            memo <- move fresh
             clip <- null
             built_stack <- null
+            shown_slide <- 0
+            shown_sink <- 0
+            shown_hand_slide <- 0
             built <- built + 1
             curve_memo <- zeroed
             base_frame <- -1
@@ -813,7 +835,7 @@ module Studio:
                     StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
                     StudioRetime::overlay(StudioPanels::timeline_box(w, h), c, &s, &selection, t.frame)
                     StudioRetime::controls(StudioPanels::curve_box(w, h), RetimeState::ready(&selection) or band_focus >= 0, retime_speed, typing, typed_view())
-                    StudioPanels::foot_readout(StudioPanels::sidebar_box(w, h), c, readout_value(c.slide_after), StudioFoot::mix(shown_sink, c.sink_after, readout_progress()) if shown_sink >= -StudioFoot::LIMIT and shown_sink <= StudioFoot::LIMIT and c.sink_after >= -StudioFoot::LIMIT and c.sink_after <= StudioFoot::LIMIT else c.sink_after, s.blend)
+                    StudioPanels::cleanup_readout(StudioPanels::sidebar_box(w, h), c, readout_value(shown_slide, c.slide_after), readout_value(shown_sink, c.sink_after), readout_value(shown_hand_slide, c.hand_slide_after), s.blend)
                     UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
                     drawn_frame <- t.frame
             screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
@@ -953,7 +975,7 @@ module Studio:
             if button == 0:
                 return if retime_down(tb, StudioPanels::curve_box(w, h), x, y)
             if StudioPanels::inside(tb, x, y) and button == 0:
-                return if foot_down(x, y)
+                return if contact_down(x, y)
             if StudioPanels::inside(tb, x, y) or StudioPanels::inside(StudioPanels::curve_box(w, h), x, y):
                 scrubbing <- true
                 scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
@@ -1059,7 +1081,7 @@ module Studio:
                 edge_drag <- RetimeState::no_drag()
                 return
             if FootState::active(&foot_press):
-                foot_up(x)
+                contact_up(x)
                 return
             if gizmo_view >= 0:
                 gizmo_release(x, y)
@@ -1265,6 +1287,8 @@ module Studio:
                 touch()
             elif code == UiCore::Key.K:
                 toggle_feet()
+            elif code == UiCore::Key.J:
+                toggle_hands()
             elif code == UiCore::Key.W:
                 jump_worst()
             elif code == UiCore::Key.Comma:
