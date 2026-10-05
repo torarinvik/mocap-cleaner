@@ -159,10 +159,12 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       retime, undo, sessions and export. Record the exact build, outcomes and
       screenshots in `docs/studio-capability-matrix.md`. Verify contact nudges
       and finding filters on screen, including labels, focus, hit targets,
-      reset and ignore/restore. Review replacement, legacy-session and export
-      dialogs for readability and dismissal at the minimum window size. The
-      existing partial review and its evidence are documented in the matrix;
-      failed-load review did not establish valid-take picker or filter behavior.
+      Reset scope explanations, disabled states, click-away, Escape, status
+      feedback, undo, and ignore/restore. Review replacement, legacy-session
+      and export dialogs for readability and dismissal at the minimum window
+      size. The existing partial review and its evidence are documented in the
+      matrix; failed-load review did not establish valid-take picker, filter or
+      reset behavior.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
@@ -275,9 +277,64 @@ visually verified solely from offscreen rendering.
       location, age and size; exclude source takes, open documents and current
       session references; let users review a cleanup selection before moving
       recoverable items to Trash. Report freed space and make retention rules
-      and Restore easy to find. `StudioStorageCleanupPolicy` now proves the
-      eligibility and review gates; filesystem enumeration, canonical-path
-      evidence and the recoverable Trash/Restore UI remain open.
+      and Restore easy to find. `StudioStorageCleanupPolicy` proves the
+      eligibility and review gates. `../elisa-engine-mocap` now supplies a
+      macOS move/restore adapter that checks build-root containment and records
+      Trash-item identity; Studio inventory, durable receipt storage and the
+      user workflow remain open.
+
+#### Storage cleanup and Restore experience
+
+- [ ] Add a clearly named **Storage & Recovery** entry under File or workspace
+      settings. Show generated-storage use, eligible bytes, protected bytes,
+      and the last cleanup or restore result. Explain that moving items to
+      Trash is recoverable and that emptying Trash is handled by Finder.
+- [ ] Inventory only Studio-managed generated files under the canonical
+      `build/` root. Group recovery snapshots, temporary exports and reports;
+      display filename, kind, relative location, modified age and size; and
+      sort, search and filter by those fields. Keep source takes outside the
+      candidate list entirely.
+- [ ] Show protected candidates with a plain-language reason such as active
+      document, open-session reference, too recent, outside the managed root,
+      symbolic link, changed identity or unsupported file type. Keep protected
+      rows visible for explanation but never selectable.
+- [ ] Let users select eligible rows individually or by safe group and retain
+      selection while sorting and filtering. Show a live item and size total.
+      Provide Select eligible and Clear selection actions with obvious scope;
+      never preselect items on first open.
+- [ ] Before acting, show exact item count, estimated space, names and
+      destinations. Require an explicit **Move to Trash** action. Re-scan and
+      revalidate canonical path, source/session references, file type and
+      identity immediately before each move; a changed item becomes protected
+      and the review updates before remaining actions proceed.
+- [ ] Persist each successful engine receipt atomically in a versioned
+      Studio-managed manifest that is itself excluded from cleanup. Record the
+      original path, Trash location and identity. Report partial success per
+      item, and never claim space was freed when a move failed. A crash while
+      saving receipts must not turn a successful move into a falsely reported
+      permanent deletion.
+- [ ] Provide a **Recently moved to Trash** view with item name, original
+      location, date and Restore action. Restore only when the receipt and
+      Trash item still match; never overwrite an existing destination. Explain
+      missing, altered or expired Trash items and destination conflicts, then
+      let the user rescan after resolving a conflict.
+- [ ] Define visible retention preferences with a sensible default, concise
+      explanation and preview of what each choice makes eligible. Retain
+      snapshots needed for recovery, honor the policy's minimum age and let
+      users exempt a report or recovery point. Changing retention must not move
+      files until the user reviews and confirms the resulting list.
+- [ ] Make the workflow keyboard and VoiceOver accessible: named entry, item
+      roles and values, selection state, protected reason, selection totals,
+      review heading, confirmation, progress, per-item result and restore
+      outcome. Escape cancels an unconfirmed review and focus returns to the
+      invoking control. Test large inventories, long paths, permission failures,
+      stale receipts, unavailable Trash, partial batch errors and interrupted
+      receipt writes with generated fixtures under `build/`.
+
+**Storage cleanup exit:** an animator can identify what Studio owns, select
+only eligible generated files, understand the consequences before acting,
+restore a moved item without overwriting work, and explain every protected or
+failed item. Source-take hashes remain unchanged in all fixtures.
 
 **Exit:** keyboard-only and pointer-only import/save/restore/export paths;
 all dirty-close and failure branches exercised; no clipped controls at the
@@ -376,11 +433,6 @@ positives before enabling recommendations.
       move buttons and keyboard actions.
 - [ ] Coalesce a slider or numeric edit into one undo transaction. Invalid
       numeric drafts and cancelled drags leave no history entry.
-- [ ] Add a visible Reset menu for clearing authored contact edits, clearing
-      local pose corrections, or restoring the source result. Explain each
-      scope, show unavailable actions as disabled, and keep every accepted
-      action in one undo step. Removing or bypassing one operation stays with
-      its row and must remain distinct from the broad reset choices.
 - [ ] Add saved recipes with named/versioned settings, rig requirements,
       relative or absolute scope semantics, and preview before replacement.
       Separate factory presets from user recipes; preserve edited recipes.
