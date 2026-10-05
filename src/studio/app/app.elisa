@@ -222,6 +222,8 @@ module Studio:
         global mutable accessibility_reset_corrections_widget: usize = 0
         global mutable accessibility_reset_source_widget: usize = 0
         global mutable accessibility_reset_ready: bool = false
+        global mutable accessibility_stack_duplicate_widget: usize = 0
+        global mutable accessibility_stack_ready: bool = false
         global mutable accessibility_issue_previous_widget: usize = 0
         global mutable accessibility_issue_next_widget: usize = 0
         global mutable accessibility_issue_worst_widget: usize = 0
@@ -1205,6 +1207,20 @@ module Studio:
             status <- "Source restored; all cleanup removed (Cmd-Z)" if action == StudioResetScope::RESTORE_SOURCE
             commit(s, true)
 
+        def duplicate_selected() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if not StudioOperationDuplicatePolicy::available(s.count, s.selected):
+                status <- "Stack is full (16 of 16)" if s.count >= StudioOperationDuplicatePolicy::MAX_OPS else "Select an operation to duplicate"
+                nudged_row <- -1
+                status_file <- null
+                touch()
+                return
+            if StackState::duplicate_selected(&s):
+                status <- "Operation duplicated; copy selected (Cmd-Z to undo)"
+                nudged_row <- -1
+                status_file <- null
+                commit(s, true)
+
         def edit_selected(kind: i64, amount: i64) -> void:
             mutable s: StackState::Stack = current_stack()
             at: i64 = s.selected
@@ -1242,6 +1258,9 @@ module Studio:
             row: i64 = hit % 100
             if kind == StudioPanels::HIT_ADD:
                 add_op(row)
+                return
+            if kind == StudioPanels::HIT_DUPLICATE:
+                duplicate_selected()
                 return
             select_row(row)
             edit_selected(kind, 0) if kind != StudioPanels::HIT_SELECT
@@ -2482,6 +2501,8 @@ module Studio:
             accessibility_reset_corrections_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_reset_source_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_reset_ready <- accessibility_reset_trigger_widget != UiFlat::NONE and accessibility_reset_contacts_widget != UiFlat::NONE and accessibility_reset_corrections_widget != UiFlat::NONE and accessibility_reset_source_widget != UiFlat::NONE
+            accessibility_stack_duplicate_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_stack_ready <- accessibility_stack_duplicate_widget != UiFlat::NONE
             accessibility_issue_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_issue_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_issue_worst_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
@@ -2520,6 +2541,10 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if accessibility_stack_ready and event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_stack_duplicate_widget:
+                reset_menu_open <- false
+                duplicate_selected()
+                return
             if accessibility_reset_ready and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_reset_trigger_widget:
                     reset_menu_open <- not reset_menu_open
@@ -2837,6 +2862,28 @@ module Studio:
                     StudioPanels::reset_menu_item_box(sb, 2), StudioAccessibility::RESET_SOURCE_RESULT,
                     StudioAccessibility::RESET_GROUP,
                     none, none, accessibility_reset_source_widget, source_enabled, false, source_value)
+
+        def publish_stack_accessibility(w: f32, h: f32, s: StackState::Stack&) -> void:
+            return if not accessibility_stack_ready
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            none: usize = StudioAccessibility::NO_NODE
+            duplicate_enabled: bool = StudioOperationDuplicatePolicy::available(s.count, s.selected)
+            UiFlat::set_enabled(accessibility_stack_duplicate_widget, duplicate_enabled)
+            mutable value: sview = "Select an operation before duplicating"
+            value <- "Stack is full (16 of 16)" if s.count >= StudioOperationDuplicatePolicy::MAX_OPS
+            value <- "Copy is inserted after the selected step" if duplicate_enabled
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Cleanup stack actions",
+                "Actions for the selected cleanup operation.",
+                StudioPanels::duplicate_button_box(sb), StudioAccessibility::STACK_GROUP,
+                StudioAccessibility::SIDEBAR, StudioAccessibility::STACK_DUPLICATE,
+                none, none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Duplicate selected operation",
+                "Insert an exact copy after the selected operation and select the copy. Cmd-D. One undo step.",
+                StudioPanels::duplicate_button_box(sb), StudioAccessibility::STACK_DUPLICATE,
+                StudioAccessibility::STACK_GROUP, none, none,
+                accessibility_stack_duplicate_widget, duplicate_enabled, false, value)
 
         def publish_export_warning_detail_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_warning_ready
@@ -3178,6 +3225,7 @@ module Studio:
             publish_contact_editor_accessibility(w, h)
             mutable reset_stack: StackState::Stack = current_stack()
             publish_reset_accessibility(w, h, reset_stack)
+            publish_stack_accessibility(w, h, reset_stack)
             accessibility_node(UiCore::AccessibilityRole.Status,
                 "Studio status",
                 "Current editing, cleanup, and playback status.",
@@ -3914,8 +3962,8 @@ module Studio:
                 modifiers <- StudioShortcuts::shift_down(modifiers) if down else StudioShortcuts::shift_up(modifiers)
             return command or shift
 
-        # Cmd-Z undo, Cmd-Shift-Z redo; other Cmd chords are ignored and
-        # plain keys go to the single-key bindings.
+        # Cmd-Z undoes, Cmd-Shift-Z redoes, and Cmd-D duplicates the selected
+        # operation; unsupported command chords do not reach plain bindings.
         def key_down(code: UiCore::Key) -> void:
             if reset_menu_open:
                 reset_menu_open <- false
@@ -3980,6 +4028,10 @@ module Studio:
                 touch()
                 return
             if help_open and code != UiCore::Key.Escape:
+                return
+            if code == UiCore::Key.D and modifiers == StudioShortcuts::COMMAND:
+                duplicate_selected()
+                modifiers <- 0
                 return
             # Shift is a useful modifier for contact editing, so handle its
             # supported bindings before other_chord classifies it as a chord
