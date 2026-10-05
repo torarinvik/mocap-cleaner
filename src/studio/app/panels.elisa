@@ -15,6 +15,8 @@ include "../file_policy.elisa"
 include "../replacement.elisa"
 include "../legacy_session_prompt.elisa"
 include "../accessibility.elisa"
+include "../issues.elisa"
+include "../issue_browser_policy.elisa"
 include "../export_review.elisa"
 include "../export_path_review.elisa"
 include "../export_result.elisa"
@@ -130,6 +132,15 @@ module StudioPanels:
         const MARKER_BINS: i64 = 120
         const FILE_MENU_ROW: f32 = 28.0
         const FILE_MENU_WIDTH: f32 = 190.0
+        const ISSUE_ROWS: i64 = StudioIssueBrowserPolicy::ROWS
+        const ISSUE_PREVIOUS: i64 = StudioIssueBrowserPolicy::PREVIOUS
+        const ISSUE_NEXT: i64 = StudioIssueBrowserPolicy::NEXT
+        const ISSUE_WORST: i64 = StudioIssueBrowserPolicy::WORST
+        const ISSUE_GROUP_ID: usize = StudioIssueBrowserPolicy::GROUP_ID
+        const ISSUE_PREVIOUS_ID: usize = StudioIssueBrowserPolicy::PREVIOUS_ID
+        const ISSUE_NEXT_ID: usize = StudioIssueBrowserPolicy::NEXT_ID
+        const ISSUE_WORST_ID: usize = StudioIssueBrowserPolicy::WORST_ID
+        const ISSUE_ROW_ID_FIRST: usize = StudioIssueBrowserPolicy::ROW_ID_FIRST
 
         # Toolbar actions, in button order.
         const A_PLAY: i64 = 0
@@ -292,7 +303,7 @@ module StudioPanels:
             return "Cmd-O  open take    E  export    Cmd-E  export as" if i == 15
             return "VIEW" if i == 16
             return "F  frame character    Shift-F  frame times    P  position / rotation curves" if i == 17
-            return "T trails  C contacts  H heat  N onion  G ghost  X x-ray  M mesh  Q balance" if i == 18
+            return "T trails  C contacts  H heat  N onion  G ghost  X x-ray  M mesh  Shift-M model  Q balance" if i == 18
             return "Drag a view to orbit, right-drag to pan, scroll to zoom, click a bone to select" if i == 19
             return "Retime: Shift-drag the timeline, Shift-1..7 preset, = type a speed" if i == 20
             return "Escape cancels one thing at a time: this sheet, a drag, a contact" if i == 21
@@ -543,10 +554,108 @@ module StudioPanels:
             w: f32 = (sb.w - 24.0) / 3.0
             col: i64 = k % 3
             row: i64 = k / 3
-            box(sb.x + 12.0 + col.f32() * w, sb.y + 208.0 + row.f32() * 28.0, w - 4.0, 24.0)
+            box(sb.x + 12.0 + col.f32() * w, sb.y + 250.0 + row.f32() * 28.0, w - 4.0, 24.0)
 
         def row_box(sb: Box, i: i64) -> Box:
-            box(sb.x + 8.0, sb.y + 272.0 + i.f32() * (ROW + 4.0), sb.w - 16.0, ROW)
+            box(sb.x + 8.0, sb.y + 314.0 + i.f32() * (ROW + 4.0), sb.w - 16.0, ROW)
+
+        # Ranked issue browser occupies the sidebar above cleanup controls.
+        # Two rows remain visible at compact window heights; navigation stays
+        # available even when the ranked list is longer.
+        def issue_nav_box(sb: Box, action: i64) -> Box:
+            box(sb.x + 12.0 + action.f32() * 89.0, sb.y + 133.0, 82.0, 22.0)
+
+        def issue_area_box(sb: Box) -> Box:
+            box(sb.x + 6.0, sb.y + 96.0, sb.w - 12.0, 98.0)
+
+        def issue_row_id(index: i64) -> usize:
+            StudioIssueBrowserPolicy::row_id(index)
+
+        def issue_node_parent(id: usize) -> usize:
+            StudioIssueBrowserPolicy::node_parent(id, StudioAccessibility::SIDEBAR, StudioAccessibility::NO_NODE)
+
+        def issue_node_first_child() -> usize:
+            StudioIssueBrowserPolicy::node_first_child()
+
+        def issue_node_next_sibling(id: usize, visible_rows: i64) -> usize:
+            StudioIssueBrowserPolicy::node_next_sibling(id, visible_rows, StudioAccessibility::NO_NODE)
+
+        def issue_window_start(selected: i64, count: i64) -> i64:
+            StudioIssueBrowserPolicy::window_start(selected, count)
+
+        def issue_row_box(sb: Box, index: i64) -> Box:
+            box(sb.x + 8.0, sb.y + 158.0 + index.f32() * 34.0, sb.w - 16.0, 31.0)
+
+        def issue_nav_hit(sb: Box, px: f32, py: f32) -> i64:
+            for action in 0..<3 |action, sb, px, py|:
+                return action if inside(issue_nav_box(sb, action), px, py)
+            -1
+
+        def issue_row_hit(sb: Box, count: i64, px: f32, py: f32) -> i64:
+            for index in 0..<count |index, sb, px, py|:
+                return index if inside(issue_row_box(sb, index), px, py)
+            -1
+
+        def issue_at(issues: darray[StudioIssues::Issue]&, index: i64) -> StudioIssues::Issue:
+            mutable current: i64 = 0
+            for issue in issues |current|:
+                if current == index:
+                    return issue
+                current <- current + 1
+            zeroed
+
+        def issue_navigation_target(current: i64, count: i64, action: i64) -> i64:
+            StudioIssueBrowserPolicy::navigation_target(current, count, action)
+
+        def issue_row_route_enabled(index: i64, visible_rows: i64, fresh: bool) -> bool:
+            StudioIssueBrowserPolicy::row_route_enabled(index, visible_rows, fresh)
+
+        def issue_row_text(issue: StudioIssues::Issue) -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            if issue.issue_type == 0:
+                StudioText::put("Spike")
+            else:
+                StudioText::put("detector ")
+                StudioText::put_i(issue.issue_type)
+            StudioText::put(" · ")
+            if issue.subject_id >= 0:
+                StudioText::put("subject ")
+                StudioText::put_i(issue.subject_id)
+            else:
+                StudioText::put("aggregate only")
+            StudioText::put("  frame ")
+            StudioText::put_i(issue.peak_frame + 1)
+            StudioText::put("  value ")
+            StudioText::put_i(issue.peak_value)
+            StudioText::put(" / ")
+            StudioText::put_i(issue.threshold)
+            StudioText::view()
+
+        def issue_browser(sb: Box, issues: darray[StudioIssues::Issue]&, first: i64, selected: i64, stale: bool, loading: bool) -> void:
+            StudioDraw::rect(sb.x + 6.0, sb.y + 96.0, sb.w - 12.0, 98.0, StudioDraw::color(30, 34, 44))
+            StudioDraw::bold(sb.x + 12.0, sb.y + 101.0, 14.0, "Ranked findings", StudioDraw::ink())
+            StudioDraw::text(sb.x + 134.0, sb.y + 104.0, 10.0,
+                "Updating · stale navigation disabled" if stale else "Updating findings" if loading else "Current",
+                StudioDraw::color(255, 170, 40) if stale or loading else StudioDraw::muted())
+            for action in 0..<3 |action, sb, selected|:
+                b: Box = issue_nav_box(sb, action)
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())
+                StudioDraw::text(b.x + 5.0, b.y + 5.0,
+                    10.0, "Previous" if action == ISSUE_PREVIOUS else "Next" if action == ISSUE_NEXT else "Worst",
+                    StudioDraw::ink())
+            count: i64 = issues.count.i64() if issues.count.i64() < ISSUE_ROWS else ISSUE_ROWS
+            if loading and issues.count == 0:
+                StudioDraw::text(sb.x + 12.0, sb.y + 164.0, 11.0, "Loading findings…", StudioDraw::muted())
+            elif issues.count == 0:
+                StudioDraw::text(sb.x + 12.0, sb.y + 164.0, 11.0, "No motion findings", StudioDraw::muted())
+            for index in 0..<count |index, sb, issues, selected, stale|:
+                absolute: i64 = first + index
+                issue: StudioIssues::Issue = issue_at(issues, absolute)
+                b: Box = issue_row_box(sb, index)
+                StudioDraw::rect(b.x, b.y, b.w, b.h,
+                    StudioDraw::color(58, 52, 40) if absolute == selected else StudioDraw::panel())
+                StudioDraw::text(b.x + 5.0, b.y + 9.0, 9.0,
+                    issue_row_text(issue), StudioDraw::muted() if stale else StudioDraw::ink())
 
         def add_label(k: i64) -> sview:
             return "Smooth" if k == 1
@@ -1211,7 +1320,7 @@ module StudioPanels:
             StudioDraw::text(sb.x + 12.0, sb.y + 38.0, 12.0, StudioText::pair("frames ", c.frames, "   bones ", c.nodes.count.i64()), StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, sb.y + 56.0, 12.0, StudioText::pair("spikes source ", c.spikes_before, "  cleaned ", c.spikes_after), StudioDraw::muted())
             StudioDraw::text(sb.x + 12.0, sb.y + 74.0, 12.0, StudioText::pair("history ", history_cursor + 1, " / ", history_count), StudioDraw::muted())
-            StudioDraw::bold(sb.x + 12.0, sb.y + 180.0, 14.0, "Operation stack", StudioDraw::ink())
+            StudioDraw::bold(sb.x + 12.0, sb.y + 218.0, 14.0, "Operation stack", StudioDraw::ink())
             for k in 0..<ADD_KINDS |k, sb|:
                 b: Box = add_box(sb, k)
                 StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())

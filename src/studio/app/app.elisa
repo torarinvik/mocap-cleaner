@@ -13,7 +13,9 @@ include "../../../../elisa-ui/src/platform/appkit/ui_appkit_canvas_flat.elisa"
 include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 include "scene.elisa"
+include "character.elisa"
 include "panels.elisa"
+include "../issues.elisa"
 include "retime_panel.elisa"
 include "../shortcuts.elisa"
 include "../focus.elisa"
@@ -55,6 +57,11 @@ module Studio:
         global mutable last_time: f64 = 0.0
         global mutable drawn_frame: i64 = -1
         global mutable revision: i64 = 0
+        # Findings are snapshotted from the last completed clip build. A row
+        # carries that build's revision so navigation can reject stale data.
+        global mutable issues: darray[StudioIssues::Issue] = zeroed
+        global mutable issues_revision: i64 = -1
+        global mutable issue_selected: i64 = 0
         global mutable status: sview = "ready"
         # Live drag readouts: gizmo angle (tenths of a degree) and offset
         # (mm), -1 when no gizmo drag is running; and the stack row whose
@@ -119,6 +126,16 @@ module Studio:
         global mutable skinned: darray[Geometry::Vec3]? = null
         global mutable skinned_frame: i64 = -1
         global mutable skinned_revision: i64 = -1
+        # A separate character model (Shift-M, or the third command-line
+        # argument), bound to the take's rig by joint name; it is drawn
+        # instead of the take's own mesh while its binding is drawable.
+        # `take_serial` counts takes opened so the binding follows them.
+        global mutable model_path: cstr = ""
+        global mutable model_requested: bool = false
+        global mutable character: StudioCharacter::Model? = null
+        global mutable character_binding: StudioCharacter::Binding? = null
+        global mutable character_take: i64 = -1
+        global mutable take_serial: i64 = 0
         # Gizmo: GizmoPolicy mode, or -1 when hidden; the drag and its view.
         global mutable gizmo_mode: i64 = -1
         global mutable gizmo_drag: ViewportGizmo::Drag? = null
@@ -183,6 +200,11 @@ module Studio:
         global mutable accessibility_contact_merge_widget: usize = 0
         global mutable accessibility_contact_split_widget: usize = 0
         global mutable accessibility_contact_ready: bool = false
+        global mutable accessibility_issue_previous_widget: usize = 0
+        global mutable accessibility_issue_next_widget: usize = 0
+        global mutable accessibility_issue_worst_widget: usize = 0
+        global mutable accessibility_issue_row_widgets: usize[StudioPanels::ISSUE_ROWS.usize()] = zeroed
+        global mutable accessibility_issue_ready: bool = false
 
         global mutable drag_view: i64 = -1
         global mutable drag_button: i32 = -1
@@ -282,6 +304,53 @@ module Studio:
         def set_anim(a: cstr) -> void:
             anim_name <- a
 
+        def set_model(p: cstr) -> void:
+            model_path <- p
+            model_requested <- true
+
+        # Load the character model in `p`; the current one stays when `p`
+        # holds no skinned mesh. Turns the mesh view on.
+        def load_character(p: cstr) -> void:
+            loaded: StudioCharacter::Model? = StudioCharacter::load(p)
+            if loaded is m:
+                character <- m
+                character_binding <- null
+                character_take <- -1
+                skinned <- null
+                skinned_frame <- -1
+                skinned_revision <- -1
+                if not StudioScene::on(flags, StudioScene::MESH):
+                    flags <- StudioScene::toggle(flags, StudioScene::MESH)
+                say_file("character model loaded from", p)
+            else:
+                say_file("no skinned mesh could be read from", p)
+            touch()
+
+        def open_character() -> void:
+            if FilePanel::open("glb", "Open a character model") is chosen:
+                load_character(chosen)
+
+        # Bind the character to `c` once per opened take; the bound share
+        # goes to the status line.
+        def bind_character(c: StudioModel::Clip&) -> void:
+            return if character_take == take_serial
+            if character is m:
+                b: StudioCharacter::Binding = StudioCharacter::bind(m, c)
+                ok: bool = StudioCharacter::drawable(&b)
+                status <- StudioText::number("character joints bound (permille): ", b.coverage) if ok else StudioText::number("character: too few joints match this rig (permille): ", b.coverage)
+                nudged_row <- -1
+                status_file <- null
+                character_binding <- move b
+                character_take <- take_serial
+                skinned <- null
+                skinned_frame <- -1
+
+        # The character is bound well enough to draw.
+        def character_ready() -> bool:
+            if character_binding is b:
+                return character != null and StudioCharacter::drawable(b)
+            return false
+
         # ---- per-view globals ------------------------------------------
         def put_view(i: i64, vp: Viewport::Viewport) -> void:
             if i == 0:
@@ -360,6 +429,67 @@ module Studio:
             revision <- revision + 1
             UiCore::request_frame_after(0.001)
 
+        def collect_issues(c: StudioModel::Clip&) -> void:
+            mutable samples: darray[StudioIssues::Sample] = []
+            for frame in 0..<c.frames |frame, c|:
+                if frame < c.problems.count.i64() and c.problems[frame.usize()] > 0:
+                    value: i64 = c.peaks[frame.usize()]
+                    if value >= c.threshold and c.threshold > 0:
+                        mutable severity: i64 = value * 1000 / c.threshold
+                        severity <- StudioIssues::MAX_SEVERITY if severity > StudioIssues::MAX_SEVERITY else severity
+                        samples.push(StudioIssues::Sample{frame: frame, issue_type: 0, subject_id: -1, source_revision: built, severity: severity, value: value, threshold: c.threshold})
+            mutable ranked: darray[StudioIssues::Issue] = StudioIssues::group(&samples)
+            # Stable descending severity, then descending peak excess. The
+            # grouping kernel has already made each row's peak deterministic.
+            if ranked.count > 1:
+                for index in 1..<ranked.count |index, ranked|:
+                    mutable cursor: usize = index
+                    while cursor > 0:
+                        current: StudioIssues::Issue = ranked[cursor]
+                        previous: StudioIssues::Issue = ranked[cursor - 1]
+                        current_margin: i64 = current.peak_value - current.threshold
+                        previous_margin: i64 = previous.peak_value - previous.threshold
+                        wins: bool = current.severity > previous.severity or (current.severity == previous.severity and current_margin > previous_margin)
+                        if wins:
+                            ranked[cursor] <- previous
+                            ranked[cursor - 1] <- current
+                            cursor <- cursor - 1
+                        else:
+                            break
+            issues <- move ranked
+            issue_selected <- 0 if issues.count == 0 or issue_selected >= issues.count.i64()
+            issues_revision <- built
+
+        def navigate_issue(index: i64) -> void:
+            if issues_revision != built:
+                status <- "findings updating; navigation unavailable"
+                touch()
+                return
+            return if issues.count == 0 or index < 0 or index >= issues.count.i64()
+            issue: StudioIssues::Issue = StudioPanels::issue_at(issues, index)
+            if not issue.selectable or issue.source_revision != issues_revision:
+                status <- "finding is stale; wait for update"
+                touch()
+                return
+            issue_selected <- index
+            if timeline is t and issue.peak_frame >= 0 and issue.peak_frame < t.count:
+                timeline <- TimelineState::scrub(t, issue.peak_frame)
+            if clip is c and issue.subject_id >= 0 and issue.subject_id < c.nodes.count.i64():
+                bone <- issue.subject_id
+            status <- "finding selected"
+            touch()
+
+        def issue_navigation(action: i64) -> void:
+            return if issues.count == 0
+            if action == StudioPanels::ISSUE_WORST:
+                navigate_issue(0)
+            else:
+                navigate_issue(StudioPanels::issue_navigation_target(issue_selected,
+                    issues.count.i64(), action))
+
+        def visible_issue_first() -> i64:
+            StudioPanels::issue_window_start(issue_selected, issues.count.i64())
+
         # Rebuild the cleaned clip from the current stack (live preview).
         def rebuild() -> void:
             s: StackState::Stack = current_stack()
@@ -400,6 +530,8 @@ module Studio:
             sync_count()
             built_stack <- s
             built <- built + 1
+            if clip is c:
+                collect_issues(c)
             touch()
 
         # A retime changes the clip length: keep the playhead on the same
@@ -1532,6 +1664,7 @@ module Studio:
             skinned_frame <- -1
             skinned_revision <- -1
             mesh <- null
+            take_serial <- take_serial + 1
             loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
                 value: value
                 error failure: GlbSkinMesh::empty()
@@ -1611,9 +1744,19 @@ module Studio:
                 put_view(i, vp)
 
         # Re-skin the mesh when the frame or the clip changed (MESH on only).
+        # A drawable character model wins over the take's own mesh.
         def refresh_skin(c: StudioModel::Clip&) -> void:
             return if not StudioScene::on(flags, StudioScene::MESH)
+            bind_character(c)
             return if skinned_frame == frame_now() and skinned_revision == revision
+            if character_ready():
+                if character is ch:
+                    if character_binding is b:
+                        posed_character: darray[Geometry::Vec3] = StudioCharacter::pose(ch, b, c, frame_now())
+                        skinned <- posed_character
+                        skinned_frame <- frame_now()
+                        skinned_revision <- revision
+                return
             if mesh is m:
                 posed: darray[Geometry::Vec3] = StudioScene::pose_mesh(c, m, frame_now())
                 skinned <- posed
@@ -1639,6 +1782,11 @@ module Studio:
             if StudioOverlay::preview(gizmo_view, gizmo_drag != null, bone):
                 if gizmo_goal is goal:
                     preview <- chain_preview_of(c, goal)
+            if character_ready():
+                if character is ch:
+                    if skinned is p:
+                        return StudioScene::build_with(cam, c, &ch.mesh, p, frame_now(), flags, bone, &preview)
+                return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
             if mesh is m:
                 if skinned is p:
                     return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
@@ -1665,6 +1813,8 @@ module Studio:
                 error failure: GlbSkinMesh::empty()
             if GlbSkinMesh::vertex_count(&loaded) > 0:
                 mesh <- loaded
+            if model_requested:
+                load_character(model_path)
             rebuild()
             if clip is c:
                 timeline <- TimelineState::create(c.frames)
@@ -1750,6 +1900,8 @@ module Studio:
                     StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
                     perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
+                    StudioPanels::issue_browser(StudioPanels::sidebar_box(w, h), issues,
+                        visible_issue_first(), issue_selected, issues_revision != built, false)
                     contact_valid: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, c.frames)
                     contact_edit_index: i64 = StackState::edit_index_at(s, contact_selected_side, contact_selected_frame) if contact_valid else -1
                     mutable contact_edit_first: i64 = -1
@@ -1772,6 +1924,10 @@ module Studio:
                     StudioRetime::controls(StudioPanels::curve_box(w, h), RetimeState::ready(&selection) or band_focus >= 0, retime_speed, typing, typed_view())
                     StudioPanels::cleanup_readout(StudioPanels::sidebar_box(w, h), c, readout_value(shown_slide, c.slide_after), readout_value(shown_sink, c.sink_after), readout_value(shown_hand_slide, c.hand_slide_after), s.blend)
                     StudioPanels::file_menu_panel(StudioPanels::sidebar_box(w, h), file_menu_open, true, file_menu_focus, file_menu_hover)
+                else:
+                    StudioPanels::issue_browser(StudioPanels::sidebar_box(w, h), issues,
+                        0, issue_selected, issues_revision != built,
+                        not load_failed)
                     UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
                     drawn_frame <- t.frame
             screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
@@ -1876,6 +2032,15 @@ module Studio:
             accessibility_contact_merge_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_contact_split_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE and accessibility_contact_delete_widget != UiFlat::NONE and accessibility_contact_merge_widget != UiFlat::NONE and accessibility_contact_split_widget != UiFlat::NONE
+            accessibility_issue_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_issue_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_issue_worst_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            mutable issue_widgets_ready: bool = accessibility_issue_previous_widget != UiFlat::NONE and accessibility_issue_next_widget != UiFlat::NONE and accessibility_issue_worst_widget != UiFlat::NONE
+            for index in 0..<StudioPanels::ISSUE_ROWS |index, issue_widgets_ready, transparent|:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_issue_row_widgets[index.usize()] <- widget
+                issue_widgets_ready <- false if widget == UiFlat::NONE
+            accessibility_issue_ready <- issue_widgets_ready
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -1897,6 +2062,20 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if accessibility_issue_ready and event == UiConst::WidgetEvent.Click.i32():
+                if widget == accessibility_issue_previous_widget:
+                    issue_navigation(StudioPanels::ISSUE_PREVIOUS)
+                    return
+                elif widget == accessibility_issue_next_widget:
+                    issue_navigation(StudioPanels::ISSUE_NEXT)
+                    return
+                elif widget == accessibility_issue_worst_widget:
+                    issue_navigation(StudioPanels::ISSUE_WORST)
+                    return
+                for index in 0..<StudioPanels::ISSUE_ROWS |index, widget|:
+                    if widget == accessibility_issue_row_widgets[index.usize()] and StudioPanels::issue_row_route_enabled(index, StudioPanels::ISSUE_ROWS, issues_revision == built):
+                        navigate_issue(visible_issue_first() + index)
+                        return
             if accessibility_contact_ready and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_contact_plant_widget:
                     contact_apply(StudioContactEditor::PLANT)
@@ -2325,8 +2504,47 @@ module Studio:
                 "Cleanup operations",
                 "Operation stack, cleanup settings, and parameters.",
                 StudioPanels::sidebar_box(w, h), StudioAccessibility::SIDEBAR,
-                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::WORKSPACE, StudioPanels::ISSUE_GROUP_ID,
                 StudioAccessibility::STATUS, none, true, false, "")
+            issue_controls: bool = true
+            shown_issues: i64 = issues.count.i64() if issues.count.i64() < StudioPanels::ISSUE_ROWS else StudioPanels::ISSUE_ROWS
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Ranked motion findings",
+                "Findings ordered by severity. Each row exposes its exact peak frame, value, threshold, detector type and known subject.",
+                StudioPanels::sidebar_box(w, h),
+                StudioPanels::ISSUE_GROUP_ID, StudioAccessibility::SIDEBAR,
+                StudioPanels::ISSUE_PREVIOUS_ID, none, none, true, false,
+                "Findings updating or current; rows show exact peak evidence.")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Previous finding", "Navigate to the previous ranked motion finding.",
+                StudioPanels::issue_nav_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_PREVIOUS),
+                StudioPanels::ISSUE_PREVIOUS_ID, StudioPanels::ISSUE_GROUP_ID, none, StudioPanels::ISSUE_NEXT_ID,
+                accessibility_issue_previous_widget, issue_controls, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Next finding", "Navigate to the next ranked motion finding.",
+                StudioPanels::issue_nav_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_NEXT),
+                StudioPanels::ISSUE_NEXT_ID, StudioPanels::ISSUE_GROUP_ID, none, StudioPanels::ISSUE_WORST_ID,
+                accessibility_issue_next_widget, issue_controls, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Worst finding", "Navigate to the highest ranked finding.",
+                StudioPanels::issue_nav_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_WORST),
+                StudioPanels::ISSUE_WORST_ID, StudioPanels::ISSUE_GROUP_ID, none,
+                StudioPanels::issue_node_next_sibling(StudioPanels::ISSUE_WORST_ID, shown_issues),
+                accessibility_issue_worst_widget, issue_controls, false, "")
+            first_issue: i64 = visible_issue_first()
+            for index in 0..<StudioPanels::ISSUE_ROWS |index, shown_issues, w, h, issues, first_issue|:
+                issue_index: i64 = first_issue + index
+                issue: StudioIssues::Issue = StudioPanels::issue_at(issues, issue_index) if index < shown_issues else zeroed
+                id: usize = StudioPanels::issue_row_id(index)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    StudioPanels::issue_row_text(issue) if index < shown_issues else "No finding",
+                    "Select this finding to scrub to its exact peak frame and focus its subject when known.",
+                    StudioPanels::issue_row_box(StudioPanels::sidebar_box(w, h), index),
+                    id, StudioPanels::ISSUE_GROUP_ID, none,
+                    StudioPanels::issue_node_next_sibling(id, shown_issues),
+                    accessibility_issue_row_widgets[index.usize()],
+                    index < shown_issues and issue_controls,
+                    issue_index == issue_selected, "")
             publish_contact_editor_accessibility(w, h)
             accessibility_node(UiCore::AccessibilityRole.Status,
                 "Studio status",
@@ -2398,7 +2616,7 @@ module Studio:
                 toggle_flag(StudioScene::XRAY)
             elif a == StudioPanels::A_MESH:
                 toggle_flag(StudioScene::MESH)
-                status <- ("mesh on" if StudioScene::on(flags, StudioScene::MESH) else "mesh off") if mesh != null else "mesh: no skinned mesh in this file"
+                status <- ("mesh on" if StudioScene::on(flags, StudioScene::MESH) else "mesh off") if mesh != null or character_ready() else "mesh: no skinned mesh in this file (Shift-M loads a character model)"
                 nudged_row <- -1
                 status_file <- null
             elif a == StudioPanels::A_FRAME:
@@ -2479,6 +2697,15 @@ module Studio:
                 file_menu_open <- false
                 file_menu_hover <- -1
                 touch()
+            if StudioPanels::inside(sb, x, y):
+                issue_nav: i64 = StudioPanels::issue_nav_hit(sb, x, y)
+                if button == 0 and issue_nav >= 0:
+                    issue_navigation(issue_nav)
+                    return
+                issue_row: i64 = StudioPanels::issue_row_hit(sb, issues.count.i64() if issues.count.i64() < StudioPanels::ISSUE_ROWS else StudioPanels::ISSUE_ROWS, x, y)
+                if button == 0 and StudioPanels::issue_row_route_enabled(issue_row, issues.count.i64() if issues.count.i64() < StudioPanels::ISSUE_ROWS else StudioPanels::ISSUE_ROWS, issues_revision == built):
+                    navigate_issue(visible_issue_first() + issue_row)
+                    return
             a: i64 = StudioPanels::toolbar_hit(x, y)
             if a >= 0:
                 toolbar_action(a)
@@ -2933,6 +3160,8 @@ module Studio:
                 nudge_blend(false)
             elif code == UiCore::Key.Period:
                 nudge_blend(true)
+            elif code == UiCore::Key.M and StudioShortcuts::shift(modifiers):
+                open_character()
             elif code == UiCore::Key.M:
                 toggle_action_mesh()
             elif code == UiCore::Key.F and StudioShortcuts::shift(modifiers):
@@ -3023,6 +3252,10 @@ module Studio:
             if replacement_prompt_open:
                 replacement_prompt_key(code)
                 return
+            if typing:
+                if code == UiCore::Key.Enter or code == UiCore::Key.Backspace or code == UiCore::Key.Escape:
+                    key(code)
+                return
             command: bool = StudioShortcuts::command(modifiers)
             mutable file: i64 = StudioShortcuts::FILE_NONE
             if code == UiCore::Key.O:
@@ -3031,6 +3264,7 @@ module Studio:
                 file <- StudioShortcuts::s_chord(modifiers)
             elif code == UiCore::Key.E:
                 file <- StudioShortcuts::e_chord(modifiers)
+            file <- StudioShortcuts::text_file_route(typing, file)
             if file != StudioShortcuts::FILE_NONE:
                 modifiers <- 0
                 dispatch_file_action(StudioFilePolicy::OPEN_TAKE) if file == StudioShortcuts::OPEN_TAKE
@@ -3048,7 +3282,8 @@ module Studio:
                 return
             if help_open and code != UiCore::Key.Escape:
                 return
-            action: i64 = StudioShortcuts::z_chord(modifiers) if code == UiCore::Key.Z else StudioShortcuts::other_chord(modifiers)
+            mutable action: i64 = StudioShortcuts::z_chord(modifiers) if code == UiCore::Key.Z else StudioShortcuts::other_chord(modifiers)
+            action <- StudioShortcuts::text_key_route(typing, action)
             if action == StudioShortcuts::UNDO:
                 undo()
             elif action == StudioShortcuts::REDO:

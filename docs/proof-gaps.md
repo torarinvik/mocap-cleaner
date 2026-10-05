@@ -488,3 +488,16 @@ can be folded into the baseline when the corpus is intentionally re-reviewed.
   model's loop and laws are left in place pending support for mutable
   loop-carried darray/record accumulators and converged summaries for their
   pure helper functions.
+
+## Character binding coverage gap (2026-10-05)
+
+- G84 (prover gap): `proof/studio_character_bind_laws.elisa` proves 76
+  obligations and leaves one unknown. `coverage_is_monotone` needs
+  `bound * 1000 / total <= (bound + 1) * 1000 / total` for `0 < total <=
+  65535`, which is monotonicity of truncating division by a symbolic divisor
+  after a nonlinear product; the solver returns unknown. The policy itself
+  (`src/studio/character_bind_policy.elisa`) proves fully once `coverage`
+  returns `FULL` explicitly for `bound == total` rather than relying on
+  `total * 1000 / total == 1000`. `test/studio_character.elisa` checks the
+  monotone law exhaustively for every total up to 256 pending prover support
+  for division monotonicity lemmas.

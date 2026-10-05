@@ -1,0 +1,280 @@
+# Deterministic, versioned Studio export report formatting. Inputs contain
+# already-computed metrics; this module never reinterprets motion data.
+include "source_fingerprint.elisa"
+include "export_report_policy.elisa"
+
+module StudioExportReport:
+    public:
+        const SCHEMA_VERSION: i64 = StudioExportReportPolicy::SCHEMA_VERSION
+        const MAX_FRAMES: i64 = StudioExportReportPolicy::MAX_FRAMES
+        const MAX_RATE: i64 = StudioExportReportPolicy::MAX_RATE
+        const INFO: i64 = StudioExportReportPolicy::INFO
+        const WARNING: i64 = StudioExportReportPolicy::WARNING
+        const ERROR: i64 = StudioExportReportPolicy::ERROR
+
+        struct Setting:
+            name: sview
+            value: sview
+
+        struct Warning:
+            category: sview
+            severity: i64
+            message: sview
+
+        struct Metrics:
+            changed_channels: i64
+            spikes_before: i64
+            spikes_after: i64
+            foot_slide_before_um: i64
+            foot_slide_after_um: i64
+            foot_sink_before_um: i64
+            foot_sink_after_um: i64
+            hand_slide_before_um: i64
+            hand_slide_after_um: i64
+            balance_impossible_frames: i64
+
+        struct Data:
+            source_name: sview
+            source_fingerprint_first: i64
+            source_fingerprint_second: i64
+            output_fingerprint_first: i64
+            output_fingerprint_second: i64
+            animation_name: sview
+            animation_index: i64
+            input_frames: i64
+            input_fps: i64
+            output_frames: i64
+            output_fps: i64
+            settings: darray[Setting]
+            assumptions: darray[sview]
+            metrics: Metrics
+            warnings: darray[Warning]
+
+        # Frame duration is floored to whole milliseconds. Rates are integer
+        # frames/second, matching Studio's exposed estimate, not a measured
+        # per-frame GLB timestamp digest.
+        def valid(data: Data&) -> bool:
+            return false if not StudioExportReportPolicy::residue_ok(data.source_fingerprint_first, StudioSourceFingerprint::FIRST_MODULUS)
+            return false if not StudioExportReportPolicy::residue_ok(data.source_fingerprint_second, StudioSourceFingerprint::SECOND_MODULUS)
+            return false if not StudioExportReportPolicy::residue_ok(data.output_fingerprint_first, StudioSourceFingerprint::FIRST_MODULUS)
+            return false if not StudioExportReportPolicy::residue_ok(data.output_fingerprint_second, StudioSourceFingerprint::SECOND_MODULUS)
+            return false if data.animation_index < 0
+            return false if not StudioExportReportPolicy::frame_count_ok(data.input_frames) or not StudioExportReportPolicy::frame_count_ok(data.output_frames)
+            return false if not StudioExportReportPolicy::frame_rate_ok(data.input_fps) or not StudioExportReportPolicy::frame_rate_ok(data.output_fps)
+            return false if not nonnegative_metrics(data.metrics)
+            for warning in data.warnings |warning|:
+                return false if text_empty(warning.category) or text_empty(warning.message)
+                return false if not StudioExportReportPolicy::warning_severity_ok(warning.severity)
+            for setting in data.settings |setting|:
+                return false if text_empty(setting.name)
+            true
+
+        def text_empty(text: sview) -> bool:
+            for byte in text:
+                return false
+            true
+
+        def nonnegative_metrics(m: Metrics) -> bool:
+            m.changed_channels >= 0 and m.spikes_before >= 0 and m.spikes_after >= 0 and m.foot_slide_before_um >= 0 and m.foot_slide_after_um >= 0 and m.foot_sink_before_um >= 0 and m.foot_sink_after_um >= 0 and m.hand_slide_before_um >= 0 and m.hand_slide_after_um >= 0 and m.balance_impossible_frames >= 0
+
+        # `first` and `second` are the source identity's bounded residues;
+        # they are explicitly not cryptographic hashes.
+        def json(data: Data&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            return out if not valid(data)
+            push_text(&out, "{\n  \"schema\": \"mocap-studio-export\",\n  \"schema_version\": 1,\n  \"source\": {\n    \"name\": ")
+            push_json_string(&out, data.source_name)
+            push_text(&out, ",\n    \"fingerprint\": {\"algorithm\": \"studio-residue-v1\", \"first\": ")
+            push_number(&out, data.source_fingerprint_first)
+            push_text(&out, ", \"second\": ")
+            push_number(&out, data.source_fingerprint_second)
+            push_text(&out, "},\n    \"output_fingerprint\": {\"algorithm\": \"studio-residue-v1\", \"first\": ")
+            push_number(&out, data.output_fingerprint_first)
+            push_text(&out, ", \"second\": ")
+            push_number(&out, data.output_fingerprint_second)
+            push_text(&out, "}\n  },\n  \"animation\": {\n    \"name\": ")
+            push_json_string(&out, data.animation_name)
+            push_text(&out, ",\n    \"index\": ")
+            push_number(&out, data.animation_index)
+            push_text(&out, "\n  },\n  \"timing\": {\n    \"input_frames\": ")
+            push_number(&out, data.input_frames)
+            push_text(&out, ", \"input_fps_estimate\": ")
+            push_number(&out, data.input_fps)
+            push_text(&out, ", \"input_duration_ms_floor\": ")
+            push_number(&out, StudioExportReportPolicy::duration_ms(data.input_frames, data.input_fps))
+            push_text(&out, ",\n    \"output_frames\": ")
+            push_number(&out, data.output_frames)
+            push_text(&out, ", \"output_fps_estimate\": ")
+            push_number(&out, data.output_fps)
+            push_text(&out, ", \"output_duration_ms_floor\": ")
+            push_number(&out, StudioExportReportPolicy::duration_ms(data.output_frames, data.output_fps))
+            push_text(&out, "\n  },\n  \"settings\": [")
+            for index in 0..<data.settings.count |out, data|:
+                setting: Setting = data.settings[index]
+                push_text(&out, "\n    {\"name\": ") if index == 0
+                push_text(&out, ",\n    {\"name\": ") if index > 0
+                push_json_string(&out, setting.name)
+                push_text(&out, ", \"value\": ")
+                push_json_string(&out, setting.value)
+                push_text(&out, "}")
+            push_text(&out, "\n  ],\n  \"assumptions\": [")
+            for index in 0..<data.assumptions.count |out, data|:
+                push_text(&out, "\n    ") if index == 0
+                push_text(&out, ",\n    ") if index > 0
+                push_json_string(&out, data.assumptions[index])
+            push_text(&out, "\n  ],\n  \"metrics\": {\n    \"changed_channels\": ")
+            push_number(&out, data.metrics.changed_channels)
+            push_text(&out, ",\n    \"spike_frames_before\": ")
+            push_number(&out, data.metrics.spikes_before)
+            push_text(&out, ", \"spike_frames_after\": ")
+            push_number(&out, data.metrics.spikes_after)
+            push_text(&out, ",\n    \"foot_slide_before_um\": ")
+            push_number(&out, data.metrics.foot_slide_before_um)
+            push_text(&out, ", \"foot_slide_after_um\": ")
+            push_number(&out, data.metrics.foot_slide_after_um)
+            push_text(&out, ",\n    \"foot_sink_before_um\": ")
+            push_number(&out, data.metrics.foot_sink_before_um)
+            push_text(&out, ", \"foot_sink_after_um\": ")
+            push_number(&out, data.metrics.foot_sink_after_um)
+            push_text(&out, ",\n    \"hand_slide_before_um\": ")
+            push_number(&out, data.metrics.hand_slide_before_um)
+            push_text(&out, ", \"hand_slide_after_um\": ")
+            push_number(&out, data.metrics.hand_slide_after_um)
+            push_text(&out, ",\n    \"balance_impossible_frames\": ")
+            push_number(&out, data.metrics.balance_impossible_frames)
+            push_text(&out, "\n  },\n  \"warnings\": [")
+            for index in 0..<data.warnings.count |out, data|:
+                warning: Warning = data.warnings[index]
+                push_text(&out, "\n    {\"category\": ") if index == 0
+                push_text(&out, ",\n    {\"category\": ") if index > 0
+                push_json_string(&out, warning.category)
+                push_text(&out, ", \"severity\": ")
+                push_json_string(&out, severity_name(warning.severity))
+                push_text(&out, ", \"message\": ")
+                push_json_string(&out, warning.message)
+                push_text(&out, "}")
+            push_text(&out, "\n  ]\n}\n")
+            out
+
+        def summary(data: Data&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            return out if not valid(data)
+            push_text(&out, "Mocap Studio export quality report v1\nSource: ")
+            push_json_string(&out, data.source_name)
+            push_text(&out, "\nSource fingerprint (non-cryptographic studio-residue-v1): ")
+            push_number(&out, data.source_fingerprint_first)
+            push_text(&out, ", ")
+            push_number(&out, data.source_fingerprint_second)
+            push_text(&out, "\nOutput fingerprint (non-cryptographic studio-residue-v1): ")
+            push_number(&out, data.output_fingerprint_first)
+            push_text(&out, ", ")
+            push_number(&out, data.output_fingerprint_second)
+            push_text(&out, "\nAnimation: ")
+            push_json_string(&out, data.animation_name)
+            push_text(&out, " (index ")
+            push_number(&out, data.animation_index)
+            push_text(&out, ")\nTiming: input ")
+            push_number(&out, data.input_frames)
+            push_text(&out, " frames / ")
+            push_number(&out, data.input_fps)
+            push_text(&out, " fps estimate / ")
+            push_number(&out, StudioExportReportPolicy::duration_ms(data.input_frames, data.input_fps))
+            push_text(&out, " ms floor; output ")
+            push_number(&out, data.output_frames)
+            push_text(&out, " frames / ")
+            push_number(&out, data.output_fps)
+            push_text(&out, " fps estimate / ")
+            push_number(&out, StudioExportReportPolicy::duration_ms(data.output_frames, data.output_fps))
+            push_text(&out, " ms floor\n\nActive cleanup settings:\n")
+            for setting in data.settings |out|:
+                push_text(&out, "- ")
+                push_json_string(&out, setting.name)
+                push_text(&out, " = ")
+                push_json_string(&out, setting.value)
+                push_text(&out, "\n")
+            push_text(&out, "\nAssumptions and scope:\n")
+            for assumption in data.assumptions |out|:
+                push_text(&out, "- ")
+                push_json_string(&out, assumption)
+                push_text(&out, "\n")
+            push_text(&out, "\nQuality metrics:\n- Changed animation channels: ")
+            push_number(&out, data.metrics.changed_channels)
+            push_text(&out, "\n- Detected spike frames: ")
+            push_number(&out, data.metrics.spikes_before)
+            push_text(&out, " before → ")
+            push_number(&out, data.metrics.spikes_after)
+            push_text(&out, " after\n- Foot slide: ")
+            push_number(&out, data.metrics.foot_slide_before_um)
+            push_text(&out, " → ")
+            push_number(&out, data.metrics.foot_slide_after_um)
+            push_text(&out, " µm\n- Foot sink: ")
+            push_number(&out, data.metrics.foot_sink_before_um)
+            push_text(&out, " → ")
+            push_number(&out, data.metrics.foot_sink_after_um)
+            push_text(&out, " µm\n- Hand slide: ")
+            push_number(&out, data.metrics.hand_slide_before_um)
+            push_text(&out, " → ")
+            push_number(&out, data.metrics.hand_slide_after_um)
+            push_text(&out, " µm\n- Impossible-balance frames: ")
+            push_number(&out, data.metrics.balance_impossible_frames)
+            push_text(&out, "\n\nWarnings (categorized):\n")
+            if data.warnings.count == 0:
+                push_text(&out, "- None\n")
+            for warning in data.warnings |out|:
+                push_text(&out, "- [")
+                push_json_string(&out, warning.category)
+                push_text(&out, "/")
+                push_text(&out, severity_name(warning.severity))
+                push_text(&out, "] ")
+                push_json_string(&out, warning.message)
+                push_text(&out, "\n")
+            out
+
+        def severity_name(level: i64) -> sview:
+            return "warning" if level == WARNING
+            return "error" if level == ERROR
+            "info"
+
+        def push_number(out: mutable darray[u8]&, value: i64):
+            if value < 0:
+                out.push(45)
+            rest: i64 = value if value >= 0 else 0 - value
+            place: mutable i64 = 1000000000000000000
+            mutable started: bool = false
+            for k in 0..<19:
+                if place > 0:
+                    digit: i64 = rest / place % 10
+                    if started or digit != 0 or place == 1:
+                        out.push((48 + digit).u8())
+                        started <- true
+                    place <- place / 10
+
+        def push_text(out: mutable darray[u8]&, text: sview):
+            for byte in text |out|:
+                out.push(byte)
+
+        def push_json_string(out: mutable darray[u8]&, text: sview):
+            out.push(34)
+            for byte in text |out|:
+                if byte == 34:
+                    push_text(out, "\\\"")
+                elif byte == 92:
+                    push_text(out, "\\\\")
+                elif byte == 8:
+                    push_text(out, "\\b")
+                elif byte == 9:
+                    push_text(out, "\\t")
+                elif byte == 10:
+                    push_text(out, "\\n")
+                elif byte == 12:
+                    push_text(out, "\\f")
+                elif byte == 13:
+                    push_text(out, "\\r")
+                elif byte < 32:
+                    push_text(out, "\\u00")
+                    hex: sview = "0123456789abcdef"
+                    out.push(hex[(byte / 16).usize()])
+                    out.push(hex[(byte % 16).usize()])
+                else:
+                    out.push(byte)
+            out.push(34)

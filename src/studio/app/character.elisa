@@ -1,0 +1,183 @@
+# A character model drawn over a take: a skinned mesh from any GLB, bound
+# to the clip's rig by joint name (then rig role), so a bare mocap take can
+# be viewed on a real body instead of only as a skeleton.
+#
+# `load` reads the model's skin (GlbSkinMesh) and, from the same file, each
+# skin joint's bare name, nearest skin-joint ancestor and world rest
+# transform; the document itself is not kept. `bind` matches the joints
+# against one clip (StudioCharacterBind decides), and `pose` skins the mesh
+# with that clip's model transforms at a frame:
+#   - DIRECT joints take their slot's model transform,
+#   - INHERITED joints ride rigidly with their nearest bound ancestor, keeping
+#     the model's rest offset to it,
+#   - REST joints stay at their world rest (the mesh's bind pose there).
+# Bone lengths come from the take, so a model whose proportions differ from
+# the performer stretches; there is no retargeting here.
+include "model.elisa"
+include "../character_bind_policy.elisa"
+include "../../../../elisa-engine-mocap/src/viewport/mesh_overlay.elisa"
+
+module StudioCharacter:
+    public:
+        affine struct Model:
+            mesh: mutable GlbSkinMesh::Mesh
+            # Bare joint names (namespace prefix dropped), packed; one
+            # (start, length) per skin joint.
+            names: mutable darray[u8]
+            name_start: mutable darray[i64]
+            name_length: mutable darray[i64]
+            # Rig role of each skin joint (Roles::NONE when unknown).
+            roles: mutable darray[i64]
+            # Nearest ancestor that is itself a skin joint, or -1.
+            parent: mutable darray[i64]
+            # World rest transform of each skin joint.
+            rest: mutable darray[Geometry::Transform]
+
+        affine struct Binding:
+            # Clip rig slot per skin joint, or -1.
+            slot: mutable darray[i64]
+            # StudioCharacterBind mode per skin joint.
+            mode: mutable darray[i64]
+            # INHERITED: the bound ancestor joint, and this joint's rest
+            # transform relative to it.
+            anchor: mutable darray[i64]
+            offset: mutable darray[Geometry::Transform]
+            bound: i64
+            # StudioCharacterBind::coverage of the binding.
+            coverage: i64
+
+        # The model in `path`, or null when it has no usable skinned mesh.
+        def load(path: cstr) -> Model?:
+            mesh: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
+                value: value
+                error failure: GlbSkinMesh::empty()
+            return null if GlbSkinMesh::vertex_count(&mesh) == 0
+            doc: GlbDocument::Document = catch GlbDocument::load(path):
+                value: value
+                error failure: return null
+            mutable names: darray[u8] = []
+            mutable name_start: darray[i64] = []
+            mutable name_length: darray[i64] = []
+            mutable roles: darray[i64] = []
+            mutable parent: darray[i64] = []
+            mutable rest: darray[Geometry::Transform] = []
+            joints: usize = GlbSkinMesh::joint_count(&mesh)
+            mutable bytes: darray[u8] = []
+            for j in 0..<joints |j, mesh, doc, bytes, names, name_start, name_length, roles, parent, rest|:
+                node: i64 = GlbSkinMesh::joint_node(&mesh, j)
+                _ = GlbDocument::node_name(&doc, node.usize(), &bytes)
+                start: usize = RigMap::bare_start(&bytes)
+                name_start.push(names.count.i64())
+                name_length.push((bytes.count - start).i64() if start < bytes.count else 0)
+                for k in start..<bytes.count |k, bytes, names|:
+                    names.push(bytes[k])
+                roles.push(RigMap::role_of_name(&bytes))
+                parent.push(joint_ancestor(&doc, &mesh, node))
+                rest.push(world_rest(&doc, node))
+            return Model{mesh: mesh, names: names, name_start: name_start, name_length: name_length, roles: roles, parent: parent, rest: rest}
+
+        # Match `m`'s skin joints against clip `c`'s rig.
+        def bind(m: Model&, c: StudioModel::Clip&) -> Binding:
+            joints: usize = GlbSkinMesh::joint_count(&m.mesh)
+            count: i64 = c.nodes.count.i64()
+            mutable slot: darray[i64] = []
+            mutable bytes: darray[u8] = []
+            for j in 0..<joints |j, m, c, count, slot, bytes|:
+                mutable by_name: i64 = -1
+                mutable by_role: i64 = -1
+                for s in 0..<c.nodes.count |s, j, m, c, bytes, by_name, by_role|:
+                    _ = GlbDocument::node_name(&c.source, c.nodes[s].usize(), &bytes)
+                    if by_name < 0 and bare_equal(m, j, &bytes):
+                        by_name <- s.i64()
+                    if by_role < 0 and m.roles[j] >= 0 and RigMap::role_of_name(&bytes) == m.roles[j]:
+                        by_role <- s.i64()
+                found: i64 = StudioCharacterBind::match_slot(by_name, by_role)
+                slot.push(found if StudioCharacterBind::slot_ok(found, count) else -1)
+            mutable mode: darray[i64] = []
+            mutable anchor: darray[i64] = []
+            mutable offset: darray[Geometry::Transform] = []
+            mutable bound: i64 = 0
+            for j in 0..<joints |j, m, slot, mode, anchor, offset, bound, joints|:
+                a: i64 = bound_ancestor(m, &slot, j.i64(), joints.i64())
+                ancestor_slot: i64 = slot[a.usize()] if a >= 0 else -1
+                how: i64 = StudioCharacterBind::mode(slot[j], ancestor_slot)
+                mode.push(how)
+                anchor.push(a)
+                if how == StudioCharacterBind::INHERITED:
+                    offset.push(Geometry::transform_apply_inverse(m.rest[a.usize()], m.rest[j]))
+                else:
+                    offset.push(Geometry::transform_identity())
+                bound <- bound + (1 if slot[j] >= 0 else 0)
+            permille: i64 = StudioCharacterBind::coverage(bound, joints.i64()) if joints <= 65535 else 0
+            return Binding{slot: slot, mode: mode, anchor: anchor, offset: offset, bound: bound, coverage: permille}
+
+        # Whether the binding is good enough to draw.
+        def drawable(b: Binding&) -> bool:
+            return StudioCharacterBind::drawable(b.coverage)
+
+        # `m` skinned by the cleaned pose of `c` at `frame`; empty on any
+        # mismatch.
+        def pose(m: Model&, b: Binding&, c: StudioModel::Clip&, frame: i64) -> darray[Geometry::Vec3]:
+            mutable out: darray[Geometry::Vec3] = []
+            joints: usize = GlbSkinMesh::joint_count(&m.mesh)
+            return out if b.slot.count != joints
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
+            mutable transforms: darray[Geometry::Transform] = []
+            for j in 0..<joints |j, m, b, models, transforms|:
+                how: i64 = b.mode[j]
+                if how == StudioCharacterBind::DIRECT and StudioCharacterBind::slot_ok(b.slot[j], models.count.i64()):
+                    transforms.push(models[b.slot[j].usize()])
+                elif how == StudioCharacterBind::INHERITED and StudioCharacterBind::slot_ok(b.slot[b.anchor[j].usize()], models.count.i64()):
+                    transforms.push(Geometry::transform_compose(models[b.slot[b.anchor[j].usize()].usize()], b.offset[j]))
+                else:
+                    transforms.push(m.rest[j])
+            _ = catch MeshOverlay::skin(&m.mesh, &transforms, &out):
+                value: value
+                error failure: 0
+            return out
+
+        # Nearest ancestor of skin joint `j` (through Model::parent) that has
+        # a slot, or -1. Bounded by the joint count, so a cyclic file ends.
+        def bound_ancestor(m: Model&, slot: darray[i64]&, j: i64, joints: i64) -> i64:
+            mutable at: i64 = m.parent[j.usize()]
+            mutable steps: i64 = 0
+            while at >= 0 and steps < joints:
+                return at if slot[at.usize()] >= 0
+                at <- m.parent[at.usize()]
+                steps <- steps + 1
+            return -1
+
+        # Skin joint `j`'s bare name equals the bare part of `bytes`.
+        def bare_equal(m: Model&, j: usize, bytes: darray[u8]&) -> bool:
+            start: usize = RigMap::bare_start(bytes)
+            length: i64 = m.name_length[j]
+            return false if length <= 0 or start >= bytes.count or (bytes.count - start).i64() != length
+            base: usize = m.name_start[j].usize()
+            for k in 0..<length.usize() |k, m, bytes, start, base|:
+                return false if m.names[base + k] != bytes[start + k]
+            return true
+
+        # Skin joint index of the nearest ancestor of document `node` that is
+        # a skin joint, or -1.
+        def joint_ancestor(doc: GlbDocument::Document&, mesh: GlbSkinMesh::Mesh&, node: i64) -> i64:
+            mutable at: i64 = GlbDocument::node_parent(doc, node.usize())
+            mutable steps: usize = 0
+            while at >= 0 and steps < GlbDocument::node_count(doc):
+                for j in 0..<GlbSkinMesh::joint_count(mesh) |j, mesh, at|:
+                    return j.i64() if GlbSkinMesh::joint_node(mesh, j) == at
+                at <- GlbDocument::node_parent(doc, at.usize())
+                steps <- steps + 1
+            return -1
+
+        # World rest transform of document `node` (its rest composed under
+        # every ancestor's).
+        def world_rest(doc: GlbDocument::Document&, node: i64) -> Geometry::Transform:
+            mutable world: Geometry::Transform = GlbDocument::node_rest(doc, node.usize())
+            mutable at: i64 = GlbDocument::node_parent(doc, node.usize())
+            mutable steps: usize = 0
+            while at >= 0 and steps < GlbDocument::node_count(doc):
+                world <- Geometry::transform_compose(GlbDocument::node_rest(doc, at.usize()), world)
+                at <- GlbDocument::node_parent(doc, at.usize())
+                steps <- steps + 1
+            return world
