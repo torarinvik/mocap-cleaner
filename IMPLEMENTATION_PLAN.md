@@ -364,6 +364,33 @@ positives before enabling recommendations.
       styles, zoom/pan, selected range, hover values, fit selection and reset.
       Downsampling must preserve visible extrema and signal its resolution.
 
+### 8.4 Timeline and viewport precision
+
+- [ ] Add typed Go to frame/time, first/last frame, selection start/end,
+      previous/next contact boundary and previous/next correction key.
+      Display the indexing convention consistently; clamp invalid input with
+      an explanation rather than jumping to an unrelated frame.
+- [ ] Separate work range, playback loop, operation scope and retime band
+      visually and in their labels. Changing a playback loop must not change
+      exported duration or operation scope.
+- [ ] Support loop-selection playback, adjustable preview speed and stable
+      frame stepping while paused. Show actual versus requested playback
+      rate when performance cannot sustain real-time review.
+- [ ] Add pan/zoom controls, fit clip and fit selection to the timeline.
+      Keep the frame under the pointer stable during zoom; distinguish a
+      timeline drag from moving a contact edge or retime band.
+- [ ] Add a searchable skeleton tree synchronized with viewport selection,
+      visibility filters and isolated-chain review. Picking overlapping
+      joints must offer an unambiguous alternative through the tree.
+- [ ] Provide visible camera orientation, perspective/orthographic labels,
+      frame selection, frame whole character and reset camera actions.
+      Evaluate track-character and root-relative review modes without
+      changing the underlying animation.
+- [ ] Keep overlay settings purposeful: presets for Contacts, Jitter and
+      Comparison; adjustable trail/onion density; a clear way to return to
+      an uncluttered view. Overlay changes do not dirty cleanup sessions
+      unless explicitly saved as review preferences.
+
 **Exit:** novice and expert can explain what changed and why; cancelling a
 suggestion preserves the stack; applying and undoing restores exact prior
 state. No recommendation passes solely on aggregate improvement.
@@ -428,6 +455,28 @@ state. No recommendation passes solely on aggregate improvement.
 - [ ] Add per-case quality fixtures for unreachable targets, straight-limb
       singularities, mirrored rigs, short clips, first/last-frame contacts and
       loop seams. Include reviewed output and failure expectations.
+
+### 9.4 Tool-specific acceptance records
+
+Populate the following records during M0 before tuning defaults. Numerical
+thresholds must include rig scale, sampling rate and units. A mathematically
+valid kernel can still fail the visual or preservation gate.
+
+| Tool family | Improvement evidence | Preservation and failure evidence |
+|---|---|---|
+| De-spike/median/smooth | Fewer labelled noise events; reduced high-frequency energy on affected channels. | Deliberate impact peaks, turn direction, timing and scoped boundaries retained; no flat spots or quaternion flips. |
+| Foot lock/pivot | Worst/p95/total planted displacement and floor error improve on validated intervals. | Knee transition speeds, reach error, toe rolls and adjacent airborne movement pass; impossible constraints are reported. |
+| Hand lock/pin | Anchor error and planted drift improve on user-confirmed targets. | Elbow motion and reach remain acceptable; free gestures and unmarked spans are unchanged. |
+| Pole/twist | Pole discontinuity and unwanted off-axis motion decrease. | Endpoint drift and bone lengths stay within declared tolerance; intentional forearm/roll-bone twist survives. |
+| Pelvis cleanup | Path acceleration spikes reduce on selected spans. | Protected plants and body trajectory intent remain; joint reach/extension artifacts do not worsen unnoticed. |
+| Seam | Position/orientation/velocity mismatch decreases at the chosen wrap boundary. | Interior motion and contacts remain within their gates; a non-looping action is never auto-converted into a loop. |
+| Corrections/offsets | Requested pose change is reached within the declared solver tolerance. | Fade endpoints, unselected bones/frames and undo/session replay agree; unreachable goals are visible. |
+| Retime | Output duration and frame mapping match the requested speed policy. | Contacts, keys, pins and issue navigation map consistently; no invalid ordering, discontinuous orientation or unexplained drift. |
+| Physics heuristics | Selected path/spike measure improves with assumptions recorded. | Contact and pose distortion budgets pass; unavailable mass/environment information is disclosed. |
+
+For each case retain the source, recipe, detector settings, expected metrics,
+worst-frame references and reviewed captures. Record both absolute error and
+change from source; summing errors across clips must not hide a failed case.
 
 **Exit:** contact and correction editing is discoverable and precise;
 difficult fixtures satisfy declared local quality gates or show a clear
