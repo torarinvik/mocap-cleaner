@@ -41,6 +41,13 @@ module StudioContactEditor:
             first: i64
             last: i64
 
+        struct FramePlan:
+            # Frame requests use the 1-based frame numbers shown in the UI.
+            # Invalid or inverted drafts leave the authored interval intact.
+            valid: bool
+            first: i64
+            last: i64
+
         # Move one inclusive endpoint or translate the full inclusive range by
         # an exact signed frame count. Requests that cross a clip boundary or
         # invert the interval are rejected without partial movement.
@@ -62,6 +69,27 @@ module StudioContactEditor:
             moved_first: i64 = first + delta if valid and (target == NUDGE_FIRST or target == NUDGE_INTERVAL) else first
             moved_last: i64 = last + delta if valid and (target == NUDGE_LAST or target == NUDGE_INTERVAL) else last
             NudgePlan{valid: valid, first: moved_first, last: moved_last}
+
+        # Apply a typed, 1-based first or last frame without changing the
+        # opposite endpoint. Out-of-clip and inverted drafts are atomic no-ops.
+        def frame_plan(first: i64, last: i64, frame_count: i64, target: i64, requested_frame: i64) -> FramePlan:
+            requires frame_count >= 1
+            requires frame_count <= MAX_FRAMES
+            requires first >= 0
+            requires first <= last
+            requires last < frame_count
+            ensure result.valid == (requested_frame >= 1 and requested_frame <= frame_count and (target == NUDGE_FIRST and requested_frame - 1 <= last or target == NUDGE_LAST and requested_frame - 1 >= first))
+            ensure result.first >= 0
+            ensure result.first <= result.last
+            ensure result.last < frame_count
+            ensure not result.valid or result.first == (requested_frame - 1 if target == NUDGE_FIRST else first)
+            ensure not result.valid or result.last == (requested_frame - 1 if target == NUDGE_LAST else last)
+            ensure result.valid or result.first == first
+            ensure result.valid or result.last == last
+            valid: bool = requested_frame >= 1 and requested_frame <= frame_count and (target == NUDGE_FIRST and requested_frame - 1 <= last or target == NUDGE_LAST and requested_frame - 1 >= first)
+            next_first: i64 = requested_frame - 1 if valid and target == NUDGE_FIRST else first
+            next_last: i64 = requested_frame - 1 if valid and target == NUDGE_LAST else last
+            FramePlan{valid: valid, first: next_first, last: next_last}
 
         # Split immediately before `frame`: the selected frame starts the
         # right interval. Both pieces retain the same inclusive endpoints,
