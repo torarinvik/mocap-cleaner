@@ -535,10 +535,6 @@ never silently loses edits. No representation rewrite without a measured need.
 
 ### 11.1 Reviewed export (P0)
 
-- [ ] Link each quality warning to its matching metric or exact timeline issue.
-      Returning to the review must preserve the destination and acknowledgement
-      state; changing the cleanup must invalidate the old acknowledgement.
-
 Do not offer root extraction/in-place conversion or key reduction until that
 semantics has its own implementation, review fields and quality validation.
 - [ ] Reload the derived GLB and compare animation channels/poses, contacts,

@@ -89,6 +89,10 @@ module Studio:
         global mutable export_review_focus: i64 = StudioExportReview::EXPORT
         global mutable export_review_path: cstr = ""
         global mutable export_review_overwrite: bool = false
+        global mutable export_review_warning_selected: i64 = 0
+        global mutable export_warning_detail_open: bool = false
+        global mutable export_warning_detail_index: i64 = 0
+        global mutable export_warning_detail_focus: i64 = StudioExportPathReview::DONE
         global mutable export_path_inspector_open: bool = false
         global mutable export_path_inspector_page: i64 = 0
         global mutable export_path_inspector_focus: i64 = StudioExportPathReview::DONE
@@ -158,7 +162,12 @@ module Studio:
         global mutable accessibility_review_destination_widget: usize = 0
         global mutable accessibility_review_cancel_widget: usize = 0
         global mutable accessibility_review_export_widget: usize = 0
+        global mutable accessibility_review_warning_widgets: usize[StudioExportReview::MAX_WARNINGS.usize()] = zeroed
         global mutable accessibility_review_ready: bool = false
+        global mutable accessibility_warning_previous_widget: usize = 0
+        global mutable accessibility_warning_next_widget: usize = 0
+        global mutable accessibility_warning_done_widget: usize = 0
+        global mutable accessibility_warning_ready: bool = false
         global mutable accessibility_path_previous_widget: usize = 0
         global mutable accessibility_path_next_widget: usize = 0
         global mutable accessibility_path_done_widget: usize = 0
@@ -768,6 +777,33 @@ module Studio:
                     c.hand_slide_before, c.hand_slide_after)
             0
 
+        # Warning rows are ordered exactly as their presentation: balance,
+        # spikes, foot slide, foot sink, then hand slide. Only present rows
+        # occupy an index, keeping keyboard and pointer navigation compact.
+        def export_warning_kind(index: i64, c: StudioModel::Clip&) -> i64:
+            requires index >= 0 and index < StudioExportReview::MAX_WARNINGS
+            mutable row: i64 = 0
+            if c.impossible_frames > 0:
+                return StudioExportReview::BALANCE_WARNING if row == index
+                row <- row + 1
+            if c.spikes_after > c.spikes_before:
+                return StudioExportReview::SPIKE_WARNING if row == index
+                row <- row + 1
+            if c.slide_after > c.slide_before:
+                return StudioExportReview::FOOT_SLIDE_WARNING if row == index
+                row <- row + 1
+            if c.sink_after > c.sink_before:
+                return StudioExportReview::FOOT_SINK_WARNING if row == index
+                row <- row + 1
+            if c.hand_slide_after > c.hand_slide_before:
+                return StudioExportReview::HAND_SLIDE_WARNING if row == index
+            StudioExportReview::NO_WARNING
+
+        def current_export_warning_kind(index: i64) -> i64:
+            if clip is c and index >= 0 and index < current_export_warnings():
+                return export_warning_kind(index, c)
+            StudioExportReview::NO_WARNING
+
         def request_export(destination: cstr, overwrite_confirmed: bool) -> void:
             if clip is c:
                 reason: i64 = export_reason(destination, overwrite_confirmed)
@@ -780,6 +816,10 @@ module Studio:
                 export_review_overwrite <- overwrite_confirmed
                 export_review_acknowledged <- false
                 export_review_focus <- StudioExportReview::initial_focus(current_export_warnings())
+                export_review_warning_selected <- 0
+                export_warning_detail_open <- false
+                export_warning_detail_index <- 0
+                export_warning_detail_focus <- StudioExportPathReview::DONE
                 help_open <- false
                 file_menu_open <- false
                 touch()
@@ -788,6 +828,9 @@ module Studio:
             return if not export_review_open
             destination: cstr = export_review_path
             export_path_inspector_open <- false
+            export_warning_detail_open <- false
+            export_warning_detail_index <- 0
+            export_warning_detail_focus <- StudioExportPathReview::DONE
             export_review_open <- false
             export_review_path <- ""
             export_review_acknowledged <- false
@@ -807,6 +850,58 @@ module Studio:
             return if not export_path_inspector_open
             export_path_inspector_open <- false
             touch()
+
+        def close_export_warning_detail() -> void:
+            return if not export_warning_detail_open
+            export_warning_detail_open <- false
+            export_review_warning_selected <- export_warning_detail_index
+            touch()
+
+        def open_export_warning_detail(index: i64) -> void:
+            warnings: i64 = current_export_warnings()
+            return if not export_review_open or index < 0 or index >= warnings
+            export_review_warning_selected <- index
+            export_review_focus <- StudioExportReview::INSPECT_WARNINGS
+            export_warning_detail_index <- index
+            export_warning_detail_focus <- StudioExportPathReview::initial_focus(index, warnings)
+            export_warning_detail_open <- true
+            touch()
+
+        def activate_export_warning_detail(action: i64) -> void:
+            return if not export_warning_detail_open
+            warnings: i64 = current_export_warnings()
+            return if warnings < 1 or warnings > StudioExportReview::MAX_WARNINGS
+            if action == StudioExportPathReview::DONE:
+                close_export_warning_detail()
+                return
+            return if not StudioExportPathReview::enabled(action, export_warning_detail_index, warnings)
+            direction: i64 = -1 if action == StudioExportPathReview::PREVIOUS else 1
+            export_warning_detail_index <- StudioExportPathReview::move_page(
+                export_warning_detail_index, direction, warnings)
+            export_review_warning_selected <- export_warning_detail_index
+            export_warning_detail_focus <- action if StudioExportPathReview::enabled(
+                action, export_warning_detail_index, warnings)
+            export_warning_detail_focus <- StudioExportPathReview::initial_focus(
+                export_warning_detail_index, warnings) if not StudioExportPathReview::enabled(
+                action, export_warning_detail_index, warnings)
+            touch()
+
+        def export_warning_detail_key(code: UiCore::Key) -> void:
+            warnings: i64 = current_export_warnings()
+            if code == UiCore::Key.Escape:
+                close_export_warning_detail()
+            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                activate_export_warning_detail(StudioExportPathReview::PREVIOUS) if StudioExportPathReview::enabled(StudioExportPathReview::PREVIOUS, export_warning_detail_index, warnings)
+            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                activate_export_warning_detail(StudioExportPathReview::NEXT) if StudioExportPathReview::enabled(StudioExportPathReview::NEXT, export_warning_detail_index, warnings)
+            elif code == UiCore::Key.Tab:
+                export_warning_detail_focus <- StudioExportPathReview::move_focus(
+                    export_warning_detail_focus,
+                    -1 if StudioShortcuts::shift(modifiers) else 1,
+                    export_warning_detail_index, warnings)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                activate_export_warning_detail(export_warning_detail_focus)
 
         def activate_export_path_inspector(action: i64) -> void:
             return if not export_path_inspector_open
@@ -853,6 +948,9 @@ module Studio:
             if focus == StudioExportReview::DESTINATION:
                 open_export_path_inspector()
                 return
+            if focus == StudioExportReview::INSPECT_WARNINGS:
+                open_export_warning_detail(export_review_warning_selected)
+                return
             if focus == StudioExportReview::CANCEL:
                 cancel_export_review()
                 return
@@ -865,6 +963,9 @@ module Studio:
             destination: cstr = export_review_path
             overwrite_confirmed: bool = export_review_overwrite
             export_path_inspector_open <- false
+            export_warning_detail_open <- false
+            export_warning_detail_index <- 0
+            export_warning_detail_focus <- StudioExportPathReview::DONE
             export_review_open <- false
             export_review_path <- ""
             export_review_acknowledged <- false
@@ -1510,7 +1611,13 @@ module Studio:
             StudioPanels::legacy_session_prompt_panel(w, h, legacy_prompt_open, legacy_prompt_focus)
             if export_review_open and clip is c:
                 StudioPanels::export_review_panel(w, h, true, export_review_path, anim_name, c, s,
-                    current_export_warnings(), export_review_acknowledged, export_review_focus)
+                    current_export_warnings(), export_review_acknowledged, export_review_focus,
+                    export_review_warning_selected)
+            if export_warning_detail_open and clip is c:
+                StudioPanels::export_warning_detail_panel(w, h, true, c,
+                    current_export_warning_kind(export_warning_detail_index),
+                    export_warning_detail_index, current_export_warnings(),
+                    export_warning_detail_focus)
             if export_path_inspector_open:
                 StudioPanels::export_path_inspector_panel(w, h, true, export_review_path,
                     export_path_inspector_page, export_path_inspector_focus)
@@ -1571,7 +1678,16 @@ module Studio:
             accessibility_review_destination_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_export_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_destination_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE
+            mutable warning_widgets_ready: bool = true
+            for index in 0..<StudioExportReview::MAX_WARNINGS |index, warning_widgets_ready, transparent|:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_review_warning_widgets[index.usize()] <- widget
+                warning_widgets_ready <- false if widget == UiFlat::NONE
+            accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_destination_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE and warning_widgets_ready
+            accessibility_warning_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_warning_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_warning_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_warning_ready <- accessibility_warning_previous_widget != UiFlat::NONE and accessibility_warning_next_widget != UiFlat::NONE and accessibility_warning_done_widget != UiFlat::NONE
             accessibility_path_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_path_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_path_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
@@ -1601,6 +1717,16 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if accessibility_warning_ready and export_warning_detail_open and event == UiConst::WidgetEvent.Click.i32():
+                if widget == accessibility_warning_previous_widget:
+                    activate_export_warning_detail(StudioExportPathReview::PREVIOUS)
+                    return
+                elif widget == accessibility_warning_next_widget:
+                    activate_export_warning_detail(StudioExportPathReview::NEXT)
+                    return
+                elif widget == accessibility_warning_done_widget:
+                    activate_export_warning_detail(StudioExportPathReview::DONE)
+                    return
             if accessibility_path_ready and export_path_inspector_open and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_path_previous_widget:
                     activate_export_path_inspector(StudioExportPathReview::PREVIOUS)
@@ -1634,13 +1760,19 @@ module Studio:
                 elif widget == accessibility_review_export_widget:
                     activate_export_review(StudioExportReview::EXPORT)
                     return
+                for index in 0..<current_export_warnings() |index, widget|:
+                    if widget == accessibility_review_warning_widgets[index.usize()]:
+                        open_export_warning_detail(index)
+                        return
             return if not accessibility_toolbar_ready or event != UiConst::WidgetEvent.Click.i32()
             action: i64 = StudioAccessibility::toolbar_action_for_widget(widget)
             toolbar_action(action) if action >= 0
 
         # Publish stable region landmarks and actionable toolbar controls.
         def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, action: usize, enabled: bool, selected: bool, text_value: sview) -> void:
-            focused: bool = (export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_DESTINATION and export_review_focus == StudioExportReview::DESTINATION) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT))) or (export_path_inspector_open and ((id == StudioAccessibility::PATH_PREVIOUS and export_path_inspector_focus == StudioExportPathReview::PREVIOUS) or (id == StudioAccessibility::PATH_NEXT and export_path_inspector_focus == StudioExportPathReview::NEXT) or (id == StudioAccessibility::PATH_DONE and export_path_inspector_focus == StudioExportPathReview::DONE))) or (export_result_open and ((id == StudioAccessibility::RESULT_OPEN and export_result_focus == StudioExportResult::OPEN) or (id == StudioAccessibility::RESULT_SHOW_IN_FOLDER and export_result_focus == StudioExportResult::SHOW_IN_FOLDER) or (id == StudioAccessibility::RESULT_DONE and export_result_focus == StudioExportResult::DONE)))
+            selected_warning_node: bool = export_review_open and current_export_warnings() > 0 and id == StudioAccessibility::export_review_warning_id(export_review_warning_selected)
+            detail_control_focused: bool = (id == StudioAccessibility::WARNING_DETAIL_PREVIOUS and export_warning_detail_focus == StudioExportPathReview::PREVIOUS) or (id == StudioAccessibility::WARNING_DETAIL_NEXT and export_warning_detail_focus == StudioExportPathReview::NEXT) or (id == StudioAccessibility::WARNING_DETAIL_DONE and export_warning_detail_focus == StudioExportPathReview::DONE)
+            focused: bool = (export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_DESTINATION and export_review_focus == StudioExportReview::DESTINATION) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT) or (selected_warning_node and export_review_focus == StudioExportReview::INSPECT_WARNINGS))) or (export_warning_detail_open and detail_control_focused) or (export_path_inspector_open and ((id == StudioAccessibility::PATH_PREVIOUS and export_path_inspector_focus == StudioExportPathReview::PREVIOUS) or (id == StudioAccessibility::PATH_NEXT and export_path_inspector_focus == StudioExportPathReview::NEXT) or (id == StudioAccessibility::PATH_DONE and export_path_inspector_focus == StudioExportPathReview::DONE))) or (export_result_open and ((id == StudioAccessibility::RESULT_OPEN and export_result_focus == StudioExportResult::OPEN) or (id == StudioAccessibility::RESULT_SHOW_IN_FOLDER and export_result_focus == StudioExportResult::SHOW_IN_FOLDER) or (id == StudioAccessibility::RESULT_DONE and export_result_focus == StudioExportResult::DONE)))
             UiCore::accessibility_with_metadata(role, label, help_text,
                 UiCore::Rect(b.x, b.y, b.w, b.h), id, action,
                 enabled, focused, selected, 0.0,
@@ -1649,48 +1781,131 @@ module Studio:
 
         def publish_export_review_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_review_ready
-            none: usize = StudioAccessibility::NO_NODE
-            warnings: i64 = current_export_warnings()
-            dialog: StudioPanels::Box = StudioPanels::export_review_dialog_box(w, h)
-            accessibility_node(UiCore::AccessibilityRole.Dialog,
-                "Review cleaned export",
-                "Review the destination, retained animation details, cleanup steps, and quality notes before exporting.",
-                dialog, StudioAccessibility::EXPORT_REVIEW, none,
-                StudioAccessibility::export_review_first_child(warnings), none,
-                none, true, false, "")
-            if warnings > 0:
-                mutable acknowledgement: sview = "Not acknowledged"
-                acknowledgement <- "Acknowledged" if export_review_acknowledged
-                accessibility_node(UiCore::AccessibilityRole.CheckBox,
-                    "I reviewed the quality notes",
-                    "Required before exporting while quality warnings are present.",
-                    StudioPanels::export_review_ack_box(w, h),
-                    StudioAccessibility::REVIEW_ACKNOWLEDGEMENT,
+            if clip is c:
+                none: usize = StudioAccessibility::NO_NODE
+                warnings: i64 = current_export_warnings()
+                dialog: StudioPanels::Box = StudioPanels::export_review_dialog_box(w, h)
+                accessibility_node(UiCore::AccessibilityRole.Dialog,
+                    "Review cleaned export",
+                    "Review the destination, retained animation details, cleanup steps, and quality notes before exporting.",
+                    dialog, StudioAccessibility::EXPORT_REVIEW, none,
+                    StudioAccessibility::export_review_first_child(warnings), none,
+                    none, true, false, "")
+                if warnings > 0:
+                    mutable acknowledgement: sview = "Not acknowledged"
+                    acknowledgement <- "Acknowledged" if export_review_acknowledged
+                    accessibility_node(UiCore::AccessibilityRole.CheckBox,
+                        "I reviewed the quality notes",
+                        "Required before exporting while quality warnings are present.",
+                        StudioPanels::export_review_ack_box(w, h),
+                        StudioAccessibility::REVIEW_ACKNOWLEDGEMENT,
+                        StudioAccessibility::EXPORT_REVIEW,
+                        none, StudioAccessibility::export_review_next_sibling(
+                            StudioAccessibility::REVIEW_ACKNOWLEDGEMENT, warnings),
+                        accessibility_review_ack_widget, true,
+                        export_review_acknowledged, acknowledgement)
+                for index in 0..<warnings |index, w, h, warnings|:
+                    kind: i64 = current_export_warning_kind(index)
+                    id: usize = StudioAccessibility::export_review_warning_id(index)
+                    accessibility_node(UiCore::AccessibilityRole.Button,
+                        StudioPanels::export_warning_detail_title(kind),
+                        "Open the before/after metric and available frame evidence for this warning.",
+                        StudioPanels::export_review_warning_box(w, h, index),
+                        id, StudioAccessibility::EXPORT_REVIEW, none,
+                        StudioAccessibility::export_review_next_sibling(id, warnings),
+                        accessibility_review_warning_widgets[index.usize()], true,
+                        false, StudioPanels::export_warning_detail_metric(c, kind))
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Inspect full destination path",
+                    "Open a read-only view of the entire export destination.",
+                    StudioPanels::export_review_destination_box(w, h),
+                    StudioAccessibility::REVIEW_DESTINATION,
                     StudioAccessibility::EXPORT_REVIEW,
-                    none, StudioAccessibility::REVIEW_DESTINATION,
-                    accessibility_review_ack_widget, true,
-                    export_review_acknowledged, acknowledgement)
-            accessibility_node(UiCore::AccessibilityRole.Button,
-                "Inspect full destination path",
-                "Open a read-only view of the entire export destination.",
-                StudioPanels::export_review_destination_box(w, h),
-                StudioAccessibility::REVIEW_DESTINATION,
-                StudioAccessibility::EXPORT_REVIEW,
-                none, StudioAccessibility::REVIEW_CANCEL,
-                accessibility_review_destination_widget, true, false, "")
-            accessibility_node(UiCore::AccessibilityRole.Button,
-                "Cancel export review", "Close this review without writing a file.",
-                StudioPanels::export_review_button_box(w, h, StudioExportReview::CANCEL),
-                StudioAccessibility::REVIEW_CANCEL, StudioAccessibility::EXPORT_REVIEW,
-                none, StudioAccessibility::REVIEW_EXPORT,
-                accessibility_review_cancel_widget, true, false, "")
-            accessibility_node(UiCore::AccessibilityRole.Button,
-                "Export GLB", "Write and validate the cleaned GLB at the displayed destination.",
-                StudioPanels::export_review_button_box(w, h, StudioExportReview::EXPORT),
-                StudioAccessibility::REVIEW_EXPORT, StudioAccessibility::EXPORT_REVIEW,
-                none, none, accessibility_review_export_widget,
-                StudioExportReview::export_enabled(warnings, export_review_acknowledged),
-                false, "")
+                    none, StudioAccessibility::export_review_next_sibling(
+                        StudioAccessibility::REVIEW_DESTINATION, warnings),
+                    accessibility_review_destination_widget, true, false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Cancel export review", "Close this review without writing a file.",
+                    StudioPanels::export_review_button_box(w, h, StudioExportReview::CANCEL),
+                    StudioAccessibility::REVIEW_CANCEL, StudioAccessibility::EXPORT_REVIEW,
+                    none, StudioAccessibility::REVIEW_EXPORT,
+                    accessibility_review_cancel_widget, true, false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Export GLB", "Write and validate the cleaned GLB at the displayed destination.",
+                    StudioPanels::export_review_button_box(w, h, StudioExportReview::EXPORT),
+                    StudioAccessibility::REVIEW_EXPORT, StudioAccessibility::EXPORT_REVIEW,
+                    none, none, accessibility_review_export_widget,
+                    StudioExportReview::export_enabled(warnings, export_review_acknowledged),
+                    false, "")
+
+        def publish_export_warning_detail_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_warning_ready
+            if clip is c:
+                none: usize = StudioAccessibility::NO_NODE
+                dialog: StudioPanels::Box = StudioPanels::export_warning_detail_dialog_box(w, h)
+                kind: i64 = current_export_warning_kind(export_warning_detail_index)
+                StudioText::begin()
+                StudioText::put("Details for ")
+                StudioText::put(StudioPanels::export_warning_detail_title(kind))
+                accessibility_node(UiCore::AccessibilityRole.Dialog,
+                    StudioText::view(),
+                    "The export review stays open behind this read-only metric detail.",
+                    dialog, StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_first_child(), none,
+                    none, true, false, "")
+                accessibility_node(UiCore::AccessibilityRole.Label,
+                    "Before and after metric", "The warning's matching export metric.",
+                    StudioPanels::box(dialog.x + 24.0, dialog.y + 56.0, dialog.w - 48.0, 28.0),
+                    StudioAccessibility::WARNING_DETAIL_METRIC,
+                    StudioAccessibility::WARNING_DETAIL,
+                    none, StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_METRIC),
+                    none, true, false, StudioPanels::export_warning_detail_metric(c, kind))
+                accessibility_node(UiCore::AccessibilityRole.Label,
+                    "Available frame evidence",
+                    "Frame evidence is shown only when the retained data supports it.",
+                    StudioPanels::box(dialog.x + 24.0, dialog.y + 96.0, dialog.w - 48.0, 42.0),
+                    StudioAccessibility::WARNING_DETAIL_EVIDENCE,
+                    StudioAccessibility::WARNING_DETAIL,
+                    none, StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_EVIDENCE),
+                    none, true, false, StudioPanels::export_warning_detail_evidence(c, kind))
+                previous_enabled: bool = StudioExportPathReview::enabled(
+                    StudioExportPathReview::PREVIOUS, export_warning_detail_index,
+                    current_export_warnings())
+                next_enabled: bool = StudioExportPathReview::enabled(
+                    StudioExportPathReview::NEXT, export_warning_detail_index,
+                    current_export_warnings())
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Previous warning", "Show the previous export warning.",
+                    StudioPanels::export_warning_detail_button_box(w, h,
+                        StudioExportPathReview::PREVIOUS),
+                    StudioAccessibility::WARNING_DETAIL_PREVIOUS,
+                    StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_PREVIOUS),
+                    accessibility_warning_previous_widget, previous_enabled,
+                    false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Next warning", "Show the next export warning.",
+                    StudioPanels::export_warning_detail_button_box(w, h,
+                        StudioExportPathReview::NEXT),
+                    StudioAccessibility::WARNING_DETAIL_NEXT,
+                    StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_NEXT),
+                    accessibility_warning_next_widget, next_enabled,
+                    false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Return to export review",
+                    "Close warning details while preserving the destination and acknowledgement.",
+                    StudioPanels::export_warning_detail_button_box(w, h,
+                        StudioExportPathReview::DONE),
+                    StudioAccessibility::WARNING_DETAIL_DONE,
+                    StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_DONE),
+                    accessibility_warning_done_widget, true, false, "")
 
         def publish_export_path_inspector_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_path_ready
@@ -1785,6 +2000,9 @@ module Studio:
         def publish_accessibility(w: f32, h: f32, s: StackState::Stack&, t: TimelineState::State&) -> void:
             none: usize = StudioAccessibility::NO_NODE
             return if not accessibility_toolbar_ready
+            if export_warning_detail_open:
+                publish_export_warning_detail_accessibility(w, h)
+                return
             if export_path_inspector_open:
                 publish_export_path_inspector_accessibility(w, h)
                 return
@@ -1928,6 +2146,14 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if export_warning_detail_open:
+                hit: i64 = StudioPanels::export_warning_detail_hit(w, h, x, y)
+                warnings: i64 = current_export_warnings()
+                if button == 0 and hit >= 0 and StudioExportPathReview::enabled(
+                    hit, export_warning_detail_index, warnings):
+                    export_warning_detail_focus <- hit
+                    activate_export_warning_detail(hit)
+                return
             if export_path_inspector_open:
                 hit: i64 = StudioPanels::export_path_inspector_hit(w, h, x, y)
                 pages: i64 = StudioPanels::export_path_pages(export_review_path)
@@ -1942,6 +2168,11 @@ module Studio:
                     activate_export_result(hit)
                 return
             if export_review_open:
+                warning_index: i64 = StudioPanels::export_review_warning_index_at(
+                    w, h, x, y, current_export_warnings())
+                if button == 0 and warning_index >= 0:
+                    open_export_warning_detail(warning_index)
+                    return
                 hit: i64 = StudioPanels::export_review_hit(w, h, x, y, current_export_warnings())
                 if button == 0 and hit >= 0:
                     export_review_focus <- hit
@@ -2041,6 +2272,15 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if export_warning_detail_open:
+                hit: i64 = StudioPanels::export_warning_detail_hit(
+                    UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                warnings: i64 = current_export_warnings()
+                if hit >= 0 and StudioExportPathReview::enabled(
+                    hit, export_warning_detail_index, warnings) and hit != export_warning_detail_focus:
+                    export_warning_detail_focus <- hit
+                    touch()
+                return
             if export_path_inspector_open:
                 hit: i64 = StudioPanels::export_path_inspector_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
                 pages: i64 = StudioPanels::export_path_pages(export_review_path)
@@ -2055,10 +2295,19 @@ module Studio:
                     touch()
                 return
             if export_review_open:
-                hit: i64 = StudioPanels::export_review_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y, current_export_warnings())
-                if hit >= 0 and hit != export_review_focus:
-                    export_review_focus <- hit
+                w: f32 = UiCore::viewport_width()
+                h: f32 = UiCore::viewport_height()
+                warning_index: i64 = StudioPanels::export_review_warning_index_at(
+                    w, h, x, y, current_export_warnings())
+                if warning_index >= 0 and (warning_index != export_review_warning_selected or export_review_focus != StudioExportReview::INSPECT_WARNINGS):
+                    export_review_warning_selected <- warning_index
+                    export_review_focus <- StudioExportReview::INSPECT_WARNINGS
                     touch()
+                else:
+                    hit: i64 = StudioPanels::export_review_hit(w, h, x, y, current_export_warnings())
+                    if hit >= 0 and hit != export_review_focus:
+                        export_review_focus <- hit
+                        touch()
                 return
             if legacy_prompt_open:
                 index: i64 = StudioPanels::legacy_session_button_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
@@ -2457,6 +2706,9 @@ module Studio:
         # plain keys go to the single-key bindings.
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
+            if export_warning_detail_open:
+                export_warning_detail_key(code)
+                return
             if export_path_inspector_open:
                 export_path_inspector_key(code)
                 return
