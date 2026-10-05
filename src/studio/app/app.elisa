@@ -744,6 +744,49 @@ module Studio:
             contact_selected_frame <- StudioPanels::timeline_frame(tb, x, frames())
             touch()
 
+        # Shift+Arrow translates the selected authored interval. Shift+Up/Down
+        # changes its last frame, while Shift+[/] changes its first frame.
+        # All edits pass through the fixed-point contact policy and history.
+        def contact_nudge(target: i64, delta: i64) -> void:
+            if clip is c:
+                return if not StudioContactEditor::selection_valid(
+                    contact_selected_side, contact_selected_frame, c.frames)
+                mutable s: StackState::Stack = current_stack()
+                index: i64 = StackState::edit_index_at(s,
+                    contact_selected_side, contact_selected_frame)
+                if index < 0:
+                    status <- "select an authored contact interval first"
+                    touch()
+                    return
+                original: StackState::FootEdit = s.edits[index]
+                plan: StudioContactEditor::NudgePlan =
+                    StudioContactEditor::nudge_plan(original.first, original.last,
+                        c.frames, target, delta)
+                if not plan.valid:
+                    status <- "contact interval cannot move past its boundary"
+                    touch()
+                    return
+                s.edits[index] <- StackState::FootEdit{side: original.side,
+                    first: plan.first, last: plan.last, planted: original.planted}
+                commit(s, true)
+                if target == StudioContactEditor::NUDGE_INTERVAL:
+                    contact_selected_frame <- contact_selected_frame + delta
+                elif contact_selected_frame < plan.first:
+                    contact_selected_frame <- plan.first
+                elif contact_selected_frame > plan.last:
+                    contact_selected_frame <- plan.last
+                StudioText::begin()
+                StudioText::put("Moved " if target == StudioContactEditor::NUDGE_INTERVAL else "Adjusted ")
+                StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                StudioText::put(" interval to frames ")
+                StudioText::put_i(plan.first + 1)
+                StudioText::put("–")
+                StudioText::put_i(plan.last + 1)
+                status <- StudioText::view()
+                nudged_row <- -1
+                status_file <- null
+                touch()
+
         # Apply an explicit Plant/Lift action to the selected output frame.
         def contact_apply(action: i64) -> void:
             return if not StudioContactEditor::action_valid(action)
@@ -3402,6 +3445,26 @@ module Studio:
                 touch()
                 return
             if help_open and code != UiCore::Key.Escape:
+                return
+            # Shift is a useful modifier for contact editing, so handle its
+            # supported bindings before other_chord classifies it as a chord
+            # with no binding. This also keeps existing Shift contact actions
+            # and speed/viewport shortcuts reachable.
+            if modifiers == StudioShortcuts::SHIFT:
+                if code == UiCore::Key.Left:
+                    contact_nudge(StudioContactEditor::NUDGE_INTERVAL, -1)
+                elif code == UiCore::Key.Right:
+                    contact_nudge(StudioContactEditor::NUDGE_INTERVAL, 1)
+                elif code == UiCore::Key.Up:
+                    contact_nudge(StudioContactEditor::NUDGE_LAST, 1)
+                elif code == UiCore::Key.Down:
+                    contact_nudge(StudioContactEditor::NUDGE_LAST, -1)
+                elif code == UiCore::Key.LeftBracket:
+                    contact_nudge(StudioContactEditor::NUDGE_FIRST, -1)
+                elif code == UiCore::Key.RightBracket:
+                    contact_nudge(StudioContactEditor::NUDGE_FIRST, 1)
+                elif code == UiCore::Key.P or code == UiCore::Key.L or code == UiCore::Key.U or code == UiCore::Key.Delete or code == UiCore::Key.M or code == UiCore::Key.F or preset_key(code) >= 0:
+                    key(code)
                 return
             mutable action: i64 = StudioShortcuts::z_chord(modifiers) if code == UiCore::Key.Z else StudioShortcuts::other_chord(modifiers)
             action <- StudioShortcuts::text_key_route(typing, action)
