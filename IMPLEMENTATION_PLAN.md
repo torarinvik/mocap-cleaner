@@ -298,13 +298,14 @@ agreed minimum window size. Sources unchanged.
 
 ### 7.2 Issue browser and explainable detectors
 
-- [ ] Turn binned markers into selectable issue records: type, bone/chain,
-      interval, peak frame, severity, measured value, threshold and confidence
-      or uncertainty reason. Retain exact frames behind visual bins.
-- [ ] Group adjacent samples into useful intervals; avoid a list entry per
-      frame. Filter by issue type, limb, severity and unresolved status.
-- [ ] Add next/previous issue and worst issue actions. Selection aligns
-      playhead, joint, curves, inspector and optional camera framing.
+- [ ] Expand the current aggregate spike intervals to typed findings with
+      known bone/chain, interval, peak frame, severity, measured value,
+      threshold and confidence or uncertainty reason. Retain exact frames
+      behind visual bins; never attach an unknown aggregate finding to an
+      arbitrary joint.
+- [ ] Filter findings by detector, limb, severity and unresolved status.
+- [ ] Link exact issue selection to the curves and inspector, focus a known
+      subject, and optionally frame the affected region in the viewport.
 - [ ] Explain each issue in ordinary language with source/result readings:
       slide, penetration, jitter, spike, pole jump, seam or balance warning.
       Show detector settings and analysis revision in advanced details.
@@ -314,8 +315,9 @@ agreed minimum window size. Sources unchanged.
 - [ ] Distinguish confirmed user contacts from inferred contacts. Show low
       confidence and data limitations; balance and ballistic heuristics must
       not be presented as ground-truth physical validity.
-- [ ] Keep diagnosis tied to the displayed revision; show Updating while
-      results are stale and prevent stale results from guiding a new fix.
+- [ ] Carry the current stale-result gate into asynchronous analysis and keep
+      visible status, row selection, filters and navigation synchronized with
+      the displayed document revision.
 
 **Exit:** an unfamiliar rig can be configured without source edits; selecting
 any issue reaches its exact relevant frame; unsupported capabilities explain

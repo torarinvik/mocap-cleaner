@@ -23,7 +23,7 @@ an internal kernel by itself does not make a feature available to an animator.
 |---|---|---|---|
 | Channel filters | Six kernel types exist: despike, smooth path, median, wring limit, seam close and contact pin. The built-in presets use subsets; the CLI has no standalone flags for arbitrary curve-stack construction. | Add buttons expose five: Despike, Smooth, Median, Wring and Seam. Rows support select, enable, move, remove, strength and scope editing. | Contact pin is not in Add; parameters and frame scope have limited direct editing; no complete search, labelled inspector, role/joint scope editor, fade/boundary inspector or reset-to-default action. |
 | Rig cleanup | `--op twist|pole|pelvis|lock|pivot|hands`, with pins, offsets, keyed offsets, explicit foot/hand contacts and retime flags. | Foot/hand cleanup toggles; contact interval editor; retime bands; viewport gizmo corrections. | Existing pins, twist/pole/pelvis controls, editable correction layers, advanced anchors and tool prerequisites have no complete inspector. |
-| Physics analysis | Balance, ballistic and momentum checks are selectable with `--op`; batch always includes report detectors. | Balance and motion metrics are displayed as aggregate/readout overlays. | No ranked issue list with exact frame, affected chain, measured value, threshold, confidence and intentional-motion acknowledgement. |
+| Physics analysis | Balance, ballistic and momentum checks are selectable with `--op`; batch always includes report detectors. | Balance and motion metrics are displayed as aggregate/readout overlays. A two-row ranked browser navigates aggregate spike intervals to exact peak frames and shows each peak value and threshold; stale rows are disabled. | The browser covers aggregate spikes only: no detector filters, per-bone findings, source/result readings, uncertainty, intentional-motion acknowledgement or analyzer details. |
 | Contact editing | `--contact` and `--hand-contact` author explicit intervals. | Plant, Lift, Reset, Delete, Merge and Split action paths; contact states and selected frame; history-backed edits. | Timeline zoom/pan, exact numeric interval entry, accessible alternatives for row/range selection, anchor surface controls, source-versus-authored confidence and boundary visual review remain open. |
 | Local pose repair | `--pin`, `--offset` and piecewise `--keyed` options. | Drag gizmo creates keyed local correction; undo/redo and session persistence exist. | No full key list, exact numeric transform, local/world editor, default fade control, constrained/nudge controls or complete pin inspector. |
 | Retiming | `--retime` specifies source range, speed and blend; report maps frame timing. | Selection drag, speed presets/slider/typed speed, up to eight bands, history and session persistence. | Need exact source/output numeric ranges and durations, contact/key mapping review, accessible band editing and clear separation among play loop, work range, scope and retime. |
@@ -41,6 +41,9 @@ an internal kernel by itself does not make a feature available to an animator.
   foot slide/sink and hand slide. CLI report code additionally has rig and
   physics findings and per-stage/per-operation timing. Keep labels and units
   consistent when studio consumes those results.
+- The current issue browser is an aggregate spike slice, not a complete issue
+  system. It intentionally reports no joint subject for that detector and
+  does not yet cover the CLI's rig and physics finding families.
 - The UI should expose missing prerequisites inline, keep unavailable actions
   inspectable with a short reason, and preserve the source/result distinction.
   Do not imply that aggregate improvements prove every interval was improved.
