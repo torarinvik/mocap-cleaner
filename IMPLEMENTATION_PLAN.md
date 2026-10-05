@@ -372,14 +372,12 @@ positives before enabling recommendations.
 - [ ] Explain ordering and fixed pipeline stages, including contact-dependent
       stages, final pins and retime. Reject or explain invalid moves; never
       suggest that a displayed order differs from evaluation order.
-- [x] Add the bounded operation-stack duplicate kernel: copy the selected
-      operation immediately after itself, preserve all operation fields, and
-      fail without changing the stack at invalid selection or capacity.
-      Focused proof and undo/redo coverage pass.
 - [ ] Expose Duplicate with a clear label, keyboard and accessible action;
-      route it through one undo transaction. Rename, bypass-all and
-      before-this-step review remain P1. Drag ordering must have equivalent
-      move buttons and keyboard actions.
+      wire the existing bounded state action into one undo transaction,
+      disable it with an explanation at invalid selection or capacity, and
+      preserve every operation field. Rename, bypass-all and before-this-step
+      review remain P1. Drag ordering must have equivalent move buttons and
+      keyboard actions.
 - [ ] Coalesce a slider or numeric edit into one undo transaction. Invalid
       numeric drafts and cancelled drags leave no history entry.
 - [ ] Make cleanup reset paths explicit and reversible: bypass one operation,
