@@ -12,15 +12,16 @@ inspected a loaded `black-boxer.glb` / `jab` studio window at 2880 × 1600
 display pixels. That view exposed the curve bone label colliding with the
 retime slider; commit `99a3d34` moved the selected-bone label into its own
 row. The AppKit accessibility tree now exposes a named workspace, five region
-groups and a live status node, verified in the running window. The tree also
-lists generic Increment/Decrement secondary actions on the group landmarks;
-the app gives those groups no action target, so the native adapter needs review
-to avoid advertising irrelevant actions. Canvas controls still lack
-individual roles and action routes, and the workspace tree is suppressed while
-help, file-menu or replacement overlays are open. Input automation did not
-complete, so file/menu actions, the legacy warning, close prompts and
-minimum-size behavior remain unverified. The
-screenshot was visible in the audit session but could not be saved as a
+groups, 19 toolbar controls and a live status node. Toolbar controls have
+button or checkbox roles, shortcut-aware names, working action routes, toggle
+values and correct disabled states for Undo/Redo. A CUA accessibility action
+changed Loop from off to on and back, restoring the original state. The tree
+also lists generic Increment/Decrement secondary actions on nodes without
+those app actions, so the native adapter needs review. Cleanup-stack, timeline
+and viewport controls still lack individual semantics; the workspace tree is
+suppressed while help, file-menu or replacement overlays are open. File/menu
+flows, the legacy warning, close prompts and minimum-size behavior remain
+unverified. The screenshot was visible in the audit session but could not be saved as a
 workspace artifact; the M0 visual-exercise item remains open.
 
 | # | Audit item | Before | Decision / outcome |
@@ -38,7 +39,7 @@ workspace artifact; the M0 visual-exercise item remains open.
 | 10 | Save/load session | None | `src/studio/state/session_state.elisa`: a text format (`mocap-studio session 4`) that saves feet and hand toggles, blend, operations, contact edits and gizmo corrections (tag 4: quaternion in millionths, translation in micrometres). Tag 6 records a two-residue fingerprint of the original GLB bytes, selected animation index, source frame count and document-node count. V4 restore rejects missing, duplicate or mismatched identity metadata. Versions 1 through 3 can be parsed only through an explicit legacy path. The studio shows the warning before asking about unsaved edits; Cancel preserves the current cleanup, while Load is followed by the normal dirty-document prompt. After confirmation, the decoded stack is held until replacement is accepted, so parse failures cannot discard current edits. On load, scopes are clamped, quaternion and offset values are clamped (`StudioChrome::session_clamp`) and the quaternion is re-normalised, corrections on missing nodes are dropped, unknown or damaged lines are skipped, and unsupported headers are refused. Saves write a unique same-directory temporary, check fwrite/flush/fsync/close, then atomically rename; failures remove the temporary and preserve the existing session. On-screen confirmation and small-window review remain open. |
 | 11 | One-click "Fix all" + metrics | Preset existed only as the initial stack | The A key or the Auto button applies the boxing preset with foot and hand locks as one undoable edit. The sidebar shows before/after spike count, balance-impossible frames, foot slide/sink and hand slide; the status bar retains the last slide and spike gain. |
 | 12 | Focus loss during a gesture | Modifier keys cleared; a lost pointer-up could leave a drag active | `FocusLost` clears modifiers, camera/scrub/contact/gizmo/retime drags, cancels an unfinished range or numeric entry, and restores the retime slider's starting value. The pure transition has contracts and laws in `src/studio/focus.elisa` / `focus_laws.elisa`, with `test/studio_focus.elisa`. Native event delivery still needs an on-screen check. |
-| 14 | Screen-reader orientation | Canvas exposed no semantic nodes | `src/studio/accessibility.elisa` defines stable, proved workspace identities; the running AppKit tree now exposes the workspace, toolbar, character views, curves, timeline/contacts, cleanup operations and live status in edit mode. `test/studio_accessibility.elisa` and the full proof baseline pass. The adapter currently lists generic Increment/Decrement actions on groups with no app action target. Individual control roles, values, actions, focus announcements, non-edit screens and modal semantics remain open. |
+| 14 | Screen-reader orientation | Canvas exposed no semantic nodes | `src/studio/accessibility.elisa` defines stable, proved workspace and toolbar identities; the running AppKit tree exposes the workspace, five regions, all 19 toolbar controls and live status in edit mode. Toolbar button/checkbox roles, names, toggle state, Undo/Redo availability and action dispatch are verified, including an accessible Loop activation followed by restoration. `test/studio_accessibility.elisa` and the full proof baseline pass. The adapter lists irrelevant Increment/Decrement actions on nodes with no such app action. Cleanup-stack, timeline and viewport controls, focus announcements, non-edit screens and modal semantics remain open. |
 
 ## Icons
 

@@ -225,14 +225,16 @@ visually verified solely from offscreen rendering.
 - [ ] Provide native accessibility roles, names, values, actions and focus
       announcements through elisa-ui/host facilities. Prototype timeline and
       viewport alternatives early; document any platform blockers.
-      The first verified foundation now publishes stable workspace and
-      region landmarks plus live status in edit mode (`src/studio/accessibility.elisa`,
+      The verified foundation publishes stable workspace/region landmarks
+      and live status. All 19 toolbar controls now have native button or
+      checkbox roles, shortcut-aware names, working action routes, current
+      toggle values and correct Undo/Redo availability; the identity mapping
+      has laws and a test (`src/studio/accessibility.elisa`,
       `proof/studio_accessibility_laws.elisa`, `test/studio_accessibility.elisa`).
-      Individual controls, action routes, values, focus announcements, guide
-      screens, dialogs and VoiceOver task completion remain open; keep this
-      acceptance item unchecked until users can complete the core workflow.
-      Remove irrelevant native actions surfaced on non-interactive landmarks;
-      the current AppKit tree lists Increment/Decrement on region groups.
+      Other panel controls, focus announcements, guide screens, dialogs and
+      VoiceOver task completion remain open; keep this item unchecked until
+      users can complete the core workflow. Remove irrelevant Increment and
+      Decrement actions surfaced by AppKit on non-adjustable nodes.
 - [ ] Distinguish source/result and issue severity with labels, symbols and
       line styles as well as color. Respect reduced-motion settings for
       decorative transitions; maintain readable text contrast.
