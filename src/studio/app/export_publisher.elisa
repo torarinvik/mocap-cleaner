@@ -2,6 +2,7 @@
 # reloading them, and publish with one same-filesystem rename. The destination
 # remains untouched until commit succeeds.
 include "../../../../elisa-engine-mocap/src/assets/glb_document.elisa"
+include "../export_validation.elisa"
 
 const EXPORT_PATH_CAPACITY: usize = 4096
 const EXPORT_TEMP_CAPACITY: usize = 4128
@@ -26,7 +27,8 @@ module StudioExportPublisher:
         # Creates and validates a private sibling temporary. The caller owns
         # the returned path and must either commit or discard it, then release
         # the path string with FilePanel::release_path.
-        def prepare(doc: GlbDocument::Document&, destination: cstr) -> cstr?:
+        def prepare(doc: GlbDocument::Document&, destination: cstr, failure_code: mutable i64&) -> cstr?:
+            failure_code <- StudioExportValidation::WRITE_FAILED
             mutable destination_length: usize = 0
             while destination_length < EXPORT_PATH_CAPACITY and destination[destination_length] != 0:
                 destination_length <- destination_length + 1
@@ -64,7 +66,9 @@ module StudioExportPublisher:
                 _ = export_unlink(&temporary[0])
                 return null
 
-            if not matches_after_reload(doc, temporary_path):
+            validation: i64 = validate_after_reload(doc, temporary_path)
+            if validation != StudioExportValidation::READY:
+                failure_code <- validation
                 _ = export_unlink(&temporary[0])
                 return null
 
@@ -87,8 +91,9 @@ module StudioExportPublisher:
                 error failure: return false
             wrote == GlbDocument::byte_count(doc)
 
-        def matches_after_reload(doc: GlbDocument::Document&, path: cstr) -> bool:
+        def validate_after_reload(doc: GlbDocument::Document&, path: cstr) -> i64:
             written: GlbDocument::Document = catch GlbDocument::load(path):
                 value: value
-                error failure: return false
-            GlbDocument::first_difference(doc, written) == -1
+                error failure: return StudioExportValidation::RELOAD_FAILED
+            return StudioExportValidation::CONTENT_MISMATCH if GlbDocument::first_difference(doc, written) != -1
+            StudioExportValidation::READY
