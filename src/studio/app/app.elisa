@@ -18,6 +18,7 @@ include "retime_panel.elisa"
 include "../shortcuts.elisa"
 include "../focus.elisa"
 include "../replacement.elisa"
+include "../accessibility.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
 
@@ -1213,6 +1214,8 @@ module Studio:
             StudioPanels::help_sheet(w, h) if help_open
             StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close, replacement_is_termination)
             StudioPanels::legacy_session_prompt_panel(w, h, legacy_prompt_open, legacy_prompt_focus)
+            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
+                publish_accessibility(w, h, s)
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
@@ -1251,6 +1254,64 @@ module Studio:
                 StudioPanels::file_name_put(file)
                 return StudioText::view()
             return status
+
+        # Publish stable workspace landmarks after painting. This first
+        # semantic pass names the regions and live status; interactive
+        # controls will receive individual roles and action routes separately.
+        def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, text_value: sview) -> void:
+            UiCore::accessibility_with_metadata(role, label, help_text,
+                UiCore::Rect(b.x, b.y, b.w, b.h), id,
+                StudioAccessibility::NO_NODE, true, false, false, 0.0,
+                text_value, "", revision.usize(), 0, 0, parent_id,
+                first_child_id, next_sibling_id, 0.0, 1.0, false)
+
+        def publish_accessibility(w: f32, h: f32, s: StackState::Stack&) -> void:
+            none: usize = StudioAccessibility::NO_NODE
+            workspace: StudioPanels::Box = StudioPanels::box(0.0, 0.0, w, h)
+            views: StudioPanels::Box = StudioPanels::box(StudioPanels::GAP,
+                StudioPanels::TOOLBAR, StudioPanels::main_width(w),
+                StudioPanels::views_height(h))
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Mocap Studio workspace",
+                "Editing regions for inspecting and cleaning character motion.",
+                workspace, StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::TOOLBAR, none, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Playback and editing toolbar",
+                "Playback, undo, file, display, and cleanup actions.",
+                StudioPanels::box(0.0, 0.0, w, StudioPanels::TOOLBAR),
+                StudioAccessibility::TOOLBAR,
+                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::VIEWPORTS, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Character views",
+                "Perspective, front, and side views of the character.",
+                views, StudioAccessibility::VIEWPORTS,
+                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::CURVES, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Motion curves",
+                "Animation curves for the selected joint.",
+                StudioPanels::curve_box(w, h), StudioAccessibility::CURVES,
+                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::TIMELINE, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Timeline and foot contacts",
+                "Animation timeline, operation range, and foot contact markers.",
+                StudioPanels::timeline_box(w, h), StudioAccessibility::TIMELINE,
+                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::SIDEBAR, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Cleanup operations",
+                "Operation stack, cleanup settings, and parameters.",
+                StudioPanels::sidebar_box(w, h), StudioAccessibility::SIDEBAR,
+                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::STATUS, "")
+            accessibility_node(UiCore::AccessibilityRole.Status,
+                "Studio status",
+                "Current editing, cleanup, and playback status.",
+                StudioPanels::status_box(w, h), StudioAccessibility::STATUS,
+                StudioAccessibility::WORKSPACE, none, none, message(s))
 
         def camera_input(i: i64, dx: f32, dy: f32) -> void:
             if view(i) is opened:
