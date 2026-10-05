@@ -10,7 +10,7 @@ rm -rf build/folder-test && mkdir -p build/folder-test/sub.glb
 touch build/folder-test/a.glb build/folder-test/b.glb build/folder-test/C.GLB build/folder-test/.hidden.glb build/folder-test/c.txt
 status=0
 # CHECK_JOBS bounds compiler and independent test concurrency.
-check_jobs=${CHECK_JOBS:-6}
+check_jobs=${CHECK_JOBS:-4}
 case $check_jobs in
     ''|*[!0-9]*) echo "CHECK_JOBS must be a positive integer" >&2; exit 2 ;;
     0) echo "CHECK_JOBS must be a positive integer" >&2; exit 2 ;;
