@@ -7,7 +7,7 @@ the logic behind the chrome is a proved kernel (`src/studio/chrome.elisa` and
 
 Verification: the File menu, export destination and legacy-prompt policies
 have laws and headless tests. The last full `scripts/check.sh` run on
-2026-10-05 rebuilt and passed all 54 runtime tests and the CLI checks. Its
+2026-10-05 rebuilt and passed all 55 runtime tests and the CLI checks. Its
 proof-baseline gate needs review under the current prover semantic revision:
 the old baseline reports broad proved-to-unknown shifts, six existing
 unproven-count increases and missing rows for recently added proofs. Those
