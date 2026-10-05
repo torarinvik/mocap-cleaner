@@ -476,18 +476,18 @@ can be folded into the baseline when the corpus is intentionally re-reviewed.
 
 ## Issue grouping proof gap (2026-10-05)
 
-- G83 (prover gap): `proof/studio_issue_laws.elisa` currently verifies 17
-  obligations and leaves 11 unknown. In the included `StudioIssues::group`
-  darray fold, writes to explicitly mutable loop-carried bindings (`rows`,
-  `active`, `current`, and `previous_frame`) are diagnosed as
-  `resource-write-readonly` at the accumulator update and flush sites. The
-  mutation is accepted by stage1 and the focused executable regression passes.
-  The five remaining law ensures call `adjacent`, `same_identity`, and
-  `peak_wins`; their summaries are unavailable while the module contains this
-  unverified darray fold, so those call results remain unknown as well. The
-  model's loop and laws are left in place pending support for mutable
-  loop-carried darray/record accumulators and converged summaries for their
-  pure helper functions.
+- G83 (closed): parser annotations for `mutable name: T` are now imported into
+  resource analysis, and writable capability is preserved through `for`
+  captures. The fix is committed in `../elisa-proof-mocap` on
+  `mocap-cleaner-proofs` as `632e4eb1`. A positive regression proves both a
+  mutable local write and a captured loop accumulator; the existing negative
+  control still rejects assignment to an ordinary immutable local. With this
+  fix, `src/studio/issues.elisa` proves 33/33 obligations and
+  `proof/studio_issue_laws.elisa` proves 45/45; both reports replay every
+  certificate with zero gaps. The issue laws now state the boolean helper
+  contracts explicitly. Increment examples are bounded at 10,000,000 so
+  overflow cannot make adjacent values compare equal; this is a law precondition,
+  not a production revision or subject-ID limit.
 
 ## Character binding coverage gap (2026-10-05)
 
