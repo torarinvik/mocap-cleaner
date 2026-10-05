@@ -542,11 +542,19 @@ never silently loses edits. No representation rewrite without a measured need.
 - [ ] Provide intentional export controls only for supported semantics.
       Root extraction/in-place conversion or key reduction requires a separate
       implemented and validated policy before offering a checkbox.
-- [ ] Write output atomically; reject source collisions, unsupported paths
-      and unintended overwrite. Support cancel before final publication.
+- [x] Guard publication destinations under canonical `build/`; reject source
+      paths and hard-link aliases, symlink leaves, non-regular targets and
+      unconfirmed replacement. Quick Export asks before replacing; Cancel keeps
+      the current destination. See `StudioExportPolicy` and the FilePanel path
+      identity adapter.
+- [x] Stage GLB bytes in a unique same-directory temporary, flush and reload
+      them, compare the exact bytes with the reviewed cleaned document, recheck
+      destination safety, then publish with one atomic rename. Failed writes or
+      validation leave the selected destination intact.
 - [ ] Reload the derived GLB and compare animation channels/poses, contacts,
       duration and untouched nodes/skins/meshes against expected output.
-      Distinguish file-write success from completed validation.
+      Compare evaluated output against the reviewed revision, and report write
+      success separately from semantic review.
 - [ ] Export a human-readable summary and machine-readable report containing
       source/output hashes, animation identities, tool/dependency versions,
       recipe/rig settings, metrics, thresholds and warnings.
