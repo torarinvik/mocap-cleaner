@@ -15,12 +15,13 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
    over 2 mm on a frame. A red triangle marks the single worst frame.
 4. Press **W** to jump there: the playhead moves to the worst frame, the
    worse foot becomes the selected bone, and all three views frame that foot.
-5. Fix contacts on the timeline's foot rows (L green, R yellow):
-   - drag a bar's start or end (6 px grip) to plant or lift the frames it
-     sweeps;
-   - click a bar's body to lift that whole contact;
-   - click an empty part of a row to plant 8 frames centred on the click.
-   The hovered row is outlined. Every edit is in undo/redo (Z / Y).
+5. Select a contact on the timeline's foot rows (L green, R yellow). Clicking
+   a row and frame scrubs there and selects that exact output frame; it never
+   edits the contact. Use the Plant or Lift button in the timeline editor, or
+   **Shift-P** / **Shift-L**, to set a one-frame override. The selected side
+   and 1-based frame number stay visible in the editor. To change a run's
+   extent, drag its start or end handle (6 px grip). Clicking a run body or a
+   gap only selects and scrubs. Every edit is in undo/redo (Z / Y).
 6. **,** and **.** shorten or lengthen the carry blend (1..24 frames).
 7. **K** toggles foot cleanup, recorded in history, so before/after is one
    key away.
@@ -31,10 +32,10 @@ a metre-scaled rig), summed over planted frames of the boxing clips.
 
 Hand cleanup is opt-in with **J**; the session saves this toggle. The two hand
 rows sit below the foot rows in the timeline (L hand blue, R hand orange) and
-use the same drag, lift, plant, undo and redo gestures. The sidebar shows the
-hand slide before and after the lock. **A** / Auto runs Fix all: the boxing
-preset plus both foot and hand locks as one undoable edit, with spike, balance,
-foot slide/sink and hand slide metrics shown together.
+use the same select-first, one-frame Plant/Lift and run-end drag behavior. The
+sidebar shows the hand slide before and after the lock. **A** / Auto runs Fix
+all: the boxing preset plus both foot and hand locks as one undoable edit, with
+spike, balance, foot slide/sink and hand slide metrics shown together.
 
 ## Per-clip metrics (all boxing clips, `test/foot_clips.elisa`)
 
@@ -78,7 +79,9 @@ after ≤ before + 1 mm.
 ## UX checklist
 
 - [x] K fixes the feet (history-recorded toggle; default on)
-- [x] Timeline-editable contact bars: drag ends, lift run, plant span; undo/redo
+- [x] Contact-row clicks select and scrub without changing contact data
+- [x] Plant/Lift one selected frame with a button or shortcut; edits undo/redo
+- [x] Existing contact-run endpoint dragging
 - [x] Live slide/sink before/after readout with green/red cues
 - [x] Smooth readout transition (proved `progress`/`mix` ramp)
 - [x] W jumps to the worst frame and frames the foot
@@ -95,14 +98,24 @@ after ≤ before + 1 mm.
   nudge, grab of a run end or body, drag clamps, the edit range and
   planted/lifted decision, new-span bounds, before/after cue, marker
   threshold, worst-frame scan step, transition ramp and mix.
+- **Proved** (`src/studio/contact_editor.elisa` + `_laws`): valid exact-frame
+  selections, explicit Plant/Lift action mapping and the click-versus-drag
+  threshold. Accessibility laws cover the two action identities in the
+  timeline tree.
 - **Tested headless only** (`test/studio_foot.elisa`): stack fields and
   history, press/release on a 100-frame row, apply-edits replay, the model
   build with feet off and on (readout, cue, worst frame, marker count, a lift
   edit emptying the contact row).
+- **Tested headless only** (`test/studio_contact_editor.elisa`,
+  `test/studio_accessibility.elisa`): contact selection/action policy and
+  stable Plant/Lift semantic identities. These do not exercise native pointer
+  routing or screen-reader activation.
 - **Not tested at all** (needs a window): key dispatch, pointer routing to
-  the contact rows, hover, drawing of markers/readout/trails, camera framing
-  on W. The studio app compiles to an object file (typecheck plus codegen),
-  but nothing was run on screen; no screenshots were taken.
+  contact-row selection and endpoint dragging, visible button enablement,
+  Shift-P/Shift-L activation, native semantic-button activation, hover,
+  drawing of markers/readout/trails, and camera framing on W. The studio app
+  builds successfully, but this contact-editor revision has not been exercised
+  in a window; no screenshots were taken.
 - The per-frame worst slide can rise with feet on even when the total falls:
   the pivot moves the planted foot over the blend frames. The test gates
   the totals and the marker count, not the single worst frame.
