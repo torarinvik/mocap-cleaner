@@ -35,7 +35,10 @@ module Studio:
         # current take's path intact if loading the new take fails.
         global mutable path_bytes0: u8[4096] = zeroed
         global mutable path_bytes1: u8[4096] = zeroed
-        global mutable pending_take_bytes: u8[4096] = zeroed
+        # Replacement prompts outlive native chooser callbacks; session paths
+        # need storage independent of both the take and pending file buffers.
+        global mutable pending_path_bytes: u8[4096] = zeroed
+        global mutable session_path_bytes: u8[4096] = zeroed
         global mutable path_slot: i64 = -1
         global mutable anim_name: cstr = "jab"
         global mutable clip: StudioModel::Clip? = null
@@ -60,6 +63,9 @@ module Studio:
         # (native panels) change them.
         global mutable session_path: cstr = "build/studio_session.txt"
         global mutable export_path: cstr = "build/studio_export.glb"
+        const REPLACE_TAKE: i64 = 1
+        const REPLACE_SESSION: i64 = 2
+        global mutable pending_replacement: i64 = 0
         # Chrome: the "?" sheet, whether the take failed to load, and the
         # toolbar button under the pointer (for its tooltip).
         global mutable help_open: bool = false
@@ -176,20 +182,32 @@ module Studio:
             return (&path_bytes0[0]).cast[cstr] if slot == 0
             (&path_bytes1[0]).cast[cstr]
 
-        def stage_pending_take(p: cstr) -> bool can Unsafe.PointerCast:
+        def stage_pending_path(p: cstr) -> bool can Unsafe.PointerCast:
             mutable i: usize = 0
             while i < PATH_CAPACITY:
                 c: u8 = p[i]
                 if c == 0:
-                    pending_take_bytes[i] <- 0
+                    pending_path_bytes[i] <- 0
                     return true
                 return false if i == PATH_CAPACITY - 1
-                pending_take_bytes[i] <- c
+                pending_path_bytes[i] <- c
                 i <- i + 1
             false
 
-        def pending_take_path() -> cstr can Unsafe.PointerCast:
-            (&pending_take_bytes[0]).cast[cstr]
+        def pending_path() -> cstr can Unsafe.PointerCast:
+            (&pending_path_bytes[0]).cast[cstr]
+
+        def set_session_path(p: cstr) -> bool can Unsafe.PointerCast:
+            mutable i: usize = 0
+            while i < PATH_CAPACITY and p[i] != 0:
+                i <- i + 1
+            return false if i == PATH_CAPACITY
+            mutable copied: usize = 0
+            while copied <= i:
+                session_path_bytes[copied] <- p[copied]
+                copied <- copied + 1
+            session_path <- (&session_path_bytes[0]).cast[cstr]
+            true
 
         def set_path(p: cstr) -> void can Unsafe.PointerCast:
             slot: i64 = spare_path_slot()
@@ -623,14 +641,15 @@ module Studio:
         def save_session() -> void:
             _ = save_session_to_current_path()
 
-        def load_session() -> void:
-            if SessionState::load_session(session_path, frames(), node_total()) is loaded:
+        def load_session_at(p: cstr) -> void can Unsafe.PointerCast:
+            if SessionState::load_session(p, frames(), node_total()) is loaded:
                 commit(loaded, true)
                 HistoryState::mark_saved(&history)
+                _ = set_session_path(p)
                 say_file("session loaded (Cmd-Z to undo) from", session_path)
                 FilePanel::note_recent(session_path)
             else:
-                say_file("no readable session at", session_path)
+                say_file("no readable session at", p)
             touch()
 
         def export_clip() -> void:
@@ -646,13 +665,20 @@ module Studio:
         # ---- native file panels (modal) --------------------------------
         def save_session_as() -> void:
             if FilePanel::save("txt", session_path, "Save the operation stack and contacts as a session") is chosen:
-                session_path <- chosen
-                save_session()
+                if set_session_path(chosen):
+                    save_session()
+                else:
+                    say_file("session path exceeds 4095 bytes", chosen)
+                    touch()
 
         def open_session() -> void:
+            if clip == null:
+                status <- "open a take before loading a session"
+                status_file <- null
+                touch()
+                return
             if FilePanel::open("txt", "Open a saved session for this take") is chosen:
-                session_path <- chosen
-                load_session()
+                request_replacement(chosen, REPLACE_SESSION)
 
         def export_as() -> void:
             return if clip == null
@@ -702,26 +728,61 @@ module Studio:
             return StudioReplacement::DISCARD if replacement_focus == StudioReplacement::FOCUS_DISCARD
             StudioReplacement::CANCEL
 
+        def perform_replacement(kind: i64, p: cstr) -> void can Unsafe.PointerCast:
+            replacement_prompt_open <- false
+            replacement_save_failed <- false
+            file_menu_open <- false
+            pending_replacement <- 0
+            touch()
+            if kind == REPLACE_TAKE:
+                load_take_now(p)
+            elif kind == REPLACE_SESSION:
+                load_session_at(p)
+
+        def request_replacement(p: cstr, kind: i64) -> void can Unsafe.PointerCast:
+            return if kind != REPLACE_TAKE and kind != REPLACE_SESSION
+            if replacement_prompt_open:
+                status <- "finish or cancel the pending replacement first"
+                status_file <- null
+                touch()
+                return
+            if not stage_pending_path(p):
+                status <- "file path exceeds 4095 bytes"
+                status_file <- null
+                touch()
+                return
+            pending_replacement <- kind
+            mutable dirty: bool = false
+            if history_ready:
+                dirty <- HistoryState::dirty(&history)
+            if StudioReplacement::needs_prompt(clip != null, dirty):
+                replacement_prompt_open <- true
+                replacement_focus <- StudioReplacement::initial_focus()
+                replacement_save_failed <- false
+                file_menu_open <- false
+                help_open <- false
+                touch()
+                return
+            perform_replacement(kind, pending_path())
+
         def resolve_replacement(choice: i64) -> void:
             action: i64 = StudioReplacement::resolve(replacement_prompt_open, choice)
             return if action == StudioReplacement::NONE
             if action == StudioReplacement::CANCEL:
                 replacement_prompt_open <- false
                 replacement_save_failed <- false
-                say_file("take replacement cancelled; session unchanged", path)
+                pending_replacement <- 0
+                say_file("replacement cancelled; session unchanged", path)
                 touch()
                 return
-            pending: cstr = pending_take_path()
+            pending: cstr = pending_path()
+            kind: i64 = pending_replacement
             if action == StudioReplacement::SAVE:
                 if not save_session_to_current_path():
                     replacement_save_failed <- true
                     touch()
                     return
-            replacement_prompt_open <- false
-            replacement_save_failed <- false
-            file_menu_open <- false
-            touch()
-            load_take_now(pending)
+            perform_replacement(kind, pending)
 
         def replacement_prompt_key(code: UiCore::Key) -> void:
             if code == UiCore::Key.Escape:
@@ -748,23 +809,7 @@ module Studio:
         # per-take cache, the playhead, the gizmo and the undo history start
         # fresh (undo never reaches back into a different take).
         def load_take(p: cstr) -> void can Unsafe.PointerCast:
-            mutable dirty: bool = false
-            if history_ready:
-                dirty <- HistoryState::dirty(&history)
-            if StudioReplacement::needs_prompt(clip != null, dirty):
-                if not stage_pending_take(p):
-                    status <- "take path exceeds 4095 bytes"
-                    status_file <- null
-                    touch()
-                    return
-                replacement_prompt_open <- true
-                replacement_focus <- StudioReplacement::initial_focus()
-                replacement_save_failed <- false
-                file_menu_open <- false
-                help_open <- false
-                touch()
-                return
-            load_take_now(p)
+            request_replacement(p, REPLACE_TAKE)
 
         def load_take_now(p: cstr) -> void can Unsafe.PointerCast:
             candidate_slot: i64 = spare_path_slot()
