@@ -106,6 +106,7 @@ module Studio:
         global mutable file_menu_open: bool = false
         global mutable file_menu_focus: i64 = 0
         global mutable file_menu_hover: i64 = -1
+        global mutable reset_menu_open: bool = false
         global mutable export_review_open: bool = false
         global mutable export_review_acknowledged: bool = false
         global mutable export_review_focus: i64 = StudioExportReview::EXPORT
@@ -1179,6 +1180,25 @@ module Studio:
                 status <- "operation added"
                 nudged_row <- -1
                 status_file <- null
+
+        def reset_cleanup(action: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            return if not StudioResetScope::enabled(action, StackState::valid(s, s.selected), s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            mutable changed: bool = false
+            if action == StudioResetScope::CLEAR_CONTACTS:
+                changed <- StackState::clear_edits(&s)
+            elif action == StudioResetScope::CLEAR_CORRECTIONS:
+                changed <- StackState::clear_fixes(&s)
+            elif action == StudioResetScope::RESTORE_SOURCE:
+                changed <- StackState::reset_to_source(&s)
+            return if not changed
+            reset_menu_open <- false
+            nudged_row <- -1
+            status_file <- null
+            status <- "All contact overrides cleared (Cmd-Z)" if action == StudioResetScope::CLEAR_CONTACTS
+            status <- "All local corrections cleared (Cmd-Z)" if action == StudioResetScope::CLEAR_CORRECTIONS
+            status <- "Source restored; all cleanup removed (Cmd-Z)" if action == StudioResetScope::RESTORE_SOURCE
+            commit(s, true)
 
         def edit_selected(kind: i64, amount: i64) -> void:
             mutable s: StackState::Stack = current_stack()
@@ -2320,6 +2340,7 @@ module Studio:
                     StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
                     perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
+                    StudioPanels::reset_menu_panel(StudioPanels::sidebar_box(w, h), s, reset_menu_open)
                     draw_issue_browser(w, h, issues_revision != built, false)
                     contact_valid: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, c.frames)
                     contact_edit_index: i64 = StackState::edit_index_at(s, contact_selected_side, contact_selected_frame) if contact_valid else -1
@@ -3225,6 +3246,26 @@ module Studio:
                 file_menu_open <- false
                 file_menu_hover <- -1
                 touch()
+            if reset_menu_open:
+                if StudioPanels::inside(StudioPanels::reset_menu_button_box(sb), x, y):
+                    reset_menu_open <- false
+                    touch()
+                    return
+                if StudioPanels::reset_menu_contains(sb, x, y):
+                    current: StackState::Stack = current_stack()
+                    action: i64 = StudioPanels::reset_menu_hit(sb, current, x, y)
+                    reset_menu_open <- false
+                    touch()
+                    reset_cleanup(action) if button == 0 and action >= 0
+                    return
+                reset_menu_open <- false
+                touch()
+            if clip != null and button == 0 and StudioPanels::inside(StudioPanels::reset_menu_button_box(sb), x, y):
+                reset_menu_open <- true
+                file_menu_open <- false
+                help_open <- false
+                touch()
+                return
             if StudioPanels::inside(sb, x, y):
                 filter_action: i64 = StudioPanels::issue_filter_hit(sb, x, y)
                 if button == 0 and filter_action >= 0:
@@ -3578,6 +3619,7 @@ module Studio:
             f <- StudioFocus::after_focus_lost(f)
             file_menu_open <- false
             file_menu_hover <- -1
+            reset_menu_open <- false
             modifiers <- f.modifiers
             drag_view <- f.drag_view
             drag_button <- f.drag_button.i32()
@@ -3603,6 +3645,10 @@ module Studio:
         # Escape peels one layer: the sheet, a drag, a contact press, the
         # gizmo, then the selection (StudioChrome::escape_layer).
         def escape() -> void:
+            if reset_menu_open:
+                reset_menu_open <- false
+                touch()
+                return
             s: StackState::Stack = current_stack()
             layer: i64 = StudioChrome::escape_layer(help_open, gizmo_view >= 0, FootState::active(&foot_press), gizmo_mode >= 0, StackState::valid(s, s.selected))
             if layer == StudioChrome::ESC_HELP:
@@ -3624,6 +3670,10 @@ module Studio:
             touch()
 
         def key(code: UiCore::Key) -> void:
+            if reset_menu_open:
+                reset_menu_open <- false
+                touch()
+                return if code == UiCore::Key.Escape
             if typing and code == UiCore::Key.Enter:
                 if contact_draft_target >= 0:
                     contact_commit_frame_draft()
