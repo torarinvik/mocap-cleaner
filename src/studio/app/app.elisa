@@ -70,6 +70,13 @@ module Studio:
         global mutable issue_filter: StudioIssueFilterPolicy::Filter = zeroed
         global mutable issue_filter_ready: bool = false
         global mutable issue_annotations: StudioIssueAnnotation::Store = zeroed
+        global mutable pending_session_annotations: darray[SessionIssueAnnotationPolicy::Stored] = zeroed
+        global mutable pending_session_annotation_restore: bool = false
+        global mutable session_annotations_expired: i64 = 0
+
+        def clear_pending_session_annotations() -> void:
+            pending_session_annotations <- zeroed
+            pending_session_annotation_restore <- false
         global mutable status: sview = "ready"
         # Live drag readouts: gizmo angle (tenths of a degree) and offset
         # (mm), -1 when no gizmo drag is running; and the stack row whose
@@ -464,6 +471,18 @@ module Studio:
             filtered_issues <- move filtered
             issue_selected <- 0 if filtered_issues.count == 0 or issue_selected >= filtered_issues.count.i64()
 
+        def reconcile_pending_session_annotations(fresh: darray[StudioIssues::Issue]&) -> void:
+            return if not pending_session_annotation_restore
+            mutable restored: i64 = 0
+            for record in pending_session_annotations |record, fresh, issue_annotations, restored|:
+                for issue in fresh |issue, record, issue_annotations, restored|:
+                    if SessionIssueAnnotationPolicy::matches_issue(record, issue, frames()):
+                        if StudioIssueAnnotation::ignore(&issue_annotations, issue):
+                            restored <- restored + 1
+            session_annotations_expired <- pending_session_annotations.count.i64() - restored
+            pending_session_annotations <- zeroed
+            pending_session_annotation_restore <- false
+
         def collect_issues(c: StudioModel::Clip&) -> void:
             mutable samples: darray[StudioIssues::Sample] = []
             for frame in 0..<c.frames |frame, c|:
@@ -491,6 +510,7 @@ module Studio:
                             cursor <- cursor - 1
                         else:
                             break
+            reconcile_pending_session_annotations(ranked)
             issues <- move ranked
             issues_revision <- built
             _ = StudioIssueAnnotation::prune_revisions(&issue_annotations, built)
@@ -1226,13 +1246,20 @@ module Studio:
         def save_session_to_current_path() -> bool:
             mutable ok: bool = false
             if clip is c:
-                ok <- SessionState::save_session(current_stack(), session_identity(c), session_path)
+                mutable records: darray[SessionIssueAnnotationPolicy::Stored] = []
+                if issues_revision == built:
+                    for issue in issues |issue, issue_annotations, records|:
+                        if StudioIssueAnnotation::disposition(issue_annotations, issue) == StudioIssueAnnotation::IGNORED:
+                            records.push(SessionIssueAnnotationPolicy::stored_from_issue(issue, frames()))
+                ok <- SessionState::save_session_with_annotations(current_stack(), session_identity(c), records, session_path)
             if ok:
                 HistoryState::mark_saved(&history)
                 say_file("session saved to", session_path)
                 FilePanel::note_recent(session_path)
             else:
-                say_file("session save failed; check path, permissions or disk space", session_path)
+                mutable failure: sview = "session save failed; check path, permissions or disk space"
+                failure <- "session save failed; too many or invalid finding annotations" if SessionState::save_error() == SessionState::SAVE_ERROR_ANNOTATIONS
+                say_file(failure, session_path)
             touch()
             ok
 
@@ -1240,11 +1267,18 @@ module Studio:
             _ = save_session_to_current_path()
 
         def install_session(p: cstr, loaded: StackState::Stack, allow_legacy: bool) -> void:
+            issue_annotations <- zeroed
+            pending_session_annotation_restore <- true
+            session_annotations_expired <- 0
             commit(loaded, true)
+            if issues_revision == built:
+                reconcile_pending_session_annotations(issues)
             HistoryState::mark_saved(&history)
             _ = set_session_path(p)
             mutable loaded_message: sview = "session loaded (Cmd-Z to undo) from"
             loaded_message <- "legacy session loaded; verify joints (Cmd-Z to undo) from" if allow_legacy
+            if session_annotations_expired > 0:
+                loaded_message <- "session loaded; finding annotations expired after analysis changed from"
             say_file(loaded_message, session_path)
             FilePanel::note_recent(session_path)
             touch()
@@ -1257,6 +1291,7 @@ module Studio:
                 pending_replacement <- 0
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                clear_pending_session_annotations()
                 say_file("legacy session cancelled; current cleanup unchanged", pending_path())
                 touch()
                 return
@@ -1802,6 +1837,7 @@ module Studio:
             pending_replacement <- 0
             pending_replacement_allows_legacy <- false
             pending_session_ready <- false
+            clear_pending_session_annotations()
             touch()
             if replacement_is_termination:
                 termination_authorized <- true
@@ -1822,6 +1858,7 @@ module Studio:
             touch()
             if kind == REPLACE_TAKE:
                 pending_session_ready <- false
+                clear_pending_session_annotations()
                 load_take_now(p)
             elif kind == REPLACE_SESSION:
                 if pending_session_ready:
@@ -1847,10 +1884,13 @@ module Studio:
                 touch()
                 return
             pending_session_ready <- false
+            clear_pending_session_annotations()
             if kind == REPLACE_SESSION:
                 if clip is c:
-                    if SessionState::load_session(p, frames(), node_total(), session_identity(c), allow_legacy) is prepared:
+                    mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
+                    if SessionState::load_session_with_annotations(p, frames(), node_total(), session_identity(c), allow_legacy, &decoded_annotations) is prepared:
                         pending_session_stack <- prepared
+                        pending_session_annotations <- move decoded_annotations
                         pending_session_ready <- true
                     else:
                         if not allow_legacy and SessionState::load_error() == SessionState::LOAD_ERROR_LEGACY:
@@ -1863,6 +1903,7 @@ module Studio:
                         mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
                         failure <- "session source, animation or rig does not match this take" if SessionState::load_error() == SessionState::LOAD_ERROR_SOURCE
                         failure <- "session file could not be read" if SessionState::load_error() == SessionState::LOAD_ERROR_READ
+                        failure <- "session contains too many finding annotations" if SessionState::load_error() == SessionState::LOAD_ERROR_ANNOTATIONS
                         say_file(failure, p)
                         touch()
                         return
@@ -1901,6 +1942,7 @@ module Studio:
                 pending_replacement <- 0
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                clear_pending_session_annotations()
                 say_file(cancelled, path)
                 touch()
                 return
@@ -1934,6 +1976,7 @@ module Studio:
                 pending_replacement <- 0
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                clear_pending_session_annotations()
                 UiAppKitCanvas::veto_close()
                 say_file("legacy session cancelled; current cleanup unchanged", pending_path())
                 touch()
@@ -1942,6 +1985,7 @@ module Studio:
                 pending_replacement <- REPLACE_CLOSE
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                clear_pending_session_annotations()
                 replacement_is_close <- true
                 replacement_is_termination <- UiAppKitCanvas::is_termination_request()
                 UiAppKitCanvas::veto_close()
@@ -1954,6 +1998,7 @@ module Studio:
                 pending_replacement <- REPLACE_CLOSE
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                clear_pending_session_annotations()
                 replacement_prompt_open <- true
                 replacement_is_close <- true
                 replacement_is_termination <- UiAppKitCanvas::is_termination_request()
