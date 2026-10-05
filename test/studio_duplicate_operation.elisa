@@ -1,0 +1,50 @@
+# Duplicating an operation copies it in place and is one undo/redo edit.
+include "../src/studio/state/history_state.elisa"
+
+extern puts(text: cstr) -> i64
+
+def main() -> i32:
+    mutable s: StackState::Stack = StackState::empty()
+    _ = StackState::add(&s, Ops::despike(0, 90, -1, 2))
+    _ = StackState::add(&s, Ops::smooth_path(0, 90, 2, 3))
+    _ = StackState::add(&s, Ops::median(4, 70, 1, 5))
+    s.ops[1] <- Ops::Operation{kind: Ops::Kind.SmoothPath, enabled: false, first: 7, last: 82, bones: 6, strength: 9, edge: 3}
+    StackState::select(&s, 1)
+
+    mutable history: HistoryState::History = zeroed
+    HistoryState::reset(&history, s)
+    return 1 if not StackState::duplicate_selected(&s)
+    return 2 if s.count != 4 or s.selected != 2
+    original: Ops::Operation = s.ops[1]
+    copy: Ops::Operation = s.ops[2]
+    return 3 if original.kind != copy.kind or original.enabled != copy.enabled
+    return 4 if original.first != copy.first or original.last != copy.last
+    return 5 if original.bones != copy.bones or original.strength != copy.strength or original.edge != copy.edge
+    return 6 if s.ops[0].kind != Ops::Kind.Despike or s.ops[3].kind != Ops::Kind.Median
+    return 7 if not HistoryState::record(&history, s) or history.count != 2
+    return 8 if not HistoryState::undo(&history)
+    undone: StackState::Stack = HistoryState::current(&history)
+    return 9 if undone.count != 3 or undone.selected != 1 or undone.ops[1].edge != 3
+    return 10 if not HistoryState::redo(&history)
+    redone: StackState::Stack = HistoryState::current(&history)
+    return 11 if redone.count != 4 or redone.selected != 2 or redone.ops[2].strength != 9
+
+    mutable full: StackState::Stack = StackState::empty()
+    for i in 0..<StackPolicy::MAX_OPS |full|:
+        _ = StackState::add(&full, Ops::despike(i, i + 20, i, i + 1))
+    StackState::select(&full, 7)
+    before_full: StackState::Stack = full
+    return 12 if StackState::duplicate_selected(&full)
+    return 13 if not StackState::same(full, before_full) or full.selected != before_full.selected
+
+    StackState::select(&s, -1)
+    before_invalid: StackState::Stack = s
+    return 14 if StackState::duplicate_selected(&s)
+    return 15 if not StackState::same(s, before_invalid) or s.selected != before_invalid.selected
+    StackState::select(&s, 99)
+    before_range: StackState::Stack = s
+    return 16 if StackState::duplicate_selected(&s)
+    return 17 if not StackState::same(s, before_range) or s.selected != before_range.selected
+
+    _ = puts("studio_duplicate_operation: exact copy, bounded insertion, and undo/redo pass")
+    return 0
