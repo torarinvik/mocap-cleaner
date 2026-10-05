@@ -163,12 +163,10 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 - [ ] Reconcile documented behavior with code. Remove obsolete claims about
       absent mesh rendering, export paths and plain-only undo shortcuts.
       Label remaining headless-only and unverified behavior explicitly.
-- [ ] Inventory each CLI capability against studio access, parameter editing,
-      history, session persistence and metrics. Identify integration gaps
-      rather than planning to reimplement existing kernels.
-- [ ] Record current maximum frames, joints, animations, operations,
-      corrections, contact edits, retime bands, history and draw commands.
-      Show how each limit behaves at, below and above capacity.
+- [ ] Verify the configured limits in `docs/studio-capacities.md` with
+      reproducible below/at/above fixtures and running-window review. Record
+      exact user feedback, atomicity, memory and draw/accessibility overflow;
+      resolve the 1,000,000 versus 10,000,000 frame feature boundary.
 - [ ] Establish benchmark takes: short boxing, walking/running, idle jitter,
       turns, jumps/landings, planted hands, unusual proportions, noisy input,
       long clips and multi-animation GLBs. Use licensed or synthetic fixtures;
@@ -181,6 +179,10 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 - [ ] Specify low-fidelity layouts and interaction sequences for all four
       journeys, including empty, loading, error, selection and busy states.
       Review terminology with an animator before polishing visuals.
+
+The CLI-to-studio source inventory is recorded in
+`docs/studio-capability-matrix.md`; that inventory identifies existing
+capabilities and UI integration gaps without duplicating kernels.
 
 **Exit:** a capability/evidence matrix, reproducible corpus and benchmarks,
 and screen flows with explicit acceptance criteria. No feature is declared
