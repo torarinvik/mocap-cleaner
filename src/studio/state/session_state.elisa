@@ -13,6 +13,8 @@
 # millionths, translation in micrometres. Tag 5 (version 3) saves the opt-in
 # hand fix. Tag 6 (version 4) binds the cleanup to exact source bytes, the
 # selected animation, its source frame count and the document-node count.
+# Optional tag 8 saves ignored findings, bound to tag 6 and a versioned stable
+# analysis result identity.
 # Versions 1 through 3 remain readable only through an explicit legacy path;
 # they have no source identity and must not be silently restored.
 # Fields are signed decimals (OpsFile's reader). Every value is brought
@@ -21,6 +23,7 @@
 # kinds and malformed lines are skipped.
 include "stack_state.elisa"
 include "session_band_policy.elisa"
+include "session_issue_annotation_policy.elisa"
 include "../chrome.elisa"
 include "../../io/ops_file.elisa"
 
@@ -59,18 +62,21 @@ module SessionState:
         # Optional v4 extension. Older readers ignore unknown tags, so the
         # source-bound v4 envelope remains compatible.
         const TAG_BAND: i64 = 7
+        const TAG_ANNOTATION: i64 = 8
 
         const SAVE_ERROR_NONE: i64 = 0
         const SAVE_ERROR_PATH: i64 = 1
         const SAVE_ERROR_CREATE: i64 = 2
         const SAVE_ERROR_WRITE: i64 = 3
         const SAVE_ERROR_COMMIT: i64 = 4
+        const SAVE_ERROR_ANNOTATIONS: i64 = 5
 
         const LOAD_ERROR_NONE: i64 = 0
         const LOAD_ERROR_READ: i64 = 1
         const LOAD_ERROR_FORMAT: i64 = 2
         const LOAD_ERROR_LEGACY: i64 = 3
         const LOAD_ERROR_SOURCE: i64 = 4
+        const LOAD_ERROR_ANNOTATIONS: i64 = 5
 
         struct SourceIdentity:
             first: i64
@@ -112,10 +118,21 @@ module SessionState:
             return Ops::Kind.Median
 
         def encode_session(s: StackState::Stack&, identity: SourceIdentity, out: mutable darray[u8]&):
+            mutable records: darray[SessionIssueAnnotationPolicy::Record] = []
+            _ = encode_session_with_annotations(s, identity, records, out)
+
+        # Optional v4 tag 8 stores exact finding result rows. Tag 6 scopes all
+        # records to source bytes, animation, frames and document nodes; tag 8
+        # adds the schema and full stable detector result needed to expire
+        # intent if analysis output changes.
+        def encode_session_with_annotations(s: StackState::Stack&, identity: SourceIdentity, records: darray[SessionIssueAnnotationPolicy::Record]&, out: mutable darray[u8]&) -> bool:
+            return false if records.count.i64() > SessionIssueAnnotationPolicy::MAX_RECORDS
+            for record in records |record, identity|:
+                return false if not SessionIssueAnnotationPolicy::valid(record, identity.frames)
             out.clear()
             Report::push_text(out, session_header())
             out.push(10)
-            Report::push_text(out, "# 1 feet blend | 2 operation | 3 contact edit | 4 correction | 5 hands | 6 source hash animation frames nodes")
+            Report::push_text(out, "# 1 feet blend | 2 operation | 3 contact edit | 4 correction | 5 hands | 6 source identity | 7 retime band | 8 ignored finding")
             out.push(10)
             source: darray[i64] = [TAG_IDENTITY, identity.first, identity.second, identity.animation, identity.frames, identity.nodes]
             for k in 0..<source.count:
@@ -162,7 +179,15 @@ module SessionState:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
                 out.push(10)
-            return
+            record_count: i64 = records.count.i64()
+            for i in 0..<record_count |i, records, out, identity|:
+                r: SessionIssueAnnotationPolicy::Record = records[i.usize()]
+                f: darray[i64] = [TAG_ANNOTATION, SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA, r.first_frame, r.last_frame, r.issue_type, r.subject_id, r.peak_frame, r.severity, r.peak_value, r.threshold]
+                for k in 0..<f.count:
+                    out.push(32) if k > 0
+                    OpsFile::push_number(out, f[k])
+                out.push(10)
+            true
 
         # The version on the header line, or 0 when it is missing or one
         # this build cannot read (StudioChrome::session_version_ok).
@@ -223,6 +248,11 @@ module SessionState:
         # user-approved legacy migration path. V4 requires exactly one matching
         # source/animation identity record; malformed data is refused.
         def decode_session(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool) -> StackState::Stack?:
+            mutable records: darray[SessionIssueAnnotationPolicy::Record] = []
+            decode_session_with_annotations(text, frames, nodes, expected, allow_legacy, &records)
+
+        def decode_session_with_annotations(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool, annotations: mutable darray[SessionIssueAnnotationPolicy::Record]&) -> StackState::Stack?:
+            session_annotation_overflow <- false
             return null if frames < 1 or frames > StudioChrome::CHROME_FRAMES
             return null if not header_line(text)
             version: i64 = header_version(text)
@@ -233,6 +263,8 @@ module SessionState:
             mutable first_line: bool = true
             mutable identity_count: i64 = 0
             mutable identity_matches: bool = false
+            mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Record] = []
+            mutable annotation_overflow: bool = false
             mutable k: usize = 0
             while k <= text.count:
                 if k < text.count and text[k] != 10:
@@ -284,9 +316,23 @@ module SessionState:
                                 band.blend <- blend
                                 band.enabled <- enabled == 1
                                 s.bands[at] <- band
+                    elif tag == TAG_ANNOTATION and version == StudioChrome::CHROME_VERSION and fields.count == 10 and fields[1] == SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA:
+                        record: SessionIssueAnnotationPolicy::Record = SessionIssueAnnotationPolicy::Record{first_frame: fields[2], last_frame: fields[3], issue_type: fields[4], subject_id: fields[5], peak_frame: fields[6], severity: fields[7], peak_value: fields[8], threshold: fields[9]}
+                        if SessionIssueAnnotationPolicy::valid(record, frames):
+                            if decoded_annotations.count.i64() >= SessionIssueAnnotationPolicy::MAX_RECORDS:
+                                annotation_overflow <- true
+                            else:
+                                mutable duplicate: bool = false
+                                for prior in decoded_annotations |prior, record, duplicate|:
+                                    duplicate <- duplicate or SessionIssueAnnotationPolicy::same_analysis(prior, record)
+                                if not duplicate:
+                                    decoded_annotations.push(record)
                 cur.clear()
             return null if version == StudioChrome::CHROME_VERSION and (identity_count != 1 or not identity_matches)
+            session_annotation_overflow <- annotation_overflow
+            return null if annotation_overflow
             s.selected <- -1 if s.count == 0 else 0
+            annotations <- move decoded_annotations
             return s
 
         def save_session(s: StackState::Stack&, identity: SourceIdentity, path: cstr) -> bool:
@@ -294,10 +340,21 @@ module SessionState:
             encode_session(s, identity, &text)
             atomic_save(&text, path)
 
+        def save_session_with_annotations(s: StackState::Stack&, identity: SourceIdentity, records: darray[SessionIssueAnnotationPolicy::Record]&, path: cstr) -> bool:
+            mutable text: darray[u8] = []
+            if not encode_session_with_annotations(s, identity, records, &text):
+                session_save_error <- SAVE_ERROR_ANNOTATIONS
+                return false
+            atomic_save(&text, path)
+
         def save_error() -> i64:
             session_save_error
 
         def load_session(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool) -> StackState::Stack?:
+            mutable records: darray[SessionIssueAnnotationPolicy::Record] = []
+            load_session_with_annotations(path, frames, nodes, expected, allow_legacy, &records)
+
+        def load_session_with_annotations(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool, annotations: mutable darray[SessionIssueAnnotationPolicy::Record]&) -> StackState::Stack?:
             session_load_error <- LOAD_ERROR_NONE
             mutable text: darray[u8] = []
             if not OpsFile::read_bytes(path, &text):
@@ -310,9 +367,10 @@ module SessionState:
             if version < StudioChrome::CHROME_VERSION and not allow_legacy:
                 session_load_error <- LOAD_ERROR_LEGACY
                 return null
-            if decode_session(&text, frames, nodes, expected, allow_legacy) is decoded:
+            session_annotation_overflow <- false
+            if decode_session_with_annotations(&text, frames, nodes, expected, allow_legacy, annotations) is decoded:
                 return decoded
-            session_load_error <- LOAD_ERROR_SOURCE if version == StudioChrome::CHROME_VERSION else LOAD_ERROR_FORMAT
+            session_load_error <- LOAD_ERROR_ANNOTATIONS if session_annotation_overflow else LOAD_ERROR_SOURCE if version == StudioChrome::CHROME_VERSION else LOAD_ERROR_FORMAT
             return null
 
         def load_error() -> i64:
@@ -321,6 +379,7 @@ module SessionState:
     private:
         global mutable session_save_error: i64 = SAVE_ERROR_NONE
         global mutable session_load_error: i64 = LOAD_ERROR_NONE
+        global mutable session_annotation_overflow: bool = false
 
         def atomic_save(out: darray[u8]&, path: cstr) -> bool:
             session_save_error <- SAVE_ERROR_NONE

@@ -1,0 +1,78 @@
+# V4 finding annotations round-trip under the exact source identity and are
+# absent for older sessions or a mismatched source/animation.
+include "../src/studio/state/session_state.elisa"
+
+extern puts(text: cstr) -> i64
+
+def append_text(bytes: sview, out: mutable darray[u8]&) -> void:
+    Report::push_text(out, bytes)
+
+def main() -> i32:
+    identity: SessionState::SourceIdentity = SessionState::SourceIdentity{first: 113, second: 229, animation: 2, frames: 80, nodes: 31}
+    mutable st: StackState::Stack = StackState::empty()
+    _ = StackState::add(&st, Ops::despike(0, 79, -1, 3))
+    record: SessionIssueAnnotationPolicy::Record = SessionIssueAnnotationPolicy::Record{first_frame: 11, last_frame: 14, issue_type: 0, subject_id: -1, peak_frame: 13, severity: 940, peak_value: 188, threshold: 200}
+    issue: StudioIssues::Issue = StudioIssues::Issue{selectable: true, first_frame: 11, last_frame: 14, peak_frame: 13, issue_type: 0, subject_id: -1, source_revision: 22, severity: 940, peak_value: 188, threshold: 200}
+    return 15 if not SessionIssueAnnotationPolicy::matches_issue(record, issue)
+    mutable changed: StudioIssues::Issue = issue
+    changed.threshold <- 201
+    return 16 if SessionIssueAnnotationPolicy::matches_issue(record, changed)
+    long_record: SessionIssueAnnotationPolicy::Record = SessionIssueAnnotationPolicy::Record{first_frame: 9999997, last_frame: 9999999, issue_type: 0, subject_id: -1, peak_frame: 9999999, severity: 1000, peak_value: 250, threshold: 200}
+    return 12 if not SessionIssueAnnotationPolicy::valid(long_record, SessionIssueAnnotationPolicy::MAX_FRAMES)
+    long_identity: SessionState::SourceIdentity = SessionState::SourceIdentity{first: identity.first, second: identity.second, animation: identity.animation, frames: SessionIssueAnnotationPolicy::MAX_FRAMES, nodes: identity.nodes}
+    mutable long_records: darray[SessionIssueAnnotationPolicy::Record] = [long_record]
+    mutable long_text: darray[u8] = []
+    return 20 if not SessionState::encode_session_with_annotations(&st, long_identity, long_records, &long_text)
+    mutable long_loaded: darray[SessionIssueAnnotationPolicy::Record] = []
+    return 21 if SessionState::decode_session_with_annotations(&long_text, SessionIssueAnnotationPolicy::MAX_FRAMES, 31, long_identity, false, &long_loaded) == null
+    return 22 if long_loaded.count != 1 or not SessionIssueAnnotationPolicy::same_analysis(long_record, long_loaded[0])
+    mutable records: darray[SessionIssueAnnotationPolicy::Record] = [record]
+    mutable encoded: darray[u8] = []
+    return 11 if not SessionState::encode_session_with_annotations(&st, identity, records, &encoded)
+    return 1 if not SessionState::header_line(&encoded)
+    mutable loaded_records: darray[SessionIssueAnnotationPolicy::Record] = []
+    if SessionState::decode_session_with_annotations(&encoded, 80, 31, identity, false, &loaded_records) is loaded:
+        return 2 if loaded.count != 1 or loaded_records.count != 1
+        return 3 if not SessionIssueAnnotationPolicy::same_analysis(record, loaded_records[0])
+    else:
+        return 4
+    wrong_animation: SessionState::SourceIdentity = SessionState::SourceIdentity{first: identity.first, second: identity.second, animation: identity.animation + 1, frames: identity.frames, nodes: identity.nodes}
+    mutable rejected_records: darray[SessionIssueAnnotationPolicy::Record] = [record]
+    return 5 if SessionState::decode_session_with_annotations(&encoded, 80, 31, wrong_animation, false, &rejected_records) != null
+    return 6 if rejected_records.count != 1 or not SessionIssueAnnotationPolicy::same_analysis(record, rejected_records[0])
+    # A v4 session without tag 8 remains readable and produces no intent.
+    mutable legacy_v4: darray[u8] = []
+    append_text("mocap-studio session 4\n6 113 229 2 80 31\n1 1 6\n", &legacy_v4)
+    mutable old_records: darray[SessionIssueAnnotationPolicy::Record] = []
+    if SessionState::decode_session_with_annotations(&legacy_v4, 80, 31, identity, false, &old_records) is old:
+        return 7 if old_records.count != 0
+    else:
+        return 8
+    # Invalid interval and unknown analysis schema are safely expired.
+    mutable damaged: darray[u8] = []
+    append_text("mocap-studio session 4\n6 113 229 2 80 31\n8 1 77 81 0 -1 80 900 188 200\n8 2 11 14 0 -1 13 940 188 200\n", &damaged)
+    mutable expired: darray[SessionIssueAnnotationPolicy::Record] = []
+    if SessionState::decode_session_with_annotations(&damaged, 80, 31, identity, false, &expired) is safe:
+        return 9 if expired.count != 0
+    else:
+        return 10
+    # Overflow is a detectable decode failure and leaves caller intent intact.
+    mutable excessive: darray[u8] = []
+    append_text("mocap-studio session 4\n6 113 229 2 80 31\n", &excessive)
+    for i in 0..<257 |i, excessive|:
+        fields: darray[i64] = [8, 1, 0, 0, 0, -1, 0, 0, i, 300]
+        for k in 0..<fields.count:
+            excessive.push(32) if k > 0
+            OpsFile::push_number(&excessive, fields[k])
+        excessive.push(10)
+    mutable retained: darray[SessionIssueAnnotationPolicy::Record] = [record]
+    return 13 if SessionState::decode_session_with_annotations(&excessive, 80, 31, identity, false, &retained) != null
+    return 14 if retained.count != 1 or not SessionIssueAnnotationPolicy::same_analysis(record, retained[0])
+    mutable too_many: darray[SessionIssueAnnotationPolicy::Record] = []
+    for i in 0..<257 |i, too_many|:
+        too_many.push(SessionIssueAnnotationPolicy::Record{first_frame: 0, last_frame: 0, issue_type: 0, subject_id: -1, peak_frame: 0, severity: 0, peak_value: i, threshold: 300})
+    mutable preserved: darray[u8] = [42]
+    return 17 if SessionState::encode_session_with_annotations(&st, identity, too_many, &preserved)
+    return 18 if preserved.count != 1 or preserved[0] != 42
+    _ = puts("studio_session_annotations: pass".cast[u8&])
+    0
