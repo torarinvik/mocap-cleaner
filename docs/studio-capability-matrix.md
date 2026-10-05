@@ -139,3 +139,19 @@ saved and the source take remained untouched. This fixture has no findings, so
 finding-row selection, ignore/restore and annotation undo remain unreviewed;
 focus indication, VoiceOver activation and minimum-window layout also remain
 open.
+
+### 2026-10-06 numeric-entry follow-up
+
+On the valid-take smoke window, selecting frame 19 and choosing Plant exposed
+the authored contact endpoint fields. Cmd-O while the First draft was active
+did not open a file panel, and Escape restored the displayed endpoint; Cmd-Z
+then removed the temporary Plant edit. No session or export was saved. The
+current running binary did not display text entered into the custom numeric
+draft, which exposed the gap between the AppKit canvas's physical key events
+and Studio's committed-text callback. `StudioTextEntryPolicy` now shares a
+strict filter between committed characters and a physical-key fallback for
+frame and speed drafts. Its focused executable passes, and the policy proves
+89/89 obligations. The app rebuild reached Stage1 backend emission but could
+not produce an object because this environment lacks the `studio-globals`
+compiler required by the build script. The changed input path therefore still
+needs a rebuilt-window review; the draft-typing result is not yet verified.

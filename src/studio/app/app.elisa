@@ -18,6 +18,7 @@ include "panels.elisa"
 include "../issues.elisa"
 include "../issue_annotation.elisa"
 include "../contact_frame_policy.elisa"
+include "../text_entry_policy.elisa"
 include "../modal_policy.elisa"
 include "retime_panel.elisa"
 include "../shortcuts.elisa"
@@ -733,10 +734,36 @@ module Studio:
         def text_input(text: sview) -> void:
             return if not typing or text.len <= 0 or text.data == null
             for i in 0..<text.len.usize():
-                is_digit: bool = text.data[i] >= 48 and text.data[i] <= 57
-                if typed_len < 8 and ((contact_draft_target >= 0 and is_digit) or (contact_draft_target < 0 and text.data[i] != 61)):
-                    typed[typed_len.usize()] <- text.data[i]
-                    typed_len <- typed_len + 1
+                append_typed_character(text.data[i].i64())
+
+        # AppKit's immediate-mode numeric fields do not own a native text
+        # widget. Their custom view receives physical key events, so accept
+        # printable characters through the same whitelist as committed text.
+        def append_typed_key(code: UiCore::Key) -> void:
+            return if modifiers != 0
+            mutable character: i64 = StudioTextEntryPolicy::REJECT
+            character <- StudioTextEntryPolicy::ASCII_ZERO if code == UiCore::Key.Digit0
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 1 if code == UiCore::Key.Digit1
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 2 if code == UiCore::Key.Digit2
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 3 if code == UiCore::Key.Digit3
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 4 if code == UiCore::Key.Digit4
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 5 if code == UiCore::Key.Digit5
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 6 if code == UiCore::Key.Digit6
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 7 if code == UiCore::Key.Digit7
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 8 if code == UiCore::Key.Digit8
+            character <- StudioTextEntryPolicy::ASCII_NINE if code == UiCore::Key.Digit9
+            if contact_draft_target < 0:
+                character <- StudioTextEntryPolicy::ASCII_DOT if code == UiCore::Key.Period
+                character <- StudioTextEntryPolicy::ASCII_UPPER_X if code == UiCore::Key.X
+                character <- StudioTextEntryPolicy::ASCII_SPACE if code == UiCore::Key.Space
+            append_typed_character(character) if character != StudioTextEntryPolicy::REJECT
+
+        def append_typed_character(character: i64) -> void:
+            return if not typing or typed_len >= 8
+            accepted: i64 = StudioTextEntryPolicy::route(true, character, contact_draft_target >= 0)
+            return if accepted == StudioTextEntryPolicy::REJECT
+            typed[typed_len.usize()] <- accepted.u8()
+            typed_len <- typed_len + 1
             touch()
 
         # Shift-1..7: speed presets 0.5x .. 2x.
@@ -4071,6 +4098,8 @@ module Studio:
             if typing:
                 if code == UiCore::Key.Enter or code == UiCore::Key.Backspace or code == UiCore::Key.Escape:
                     key(code)
+                else:
+                    append_typed_key(code)
                 return
             command: bool = StudioShortcuts::command(modifiers)
             mutable file: i64 = StudioShortcuts::FILE_NONE
