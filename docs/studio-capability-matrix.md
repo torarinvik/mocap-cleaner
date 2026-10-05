@@ -50,3 +50,17 @@ an internal kernel by itself does not make a feature available to an animator.
 - This matrix closes only the code inventory portion of M0. It does not close
   the running-window exercise, animation UX, benchmark corpus, visual review,
   or any milestone acceptance gate in `IMPLEMENTATION_PLAN.md`.
+
+## Partial running-window review
+
+On 2026-10-05, I opened the current build with the external
+`black-boxer.glb` / `jab` take on a 2880 × 1800 display. The audit capture is
+`build/studio-audit-current.png` (local build output, not a benchmark input).
+The character, three viewport panes, curves and timeline are visible, but the
+sidebar's ranked-findings card is not usable: the cleanup readout is drawn over
+its heading, status, navigation buttons and empty-state text. The same sidebar
+also repeats most shortcuts inline even though the toolbar already offers a
+shortcut sheet. Fix the findings/readout layout and remove redundant inline
+shortcut clutter before marking this interaction reviewed. This is one partial
+window review; file panels, dialogs, small-window behavior, keyboard-only use,
+VoiceOver and other journeys remain unreviewed.
