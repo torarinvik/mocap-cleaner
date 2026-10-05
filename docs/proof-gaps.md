@@ -468,8 +468,8 @@ remain.
 ## Local check baseline (2026-10-05)
 
 `scripts/check.sh` records the reviewed per-file state and unproven-goal count
-in `scripts/proof-baseline.tsv`. The current corpus has 51 proved, 16 unknown
-and 24 unsupported files. The last two states are existing prover gaps or
+in `scripts/proof-baseline.tsv`. The current corpus has 69 proved, 16 unknown
+and 24 unsupported files across 109 checked files. The last two states are existing prover gaps or
 impure driver modules, so the check reports them and fails only if a file gets
 worse, a new file lacks review, or a report is missing. Improvements pass and
 can be folded into the baseline when the corpus is intentionally re-reviewed.

@@ -553,11 +553,6 @@ never silently loses edits. No representation rewrite without a measured need.
 - [ ] Export a human-readable summary and machine-readable report containing
       source/output hashes, animation identities, tool/dependency versions,
       recipe/rig settings, metrics, thresholds and warnings.
-- [ ] After successful publication, show the output name and destination with
-      Open Result, Show in Folder and Done actions. Disable result actions when
-      there is no committed output; preserve the last successful path after a
-      failed/cancelled export. Explain that the editable session and rendered
-      GLB are separate artifacts and offer to save dirty session changes.
 
 ### 11.2 Studio batch and repeatability (P1)
 
@@ -595,9 +590,12 @@ single-take output agree for identical settings.
 - [ ] Add reproducible UI interaction checks for file lifecycle, stack editing,
       contacts, retime, gizmo cancellation, comparison and export. Supplement
       captures with real native-window checks for input routing and GPU paths.
+      Exercise export-warning acknowledgement, disabled Export, result-dialog
+      focus, Open Result, Show in Folder, missing/failed outputs and Done/Escape.
+      Confirm the editable session remains separate from the published GLB.
 - [ ] Capture and review visual states at supported window sizes/scales:
       first run, malformed input, busy/cancelled job, missing rig roles, dense
-      timeline, long paths, warnings, help and restored session.
+      timeline, long paths, export warnings/result, help and restored session.
 - [ ] Exercise disk full/permission failure, interrupted write, malformed GLB,
       damaged session, changed source, rapid edits and focus loss. Verify
       source hashes and last valid committed state after each scenario.
