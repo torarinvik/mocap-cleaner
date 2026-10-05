@@ -299,6 +299,9 @@ module Studio:
                 return HistoryState::current(&history)
             StackState::empty()
 
+        def session_identity(c: StudioModel::Clip) -> SessionState::SourceIdentity:
+            SessionState::SourceIdentity{first: c.source_fingerprint.first, second: c.source_fingerprint.second, animation: c.anim.i64(), frames: c.source_frames, nodes: GlbDocument::node_count(&c.source).i64()}
+
         def touch() -> void:
             revision <- revision + 1
             UiCore::request_frame_after(0.001)
@@ -635,7 +638,9 @@ module Studio:
             status_file <- file
 
         def save_session_to_current_path() -> bool:
-            ok: bool = SessionState::save_session(current_stack(), session_path)
+            mutable ok: bool = false
+            if clip is c:
+                ok <- SessionState::save_session(current_stack(), session_identity(c), session_path)
             if ok:
                 HistoryState::mark_saved(&history)
                 say_file("session saved to", session_path)
@@ -649,14 +654,21 @@ module Studio:
             _ = save_session_to_current_path()
 
         def load_session_at(p: cstr) -> void can Unsafe.PointerCast:
-            if SessionState::load_session(p, frames(), node_total()) is loaded:
-                commit(loaded, true)
-                HistoryState::mark_saved(&history)
-                _ = set_session_path(p)
-                say_file("session loaded (Cmd-Z to undo) from", session_path)
-                FilePanel::note_recent(session_path)
+            if clip is c:
+                if SessionState::load_session(p, frames(), node_total(), session_identity(c), false) is loaded:
+                    commit(loaded, true)
+                    HistoryState::mark_saved(&history)
+                    _ = set_session_path(p)
+                    say_file("session loaded (Cmd-Z to undo) from", session_path)
+                    FilePanel::note_recent(session_path)
+                else:
+                    mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
+                    failure <- "legacy session has no source identity; cannot restore it safely" if SessionState::load_error() == SessionState::LOAD_ERROR_LEGACY
+                    failure <- "session source, animation or rig does not match this take" if SessionState::load_error() == SessionState::LOAD_ERROR_SOURCE
+                    failure <- "session file could not be read" if SessionState::load_error() == SessionState::LOAD_ERROR_READ
+                    say_file(failure, p)
             else:
-                say_file("no readable session at", p)
+                say_file("open a take before loading a session", p)
             touch()
 
         def export_clip() -> void:

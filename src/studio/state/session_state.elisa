@@ -2,8 +2,8 @@
 # blend, hand contact edits) saved as text next to the take, so a cleanup
 # can be closed and reopened. Format:
 #
-#   mocap-studio session 3
-#   # 1 feet blend | 2 kind enabled first last bones strength edge | 3 effector first last planted | 4 enabled node key first last qx qy qz qw tx ty tz | 5 hands
+#   mocap-studio session 4
+#   # 1 feet blend | 2 kind enabled first last bones strength edge | 3 effector first last planted | 4 correction | 5 hands | 6 source identity
 #   1 1 6
 #   2 0 1 0 239 -1 2 8
 #   3 0 40 52 1
@@ -11,8 +11,10 @@
 #
 # Tag 4 (version 2) is a gizmo correction: quaternion components in
 # millionths, translation in micrometres. Tag 5 (version 3) saves the opt-in
-# hand fix. Versions 1 and 2 still load; a correction on a missing node is
-# dropped.
+# hand fix. Tag 6 (version 4) binds the cleanup to exact source bytes, the
+# selected animation, its source frame count and the document-node count.
+# Versions 1 through 3 remain readable only through an explicit legacy path;
+# they have no source identity and must not be silently restored.
 # Fields are signed decimals (OpsFile's reader). Every value is brought
 # into range by the proved StudioChrome checks, so a session saved on a
 # longer take, or edited by hand, still loads safely; unknown operation
@@ -52,6 +54,7 @@ module SessionState:
         const TAG_EDIT: i64 = 3
         const TAG_FIX: i64 = 4
         const TAG_HANDS: i64 = 5
+        const TAG_IDENTITY: i64 = 6
 
         const SAVE_ERROR_NONE: i64 = 0
         const SAVE_ERROR_PATH: i64 = 1
@@ -59,8 +62,21 @@ module SessionState:
         const SAVE_ERROR_WRITE: i64 = 3
         const SAVE_ERROR_COMMIT: i64 = 4
 
+        const LOAD_ERROR_NONE: i64 = 0
+        const LOAD_ERROR_READ: i64 = 1
+        const LOAD_ERROR_FORMAT: i64 = 2
+        const LOAD_ERROR_LEGACY: i64 = 3
+        const LOAD_ERROR_SOURCE: i64 = 4
+
+        struct SourceIdentity:
+            first: i64
+            second: i64
+            animation: i64
+            frames: i64
+            nodes: i64
+
         def session_header() -> sview:
-            return "mocap-studio session 3"
+            return "mocap-studio session 4"
 
         def header_prefix() -> sview:
             return "mocap-studio session "
@@ -91,11 +107,16 @@ module SessionState:
             return Ops::Kind.LimitWring if code == 4
             return Ops::Kind.Median
 
-        def encode_session(s: StackState::Stack&, out: mutable darray[u8]&):
+        def encode_session(s: StackState::Stack&, identity: SourceIdentity, out: mutable darray[u8]&):
             out.clear()
             Report::push_text(out, session_header())
             out.push(10)
-            Report::push_text(out, "# 1 feet blend | 2 kind enabled first last bones strength edge | 3 effector first last planted | 4 correction | 5 hands")
+            Report::push_text(out, "# 1 feet blend | 2 operation | 3 contact edit | 4 correction | 5 hands | 6 source hash animation frames nodes")
+            out.push(10)
+            source: darray[i64] = [TAG_IDENTITY, identity.first, identity.second, identity.animation, identity.frames, identity.nodes]
+            for k in 0..<source.count:
+                out.push(32) if k > 0
+                OpsFile::push_number(out, source[k])
             out.push(10)
             head: darray[i64] = [TAG_FEET, 1 if s.feet else 0, s.blend]
             for k in 0..<head.count:
@@ -187,14 +208,20 @@ module SessionState:
             return Corrections::Correction{enabled: fields[1] != 0, node: fields[2], key: key if key >= lo and key <= hi else lo, first: lo, last: hi, rotation: Geometry::Quat{x: rx, y: ry, z: rz, w: rw}, translation: Geometry::Vec3{x: tx, y: ty, z: tz}}
 
         # Decode a session for a clip of `frames` frames and `nodes` document
-        # nodes. Null on a missing or unreadable header; bad lines are skipped.
-        def decode_session(text: darray[u8]&, frames: i64, nodes: i64) -> StackState::Stack?:
+        # nodes. Versions 1..3 are parsed only when the caller has an explicit
+        # user-approved legacy migration path. V4 requires exactly one matching
+        # source/animation identity record; malformed data is refused.
+        def decode_session(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool) -> StackState::Stack?:
             return null if frames < 1 or frames > StudioChrome::CHROME_FRAMES
             return null if not header_line(text)
+            version: i64 = header_version(text)
+            return null if version < StudioChrome::CHROME_VERSION and not allow_legacy
             mutable s: StackState::Stack = StackState::empty()
             mutable cur: darray[u8] = []
             mutable fields: darray[i64] = []
             mutable first_line: bool = true
+            mutable identity_count: i64 = 0
+            mutable identity_matches: bool = false
             mutable k: usize = 0
             while k <= text.count:
                 if k < text.count and text[k] != 10:
@@ -213,6 +240,11 @@ module SessionState:
                         s.blend <- StudioFoot::blend(fields[2])
                     elif tag == TAG_HANDS and fields.count == 2:
                         s.hands <- fields[1] != 0
+                    elif tag == TAG_IDENTITY:
+                        identity_count <- identity_count + 1
+                        identity_matches <- false
+                        if fields.count == 6:
+                            identity_matches <- StudioChrome::session_identity_matches(fields[1], fields[2], fields[3], fields[4], fields[5], expected.first, expected.second, expected.animation, expected.frames, expected.nodes)
                     elif tag == TAG_OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
                         b: i64 = StudioChrome::session_frame(fields[4], frames)
@@ -226,24 +258,42 @@ module SessionState:
                         if fix_from(&fields, frames, nodes) is fix:
                             _ = StackState::add_fix(&s, fix)
                 cur.clear()
+            return null if version == StudioChrome::CHROME_VERSION and (identity_count != 1 or not identity_matches)
             s.selected <- -1 if s.count == 0 else 0
             return s
 
-        def save_session(s: StackState::Stack&, path: cstr) -> bool:
+        def save_session(s: StackState::Stack&, identity: SourceIdentity, path: cstr) -> bool:
             mutable text: darray[u8] = []
-            encode_session(s, &text)
+            encode_session(s, identity, &text)
             atomic_save(&text, path)
 
         def save_error() -> i64:
             session_save_error
 
-        def load_session(path: cstr, frames: i64, nodes: i64) -> StackState::Stack?:
+        def load_session(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool) -> StackState::Stack?:
+            session_load_error <- LOAD_ERROR_NONE
             mutable text: darray[u8] = []
-            return null if not OpsFile::read_bytes(path, &text)
-            return decode_session(&text, frames, nodes)
+            if not OpsFile::read_bytes(path, &text):
+                session_load_error <- LOAD_ERROR_READ
+                return null
+            version: i64 = header_version(&text)
+            if version == 0:
+                session_load_error <- LOAD_ERROR_FORMAT
+                return null
+            if version < StudioChrome::CHROME_VERSION and not allow_legacy:
+                session_load_error <- LOAD_ERROR_LEGACY
+                return null
+            if decode_session(&text, frames, nodes, expected, allow_legacy) is decoded:
+                return decoded
+            session_load_error <- LOAD_ERROR_SOURCE if version == StudioChrome::CHROME_VERSION else LOAD_ERROR_FORMAT
+            return null
+
+        def load_error() -> i64:
+            session_load_error
 
     private:
         global mutable session_save_error: i64 = SAVE_ERROR_NONE
+        global mutable session_load_error: i64 = LOAD_ERROR_NONE
 
         def atomic_save(out: darray[u8]&, path: cstr) -> bool:
             session_save_error <- SAVE_ERROR_NONE
