@@ -89,6 +89,9 @@ module Studio:
         global mutable export_review_focus: i64 = StudioExportReview::EXPORT
         global mutable export_review_path: cstr = ""
         global mutable export_review_overwrite: bool = false
+        global mutable export_path_inspector_open: bool = false
+        global mutable export_path_inspector_page: i64 = 0
+        global mutable export_path_inspector_focus: i64 = StudioExportPathReview::DONE
         global mutable export_result_open: bool = false
         global mutable export_result_path: cstr = ""
         global mutable export_result_focus: i64 = StudioExportResult::OPEN
@@ -152,9 +155,14 @@ module Studio:
         global mutable accessibility_toolbar_widgets: usize[StudioPanels::BUTTONS.usize()] = zeroed
         global mutable accessibility_toolbar_ready: bool = false
         global mutable accessibility_review_ack_widget: usize = 0
+        global mutable accessibility_review_destination_widget: usize = 0
         global mutable accessibility_review_cancel_widget: usize = 0
         global mutable accessibility_review_export_widget: usize = 0
         global mutable accessibility_review_ready: bool = false
+        global mutable accessibility_path_previous_widget: usize = 0
+        global mutable accessibility_path_next_widget: usize = 0
+        global mutable accessibility_path_done_widget: usize = 0
+        global mutable accessibility_path_ready: bool = false
         global mutable accessibility_result_open_widget: usize = 0
         global mutable accessibility_result_folder_widget: usize = 0
         global mutable accessibility_result_done_widget: usize = 0
@@ -779,11 +787,61 @@ module Studio:
         def cancel_export_review() -> void:
             return if not export_review_open
             destination: cstr = export_review_path
+            export_path_inspector_open <- false
             export_review_open <- false
             export_review_path <- ""
             export_review_acknowledged <- false
             say_file("Export cancelled; no file was written", destination)
             touch()
+
+        def open_export_path_inspector() -> void:
+            return if not export_review_open
+            pages: i64 = StudioPanels::export_path_pages(export_review_path)
+            return if pages < 1 or pages > StudioExportPathReview::MAX_PAGES
+            export_path_inspector_page <- 0
+            export_path_inspector_focus <- StudioExportPathReview::initial_focus(0, pages)
+            export_path_inspector_open <- true
+            touch()
+
+        def close_export_path_inspector() -> void:
+            return if not export_path_inspector_open
+            export_path_inspector_open <- false
+            touch()
+
+        def activate_export_path_inspector(action: i64) -> void:
+            return if not export_path_inspector_open
+            pages: i64 = StudioPanels::export_path_pages(export_review_path)
+            return if pages < 1 or pages > StudioExportPathReview::MAX_PAGES
+            if action == StudioExportPathReview::DONE:
+                close_export_path_inspector()
+                return
+            return if not StudioExportPathReview::enabled(action, export_path_inspector_page, pages)
+            direction: i64 = -1 if action == StudioExportPathReview::PREVIOUS else 1
+            export_path_inspector_page <- StudioExportPathReview::move_page(
+                export_path_inspector_page, direction, pages)
+            export_path_inspector_focus <- action if StudioExportPathReview::enabled(
+                action, export_path_inspector_page, pages)
+            export_path_inspector_focus <- StudioExportPathReview::initial_focus(
+                export_path_inspector_page, pages) if not StudioExportPathReview::enabled(
+                action, export_path_inspector_page, pages)
+            touch()
+
+        def export_path_inspector_key(code: UiCore::Key) -> void:
+            pages: i64 = StudioPanels::export_path_pages(export_review_path)
+            if code == UiCore::Key.Escape:
+                close_export_path_inspector()
+            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                activate_export_path_inspector(StudioExportPathReview::PREVIOUS) if StudioExportPathReview::enabled(StudioExportPathReview::PREVIOUS, export_path_inspector_page, pages)
+            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                activate_export_path_inspector(StudioExportPathReview::NEXT) if StudioExportPathReview::enabled(StudioExportPathReview::NEXT, export_path_inspector_page, pages)
+            elif code == UiCore::Key.Tab:
+                export_path_inspector_focus <- StudioExportPathReview::move_focus(
+                    export_path_inspector_focus,
+                    -1 if StudioShortcuts::shift(modifiers) else 1,
+                    export_path_inspector_page, pages)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                activate_export_path_inspector(export_path_inspector_focus)
 
         def activate_export_review(focus: i64) -> void:
             return if not export_review_open
@@ -791,6 +849,9 @@ module Studio:
                 if current_export_warnings() > 0:
                     export_review_acknowledged <- not export_review_acknowledged
                     touch()
+                return
+            if focus == StudioExportReview::DESTINATION:
+                open_export_path_inspector()
                 return
             if focus == StudioExportReview::CANCEL:
                 cancel_export_review()
@@ -803,6 +864,7 @@ module Studio:
                 return
             destination: cstr = export_review_path
             overwrite_confirmed: bool = export_review_overwrite
+            export_path_inspector_open <- false
             export_review_open <- false
             export_review_path <- ""
             export_review_acknowledged <- false
@@ -1449,6 +1511,9 @@ module Studio:
             if export_review_open and clip is c:
                 StudioPanels::export_review_panel(w, h, true, export_review_path, anim_name, c, s,
                     current_export_warnings(), export_review_acknowledged, export_review_focus)
+            if export_path_inspector_open:
+                StudioPanels::export_path_inspector_panel(w, h, true, export_review_path,
+                    export_path_inspector_page, export_path_inspector_focus)
             if export_result_open:
                 StudioPanels::export_result_panel(w, h, true, export_result_path, export_result_focus)
             if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
@@ -1503,9 +1568,14 @@ module Studio:
                 accessibility_toolbar_widgets[action.usize()] <- widget
             accessibility_toolbar_ready <- true
             accessibility_review_ack_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_review_destination_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_export_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE
+            accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_destination_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE
+            accessibility_path_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_path_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_path_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_path_ready <- accessibility_path_previous_widget != UiFlat::NONE and accessibility_path_next_widget != UiFlat::NONE and accessibility_path_done_widget != UiFlat::NONE
             accessibility_result_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_result_folder_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_result_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
@@ -1531,6 +1601,16 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if accessibility_path_ready and export_path_inspector_open and event == UiConst::WidgetEvent.Click.i32():
+                if widget == accessibility_path_previous_widget:
+                    activate_export_path_inspector(StudioExportPathReview::PREVIOUS)
+                    return
+                elif widget == accessibility_path_next_widget:
+                    activate_export_path_inspector(StudioExportPathReview::NEXT)
+                    return
+                elif widget == accessibility_path_done_widget:
+                    activate_export_path_inspector(StudioExportPathReview::DONE)
+                    return
             if accessibility_result_ready and export_result_open and event == UiConst::WidgetEvent.Click.i32():
                 if widget == accessibility_result_open_widget:
                     activate_export_result(StudioExportResult::OPEN)
@@ -1545,6 +1625,9 @@ module Studio:
                 if widget == accessibility_review_ack_widget:
                     activate_export_review(StudioExportReview::ACKNOWLEDGE)
                     return
+                elif widget == accessibility_review_destination_widget:
+                    activate_export_review(StudioExportReview::DESTINATION)
+                    return
                 elif widget == accessibility_review_cancel_widget:
                     activate_export_review(StudioExportReview::CANCEL)
                     return
@@ -1557,7 +1640,7 @@ module Studio:
 
         # Publish stable region landmarks and actionable toolbar controls.
         def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, action: usize, enabled: bool, selected: bool, text_value: sview) -> void:
-            focused: bool = (export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT))) or (export_result_open and ((id == StudioAccessibility::RESULT_OPEN and export_result_focus == StudioExportResult::OPEN) or (id == StudioAccessibility::RESULT_SHOW_IN_FOLDER and export_result_focus == StudioExportResult::SHOW_IN_FOLDER) or (id == StudioAccessibility::RESULT_DONE and export_result_focus == StudioExportResult::DONE)))
+            focused: bool = (export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_DESTINATION and export_review_focus == StudioExportReview::DESTINATION) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT))) or (export_path_inspector_open and ((id == StudioAccessibility::PATH_PREVIOUS and export_path_inspector_focus == StudioExportPathReview::PREVIOUS) or (id == StudioAccessibility::PATH_NEXT and export_path_inspector_focus == StudioExportPathReview::NEXT) or (id == StudioAccessibility::PATH_DONE and export_path_inspector_focus == StudioExportPathReview::DONE))) or (export_result_open and ((id == StudioAccessibility::RESULT_OPEN and export_result_focus == StudioExportResult::OPEN) or (id == StudioAccessibility::RESULT_SHOW_IN_FOLDER and export_result_focus == StudioExportResult::SHOW_IN_FOLDER) or (id == StudioAccessibility::RESULT_DONE and export_result_focus == StudioExportResult::DONE)))
             UiCore::accessibility_with_metadata(role, label, help_text,
                 UiCore::Rect(b.x, b.y, b.w, b.h), id, action,
                 enabled, focused, selected, 0.0,
@@ -1584,9 +1667,17 @@ module Studio:
                     StudioPanels::export_review_ack_box(w, h),
                     StudioAccessibility::REVIEW_ACKNOWLEDGEMENT,
                     StudioAccessibility::EXPORT_REVIEW,
-                    none, StudioAccessibility::REVIEW_CANCEL,
+                    none, StudioAccessibility::REVIEW_DESTINATION,
                     accessibility_review_ack_widget, true,
                     export_review_acknowledged, acknowledgement)
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Inspect full destination path",
+                "Open a read-only view of the entire export destination.",
+                StudioPanels::export_review_destination_box(w, h),
+                StudioAccessibility::REVIEW_DESTINATION,
+                StudioAccessibility::EXPORT_REVIEW,
+                none, StudioAccessibility::REVIEW_CANCEL,
+                accessibility_review_destination_widget, true, false, "")
             accessibility_node(UiCore::AccessibilityRole.Button,
                 "Cancel export review", "Close this review without writing a file.",
                 StudioPanels::export_review_button_box(w, h, StudioExportReview::CANCEL),
@@ -1600,6 +1691,52 @@ module Studio:
                 none, none, accessibility_review_export_widget,
                 StudioExportReview::export_enabled(warnings, export_review_acknowledged),
                 false, "")
+
+        def publish_export_path_inspector_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_path_ready
+            none: usize = StudioAccessibility::NO_NODE
+            pages: i64 = StudioPanels::export_path_pages(export_review_path)
+            visible_lines: i64 = StudioPanels::export_path_visible_lines(
+                export_review_path, export_path_inspector_page)
+            dialog: StudioPanels::Box = StudioPanels::export_path_inspector_dialog_box(w, h)
+            accessibility_node(UiCore::AccessibilityRole.Dialog,
+                "Full export destination",
+                "Read the complete destination path across the displayed path lines. Previous and Next show the adjacent page.",
+                dialog, StudioAccessibility::EXPORT_REVIEW, none,
+                StudioAccessibility::export_path_inspector_first_child(), none,
+                none, true, false, "")
+            for row in 0..<visible_lines |row, w, h, dialog, export_path_inspector_page, export_review_path, visible_lines|:
+                id: usize = StudioAccessibility::PATH_LINE_FIRST + row.usize()
+                next: usize = StudioAccessibility::export_path_inspector_next_sibling(id, visible_lines)
+                line_box: StudioPanels::Box = StudioPanels::box(dialog.x + 24.0,
+                    dialog.y + 76.0 + row.f32() * 49.0, dialog.w - 48.0, 38.0)
+                label: sview = StudioText::number("Path line ", row + 1)
+                accessibility_node(UiCore::AccessibilityRole.Label, label,
+                    "Read-only exact segment of the export destination.", line_box,
+                    id, StudioAccessibility::EXPORT_REVIEW, none, next, none,
+                    true, false, StudioPanels::export_path_line(export_review_path,
+                        export_path_inspector_page, row))
+            prev_enabled: bool = StudioExportPathReview::enabled(
+                StudioExportPathReview::PREVIOUS, export_path_inspector_page, pages)
+            next_enabled: bool = StudioExportPathReview::enabled(
+                StudioExportPathReview::NEXT, export_path_inspector_page, pages)
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Previous path page", "Show the previous destination path page.",
+                StudioPanels::export_path_inspector_button_box(w, h, StudioExportPathReview::PREVIOUS),
+                StudioAccessibility::PATH_PREVIOUS, StudioAccessibility::EXPORT_REVIEW,
+                none, StudioAccessibility::PATH_NEXT, accessibility_path_previous_widget,
+                prev_enabled, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Next path page", "Show the next destination path page.",
+                StudioPanels::export_path_inspector_button_box(w, h, StudioExportPathReview::NEXT),
+                StudioAccessibility::PATH_NEXT, StudioAccessibility::EXPORT_REVIEW,
+                none, StudioAccessibility::PATH_DONE, accessibility_path_next_widget,
+                next_enabled, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Done", "Return to the export review without changing its destination or acknowledgement.",
+                StudioPanels::export_path_inspector_button_box(w, h, StudioExportPathReview::DONE),
+                StudioAccessibility::PATH_DONE, StudioAccessibility::EXPORT_REVIEW,
+                none, none, accessibility_path_done_widget, true, false, "")
 
         def publish_export_result_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_result_ready
@@ -1648,6 +1785,9 @@ module Studio:
         def publish_accessibility(w: f32, h: f32, s: StackState::Stack&, t: TimelineState::State&) -> void:
             none: usize = StudioAccessibility::NO_NODE
             return if not accessibility_toolbar_ready
+            if export_path_inspector_open:
+                publish_export_path_inspector_accessibility(w, h)
+                return
             if export_result_open:
                 publish_export_result_accessibility(w, h)
                 return
@@ -1788,6 +1928,13 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if export_path_inspector_open:
+                hit: i64 = StudioPanels::export_path_inspector_hit(w, h, x, y)
+                pages: i64 = StudioPanels::export_path_pages(export_review_path)
+                if button == 0 and hit >= 0 and StudioExportPathReview::enabled(hit, export_path_inspector_page, pages):
+                    export_path_inspector_focus <- hit
+                    activate_export_path_inspector(hit)
+                return
             if export_result_open:
                 hit: i64 = StudioPanels::export_result_hit(w, h, x, y)
                 if button == 0 and hit >= 0:
@@ -1894,6 +2041,13 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if export_path_inspector_open:
+                hit: i64 = StudioPanels::export_path_inspector_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                pages: i64 = StudioPanels::export_path_pages(export_review_path)
+                if hit >= 0 and StudioExportPathReview::enabled(hit, export_path_inspector_page, pages) and hit != export_path_inspector_focus:
+                    export_path_inspector_focus <- hit
+                    touch()
+                return
             if export_result_open:
                 hit: i64 = StudioPanels::export_result_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
                 if hit >= 0 and hit != export_result_focus:
@@ -2303,6 +2457,9 @@ module Studio:
         # plain keys go to the single-key bindings.
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
+            if export_path_inspector_open:
+                export_path_inspector_key(code)
+                return
             if export_result_open:
                 export_result_key(code)
                 return
