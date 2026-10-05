@@ -154,30 +154,15 @@ ship later. P2 is exploratory and must not delay a safe useful release.
 **Touchpoints:** `src/studio/app/`, `docs/studio*.md`,
 `docs/foot-workflow.md`, `docs/proof-gaps.md`, `test/`, `proof/`.
 
-- [ ] Exercise the running studio: file panels/drop, mesh/x-ray, all views,
-      selection, curves, playback, contacts, gizmos, retime, help, undo,
-      sessions and export. Record pass/fail, exact build and screenshots.
-      The first loaded-window review on 2026-10-05 found the cleanup metrics
-      covering the ranked-findings card; a proved sidebar layout now separates
-      those areas. This partial review is recorded in
-      `docs/studio-capability-matrix.md`; the remaining interactions still
-      need on-screen review. The shortcut sheet was also obscured by hosted
-      native viewport layers. A proved modal policy now removes those layers
-      while a blocking canvas sheet is open and presents them again when it
-      closes; the help sheet and viewport restoration were visually checked.
-      Replacement, legacy-session and export dialogs still need the same
-      on-screen readability and dismissal review.
-      The first export-review capture also exposed summary text stopping at a
-      48-byte formatting slot. Studio text slots now preserve up to 128 bytes;
-      the animation, timing and cleanup summaries were rechecked in the live
-      dialog and a regression test covers the full label.
-      Contact endpoint and whole-interval keyboard nudges, plus finding
-      filters and per-analysis ignore/restore, now have policy and Studio
-      wiring. The latest running-window check used the failed-load screen:
-      navigation and its empty state are separated, but filter chips did not
-      appear there and the take picker did not open. Repeat with a valid take
-      before accepting these controls; verify labels, focus, click targets,
-      reset, ignore/restore, shortcut help and spoken values.
+- [ ] Complete a valid-take running-window exercise of file panels/drop,
+      mesh/x-ray, every view, selection, curves, playback, contacts, gizmos,
+      retime, undo, sessions and export. Record the exact build, outcomes and
+      screenshots in `docs/studio-capability-matrix.md`. Verify contact nudges
+      and finding filters on screen, including labels, focus, hit targets,
+      reset and ignore/restore. Review replacement, legacy-session and export
+      dialogs for readability and dismissal at the minimum window size. The
+      existing partial review and its evidence are documented in the matrix;
+      failed-load review did not establish valid-take picker or filter behavior.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
