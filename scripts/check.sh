@@ -18,7 +18,11 @@ esac
 build_test() {
     t=$1
     name=$(basename "$t" .elisa)
-    if ELISA_ALLOW_STALE_STAGE1=1 "$ELISAC" -emit exe -o "build/test/$name" "$t" >"build/test/$name.log" 2>&1; then
+    if [ -x "build/test/$name" ] && [ "$(cat "build/test/$name.build-key" 2>/dev/null)" = "$test_build_key" ]; then
+        echo cached >"build/test/$name.status"
+    elif ELISA_ALLOW_STALE_STAGE1=1 "$ELISAC" -emit exe -o "build/test/$name" "$t" >"build/test/$name.log" 2>&1; then
+        echo "$test_build_key" >"build/test/$name.build-key.tmp"
+        mv "build/test/$name.build-key.tmp" "build/test/$name.build-key"
         echo ok >"build/test/$name.status"
     else
         echo failed >"build/test/$name.status"
@@ -26,6 +30,7 @@ build_test() {
 }
 # Derived icon geometry for test/studio_icons.elisa (also made by build_studio.sh).
 python3 tools/svg_icons.py build/generated/studio_icon_paths.elisa >/dev/null || status=1
+test_build_key=$(python3 scripts/test_build_key.py "$ELISAC") || exit 2
 # Compile in bounded parallel batches.
 rm -f build/test/*.status
 active=0
@@ -41,6 +46,17 @@ for t in test/*.elisa; do
     fi
 done
 for pid in $pids; do wait "$pid" || true; done
+cached_tests=0
+built_tests=0
+for t in test/*.elisa; do
+    name=$(basename "$t" .elisa)
+    if [ "$(cat "build/test/$name.status")" = cached ]; then
+        cached_tests=$((cached_tests + 1))
+    else
+        built_tests=$((built_tests + 1))
+    fi
+done
+echo "test builds: $cached_tests cached, $built_tests rebuilt"
 # The CLI build is independent of the test executables and overlaps their run.
 ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1 &
 cli_build_pid=$!

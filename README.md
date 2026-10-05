@@ -28,8 +28,8 @@ without the SDL3/Wicked application host. Override paths with
 ```
 scripts/check.sh
 ```
-It builds and runs every test, then checks elisa-proof results for regressions
-against `scripts/proof-baseline.tsv`. Known `unknown` and `unsupported`
+It incrementally builds and runs every test, then checks elisa-proof results
+for regressions against `scripts/proof-baseline.tsv`. Known `unknown` and `unsupported`
 results remain visible in the report; new files and worse results need review.
 
 ## CLI

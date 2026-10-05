@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def run_one(path):
     name = Path(path).stem
-    if (ROOT / "build" / "test" / f"{name}.status").read_text().strip() != "ok":
+    if (ROOT / "build" / "test" / f"{name}.status").read_text().strip() not in ("ok", "cached"):
         return name, None
     output = ROOT / "build" / "test" / f"{name}.run.log"
     with output.open("wb") as log:
