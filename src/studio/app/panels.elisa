@@ -572,10 +572,10 @@ module StudioPanels:
             box(sb.x + 8.0, sb.y + StudioSidebarLayout::OPERATION_ROW_TOP.f32() + i.f32() * StudioSidebarLayout::OPERATION_ROW_STEP.f32(), sb.w - 16.0, ROW)
 
         # Ranked issue browser occupies the sidebar above cleanup controls.
-        # Two rows remain visible at compact window heights; navigation stays
-        # available even when the ranked list is longer.
+        # The filter, navigation and finding rows have separate hit regions;
+        # navigation stays available when the ranked list is longer.
         def issue_nav_box(sb: Box, action: i64) -> Box:
-            box(sb.x + 12.0 + action.f32() * 89.0, sb.y + StudioSidebarLayout::ISSUE_NAV_TOP.f32() + 21.0, 82.0, 20.0)
+            box(sb.x + 12.0 + action.f32() * 89.0, sb.y + StudioSidebarLayout::ISSUE_NAV_TOP.f32(), 82.0, 20.0)
 
         def issue_area_box(sb: Box) -> Box:
             box(sb.x + 6.0, sb.y + StudioSidebarLayout::ISSUE_TOP.f32(), sb.w - 12.0, StudioSidebarLayout::ISSUE_HEIGHT.f32())
@@ -596,14 +596,14 @@ module StudioPanels:
             StudioIssueBrowserPolicy::window_start(selected, count)
 
         def issue_row_box(sb: Box, index: i64) -> Box:
-            box(sb.x + 8.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + 21.0 + index.f32() * StudioSidebarLayout::ISSUE_ROW_STEP.f32(), sb.w - 16.0, StudioSidebarLayout::ISSUE_ROW_HEIGHT.f32())
+            box(sb.x + 8.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + index.f32() * StudioSidebarLayout::ISSUE_ROW_STEP.f32(), sb.w - 16.0, StudioSidebarLayout::ISSUE_ROW_HEIGHT.f32())
 
         # Four compact filter chips use equal widths so the sidebar remains
         # usable at its minimum supported width. Reset is shown only while an
         # active filter is present; the return action is still stable either way.
         def issue_filter_box(sb: Box, field: i64) -> Box:
             chip_w: f32 = (sb.w - 24.0) / 4.0
-            box(sb.x + 8.0 + field.f32() * chip_w, sb.y + StudioSidebarLayout::ISSUE_NAV_TOP.f32(), chip_w - 3.0, 19.0) if field >= 0 and field < 4
+            box(sb.x + 8.0 + field.f32() * chip_w, sb.y + StudioSidebarLayout::ISSUE_FILTER_TOP.f32(), chip_w - 3.0, 19.0) if field >= 0 and field < 4
             box(sb.x + sb.w - 58.0, sb.y + StudioSidebarLayout::ISSUE_HEADING_TOP.f32(), 48.0, 20.0)
 
         def issue_filter_hit(sb: Box, px: f32, py: f32) -> i64:
@@ -647,10 +647,12 @@ module StudioPanels:
                     StudioText::put("Detector ")
                     if f.detector == StudioIssueFilterPolicy::ANY_DETECTOR:
                         StudioText::put("All")
+                    elif f.detector == 0:
+                        StudioText::put("Spike")
                     else:
                         StudioText::put_i(f.detector)
                 elif field == ISSUE_FILTER_SUBJECT:
-                    StudioText::put("Limb ")
+                    StudioText::put("Subject ")
                     if f.subject == StudioIssueFilterPolicy::ANY_SUBJECT:
                         StudioText::put("All")
                     elif f.subject == -1:
@@ -658,7 +660,7 @@ module StudioPanels:
                     else:
                         StudioText::put_i(f.subject)
                 elif field == ISSUE_FILTER_SEVERITY:
-                    StudioText::put("Min ")
+                    StudioText::put("Sev≥")
                     StudioText::put_i(f.minimum_severity)
                     StudioText::put("‰")
                 else:
@@ -671,10 +673,12 @@ module StudioPanels:
                         StudioText::put("Ignored")
                 label: sview = StudioText::view()
                 StudioDraw::text(b.x + 3.0, b.y + 5.0, 8.0, label, StudioDraw::ink())
-            if issue_filter_active(f):
-                reset: Box = issue_filter_box(sb, ISSUE_FILTER_RESET)
-                StudioDraw::rect(reset.x, reset.y, reset.w, reset.h, StudioDraw::color(74, 52, 38))
-                StudioDraw::text(reset.x + 5.0, reset.y + 5.0, 9.0, "Reset filters", StudioDraw::ink())
+            reset: Box = issue_filter_box(sb, ISSUE_FILTER_RESET)
+            active: bool = issue_filter_active(f)
+            StudioDraw::rect(reset.x, reset.y, reset.w, reset.h,
+                StudioDraw::color(74, 52, 38) if active else StudioDraw::panel())
+            StudioDraw::text(reset.x + 5.0, reset.y + 5.0, 9.0,
+                "Reset" if active else "Default", StudioDraw::ink() if active else StudioDraw::muted())
 
         def issue_nav_hit(sb: Box, px: f32, py: f32) -> i64:
             for action in 0..<3 |action, sb, px, py|:
@@ -726,7 +730,7 @@ module StudioPanels:
             StudioText::put_i(issue.threshold)
             StudioText::view()
 
-        def issue_browser(sb: Box, issues: darray[StudioIssues::Issue]&, first: i64, selected: i64, stale: bool, loading: bool) -> void:
+        def issue_browser(sb: Box, issues: darray[StudioIssues::Issue]&, first: i64, selected: i64, stale: bool, loading: bool, filter_active: bool) -> void:
             area: Box = issue_area_box(sb)
             StudioDraw::rect(area.x, area.y, area.w, area.h, StudioDraw::color(30, 34, 44))
             StudioDraw::bold(sb.x + 12.0, sb.y + StudioSidebarLayout::ISSUE_HEADING_TOP.f32(), 14.0, "Ranked findings", StudioDraw::ink())
@@ -743,7 +747,8 @@ module StudioPanels:
             if loading and issues.count == 0:
                 StudioDraw::text(sb.x + 12.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + 6.0, 11.0, "Loading findings…", StudioDraw::muted())
             elif issues.count == 0:
-                StudioDraw::text(sb.x + 12.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + 6.0, 11.0, "No motion findings", StudioDraw::muted())
+                StudioDraw::text(sb.x + 12.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + 6.0, 11.0,
+                    "No findings match these filters" if filter_active else "No motion findings", StudioDraw::muted())
             for index in 0..<count |index, sb, issues, selected, stale|:
                 absolute: i64 = first + index
                 issue: StudioIssues::Issue = issue_at(issues, absolute)

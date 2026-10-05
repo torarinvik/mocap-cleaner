@@ -16,6 +16,7 @@ include "scene.elisa"
 include "character.elisa"
 include "panels.elisa"
 include "../issues.elisa"
+include "../issue_annotation.elisa"
 include "../modal_policy.elisa"
 include "retime_panel.elisa"
 include "../shortcuts.elisa"
@@ -64,6 +65,10 @@ module Studio:
         global mutable issues: darray[StudioIssues::Issue] = zeroed
         global mutable issues_revision: i64 = -1
         global mutable issue_selected: i64 = 0
+        global mutable filtered_issues: darray[StudioIssues::Issue] = zeroed
+        global mutable issue_filter: StudioIssueFilterPolicy::Filter = zeroed
+        global mutable issue_filter_ready: bool = false
+        global mutable issue_annotations: StudioIssueAnnotation::Store = zeroed
         global mutable status: sview = "ready"
         # Live drag readouts: gizmo angle (tenths of a degree) and offset
         # (mm), -1 when no gizmo drag is running; and the stack row whose
@@ -206,7 +211,11 @@ module Studio:
         global mutable accessibility_issue_previous_widget: usize = 0
         global mutable accessibility_issue_next_widget: usize = 0
         global mutable accessibility_issue_worst_widget: usize = 0
-        global mutable accessibility_issue_row_widgets: usize[StudioPanels::ISSUE_ROWS.usize()] = zeroed
+        global mutable accessibility_issue_filter_widgets: usize[4] = zeroed
+        global mutable accessibility_issue_filter_reset_widget: usize = 0
+        global mutable accessibility_issue_intent_widget: usize = 0
+        global mutable accessibility_issue_filter_ready: bool = false
+        global mutable accessibility_issue_row_widgets: usize[StudioPanels::ISSUE_FILTERED_ROWS.usize()] = zeroed
         global mutable accessibility_issue_ready: bool = false
 
         global mutable drag_view: i64 = -1
@@ -432,6 +441,25 @@ module Studio:
             revision <- revision + 1
             UiCore::request_frame_after(0.001)
 
+        def ensure_issue_filter() -> void:
+            if not issue_filter_ready:
+                issue_filter <- StudioIssueFilterPolicy::Filter{
+                    detector: StudioIssueFilterPolicy::ANY_DETECTOR,
+                    subject: StudioIssueFilterPolicy::ANY_SUBJECT,
+                    minimum_severity: 0,
+                    status: StudioIssueFilterPolicy::ANY_STATUS}
+                issue_filter_ready <- true
+
+        def rebuild_filtered_issues() -> void:
+            ensure_issue_filter()
+            mutable filtered: darray[StudioIssues::Issue] = []
+            for issue in issues |issue_filter, issue_annotations, filtered|:
+                disposition: i64 = StudioIssueAnnotation::disposition(issue_annotations, issue)
+                if StudioIssueFilterPolicy::matches(issue, issue_filter, disposition):
+                    filtered.push(issue)
+            filtered_issues <- move filtered
+            issue_selected <- 0 if filtered_issues.count == 0 or issue_selected >= filtered_issues.count.i64()
+
         def collect_issues(c: StudioModel::Clip&) -> void:
             mutable samples: darray[StudioIssues::Sample] = []
             for frame in 0..<c.frames |frame, c|:
@@ -460,16 +488,18 @@ module Studio:
                         else:
                             break
             issues <- move ranked
-            issue_selected <- 0 if issues.count == 0 or issue_selected >= issues.count.i64()
             issues_revision <- built
+            _ = StudioIssueAnnotation::prune_revisions(&issue_annotations, built)
+            issue_selected <- 0
+            rebuild_filtered_issues()
 
         def navigate_issue(index: i64) -> void:
             if issues_revision != built:
                 status <- "findings updating; navigation unavailable"
                 touch()
                 return
-            return if issues.count == 0 or index < 0 or index >= issues.count.i64()
-            issue: StudioIssues::Issue = StudioPanels::issue_at(issues, index)
+            return if filtered_issues.count == 0 or index < 0 or index >= filtered_issues.count.i64()
+            issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, index)
             if not issue.selectable or issue.source_revision != issues_revision:
                 status <- "finding is stale; wait for update"
                 touch()
@@ -483,15 +513,95 @@ module Studio:
             touch()
 
         def issue_navigation(action: i64) -> void:
-            return if issues.count == 0 or issues.count.i64() > StudioIssueBrowserPolicy::MAX_FINDINGS
+            return if filtered_issues.count == 0 or filtered_issues.count.i64() > StudioIssueBrowserPolicy::MAX_FINDINGS
             if action == StudioPanels::ISSUE_WORST:
                 navigate_issue(0)
             else:
                 navigate_issue(StudioPanels::issue_navigation_target(issue_selected,
-                    issues.count.i64(), action))
+                    filtered_issues.count.i64(), action))
 
         def visible_issue_first() -> i64:
-            StudioPanels::issue_window_start(issue_selected, issues.count.i64())
+            issue_selected if issue_selected >= 0 and issue_selected < filtered_issues.count.i64() else 0
+
+        def next_issue_value(current: i64, detector: bool) -> i64:
+            mutable next: i64 = 9223372036854775807
+            for issue in issues |issue, current, detector, next|:
+                value: i64 = issue.issue_type if detector else issue.subject_id
+                next <- value if value > current and value < next
+            return next if next < 9223372036854775807
+            StudioIssueFilterPolicy::ANY_DETECTOR if detector else StudioIssueFilterPolicy::ANY_SUBJECT
+
+        def reset_issue_filters() -> void:
+            ensure_issue_filter()
+            issue_filter <- StudioIssueFilterPolicy::Filter{
+                detector: StudioIssueFilterPolicy::ANY_DETECTOR,
+                subject: StudioIssueFilterPolicy::ANY_SUBJECT,
+                minimum_severity: 0,
+                status: StudioIssueFilterPolicy::ANY_STATUS}
+            issue_selected <- 0
+            rebuild_filtered_issues()
+            status <- "finding filters cleared"
+            touch()
+
+        def cycle_issue_filter(field: i64) -> void:
+            ensure_issue_filter()
+            if field == StudioPanels::ISSUE_FILTER_DETECTOR:
+                issue_filter.detector <- next_issue_value(issue_filter.detector, true)
+            elif field == StudioPanels::ISSUE_FILTER_SUBJECT:
+                issue_filter.subject <- next_issue_value(issue_filter.subject, false)
+            elif field == StudioPanels::ISSUE_FILTER_SEVERITY:
+                if issue_filter.minimum_severity == 0:
+                    issue_filter.minimum_severity <- 250
+                elif issue_filter.minimum_severity == 250:
+                    issue_filter.minimum_severity <- 500
+                elif issue_filter.minimum_severity == 500:
+                    issue_filter.minimum_severity <- 750
+                elif issue_filter.minimum_severity == 750:
+                    issue_filter.minimum_severity <- 900
+                else:
+                    issue_filter.minimum_severity <- 0
+            elif field == StudioPanels::ISSUE_FILTER_STATUS:
+                if issue_filter.status == StudioIssueFilterPolicy::ANY_STATUS:
+                    issue_filter.status <- StudioIssueFilterPolicy::UNRESOLVED
+                elif issue_filter.status == StudioIssueFilterPolicy::UNRESOLVED:
+                    issue_filter.status <- StudioIssueFilterPolicy::IGNORED
+                else:
+                    issue_filter.status <- StudioIssueFilterPolicy::ANY_STATUS
+            else:
+                return
+            issue_selected <- 0
+            rebuild_filtered_issues()
+            status <- "finding filters updated"
+            touch()
+
+        def toggle_issue_intent() -> void:
+            return if issues_revision != built
+            return if filtered_issues.count == 0 or issue_selected < 0 or issue_selected >= filtered_issues.count.i64()
+            issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+            disposition: i64 = StudioIssueAnnotation::disposition(issue_annotations, issue)
+            if disposition == StudioIssueAnnotation::IGNORED:
+                if StudioIssueAnnotation::restore(&issue_annotations, issue):
+                    status <- "finding restored for this analysis"
+            elif StudioIssueAnnotation::ignore(&issue_annotations, issue):
+                status <- "finding marked intentional for this analysis"
+            else:
+                status <- "intent list is full; restore a finding before adding another"
+            rebuild_filtered_issues()
+            touch()
+
+        def draw_issue_browser(w: f32, h: f32, stale: bool, loading: bool) -> void:
+            ensure_issue_filter()
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            StudioPanels::issue_browser(sb, filtered_issues, visible_issue_first(),
+                issue_selected, stale, loading,
+                StudioPanels::issue_filter_active(issue_filter))
+            StudioPanels::issue_filter_controls(sb, issue_filter)
+            selection_valid: bool = not stale and filtered_issues.count > 0 and issue_selected >= 0 and issue_selected < filtered_issues.count.i64()
+            mutable ignored: bool = false
+            if selection_valid:
+                selected_issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+                ignored <- StudioIssueAnnotation::disposition(issue_annotations, selected_issue) == StudioIssueAnnotation::IGNORED
+            StudioPanels::issue_disposition_control(sb, selection_valid, ignored)
 
         # Rebuild the cleaned clip from the current stack (live preview).
         def rebuild() -> void:
@@ -2066,8 +2176,7 @@ module Studio:
                     StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
                     perf_panel(c) if perf_overlay
                     StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
-                    StudioPanels::issue_browser(StudioPanels::sidebar_box(w, h), issues,
-                        visible_issue_first(), issue_selected, issues_revision != built, false)
+                    draw_issue_browser(w, h, issues_revision != built, false)
                     contact_valid: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, c.frames)
                     contact_edit_index: i64 = StackState::edit_index_at(s, contact_selected_side, contact_selected_frame) if contact_valid else -1
                     mutable contact_edit_first: i64 = -1
@@ -2091,8 +2200,7 @@ module Studio:
                     StudioPanels::cleanup_readout(StudioPanels::sidebar_box(w, h), c, readout_value(shown_slide, c.slide_after), readout_value(shown_sink, c.sink_after), readout_value(shown_hand_slide, c.hand_slide_after), s.blend)
                     StudioPanels::file_menu_panel(StudioPanels::sidebar_box(w, h), file_menu_open, true, file_menu_focus, file_menu_hover)
                 else:
-                    StudioPanels::issue_browser(StudioPanels::sidebar_box(w, h), issues,
-                        0, issue_selected, issues_revision != built,
+                    draw_issue_browser(w, h, issues_revision != built,
                         not load_failed)
                     UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
                     drawn_frame <- t.frame
@@ -2202,7 +2310,15 @@ module Studio:
             accessibility_issue_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_issue_worst_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             mutable issue_widgets_ready: bool = accessibility_issue_previous_widget != UiFlat::NONE and accessibility_issue_next_widget != UiFlat::NONE and accessibility_issue_worst_widget != UiFlat::NONE
-            for index in 0..<StudioPanels::ISSUE_ROWS |index, issue_widgets_ready, transparent|:
+            mutable issue_filter_widgets_ready: bool = true
+            for index in 0..<4 |index, issue_filter_widgets_ready, transparent|:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_issue_filter_widgets[index.usize()] <- widget
+                issue_filter_widgets_ready <- false if widget == UiFlat::NONE
+            accessibility_issue_filter_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_issue_intent_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            accessibility_issue_filter_ready <- issue_filter_widgets_ready and accessibility_issue_filter_reset_widget != UiFlat::NONE and accessibility_issue_intent_widget != UiFlat::NONE
+            for index in 0..<StudioPanels::ISSUE_FILTERED_ROWS |index, issue_widgets_ready, transparent|:
                 widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
                 accessibility_issue_row_widgets[index.usize()] <- widget
                 issue_widgets_ready <- false if widget == UiFlat::NONE
@@ -2229,6 +2345,17 @@ module Studio:
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
             if accessibility_issue_ready and event == UiConst::WidgetEvent.Click.i32():
+                if accessibility_issue_filter_ready:
+                    for field in 0..<4 |field, widget|:
+                        if widget == accessibility_issue_filter_widgets[field.usize()]:
+                            cycle_issue_filter(field)
+                            return
+                    if widget == accessibility_issue_filter_reset_widget:
+                        reset_issue_filters()
+                        return
+                    elif widget == accessibility_issue_intent_widget:
+                        toggle_issue_intent()
+                        return
                 if widget == accessibility_issue_previous_widget:
                     issue_navigation(StudioPanels::ISSUE_PREVIOUS)
                     return
@@ -2238,8 +2365,8 @@ module Studio:
                 elif widget == accessibility_issue_worst_widget:
                     issue_navigation(StudioPanels::ISSUE_WORST)
                     return
-                for index in 0..<StudioPanels::ISSUE_ROWS |index, widget|:
-                    if widget == accessibility_issue_row_widgets[index.usize()] and StudioPanels::issue_row_route_enabled(index, StudioPanels::ISSUE_ROWS, issues_revision == built):
+                for index in 0..<StudioPanels::ISSUE_FILTERED_ROWS |index, widget|:
+                    if widget == accessibility_issue_row_widgets[index.usize()] and StudioPanels::issue_row_route_enabled(index, StudioPanels::ISSUE_FILTERED_ROWS, issues_revision == built):
                         navigate_issue(visible_issue_first() + index)
                         return
             if accessibility_contact_ready and event == UiConst::WidgetEvent.Click.i32():
@@ -2616,6 +2743,37 @@ module Studio:
                     enabled, toolbar_accessibility_selected(i, flags, t),
                     toolbar_accessibility_value(i, t))
 
+        def issue_filter_accessibility_value(field: i64) -> sview:
+            StudioText::begin()
+            if field == StudioPanels::ISSUE_FILTER_DETECTOR:
+                if issue_filter.detector == StudioIssueFilterPolicy::ANY_DETECTOR:
+                    StudioText::put("All detectors")
+                elif issue_filter.detector == 0:
+                    StudioText::put("Spike")
+                else:
+                    StudioText::put("Detector ")
+                    StudioText::put_i(issue_filter.detector)
+            elif field == StudioPanels::ISSUE_FILTER_SUBJECT:
+                if issue_filter.subject == StudioIssueFilterPolicy::ANY_SUBJECT:
+                    StudioText::put("All subjects")
+                elif issue_filter.subject == -1:
+                    StudioText::put("Aggregate findings")
+                else:
+                    StudioText::put("Subject ")
+                    StudioText::put_i(issue_filter.subject)
+            elif field == StudioPanels::ISSUE_FILTER_SEVERITY:
+                StudioText::put("At least ")
+                StudioText::put_i(issue_filter.minimum_severity)
+                StudioText::put(" per mille")
+            else:
+                if issue_filter.status == StudioIssueFilterPolicy::ANY_STATUS:
+                    StudioText::put("All statuses")
+                elif issue_filter.status == StudioIssueFilterPolicy::UNRESOLVED:
+                    StudioText::put("Unresolved")
+                else:
+                    StudioText::put("Ignored")
+            StudioText::view()
+
         def publish_accessibility(w: f32, h: f32, s: StackState::Stack&, t: TimelineState::State&) -> void:
             none: usize = StudioAccessibility::NO_NODE
             return if not accessibility_toolbar_ready
@@ -2672,15 +2830,67 @@ module Studio:
                 StudioPanels::sidebar_box(w, h), StudioAccessibility::SIDEBAR,
                 StudioAccessibility::WORKSPACE, StudioPanels::ISSUE_GROUP_ID,
                 StudioAccessibility::STATUS, none, true, false, "")
-            issue_controls: bool = true
-            shown_issues: i64 = issues.count.i64() if issues.count.i64() < StudioPanels::ISSUE_ROWS else StudioPanels::ISSUE_ROWS
+            issue_controls: bool = issues_revision == built and filtered_issues.count > 0
+            shown_issues: i64 = filtered_issues.count.i64() if filtered_issues.count.i64() < StudioPanels::ISSUE_FILTERED_ROWS else StudioPanels::ISSUE_FILTERED_ROWS
             accessibility_node(UiCore::AccessibilityRole.Group,
                 "Ranked motion findings",
                 "Findings ordered by severity. Each row exposes its exact peak frame, value, threshold, detector type and known subject.",
                 StudioPanels::sidebar_box(w, h),
                 StudioPanels::ISSUE_GROUP_ID, StudioAccessibility::SIDEBAR,
-                StudioPanels::ISSUE_PREVIOUS_ID, none, none, true, false,
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID, none, none, true, false,
                 "Findings updating or current; rows show exact peak evidence.")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Finding filters and intent",
+                "Filter by detector, subject, minimum severity and review status. Intent annotations apply only to the current analysis.",
+                StudioPanels::issue_area_box(StudioPanels::sidebar_box(w, h)),
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID,
+                StudioPanels::ISSUE_GROUP_ID,
+                StudioIssueBrowserPolicy::FILTER_DETECTOR_ID,
+                StudioPanels::ISSUE_PREVIOUS_ID, none, true, false, "")
+            for field in 0..<4 |field, w, h|:
+                mutable id: usize = StudioIssueBrowserPolicy::FILTER_DETECTOR_ID
+                id <- StudioIssueBrowserPolicy::FILTER_SUBJECT_ID if field == StudioPanels::ISSUE_FILTER_SUBJECT
+                id <- StudioIssueBrowserPolicy::FILTER_SEVERITY_ID if field == StudioPanels::ISSUE_FILTER_SEVERITY
+                id <- StudioIssueBrowserPolicy::FILTER_STATUS_ID if field == StudioPanels::ISSUE_FILTER_STATUS
+                mutable label: sview = "Filter findings by detector"
+                label <- "Filter findings by subject" if field == StudioPanels::ISSUE_FILTER_SUBJECT
+                label <- "Set minimum finding severity" if field == StudioPanels::ISSUE_FILTER_SEVERITY
+                label <- "Filter by review status" if field == StudioPanels::ISSUE_FILTER_STATUS
+                mutable help_text: sview = "Cycles through detector types present in the current analysis."
+                help_text <- "Cycles through aggregate and known subject IDs in the current findings." if field == StudioPanels::ISSUE_FILTER_SUBJECT
+                help_text <- "Cycles the inclusive severity threshold in permille." if field == StudioPanels::ISSUE_FILTER_SEVERITY
+                help_text <- "Cycles all, unresolved and ignored findings." if field == StudioPanels::ISSUE_FILTER_STATUS
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    label, help_text,
+                    StudioPanels::issue_filter_box(StudioPanels::sidebar_box(w, h), field),
+                    id, StudioIssueBrowserPolicy::FILTER_GROUP_ID, none,
+                    StudioIssueBrowserPolicy::filter_next_sibling(id, none),
+                    accessibility_issue_filter_widgets[field.usize()], true,
+                    false, issue_filter_accessibility_value(field))
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Reset finding filters",
+                "Return detector, subject, severity and status filters to their defaults.",
+                StudioPanels::issue_filter_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_FILTER_RESET),
+                StudioIssueBrowserPolicy::FILTER_RESET_ID,
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID, none,
+                StudioIssueBrowserPolicy::FINDING_INTENT_ID,
+                accessibility_issue_filter_reset_widget,
+                StudioPanels::issue_filter_active(issue_filter), false, "Reset filters")
+            mutable intent_value: sview = "No selected finding"
+            mutable intent_selected: bool = false
+            intent_enabled: bool = issue_controls
+            if intent_enabled:
+                selected_finding: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+                intent_selected <- StudioIssueAnnotation::disposition(issue_annotations, selected_finding) == StudioIssueAnnotation::IGNORED
+                intent_value <- "Ignored for this analysis" if intent_selected else "Unresolved"
+            accessibility_node(UiCore::AccessibilityRole.CheckBox,
+                "Mark selected finding intentional",
+                "Ignore or restore this exact finding for the current analysis. This annotation does not change the take and is cleared when findings are rebuilt.",
+                StudioPanels::issue_disposition_box(StudioPanels::sidebar_box(w, h)),
+                StudioIssueBrowserPolicy::FINDING_INTENT_ID,
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID, none, none,
+                accessibility_issue_intent_widget, intent_enabled,
+                intent_selected, intent_value)
             accessibility_node(UiCore::AccessibilityRole.Button,
                 "Previous finding", "Navigate to the previous ranked motion finding.",
                 StudioPanels::issue_nav_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_PREVIOUS),
@@ -2698,9 +2908,9 @@ module Studio:
                 StudioPanels::issue_node_next_sibling(StudioPanels::ISSUE_WORST_ID, shown_issues),
                 accessibility_issue_worst_widget, issue_controls, false, "")
             first_issue: i64 = visible_issue_first()
-            for index in 0..<StudioPanels::ISSUE_ROWS |index, shown_issues, w, h, issues, first_issue|:
+            for index in 0..<StudioPanels::ISSUE_FILTERED_ROWS |index, shown_issues, w, h, filtered_issues, first_issue|:
                 issue_index: i64 = first_issue + index
-                issue: StudioIssues::Issue = StudioPanels::issue_at(issues, issue_index) if index < shown_issues else zeroed
+                issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_index) if index < shown_issues else zeroed
                 id: usize = StudioPanels::issue_row_id(index)
                 accessibility_node(UiCore::AccessibilityRole.Button,
                     StudioPanels::issue_row_text(issue) if index < shown_issues else "No finding",
@@ -2864,12 +3074,24 @@ module Studio:
                 file_menu_hover <- -1
                 touch()
             if StudioPanels::inside(sb, x, y):
+                filter_action: i64 = StudioPanels::issue_filter_hit(sb, x, y)
+                if button == 0 and filter_action >= 0:
+                    if filter_action == StudioPanels::ISSUE_FILTER_RESET:
+                        reset_issue_filters()
+                    else:
+                        cycle_issue_filter(StudioPanels::issue_filter_action(filter_action))
+                    return
+                selected_valid: bool = issues_revision == built and filtered_issues.count > 0 and issue_selected >= 0 and issue_selected < filtered_issues.count.i64()
+                intent_action: i64 = StudioPanels::issue_disposition_hit(sb, x, y, selected_valid)
+                if button == 0 and intent_action >= 0:
+                    toggle_issue_intent()
+                    return
                 issue_nav: i64 = StudioPanels::issue_nav_hit(sb, x, y)
                 if button == 0 and issue_nav >= 0:
                     issue_navigation(issue_nav)
                     return
-                issue_row: i64 = StudioPanels::issue_row_hit(sb, issues.count.i64() if issues.count.i64() < StudioPanels::ISSUE_ROWS else StudioPanels::ISSUE_ROWS, x, y)
-                if button == 0 and StudioPanels::issue_row_route_enabled(issue_row, issues.count.i64() if issues.count.i64() < StudioPanels::ISSUE_ROWS else StudioPanels::ISSUE_ROWS, issues_revision == built):
+                issue_row: i64 = StudioPanels::issue_row_hit(sb, filtered_issues.count.i64(), x, y)
+                if button == 0 and StudioPanels::issue_row_route_enabled(issue_row, StudioPanels::ISSUE_FILTERED_ROWS, issues_revision == built):
                     navigate_issue(visible_issue_first() + issue_row)
                     return
             a: i64 = StudioPanels::toolbar_hit(x, y)
