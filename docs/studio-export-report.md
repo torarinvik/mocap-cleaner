@@ -1,6 +1,6 @@
 # Studio export report format
 
-`StudioExportReport` formats a version 1 JSON report and a readable text
+`StudioExportReport` formats a version 2 JSON report and a readable text
 summary from a snapshot of the values Studio has already computed. JSON keys
 and their order are stable. Settings, assumptions, and warnings retain their
 input order, so callers must provide them in a deterministic order.
@@ -12,6 +12,14 @@ categorized warnings with severity. Distance fields ending in `_um` are
 micrometres. Spike fields count detected frames, changed channels count GLB
 animation channels, and the balance field counts frames marked impossible by
 the Studio detector. These are detector outputs, not certification thresholds.
+
+The JSON `unavailable` array names provenance fields that this export snapshot
+does not provide and gives a reason for each omission: application/tool
+versions, dependency versions, detector thresholds, complete operation and rig
+settings, and per-frame retime provenance. The text summary has a matching
+unavailable-provenance section. Consumers should treat these fields as
+unavailable, not infer defaults from their absence. The schema version was
+bumped to 2 when these explicit markers were added.
 
 Source and output identity values use `studio-residue-v1`, the existing pair
 of bounded integer residues used to identify session inputs. They are labeled
@@ -31,7 +39,9 @@ Formatting is pure. The caller chooses and atomically publishes the report
 files alongside its export workflow. Tool/dependency versions, SHA-256 source
 and output hashes, policy thresholds, and full retime provenance still need
 to be added by the Studio integration when those values can be recorded
-truthfully.
+truthfully. SHA-256 values are not emitted as unavailable entries because no
+SHA-256 calculation is implemented by this formatter; the existing residues
+remain explicitly labeled non-cryptographic.
 
 Studio writes `<export>.report.json` and `<export>.report.txt` as atomic
 same-directory sidecars after the validated GLB rename succeeds. The source
