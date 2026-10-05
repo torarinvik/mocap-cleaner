@@ -17,6 +17,7 @@ include "panels.elisa"
 include "retime_panel.elisa"
 include "../shortcuts.elisa"
 include "../focus.elisa"
+include "../replacement.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
 
@@ -34,6 +35,7 @@ module Studio:
         # current take's path intact if loading the new take fails.
         global mutable path_bytes0: u8[4096] = zeroed
         global mutable path_bytes1: u8[4096] = zeroed
+        global mutable pending_take_bytes: u8[4096] = zeroed
         global mutable path_slot: i64 = -1
         global mutable anim_name: cstr = "jab"
         global mutable clip: StudioModel::Clip? = null
@@ -67,6 +69,9 @@ module Studio:
         global mutable file_menu_open: bool = false
         global mutable file_menu_focus: i64 = 0
         global mutable file_menu_hover: i64 = -1
+        global mutable replacement_prompt_open: bool = false
+        global mutable replacement_focus: i64 = StudioReplacement::FOCUS_SAVE
+        global mutable replacement_save_failed: bool = false
         # Last one-click clean: permille of slide and spikes removed, or -1.
         global mutable gain_slide: i64 = -1
         global mutable gain_spikes: i64 = -1
@@ -170,6 +175,21 @@ module Studio:
         def stored_path(slot: i64) -> cstr can Unsafe.PointerCast:
             return (&path_bytes0[0]).cast[cstr] if slot == 0
             (&path_bytes1[0]).cast[cstr]
+
+        def stage_pending_take(p: cstr) -> bool can Unsafe.PointerCast:
+            mutable i: usize = 0
+            while i < PATH_CAPACITY:
+                c: u8 = p[i]
+                if c == 0:
+                    pending_take_bytes[i] <- 0
+                    return true
+                return false if i == PATH_CAPACITY - 1
+                pending_take_bytes[i] <- c
+                i <- i + 1
+            false
+
+        def pending_take_path() -> cstr can Unsafe.PointerCast:
+            (&pending_take_bytes[0]).cast[cstr]
 
         def set_path(p: cstr) -> void can Unsafe.PointerCast:
             slot: i64 = spare_path_slot()
@@ -589,7 +609,7 @@ module Studio:
             nudged_row <- -1
             status_file <- file
 
-        def save_session() -> void:
+        def save_session_to_current_path() -> bool:
             ok: bool = SessionState::save_session(current_stack(), session_path)
             if ok:
                 HistoryState::mark_saved(&history)
@@ -598,6 +618,10 @@ module Studio:
             else:
                 say_file("could not save the session to", session_path)
             touch()
+            ok
+
+        def save_session() -> void:
+            _ = save_session_to_current_path()
 
         def load_session() -> void:
             if SessionState::load_session(session_path, frames(), node_total()) is loaded:
@@ -673,6 +697,48 @@ module Studio:
             elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
                 activate_file_menu(file_menu_focus)
 
+        def replacement_action_for_focus() -> i64:
+            return StudioReplacement::SAVE if replacement_focus == StudioReplacement::FOCUS_SAVE
+            return StudioReplacement::DISCARD if replacement_focus == StudioReplacement::FOCUS_DISCARD
+            StudioReplacement::CANCEL
+
+        def resolve_replacement(choice: i64) -> void:
+            action: i64 = StudioReplacement::resolve(replacement_prompt_open, choice)
+            return if action == StudioReplacement::NONE
+            if action == StudioReplacement::CANCEL:
+                replacement_prompt_open <- false
+                replacement_save_failed <- false
+                say_file("take replacement cancelled; session unchanged", path)
+                touch()
+                return
+            pending: cstr = pending_take_path()
+            if action == StudioReplacement::SAVE:
+                if not save_session_to_current_path():
+                    replacement_save_failed <- true
+                    touch()
+                    return
+            replacement_prompt_open <- false
+            replacement_save_failed <- false
+            file_menu_open <- false
+            touch()
+            load_take_now(pending)
+
+        def replacement_prompt_key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Escape:
+                resolve_replacement(StudioReplacement::CANCEL)
+            elif code == UiCore::Key.S:
+                resolve_replacement(StudioReplacement::SAVE)
+            elif code == UiCore::Key.D:
+                resolve_replacement(StudioReplacement::DISCARD)
+            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                replacement_focus <- StudioReplacement::move_focus(replacement_focus, -1)
+                touch()
+            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                replacement_focus <- StudioReplacement::move_focus(replacement_focus, 1)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                resolve_replacement(replacement_action_for_focus())
+
         def open_take() -> void:
             if FilePanel::open("glb", "Open a motion-capture take") is chosen:
                 load_take(chosen)
@@ -682,6 +748,22 @@ module Studio:
         # per-take cache, the playhead, the gizmo and the undo history start
         # fresh (undo never reaches back into a different take).
         def load_take(p: cstr) -> void can Unsafe.PointerCast:
+            if clip is c and history_ready and HistoryState::dirty(&history):
+                if not stage_pending_take(p):
+                    status <- "take path exceeds 4095 bytes"
+                    status_file <- null
+                    touch()
+                    return
+                replacement_prompt_open <- true
+                replacement_focus <- StudioReplacement::initial_focus()
+                replacement_save_failed <- false
+                file_menu_open <- false
+                help_open <- false
+                touch()
+                return
+            load_take_now(p)
+
+        def load_take_now(p: cstr) -> void can Unsafe.PointerCast:
             candidate_slot: i64 = spare_path_slot()
             if not copy_path(p, candidate_slot):
                 status <- "take path exceeds 4095 bytes"
@@ -940,6 +1022,7 @@ module Studio:
             StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
+            StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed)
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
@@ -1065,6 +1148,14 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if replacement_prompt_open:
+                index: i64 = StudioPanels::replacement_button_hit(w, h, x, y)
+                if button == 0 and index >= 0:
+                    mutable choice: i64 = StudioReplacement::SAVE
+                    choice <- StudioReplacement::DISCARD if index == StudioReplacement::FOCUS_DISCARD
+                    choice <- StudioReplacement::CANCEL if index == StudioReplacement::FOCUS_CANCEL
+                    resolve_replacement(choice)
+                return
             sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
             if file_menu_open:
                 if StudioPanels::inside(StudioPanels::file_button_box(sb), x, y):
@@ -1146,6 +1237,12 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if replacement_prompt_open:
+                index: i64 = StudioPanels::replacement_button_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if index >= 0 and index != replacement_focus:
+                    replacement_focus <- index
+                    touch()
+                return
             if file_menu_open:
                 sb: StudioPanels::Box = StudioPanels::sidebar_box(UiCore::viewport_width(), UiCore::viewport_height())
                 row: i64 = StudioPanels::file_popup_row(sb, x, y)
@@ -1528,6 +1625,9 @@ module Studio:
         # plain keys go to the single-key bindings.
         def key_down(code: UiCore::Key) -> void:
             return if modifier(code, true)
+            if replacement_prompt_open:
+                replacement_prompt_key(code)
+                return
             command: bool = StudioShortcuts::command(modifiers)
             mutable file: i64 = StudioShortcuts::FILE_NONE
             if code == UiCore::Key.O:
