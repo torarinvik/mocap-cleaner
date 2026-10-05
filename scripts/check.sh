@@ -40,28 +40,35 @@ python3 tools/svg_icons.py build/generated/studio_icon_paths.elisa >/dev/null ||
 # because several share generated fixtures under build/.
 rm -f build/test/*.status
 active=0
+pids=
 for t in test/*.elisa; do
     build_test "$t" &
+    pids="$pids $!"
     active=$((active + 1))
     if [ "$active" -ge "$check_jobs" ]; then
-        wait || true
+        for pid in $pids; do wait "$pid" || true; done
+        pids=
         active=0
     fi
 done
-[ "$active" -eq 0 ] || wait || true
+for pid in $pids; do wait "$pid" || true; done
 # The CLI build is independent of the test executables and overlaps their run.
 ELISAC="$ELISAC" sh scripts/build.sh >build/test/cli.log 2>&1 &
 cli_build_pid=$!
 rm -f build/test/*.run.status
+active=0
+pids=
 for t in test/*.elisa; do
     run_test "$t" &
+    pids="$pids $!"
     active=$((active + 1))
     if [ "$active" -ge "$check_jobs" ]; then
-        wait || true
+        for pid in $pids; do wait "$pid" || true; done
+        pids=
         active=0
     fi
 done
-[ "$active" -eq 0 ] || wait || true
+for pid in $pids; do wait "$pid" || true; done
 for t in test/*.elisa; do
     name=$(basename "$t" .elisa)
     if [ "$(cat "build/test/$name.run.status" 2>/dev/null)" = build-failed ]; then
