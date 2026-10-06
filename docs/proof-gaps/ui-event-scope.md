@@ -61,3 +61,11 @@ functions and writes no partial artifact. UI alone still compiles. Thus the
 semantic scope fix is verified on both reproductions; a separate backend enum
 scope defect remains. Logs: `build/repro/ui-events-and-policy-context.log`,
 `lexical-event-scope-context.log`, and `ui-events-only-context.log`.
+
+Backend inspection found that `enum_decl_owner_in_file` scans the plain enum
+pool before payload metadata. It therefore selects the policy's const `Event`
+owner for the UI's payload-bearing hierarchy root. Const enums cannot belong
+to sealed hierarchies. Compiler commit `5e3fcc65` excludes those rows from
+hierarchy owner lookup. A fresh seed is running; qualification remains open.
+The derived payload-bearing minimal reproduction is
+`build/repro/lexical-event-payload-scope.elisa`.
