@@ -39,3 +39,17 @@ These objects establish source compilation, not law validity or replay. Full
 Studio compilation separately stopped on contact-preview work-in-progress
 syntax before reaching the backend; that attempt supplies no integrated
 application qualification.
+
+## Report formatter include context
+
+The current diagnostic product also emitted fresh nonempty objects from:
+
+- `build/repro/report-text-context.elisa`, which includes real UI text and the
+  report formatter: `build/report-text-context.ajStJx/context.o`.
+- Existing `test/studio_export_report.elisa`:
+  `build/export-report-fixture.dZlJXB/fixture.o`.
+
+Both compiler exits were zero and logs are beside the objects. This checks the
+formatter's global snapshot/slot guard integration at object-generation scope.
+The fixture was not executed. Overflow behavior, law replay, full report
+publication and full application qualification remain pending.
