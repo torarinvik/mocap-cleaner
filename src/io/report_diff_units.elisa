@@ -3,30 +3,60 @@ include "../core/report_unit_policy.elisa"
 # Declared metric units are independent of numeric spelling and schema names.
 extend ReportDiff:
     private:
-        def unit_object(text: darray[u8]&, tokens: darray[GlbJson::Token]&) -> i64:
-            return -2 if member_count(text, tokens, 0, "metric_units") > 1
-            object: i64 = decoded_member(text, tokens, 0, "metric_units")
-            return -1 if object < 0
-            return -2 if tokens[object.usize()].kind != GlbJson::KIND_OBJECT
-            return -2 if not ReportBudget::unit_declarations_admitted(tokens[object.usize()].size.i64())
-            object
+        enum UnitDeclaration:
+            Missing
+            Invalid
+            Present(index: usize)
 
-        # -1 means absent; -2 means malformed or duplicated declaration.
-        def unit_member(text: darray[u8]&, tokens: darray[GlbJson::Token]&, object: i64,
-                        pool: darray[u8]&, metric: Metric) -> i64:
-            return object if object < 0
-            mutable at: usize = object.usize() + 1
-            mutable found: i64 = -1
+        def unit_invalid(value: UnitDeclaration) -> bool:
+            match value:
+                UnitDeclaration.Invalid:
+                    return true
+                _:
+                    return false
+
+        def unit_present(value: UnitDeclaration) -> bool:
+            match value:
+                UnitDeclaration.Present(index):
+                    return true
+                _:
+                    return false
+
+        def unit_object(text: darray[u8]&, tokens: darray[GlbJson::Token]&) -> UnitDeclaration:
+            return UnitDeclaration.Invalid if member_count(text, tokens, 0, "metric_units") > 1
+            object: i64 = decoded_member(text, tokens, 0, "metric_units")
+            return UnitDeclaration.Missing if object < 0
+            return UnitDeclaration.Invalid if tokens[object.usize()].kind != GlbJson::KIND_OBJECT
+            return UnitDeclaration.Invalid if not ReportBudget::unit_declarations_admitted(tokens[object.usize()].size.i64())
+            UnitDeclaration.Present(object.usize())
+
+        def unit_member(text: darray[u8]&, tokens: darray[GlbJson::Token]&, object: UnitDeclaration,
+                        pool: darray[u8]&, metric: Metric) -> UnitDeclaration:
+            match object:
+                UnitDeclaration.Missing:
+                    return UnitDeclaration.Missing
+                UnitDeclaration.Invalid:
+                    return UnitDeclaration.Invalid
+                UnitDeclaration.Present(index):
+                    return find_unit_member(text, tokens, index, pool, metric)
+
+        def find_unit_member(text: darray[u8]&, tokens: darray[GlbJson::Token]&, object: usize,
+                             pool: darray[u8]&, metric: Metric) -> UnitDeclaration:
+            mutable at: usize = object + 1
+            mutable found: bool = false
+            mutable location: usize = 0
             mutable decoded: darray[u8] = []
-            for member in 0..<tokens[object.usize()].size:
+            for member in 0..<tokens[object].size:
                 decoded.clear()
-                return -2 if not JsonString::decode(text, tokens[at].start, tokens[at].stop, &decoded)
+                return UnitDeclaration.Invalid if not JsonString::decode(text, tokens[at].start, tokens[at].stop, &decoded)
                 if compare_span(&decoded, 0, decoded.count.i64(), pool, metric.key_at, metric.key_len) == 0:
-                    return -2 if found >= 0
-                    found <- (at + 1).i64()
+                    return UnitDeclaration.Invalid if found
+                    found <- true
+                    location <- at + 1
                 at <- tokens[at + 1].after
-            return -2 if found >= 0 and tokens[found.usize()].kind != GlbJson::KIND_STRING
-            found
+            return UnitDeclaration.Missing if not found
+            return UnitDeclaration.Invalid if tokens[location].kind != GlbJson::KIND_STRING
+            UnitDeclaration.Present(location)
 
         def declared_dimension(value: darray[u8]&) -> ReportUnitPolicy::Dimension:
             return ReportUnitPolicy::Dimension.Count if is_text(value, 0, value.count.i64(), "count")
@@ -47,18 +77,30 @@ extend ReportDiff:
             return ReportUnitPolicy::Dimension.Distance if is_text(pool, metric.key_at, metric.key_len, "ballistic_after_um")
             ReportUnitPolicy::Dimension.Unknown
 
-        def declared_unit_status(left: darray[u8]&, left_tokens: darray[GlbJson::Token]&, left_object: i64,
-                                 right: darray[u8]&, right_tokens: darray[GlbJson::Token]&, right_object: i64,
+        def declared_unit_status(left: darray[u8]&, left_tokens: darray[GlbJson::Token]&, left_object: UnitDeclaration,
+                                 right: darray[u8]&, right_tokens: darray[GlbJson::Token]&, right_object: UnitDeclaration,
                                  pool: darray[u8]&, metric: Metric) -> ReportCompatibility::Status:
-            left_member: i64 = unit_member(left, left_tokens, left_object, pool, metric)
-            right_member: i64 = unit_member(right, right_tokens, right_object, pool, metric)
-            return ReportCompatibility::Status.Invalid if left_member == -2 or right_member == -2
-            if left_member < 0 or right_member < 0:
-                return ReportCompatibility::declaration_status(left_member >= 0, right_member >= 0, true, false, false)
+            left_member: UnitDeclaration = unit_member(left, left_tokens, left_object, pool, metric)
+            right_member: UnitDeclaration = unit_member(right, right_tokens, right_object, pool, metric)
+            return ReportCompatibility::Status.Invalid if unit_invalid(left_member) or unit_invalid(right_member)
+            if not unit_present(left_member) or not unit_present(right_member):
+                return ReportCompatibility::declaration_status(unit_present(left_member), unit_present(right_member), true, false, false)
+            mutable left_at: usize = 0
+            mutable right_at: usize = 0
+            match left_member:
+                UnitDeclaration.Present(index):
+                    left_at <- index
+                _:
+                    return ReportCompatibility::Status.Invalid
+            match right_member:
+                UnitDeclaration.Present(index):
+                    right_at <- index
+                _:
+                    return ReportCompatibility::Status.Invalid
             mutable left_unit: darray[u8] = []
             mutable right_unit: darray[u8] = []
-            left_token: GlbJson::Token = left_tokens[left_member.usize()]
-            right_token: GlbJson::Token = right_tokens[right_member.usize()]
+            left_token: GlbJson::Token = left_tokens[left_at]
+            right_token: GlbJson::Token = right_tokens[right_at]
             return ReportCompatibility::Status.Invalid if not JsonString::decode(left, left_token.start, left_token.stop, &left_unit)
             return ReportCompatibility::Status.Invalid if not JsonString::decode(right, right_token.start, right_token.stop, &right_unit)
             return ReportCompatibility::Status.Invalid if left_unit.count == 0 or right_unit.count == 0
