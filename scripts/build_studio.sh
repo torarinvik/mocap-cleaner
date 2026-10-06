@@ -29,7 +29,9 @@ export ELISA_ALLOW_STALE_STAGE1="${ELISA_ALLOW_STALE_STAGE1:-1}"
 # overrides it.
 STUDIO_STAGE1="$ROOT/../elisa-compiler-worktrees/studio-globals/bin/elisac-stage1"
 if [[ -z "${ELISA_STAGE1_BIN:-}" && -x "$STUDIO_STAGE1" ]]; then export ELISA_STAGE1_BIN="$STUDIO_STAGE1"; fi
-[[ -n "${ELISA_STAGE1_BIN:-}" ]] || echo "warning: no studio-globals stage1; Studio globals may read freed memory" >&2
+# The current compiler also supports global storage lifetimes. The focused
+# test/studio_global_lifetime.elisa regression runs with normal Studio checks;
+# absence of the historic worktree alone does not mean globals are unsafe.
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "the studio window is macOS only" >&2; exit 2; }
 [[ -f "$RUNTIME" ]] || { echo "no runtime object at $RUNTIME" >&2; exit 2; }
