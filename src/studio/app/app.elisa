@@ -15,6 +15,7 @@ include "../io/file_trash.elisa"
 include "../storage_restore_policy.elisa"
 include "../storage_identity_policy.elisa"
 include "../storage_totals_kernel.elisa"
+include "../storage_accessibility_policy.elisa"
 include "../io/storage_manifest_file.elisa"
 include "scene.elisa"
 include "character.elisa"
@@ -34,6 +35,7 @@ include "../export_review.elisa"
 include "../export_result.elisa"
 include "../export_report.elisa"
 include "export_publisher.elisa"
+include "storage_accessibility_copy.elisa"
 include "../state/session_state.elisa"
 include "../state/readout.elisa"
 
@@ -213,6 +215,13 @@ module Studio:
         global mutable framed: bool = false
         global mutable accessibility_toolbar_widgets: usize[StudioPanels::BUTTONS.usize()] = zeroed
         global mutable accessibility_toolbar_ready: bool = false
+        global mutable accessibility_file_trigger_widget: usize = 0
+        global mutable accessibility_file_menu_widgets: usize[StudioFilePolicy::ROWS.usize()] = zeroed
+        global mutable accessibility_file_ready: bool = false
+        global mutable accessibility_storage_action_widgets: usize[StudioPanels::STORAGE_ACTION_COUNT.usize()] = zeroed
+        global mutable accessibility_storage_row_widgets: usize[StudioStorageAccessibilityPolicy::ROW_COUNT.usize()] = zeroed
+        global mutable accessibility_storage_row_indices: i64[StudioStorageAccessibilityPolicy::ROW_COUNT.usize()] = zeroed
+        global mutable accessibility_storage_ready: bool = false
         global mutable accessibility_review_ack_widget: usize = 0
         global mutable accessibility_review_destination_widget: usize = 0
         global mutable accessibility_review_cancel_widget: usize = 0
@@ -2854,9 +2863,13 @@ module Studio:
                     export_path_inspector_page, export_path_inspector_focus)
             if export_result_open:
                 StudioPanels::export_result_panel(w, h, true, export_result_path, export_result_focus, export_report_saved)
-            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open and not storage_screen_open:
+            if storage_screen_open:
+                publish_storage_accessibility(w, h)
+            elif screen == StudioChrome::SCREEN_EDIT and not help_open and not replacement_prompt_open and not legacy_prompt_open:
                 if timeline is current_timeline:
                     publish_accessibility(w, h, s, current_timeline)
+            elif screen != StudioChrome::SCREEN_EDIT and not help_open and not replacement_prompt_open and not legacy_prompt_open:
+                publish_file_accessibility(w, h, true)
             scale: f32 = UiAppKitCanvas::backing_scale()
             sync_view(0, scale)
             sync_view(1, scale)
@@ -2905,6 +2918,24 @@ module Studio:
                 return if widget == UiFlat::NONE or widget != action.usize()
                 accessibility_toolbar_widgets[action.usize()] <- widget
             accessibility_toolbar_ready <- true
+            accessibility_file_trigger_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+            mutable file_widgets_ready: bool = accessibility_file_trigger_widget != UiFlat::NONE
+            for row in 0..<StudioFilePolicy::ROWS |row, file_widgets_ready, transparent|:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_file_menu_widgets[row.usize()] <- widget
+                file_widgets_ready <- false if widget == UiFlat::NONE
+            accessibility_file_ready <- file_widgets_ready
+            mutable storage_widgets_ready: bool = true
+            for action in 0..<StudioPanels::STORAGE_ACTION_COUNT |action, storage_widgets_ready, transparent|:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_storage_action_widgets[action.usize()] <- widget
+                storage_widgets_ready <- false if widget == UiFlat::NONE
+            for row in 0..<StudioStorageAccessibilityPolicy::ROW_COUNT |row, storage_widgets_ready, transparent|:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_storage_row_widgets[row.usize()] <- widget
+                accessibility_storage_row_indices[row.usize()] <- -1
+                storage_widgets_ready <- false if widget == UiFlat::NONE
+            accessibility_storage_ready <- storage_widgets_ready
             accessibility_review_ack_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_destination_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
             accessibility_review_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
@@ -2979,6 +3010,31 @@ module Studio:
             false
 
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if event == UiConst::WidgetEvent.Click.i32() and accessibility_file_ready:
+                if widget == accessibility_file_trigger_widget:
+                    file_menu_open <- not file_menu_open
+                    file_menu_focus <- 0 if file_menu_open
+                    file_menu_hover <- -1
+                    touch()
+                    return
+                if file_menu_open:
+                    for row in 0..<StudioFilePolicy::ROWS |row, widget|:
+                        if widget == accessibility_file_menu_widgets[row.usize()]:
+                            activate_file_menu(row)
+                            return
+            if event == UiConst::WidgetEvent.Click.i32() and storage_screen_open and accessibility_storage_ready:
+                for slot in 0..<StudioStorageAccessibilityPolicy::ROW_COUNT |slot, widget, storage_selected, storage_focus|:
+                    if widget == accessibility_storage_row_widgets[slot.usize()] and accessibility_storage_row_indices[slot.usize()] >= 0:
+                        storage_selected <- accessibility_storage_row_indices[slot.usize()]
+                        storage_restore_review <- false
+                        storage_focus <- -1
+                        touch()
+                        return
+                for action in 0..<StudioPanels::STORAGE_ACTION_COUNT |action, widget, storage_focus|:
+                    if widget == accessibility_storage_action_widgets[action.usize()]:
+                        storage_focus <- action
+                        storage_action(action)
+                        return
             if accessibility_stack_ready and event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_stack_duplicate_widget:
                 reset_menu_open <- false
                 duplicate_selected()
@@ -3098,12 +3154,151 @@ module Studio:
         def accessibility_node(role: UiCore::AccessibilityRole, label: sview, help_text: sview, b: StudioPanels::Box, id: usize, parent_id: usize, first_child_id: usize, next_sibling_id: usize, action: usize, enabled: bool, selected: bool, text_value: sview) -> void:
             selected_warning_node: bool = export_review_open and current_export_warnings() > 0 and id == StudioAccessibility::export_review_warning_id(export_review_warning_selected)
             detail_control_focused: bool = (id == StudioAccessibility::WARNING_DETAIL_PREVIOUS and export_warning_detail_focus == StudioExportPathReview::PREVIOUS) or (id == StudioAccessibility::WARNING_DETAIL_NEXT and export_warning_detail_focus == StudioExportPathReview::NEXT) or (id == StudioAccessibility::WARNING_DETAIL_DONE and export_warning_detail_focus == StudioExportPathReview::DONE)
-            focused: bool = (export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_DESTINATION and export_review_focus == StudioExportReview::DESTINATION) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT) or (selected_warning_node and export_review_focus == StudioExportReview::INSPECT_WARNINGS))) or (export_warning_detail_open and detail_control_focused) or (export_path_inspector_open and ((id == StudioAccessibility::PATH_PREVIOUS and export_path_inspector_focus == StudioExportPathReview::PREVIOUS) or (id == StudioAccessibility::PATH_NEXT and export_path_inspector_focus == StudioExportPathReview::NEXT) or (id == StudioAccessibility::PATH_DONE and export_path_inspector_focus == StudioExportPathReview::DONE))) or (export_result_open and ((id == StudioAccessibility::RESULT_OPEN and export_result_focus == StudioExportResult::OPEN) or (id == StudioAccessibility::RESULT_SHOW_IN_FOLDER and export_result_focus == StudioExportResult::SHOW_IN_FOLDER) or (id == StudioAccessibility::RESULT_DONE and export_result_focus == StudioExportResult::DONE)))
+            file_menu_focused: bool = file_menu_open and file_menu_focus >= 0 and file_menu_focus < StudioFilePolicy::ROWS and id == StudioStorageAccessibilityPolicy::file_command_id(file_menu_focus.usize())
+            storage_action_focused: bool = storage_screen_open and storage_focus >= 0 and storage_focus < StudioPanels::STORAGE_ACTION_COUNT and id == StudioStorageAccessibilityPolicy::REFRESH + storage_focus.usize()
+            mutable storage_row_focused: bool = false
+            if storage_screen_open and storage_focus < 0:
+                for row in 0..<StudioStorageAccessibilityPolicy::ROW_COUNT |row, id, storage_selected, storage_row_focused|:
+                    storage_row_focused <- true if id == StudioStorageAccessibilityPolicy::row_id(row.usize()) and accessibility_storage_row_indices[row.usize()] == storage_selected
+            focused: bool = file_menu_focused or storage_action_focused or storage_row_focused or (export_review_open and ((id == StudioAccessibility::REVIEW_ACKNOWLEDGEMENT and export_review_focus == StudioExportReview::ACKNOWLEDGE) or (id == StudioAccessibility::REVIEW_DESTINATION and export_review_focus == StudioExportReview::DESTINATION) or (id == StudioAccessibility::REVIEW_CANCEL and export_review_focus == StudioExportReview::CANCEL) or (id == StudioAccessibility::REVIEW_EXPORT and export_review_focus == StudioExportReview::EXPORT) or (selected_warning_node and export_review_focus == StudioExportReview::INSPECT_WARNINGS))) or (export_warning_detail_open and detail_control_focused) or (export_path_inspector_open and ((id == StudioAccessibility::PATH_PREVIOUS and export_path_inspector_focus == StudioExportPathReview::PREVIOUS) or (id == StudioAccessibility::PATH_NEXT and export_path_inspector_focus == StudioExportPathReview::NEXT) or (id == StudioAccessibility::PATH_DONE and export_path_inspector_focus == StudioExportPathReview::DONE))) or (export_result_open and ((id == StudioAccessibility::RESULT_OPEN and export_result_focus == StudioExportResult::OPEN) or (id == StudioAccessibility::RESULT_SHOW_IN_FOLDER and export_result_focus == StudioExportResult::SHOW_IN_FOLDER) or (id == StudioAccessibility::RESULT_DONE and export_result_focus == StudioExportResult::DONE)))
             UiCore::accessibility_with_metadata(role, label, help_text,
                 UiCore::Rect(b.x, b.y, b.w, b.h), id, action,
                 enabled, focused, selected, 0.0,
                 text_value, "", revision.usize(), 0, 0, parent_id,
                 first_child_id, next_sibling_id, 0.0, 1.0, false)
+
+        def publish_file_accessibility(w: f32, h: f32, standalone: bool) -> void:
+            return if not accessibility_file_ready
+            none: usize = StudioAccessibility::NO_NODE
+            sidebar: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            if standalone:
+                accessibility_node(UiCore::AccessibilityRole.Group,
+                    "Mocap Studio workspace",
+                    "File commands are available before a take is loaded.",
+                    StudioPanels::box(0.0, 0.0, w, h), StudioAccessibility::WORKSPACE,
+                    none, StudioStorageAccessibilityPolicy::FILE_TRIGGER, none,
+                    none, true, false, "")
+            UiFlat::set_enabled(accessibility_file_trigger_widget, true)
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                StudioStorageAccessibilityCopy::file_trigger_name(),
+                "Open the File menu. Storage & Recovery is available without a loaded take.",
+                StudioPanels::file_button_box(sidebar),
+                StudioStorageAccessibilityPolicy::FILE_TRIGGER,
+                StudioAccessibility::WORKSPACE,
+                StudioStorageAccessibilityPolicy::file_first_child(StudioStorageAccessibilityPolicy::FILE_TRIGGER) if file_menu_open else none,
+                none, accessibility_file_trigger_widget, true, file_menu_open,
+                "Open" if not file_menu_open else "Close")
+            if file_menu_open:
+                accessibility_node(UiCore::AccessibilityRole.List,
+                    StudioStorageAccessibilityCopy::file_menu_name(),
+                    "Seven File commands. Commands that require a take are disabled until one is loaded.",
+                    StudioPanels::file_popup_box(sidebar),
+                    StudioStorageAccessibilityPolicy::FILE_MENU,
+                    StudioStorageAccessibilityPolicy::FILE_TRIGGER,
+                    StudioStorageAccessibilityPolicy::file_first_child(StudioStorageAccessibilityPolicy::FILE_MENU),
+                    none, none, true, false, "")
+                for row in 0..<StudioFilePolicy::ROWS |row, w, h|:
+                    id: usize = StudioStorageAccessibilityPolicy::file_command_id(row.usize())
+                    widget: usize = accessibility_file_menu_widgets[row.usize()]
+                    enabled: bool = StudioStorageAccessibilityPolicy::file_command_enabled(id, clip != null)
+                    UiFlat::set_enabled(widget, enabled)
+                    accessibility_node(UiCore::AccessibilityRole.Button,
+                        StudioStorageAccessibilityCopy::file_command_name(row),
+                        StudioStorageAccessibilityCopy::file_command_help(row, clip != null),
+                        StudioPanels::file_menu_row_box(sidebar, row), id,
+                        StudioStorageAccessibilityPolicy::FILE_MENU, none,
+                        StudioStorageAccessibilityPolicy::file_next_sibling(id),
+                        widget, enabled, row == file_menu_focus,
+                        StudioPanels::file_menu_shortcut(row))
+
+        def publish_storage_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_storage_ready
+            none: usize = StudioAccessibility::NO_NODE
+            dialog: StudioPanels::Box = StudioPanels::storage_dialog_box(w, h)
+            count: i64 = storage_visible_entries.count.i64()
+            visible_count: i64 = StudioPanels::storage_visible_count(w, h, count, storage_selected)
+            first: i64 = StudioPanels::storage_first_visible(w, h, count, storage_selected)
+            UiFlat::set_enabled(accessibility_storage_action_widgets[StudioPanels::STORAGE_REFRESH.usize()], true)
+            UiFlat::set_enabled(accessibility_storage_action_widgets[StudioPanels::STORAGE_DONE.usize()], true)
+            UiFlat::set_enabled(accessibility_storage_action_widgets[StudioPanels::STORAGE_RESTORE.usize()], storage_restore_available())
+            accessibility_node(UiCore::AccessibilityRole.Dialog,
+                StudioStorageAccessibilityCopy::dialog_name(storage_restore_review),
+                StudioStorageAccessibilityCopy::dialog_help(storage_restore_review),
+                dialog, StudioStorageAccessibilityPolicy::DIALOG, none,
+                StudioStorageAccessibilityPolicy::first_child(StudioStorageAccessibilityPolicy::DIALOG, visible_count),
+                none, none, true, false, "")
+            mutable total_value: sview = "No registered items"
+            if count > 0:
+                total_value <- StudioText::pair("Visible records: ", visible_count, " of ", count)
+            list_box: StudioPanels::Box = StudioPanels::box(dialog.x + 22.0, dialog.y + 178.0,
+                dialog.w - 44.0, dialog.h - 300.0)
+            accessibility_node(UiCore::AccessibilityRole.List,
+                "Studio-managed inventory",
+                "Select a file by name. Each row also reports its file kind, verification status, and protection reason.",
+                list_box, StudioStorageAccessibilityPolicy::INVENTORY,
+                StudioStorageAccessibilityPolicy::DIALOG,
+                StudioStorageAccessibilityPolicy::first_child(StudioStorageAccessibilityPolicy::INVENTORY, visible_count),
+                StudioStorageAccessibilityPolicy::next_sibling(StudioStorageAccessibilityPolicy::INVENTORY, visible_count),
+                none, true, false, total_value)
+            mutable entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            mutable statuses: darray[i64] = storage_visible_statuses
+            for slot in 0..<StudioStorageAccessibilityPolicy::ROW_COUNT |visible_count, first, entries, statuses, storage_selected, w, h|:
+                accessibility_storage_row_indices[slot.usize()] <- -1
+                if slot < visible_count:
+                    index: i64 = first + slot
+                    entry: StudioStorageManifest::Entry = entries[index]
+                    status: i64 = statuses[index] if index < statuses.count.i64() else StudioPanels::STORAGE_STATUS_UNVERIFIED
+                    copy: StudioStorageAccessibilityCopy::RowCopy = StudioStorageAccessibilityCopy::row_copy(entry.kind, status, index == storage_selected)
+                    StudioText::begin()
+                    StudioText::put(copy.kind)
+                    StudioText::put(". ")
+                    StudioText::put(copy.status)
+                    StudioText::put(". ")
+                    StudioText::put(copy.selection)
+                    StudioText::put(". ")
+                    StudioText::put(copy.help)
+                    id: usize = StudioStorageAccessibilityPolicy::row_id(slot.usize())
+                    widget: usize = accessibility_storage_row_widgets[slot.usize()]
+                    accessibility_storage_row_indices[slot.usize()] <- index
+                    UiFlat::set_enabled(widget, true)
+                    accessibility_node(UiCore::AccessibilityRole.RadioButton,
+                        StudioPanels::storage_entry_name(entries, index), StudioText::view(),
+                        StudioPanels::storage_row_box(w, h, slot), id,
+                        StudioStorageAccessibilityPolicy::INVENTORY, none,
+                        StudioStorageAccessibilityPolicy::next_sibling(id, visible_count),
+                        widget, true, index == storage_selected, copy.selection)
+            hidden_value: sview = StudioText::pair("Unverified: ", storage_unverified_records, " · hidden/protected: ", storage_protected_records)
+            accessibility_node(UiCore::AccessibilityRole.Label,
+                "Protected records",
+                StudioStorageAccessibilityCopy::protected_summary(storage_unverified_records, storage_protected_records),
+                StudioPanels::box(dialog.x + 24.0, dialog.y + 72.0, dialog.w - 48.0, 22.0),
+                StudioStorageAccessibilityPolicy::PROTECTED,
+                StudioStorageAccessibilityPolicy::DIALOG, none,
+                StudioStorageAccessibilityPolicy::next_sibling(StudioStorageAccessibilityPolicy::PROTECTED, visible_count),
+                none, true, false, hidden_value)
+            mutable restore_ready: bool = storage_restore_available()
+            for action in 0..<StudioPanels::STORAGE_ACTION_COUNT |w, h, storage_restore_review, restore_ready|:
+                id: usize = StudioStorageAccessibilityPolicy::REFRESH + action.usize()
+                widget: usize = accessibility_storage_action_widgets[action.usize()]
+                enabled: bool = StudioStorageAccessibilityPolicy::action_enabled(action, restore_ready)
+                UiFlat::set_enabled(widget, enabled)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    StudioStorageAccessibilityCopy::action_name(action, storage_restore_review),
+                    StudioStorageAccessibilityCopy::action_help(action, restore_ready, storage_restore_review),
+                    StudioPanels::storage_button_box(w, h, action), id,
+                    StudioStorageAccessibilityPolicy::DIALOG, none,
+                    StudioStorageAccessibilityPolicy::next_sibling(id, visible_count),
+                    widget, enabled, false, "")
+            mutable message_role: UiCore::AccessibilityRole = UiCore::AccessibilityRole.Status
+            message_role <- UiCore::AccessibilityRole.Alert if StudioStorageAccessibilityPolicy::result_is_alert(storage_message)
+            accessibility_node(message_role,
+                "Storage result",
+                "The latest Storage & Recovery result.",
+                StudioPanels::box(dialog.x + 24.0, dialog.y + dialog.h - 90.0, dialog.w - 48.0, 24.0),
+                StudioStorageAccessibilityPolicy::ANNOUNCEMENT,
+                StudioStorageAccessibilityPolicy::DIALOG, none, none,
+                none, true, false,
+                StudioStorageAccessibilityCopy::result_announcement(storage_message))
 
         def publish_export_review_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_review_ready
@@ -3528,6 +3723,9 @@ module Studio:
             if export_review_open:
                 publish_export_review_accessibility(w, h)
                 return
+            if file_menu_open:
+                publish_file_accessibility(w, h, true)
+                return
             workspace: StudioPanels::Box = StudioPanels::box(0.0, 0.0, w, h)
             views: StudioPanels::Box = StudioPanels::box(StudioPanels::GAP,
                 StudioPanels::TOOLBAR, StudioPanels::main_width(w),
@@ -3668,8 +3866,9 @@ module Studio:
                 "Studio status",
                 "Current editing, cleanup, and playback status.",
                 StudioPanels::status_box(w, h), StudioAccessibility::STATUS,
-                StudioAccessibility::WORKSPACE, none, none, none, true, false,
+                StudioAccessibility::WORKSPACE, none, StudioStorageAccessibilityPolicy::FILE_TRIGGER, none, true, false,
                 message(s))
+            publish_file_accessibility(w, h, false)
 
         def camera_input(i: i64, dx: f32, dy: f32) -> void:
             if view(i) is opened:
