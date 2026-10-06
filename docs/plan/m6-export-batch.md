@@ -176,3 +176,10 @@ Regression source qualification: current clean prover `d3a17832` / compiler
 `4c409da6` proves 71/71 source obligations and replays 71/71 certificates, zero
 gaps. `metric_available` states its exact predicate directly; its contract is
 unchanged. Composed law and native comparison qualification remain separate.
+
+Digit-law qualification with default prover `994f95be` (frontend `88ffc005`)
+is terminal: 206/234 obligations proven, 203 certificates replayed and three
+replay gaps. Twenty-eight obligations remain unsupported or unknown, including
+arithmetic bounds and dependent summaries. This is diagnostic evidence, not
+acceptance. The full result is `build/report-decimal-digit-laws.log`; retain the
+exact contracts and repair the arithmetic/replay gaps before closing this slice.
