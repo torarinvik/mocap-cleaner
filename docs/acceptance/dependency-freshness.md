@@ -147,3 +147,15 @@ comparison, not current snapshot qualification. The active earlier diagnostic
 run started before this preflight existed and remains comparison evidence.
 `STUDIO_SKIP_CHECKS=1` remains the explicit compile-only route; it does not
 establish proof acceptance. No executable tests were added or run for this gate.
+
+## Subsequent upstream refresh
+
+A new fetch confirms compiler `720896f4` is 43 ahead / zero behind origin,
+mocap prover `4da37c97` is 22 ahead / zero behind, engine `01f5aec7` is 20
+ahead / zero behind and UI `8ab2eb39` is 6 ahead / zero behind. The primary
+prover is now `0491e6ad`, two local commits ahead / zero behind: file splitting
+and `ProofReport` state regrouping. These are independent local development,
+not missing published upstream changes. Their worktree is preserved. Carrying
+that broad refactor into the mocap prover requires compatibility qualification
+and preservation of its mocap-specific repairs. No default prover promotion
+is claimed by this source refresh.
