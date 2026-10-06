@@ -111,3 +111,10 @@ both endpoints; two laws cover unchanged and invalid candidates. Qualify this
 behavior with current compiler/prover products and native keyboard/pointer
 flows: re-entering an existing endpoint must leave undo depth, dirty state and
 preview revision unchanged. This implementation does not close native acceptance.
+
+Contact endpoint drafts are also bound to `stack_generation`; a history change
+rejects the draft before mutation and asks the user to reopen the field.
+Invalid input now distinguishes the clip's exact frame limit from crossing the
+opposite endpoint, reports that endpoint in displayed 1-based frames, and keeps
+the draft editable. Qualify stale drafts after undo/redo, session application,
+and take replacement, plus both inversion messages at the minimum window size.
