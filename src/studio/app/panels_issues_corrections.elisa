@@ -1,4 +1,5 @@
 include "panels_geometry.elisa"
+include "../issue_explanation.elisa"
 
 extend StudioPanels:
     public:
@@ -204,8 +205,10 @@ extend StudioPanels:
             StudioIssueBrowserPolicy::row_route_enabled(index, visible_rows, fresh)
 
         def issue_row_text(issue: StudioIssues::Issue) -> sview can Unsafe.PointerCast:
+            return "Invalid finding; rebuild analysis" if not StudioIssueExplanation::valid_issue(issue)
+            explanation: StudioIssueExplanation::Explanation = StudioIssueExplanation::explain(issue)
             StudioText::begin()
-            if issue.issue_type == 0:
+            if explanation.category == StudioIssueExplanationPolicy::CATEGORY_MOTION_SPIKE:
                 StudioText::put("Spike")
             else:
                 StudioText::put("detector ")
@@ -217,12 +220,20 @@ extend StudioPanels:
             else:
                 StudioText::put("aggregate only")
             StudioText::put("  frame ")
-            StudioText::put_i(issue.peak_frame + 1)
+            StudioText::put_i(explanation.peak_frame + 1)
             StudioText::put("  value ")
-            StudioText::put_i(issue.peak_value)
+            StudioText::put_i(explanation.peak_value)
             StudioText::put(" / ")
-            StudioText::put_i(issue.threshold)
+            StudioText::put_i(explanation.threshold)
             StudioText::view()
+
+        # Aggregate maxima mix translation, rotation and scale channels. They
+        # are detector values, not a physical acceleration or a named joint.
+        def issue_row_help(issue: StudioIssues::Issue) -> sview:
+            return "Invalid finding; rebuild analysis before navigation." if not StudioIssueExplanation::valid_issue(issue)
+            return "Measured channel second difference exceeds the spike threshold. Values are rounded channel components scaled by 1,000,000, not physical acceleration. The aggregate subject is unknown; deliberate fast motion may be intentional. Select to review the exact peak frame." if issue.issue_type == StudioIssueExplanationPolicy::MOTION_SPIKE and issue.subject_id < 0
+            return "Measured channel second difference exceeds the spike threshold. Values are rounded channel components scaled by 1,000,000, not physical acceleration. Select to review the exact peak frame and known subject." if issue.issue_type == StudioIssueExplanationPolicy::MOTION_SPIKE
+            "Detector explanation unavailable. Select to review the exact peak frame and subject when known."
 
         def issue_browser(sb: Box, issues: darray[StudioIssues::Issue]&, first: i64, selected: i64, stale: bool, loading: bool, filter_active: bool) -> void:
             area: Box = issue_area_box(sb)
