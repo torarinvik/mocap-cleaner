@@ -2,6 +2,7 @@ include "../export_publication_policy.elisa"
 include "app_state.elisa"
 include "../export_snapshot_policy.elisa"
 include "report_text.elisa"
+include "../export_recovery_budget_policy.elisa"
 
 extend Studio:
     private:
@@ -56,8 +57,19 @@ extend Studio:
                 if StudioExportPublisher::prepare(c.cleaned, destination, &prepare_error) is temporary:
                     output_identity: StudioSourceFingerprint::Fingerprint? = export_staged_identity(temporary)
                     mutable report_snapshot: ExportReportSnapshot? = null
+                    mutable identity_captured: bool = false
+                    mutable reports_captured: bool = false
                     if output_identity is output_fp:
+                        identity_captured <- true
                         report_snapshot <- prepare_export_report_for(c, report_stack, report_animation, output_fp)
+                    if report_snapshot is frozen:
+                        reports_captured <- frozen.json.count > 0 and frozen.summary.count > 0 and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.json.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES) and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.summary.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+                    if not StudioExportSnapshotPolicy::reports_ready(identity_captured, reports_captured):
+                        StudioExportPublisher::discard(temporary)
+                        FilePanel::release_path(temporary)
+                        say_file("Export blocked: report snapshot could not be prepared within its size limit. Existing destination kept.", destination)
+                        touch()
+                        return false
                     # Recheck after writing and validating the temporary so a
                     # destination that changed during export cannot be silently
                     # replaced. Publication is a single same-directory rename.

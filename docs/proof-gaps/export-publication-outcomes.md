@@ -231,3 +231,22 @@ unverified. This is not proof closure. Evidence is
 `build/export-recovery-report-stage-isolated-laws.log`; the focused repro was
 sent to the prover repair agent. The original broader session 3607 is still
 live at the latest handle poll and is not restarted or declared terminal.
+
+## Report preparation now blocks unsafe publication
+
+Studio previously allowed GLB publication when staged identity or report
+serialization failed. It now discards the staging file and preserves the
+destination unless identity and both nonempty report snapshots are captured;
+each report must also fit the existing 1 MiB recovery budget. This check occurs
+before the second destination confirmation and GLB commit. This is a live
+Studio guard, not durable recovery integration.
+
+Normal f292cbe0 compiled and packaged Studio with checks skipped
+(`build/export-snapshot-ready-studio-build.log`). Direct policy verification
+proves/replays 4/4 with zero findings, diagnostics or gaps; its baseline was
+updated from two to four reviewed obligations. Expanded laws remain open:
+18 obligations, 17 proven, 15 replayed, two replay gaps and one finding in the
+existing invalid-generation law. Evidence is
+`build/export-snapshot-ready-source.log` and
+`build/export-snapshot-ready-laws.log`. No native export behavior was exercised
+and no executable tests were added.
