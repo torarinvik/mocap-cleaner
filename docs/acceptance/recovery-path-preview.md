@@ -15,3 +15,9 @@ boundary loops, renderer or native accessibility presentation.
 Current compiler rebuilding at `1f136742` prevents a current compile-only
 qualification yet. No stale compiler override was used. Native layout and
 screen-reader path presentation remain open.
+
+The subsequent compiler seed completed and provenance checks current at
+`1f136742`. The path preview law module emits the fresh nonempty object
+`build/current-path-preview.6qlGyF/unit.o`. The current combined cache fixture
+also emits `build/current-cache.8iQCvO/unit.o`. These compile-only results do
+not establish runtime or native presentation acceptance.
