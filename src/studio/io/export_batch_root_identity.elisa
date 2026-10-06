@@ -1,0 +1,67 @@
+# Native identity for the owned build directory. The descriptor snapshot uses
+# O_NOFOLLOW and fstat so path replacement cannot inherit prior authorization.
+module StudioExportBatchRootIdentity:
+    private:
+        const module Capacity:
+            PATH_BYTES: usize = 4096
+            ERROR_BYTES: usize = 512
+        @link_name("elisa_directory_identity_fields")
+        extern native_snapshot(candidate: cstr, canonical_path: mutable u8&,
+            path_capacity: i32, device: mutable i64&, inode: mutable i64&,
+            error_buffer: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
+
+    public:
+        const enum Outcome of i64:
+            Ready = 0
+            InvalidInput = 1
+            Unavailable = 2
+
+        struct Facts:
+            canonical_path: darray[u8]
+            device: i64
+            inode: i64
+
+        def capture(candidate: darray[u8]&, facts: mutable Facts&,
+                    error_bytes: mutable darray[u8]&) -> Outcome can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            error_bytes.clear()
+            return Outcome.InvalidInput if candidate.count == 0 or candidate.count >= Capacity::PATH_BYTES
+            for byte in candidate:
+                return Outcome.InvalidInput if byte == 0
+            mutable path: u8[Capacity::PATH_BYTES] = zeroed
+            mutable canonical: u8[Capacity::PATH_BYTES] = zeroed
+            mutable error_buffer: u8[Capacity::ERROR_BYTES] = zeroed
+            for index in 0..<candidate.count |candidate, path|:
+                path[index] <- candidate[index]
+            candidate_ptr: cstr = (&path[0]).cast[cstr] can Unsafe.PointerCast
+            canonical_ptr: mutable u8& = (&canonical[0]).cast[mutable u8&] can Unsafe.PointerCast
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            mutable device: i64 = -1
+            mutable inode: i64 = -1
+            code: i32 = native_snapshot(candidate_ptr, canonical_ptr, Capacity::PATH_BYTES.i32(), &device, &inode, error_ptr, Capacity::ERROR_BYTES.i32())
+            mutable error_index: usize = 0
+            while error_index < Capacity::ERROR_BYTES and error_buffer[error_index] != 0:
+                error_bytes.push(error_buffer[error_index])
+                error_index <- error_index + 1
+            return Outcome.InvalidInput if code == -1
+            return Outcome.Unavailable if code != 0
+            mutable canonical_bytes: darray[u8] = []
+            mutable path_index: usize = 0
+            while path_index < Capacity::PATH_BYTES and canonical[path_index] != 0:
+                canonical_bytes.push(canonical[path_index])
+                path_index <- path_index + 1
+            return Outcome.Unavailable if canonical_bytes.count == 0 or device < 0 or inode < 0
+            facts <- Facts{canonical_path: canonical_bytes, device: device, inode: inode}
+            Outcome.Ready
+
+        def valid(facts: Facts&) -> bool:
+            facts.canonical_path.count > 0 and facts.canonical_path.count < Capacity::PATH_BYTES and facts.device >= 0 and facts.inode >= 0
+
+        def same_bytes(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def matches(expected: Facts&, observed: Facts&) -> bool:
+            ensure result implies valid(expected) and valid(observed)
+            valid(expected) and valid(observed) and expected.device == observed.device and expected.inode == observed.inode and same_bytes(expected.canonical_path, observed.canonical_path)

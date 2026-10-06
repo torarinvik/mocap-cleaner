@@ -18,6 +18,7 @@ module StudioExportBatchQueue:
                 worker_limit: mutable i64
                 active_workers: mutable i64
                 cancel_requested: mutable bool
+                pause_requested: mutable bool
 
         def item_count(queue: Queue&) -> usize:
             ensure result == queue.items.count
@@ -35,6 +36,10 @@ module StudioExportBatchQueue:
             ensure result == queue.cancel_requested
             queue.cancel_requested
 
+        def paused(queue: Queue&) -> bool:
+            ensure result == queue.pause_requested
+            queue.pause_requested
+
         # Scalar snapshot: callers can inspect an item without borrowing or
         # mutating the queue's retained array.
         def item(queue: Queue&, index: i64) -> Item:
@@ -50,13 +55,14 @@ module StudioExportBatchQueue:
             ensure result implies queue.worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS
             ensure result implies queue.active_workers >= 0
             ensure result implies queue.active_workers <= queue.worker_limit
+            ensure result implies not (queue.cancel_requested and queue.pause_requested)
             return false if queue.items.count > StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
             mutable running: i64 = 0
             for index in 0..<queue.items.count.i64() |index, queue, running|:
                 item: Item = queue.items[index.usize()]
                 return false if not StudioExportBatchItemPolicy::valid(item.state, item.warning_count, item.approved)
                 running <- running + 1 if queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
-            queue.items.count <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize() and queue.worker_limit > 0 and queue.worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS and queue.active_workers >= 0 and queue.active_workers <= queue.worker_limit and running == queue.active_workers
+            queue.items.count <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize() and queue.worker_limit > 0 and queue.worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS and queue.active_workers >= 0 and queue.active_workers <= queue.worker_limit and not (queue.cancel_requested and queue.pause_requested) and running == queue.active_workers
 
         def create(worker_limit: i64) -> Queue:
             requires worker_limit > 0 and worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS
@@ -65,7 +71,8 @@ module StudioExportBatchQueue:
             ensure result.worker_limit == worker_limit
             ensure result.active_workers == 0
             ensure not result.cancel_requested
-            Queue{items: [], worker_limit: worker_limit, active_workers: 0, cancel_requested: false}
+            ensure not result.pause_requested
+            Queue{items: [], worker_limit: worker_limit, active_workers: 0, cancel_requested: false, pause_requested: false}
 
         def enqueue(queue: mutable Queue&, preflight: StudioExportBatchPreflightPolicy::Outcome) -> bool:
             requires valid(queue)
@@ -97,7 +104,7 @@ module StudioExportBatchQueue:
             ensure result >= -1
             ensure result < queue.items.count.i64()
             ensure result < 0 or queue.items[result.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
-            return -1 if queue.cancel_requested
+            return -1 if StudioExportBatchQueuePolicy::claim_blocked(queue.cancel_requested, queue.pause_requested)
             return -1 if queue.active_workers >= queue.worker_limit
             for index in 0..<queue.items.count.i64() |index, queue|:
                 if queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Queued:
@@ -115,12 +122,24 @@ module StudioExportBatchQueue:
             ensure result >= 0
             ensure result <= queue.items.count.i64()
             queue.cancel_requested <- true
+            queue.pause_requested <- false
             mutable cancelled: i64 = 0
             for index in 0..<queue.items.count.i64() |index, queue, cancelled|:
                 if queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Queued:
                     queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::ItemState.Cancelled
                     cancelled <- cancelled + 1
             cancelled
+
+        # Pause stops future claims and lets active workers finish. Queued
+        # items retain their state and can resume without retry.
+        def pause(queue: mutable Queue&) -> bool:
+            requires valid(queue)
+            ensure valid(queue)
+            ensure result implies queue.pause_requested
+            ensure result implies not queue.cancel_requested
+            return false if queue.cancel_requested or queue.pause_requested
+            queue.pause_requested <- true
+            true
 
         def complete(queue: mutable Queue&, index: i64, succeeded: bool,
                      staged_outputs_valid: bool, warning_count: i64) -> bool:
@@ -190,15 +209,17 @@ module StudioExportBatchQueue:
             queue.items[index.usize()].approved <- false
             true
 
-        # Resume is explicit after cancellation has drained. Retried items
-        # remain queued until this action; completed results are retained.
+        # Resume is explicit after cancellation or pause has drained. Retried
+        # items remain queued until this action; completed results are retained.
         def resume(queue: mutable Queue&) -> bool:
             requires valid(queue)
             ensure valid(queue)
             ensure result implies not queue.cancel_requested
+            ensure result implies not queue.pause_requested
             ensure result implies queue.active_workers == 0
-            return false if not StudioExportBatchResumePolicy::admitted(queue.cancel_requested, queue.active_workers)
+            return false if queue.active_workers != 0 or not queue.cancel_requested and not queue.pause_requested
             queue.cancel_requested <- StudioExportBatchResumePolicy::after_resume(queue.cancel_requested, queue.active_workers)
+            queue.pause_requested <- false
             true
 
         def counts(queue: Queue&) -> StudioExportBatchQueuePolicy::Aggregate:

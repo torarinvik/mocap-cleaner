@@ -50,9 +50,15 @@ accepts facts that its caller must establish from the OS.
 
 The batch review binding now offers a durable queue constructor and routes its
 enqueue, worker claim/completion, publication, retry, cancel and resume
-transitions through the existing recovery store while the workspace lock is
-held. Enqueue stores exact staged GLB, recipe and report snapshots with a
-versioned per-item journal under `build/.mocap-export-recovery-*`. Claims
+transitions through the existing recovery store. Durable APIs accept a
+caller-owned live workspace transaction descriptor per operation and retain no
+descriptor in the paused or reviewable queue. The caller must release the
+descriptor before returning to UI. Each transaction reopens the build root
+without following its final path component and matches its canonical path,
+device and inode against the queue's captured workspace root. A replaced root
+or missing batch reservation fails closed. Enqueue stores exact staged GLB,
+recipe and report snapshots with a versioned per-item journal under
+`build/.mocap-export-recovery-*`. Claims
 persist the incremented attempt and Running state before returning a worker
 claim. Journal failures after work or publication keep outputs intact and
 surface Recoverable in memory. Updates are accepted only along the recorded
@@ -72,7 +78,42 @@ malformed report formats remain Recoverable. Reopened clean completed outputs
 may regain Passed and warning outputs regain Warning, always unapproved. A
 recovered warning requires a fresh explicit acknowledgement bound to retained
 identity and attempt; it is memory-only and must be repeated after reopen.
-Empty durable queues and the batch UI entry point are not yet wired into Studio.
+The prepared-export queue panel and capture extension exist as separate modules,
+but remain unimported and unqualified pending Studio composition and native
+review. They enqueue an already reviewed single export; source selection and a
+multi-take evaluation worker remain open M6 work.
+
+Batch IDs are reserved by `mkstemp` using a create-only marker inside the
+selected build directory. The six-character ID is read from the created marker;
+the marker and parent directory are synced before the ID is returned. The
+bounded allocator refuses new IDs after 256 retained reservation markers, and
+the queue store checks that the marker remains a regular non-symlink file under
+the live transaction. Reservation cleanup and native collision/race behavior
+remain unqualified.
+
+The native build root identity adapter opens the candidate with
+`O_DIRECTORY|O_NOFOLLOW`, obtains device/inode from `fstat`, and obtains the
+canonical path from the same descriptor with `F_GETPATH`. The identity checks
+do not close the replacement race between a check and later path-based IO.
+Recovery directory creation, snapshot/journal reads and writes, and publication
+still need descriptor-relative operations rooted at a verified directory fd.
+This TOCTOU remains open and must not be treated as solved by path/device/inode
+rechecks.
+The storage lock adapter keeps a duplicated open-file-description anchor for
+each acquisition and validates the registered descriptor against its named
+and canonical lock path, device/inode, and exclusive flock. Queue store derives
+the expected lock file from canonical `<workspace>/build` and validates every
+operation before file IO. Current compile-only evidence used the
+provenance-checked normal Stage1 product at O0: queue store 721,568 bytes,
+review binding 937,384 bytes, root identity laws 10,304 bytes, recipe codec
+1,391,712 bytes, recipe laws 1,422,000 bytes, queue model laws 165,312 bytes,
+queue policy laws 65,272 bytes, item laws 65,496 bytes, panel policy laws
+953,104 bytes, review-binding laws 964,480 bytes. `clang -fsyntax-only
+native/storage_manifest_lock.c` and `clang -fsyntax-only -fobjc-arc
+native/file_trash_appkit.m` exited 0. These are compiler and native syntax
+checks only; no filesystem operation, law replay, queue UI, transaction-release
+callsite, concurrent lock use, descriptor misuse, replacement race, collision
+race or durability behavior was run.
 
 Compile-only qualification used the provenance-checked normal Stage1 product
 (`bb1f4095`) with `-emit obj -O0`; O2 dead-stripped these proof/module-only

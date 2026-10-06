@@ -6,13 +6,46 @@ include "../export_batch_identity.elisa"
 include "../export_batch_recovery_policy.elisa"
 include "../export_report_warning_parser.elisa"
 include "export_batch_source_identity.elisa"
+include "storage_manifest_lock_file.elisa"
+include "export_batch_root_identity.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
+include "../../io/folder_checked.elisa"
+
+@link_name("mkstemp")
+extern batch_mkstemp(path_template: u8&) -> i32 can[Blocking.IO]
+@link_name("fsync")
+extern batch_fsync(descriptor: i32) -> i32 can[Blocking.IO]
+@link_name("close")
+extern batch_close(descriptor: i32) -> i32 can[Blocking.IO]
 
 # Durable per-item snapshots and journal. This store only returns a directory
 # after all immutable bytes, the initial journal and both directory entries
 # have crossed their sync boundaries. Failed attempts leave evidence in place.
 module StudioExportBatchQueueStore:
     public:
+        const module Limit:
+            MAX_BATCH_RESERVATIONS: i64 = 256
+
+        def valid_identifier(batch_id: darray[u8]&) -> bool:
+            batch_id_valid(batch_id)
+
+        def is_recovery_directory(name: darray[u8]&) -> bool:
+            recovery_namespace(name)
+
+        def context_valid(build_directory: darray[u8]&,
+                build_identity: StudioExportBatchRootIdentity::Facts&,
+                batch_id: darray[u8]&, descriptor: i32) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return false if not path_valid(build_directory) or not StudioExportBatchRootIdentity::valid(build_identity)
+            return false if not StudioExportBatchRootIdentity::same_bytes(build_identity.canonical_path, build_directory)
+            mutable observed: StudioExportBatchRootIdentity::Facts = zeroed
+            mutable errors: darray[u8] = []
+            outcome: StudioExportBatchRootIdentity::Outcome = StudioExportBatchRootIdentity::capture(build_directory, &observed, &errors)
+            return false if outcome != StudioExportBatchRootIdentity::Outcome.Ready or not StudioExportBatchRootIdentity::matches(build_identity, observed)
+            mutable root: u8[4096] = zeroed
+            for index in 0..<build_directory.count |build_directory, root|:
+                root[index] <- build_directory[index]
+            batch_id_reserved((&root[0]).cast[cstr], descriptor, batch_id)
+
         const enum CreateResult of i64:
             LockRequired = 0
             InvalidBuildDirectory = 1
@@ -25,16 +58,74 @@ module StudioExportBatchQueueStore:
             SyncFailed = 8
             Created = 9
 
-        # `lock_descriptor` must be the live workspace manifest lock returned
-        # by StudioStorageManifestLockFile::try_acquire. The caller holds it
-        # across this reservation and subsequent queue updates.
+        # Reserve an unpredictable batch identifier with mkstemp's atomic
+        # create-only operation. The marker persists with the batch and makes
+        # collision impossible while recovery evidence refers to this ID.
+        def reserve_batch_id(build_directory: cstr, lock_descriptor: i32,
+                out_id: mutable darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return false if not transaction_valid(build_directory, lock_descriptor) or not build_directory_valid(build_directory)
+            mutable names: darray[darray[u8]] = []
+            return false if not Folder::entries_checked(build_directory, FolderScanPolicy::Capacity::NAMES, &names)
+            mutable reserved: i64 = 0
+            for name in names:
+                reserved <- reserved + 1 if reservation_name(name)
+            return false if reserved >= Limit::MAX_BATCH_RESERVATIONS
+            mutable path: u8[4096] = zeroed
+            mutable root_length: usize = 0
+            while root_length < 4000 and build_directory[root_length] != 0:
+                path[root_length] <- build_directory[root_length]
+                root_length <- root_length + 1
+            return false if root_length >= 4000
+            prefix: sview = "/.mocap-export-batch-id-"
+            for index in 0..<prefix.len.usize() |path, prefix, root_length|:
+                path[root_length + index] <- prefix[index]
+            suffix: sview = "XXXXXX"
+            for index in 0..<suffix.len.usize() |path, suffix, root_length, prefix|:
+                path[root_length + prefix.len.usize() + index] <- suffix[index]
+            mutable descriptor: i32 = batch_mkstemp((&path[0]).cast[u8&])
+            return false if descriptor < 0
+            synced_file: bool = batch_fsync(descriptor) == 0
+            closed_file: bool = batch_close(descriptor) == 0
+            mutable marker: u8[4096] = zeroed
+            for index in 0..<4096 |path, marker, index|:
+                marker[index] <- path[index]
+            marker_path: cstr = (&marker[0]).cast[cstr] can Unsafe.PointerCast
+            facts: i64 = FilePanel::path_facts(marker_path)
+            marker_ok: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+            parent_synced: bool = StudioExportRecoveryStore::sync_directory(build_directory)
+            return false if not synced_file or not closed_file or not marker_ok or not parent_synced
+            out_id.clear()
+            mutable id_index: usize = 0
+            while id_index < 6 and path[root_length + prefix.len.usize() + id_index] != 0:
+                out_id.push(path[root_length + prefix.len.usize() + id_index])
+                id_index <- id_index + 1
+            out_id.count == 6
+
+        def batch_id_reserved(build_directory: cstr, lock_descriptor: i32,
+                batch_id: darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return false if not transaction_valid(build_directory, lock_descriptor) or not batch_id_valid(batch_id) or not build_directory_valid(build_directory)
+            mutable path: u8[4096] = zeroed
+            mutable root_length: usize = 0
+            while root_length < 4000 and build_directory[root_length] != 0:
+                path[root_length] <- build_directory[root_length]
+                root_length <- root_length + 1
+            return false if root_length >= 4000
+            prefix: sview = "/.mocap-export-batch-id-"
+            for index in 0..<prefix.len.usize() |path, prefix, root_length|:
+                path[root_length + index] <- prefix[index]
+            for index in 0..<batch_id.count |path, batch_id, root_length, prefix|:
+                path[root_length + prefix.len.usize() + index] <- batch_id[index]
+            facts: i64 = FilePanel::path_facts((&path[0]).cast[cstr])
+            facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+
         def create_item[@r](build_directory: cstr, lock_descriptor: i32,
                 identity: StudioExportBatchIdentity::Identity&,
                 record: StudioExportBatchJournal::Record&,
                 out_directory: mutable darray[u8]& @r) -> CreateResult can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
-            return CreateResult.LockRequired if lock_descriptor < 0
+            return CreateResult.LockRequired if not transaction_valid(build_directory, lock_descriptor)
             return CreateResult.InvalidIdentity if not StudioExportBatchJournal::matches_identity(record, identity)
             return CreateResult.InvalidBuildDirectory if not build_directory_valid(build_directory)
+            return CreateResult.InvalidIdentity if not batch_id_reserved(build_directory, lock_descriptor, record.batch_id)
             scan: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan(build_directory)
             mutable records: i64 = 0
             mutable retained: i64 = 0
@@ -81,9 +172,9 @@ module StudioExportBatchQueueStore:
         # Journal writes are atomic replacements. A durability-unknown return
         # is retried with an explicit directory sync; published bytes are never
         # rolled back or deleted on failure.
-        def update_item(directory: darray[u8]&, lock_descriptor: i32,
+        def update_item(build_directory: darray[u8]&, directory: darray[u8]&, lock_descriptor: i32,
                 record: StudioExportBatchJournal::Record&) -> StudioPublicationDurabilityPolicy::Result can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
-            return StudioPublicationDurabilityPolicy::Result.NotPublished if lock_descriptor < 0 or not path_valid(directory)
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not transaction_valid_bytes(build_directory, lock_descriptor) or not path_valid(directory)
             if path_string(directory) is native_directory:
                 status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::update_batch_journal(native_directory, record)
                 StudioExportRecoveryStore::release_path(native_directory)
@@ -96,10 +187,10 @@ module StudioExportBatchQueueStore:
             else:
                 StudioPublicationDurabilityPolicy::Result.NotPublished
 
-        def load_identity(directory: darray[u8]&, lock_descriptor: i32,
+        def load_identity(build_directory: darray[u8]&, directory: darray[u8]&, lock_descriptor: i32,
                 record: StudioExportBatchJournal::Record&,
                 out: mutable StudioExportBatchIdentity::Identity&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
-            return false if lock_descriptor < 0 or not path_valid(directory) or not StudioExportBatchJournal::valid(record)
+            return false if not transaction_valid_bytes(build_directory, lock_descriptor) or not path_valid(directory) or not StudioExportBatchJournal::valid(record)
             if path_string(directory) is native_directory:
                 mutable output: darray[u8] = []
                 mutable json: darray[u8] = []
@@ -130,7 +221,7 @@ module StudioExportBatchQueueStore:
 
         # Reopen derives a conservative lifecycle item from fresh native path
         # facts, exact bytes and independently parsed matching warning reports.
-        def recover_item[@r](directory: darray[u8]& @r, lock_descriptor: i32,
+        def recover_item[@r](build_directory: darray[u8]& @r, directory: darray[u8]& @r, lock_descriptor: i32,
                 record: StudioExportBatchJournal::Record&,
                 out_identity: mutable StudioExportBatchIdentity::Identity& @r,
                 out_item: mutable StudioExportBatchQueue::Item& @r) -> bool @r can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
@@ -138,7 +229,7 @@ module StudioExportBatchQueueStore:
             requires StudioExportBatchJournal::valid(record)
             ensure not result or not out_item.approved
             mutable identity: StudioExportBatchIdentity::Identity @r = zeroed
-            return false if not load_identity(directory, lock_descriptor, record, &identity)
+            return false if not load_identity(build_directory, directory, lock_descriptor, record, &identity)
             identity_exact: bool = StudioExportBatchJournal::matches_identity(record, identity)
             mutable source_facts: StudioExportBatchSourceIdentity::Facts @r = zeroed
             mutable error_bytes: darray[u8] @r = []
@@ -159,6 +250,52 @@ module StudioExportBatchQueueStore:
             true
 
     private:
+        def transaction_valid(build_directory: cstr, descriptor: i32) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            mutable root: darray[u8] = []
+            mutable index: usize = 0
+            while index < 4096 and build_directory[index] != 0:
+                root.push(build_directory[index])
+                index <- index + 1
+            return false if index >= 4096
+            transaction_valid_bytes(root, descriptor)
+
+        def transaction_valid_bytes(build_directory: darray[u8]&, descriptor: i32) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return false if descriptor < 0 or not path_valid(build_directory)
+            return false if build_directory.count < 6
+            return false if build_directory[build_directory.count - 6] != 47 or build_directory[build_directory.count - 5] != 98 or build_directory[build_directory.count - 4] != 117 or build_directory[build_directory.count - 3] != 105 or build_directory[build_directory.count - 2] != 108 or build_directory[build_directory.count - 1] != 100
+            mutable lock_path: darray[u8] = []
+            root_length: usize = build_directory.count - 6
+            for index in 0..<root_length |build_directory, lock_path|:
+                lock_path.push(build_directory[index])
+            if lock_path.count == 0 or lock_path[lock_path.count - 1] != 47:
+                lock_path.push(47)
+            lock_path.extend("studio_storage_manifest.lock")
+            return false if lock_path.count >= 4095
+            mutable c_path: u8[4096] = zeroed
+            for index in 0..<lock_path.count |lock_path, c_path|:
+                c_path[index] <- lock_path[index]
+            StudioStorageManifestLockFile::validate((&c_path[0]).cast[cstr], descriptor)
+
+        def reservation_name(name: darray[u8]&) -> bool:
+            prefix: sview = ".mocap-export-batch-id-"
+            return false if name.count != prefix.len.usize() + 6
+            for index in 0..<prefix.len.usize():
+                return false if name[index] != prefix[index]
+            true
+
+        def recovery_namespace(name: darray[u8]&) -> bool:
+            prefix: sview = ".mocap-export-recovery-"
+            return false if name.count < prefix.len.usize()
+            for index in 0..<prefix.len.usize():
+                return false if name[index] != prefix[index]
+            true
+
+        def batch_id_valid(batch_id: darray[u8]&) -> bool:
+            return false if batch_id.count != 6
+            for byte in batch_id:
+                return false if not (byte >= 48 and byte <= 57 or byte >= 65 and byte <= 90 or byte >= 97 and byte <= 122)
+            true
+
         def build_directory_valid(path: cstr) -> bool:
             facts: i64 = FilePanel::path_facts(path)
             facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0

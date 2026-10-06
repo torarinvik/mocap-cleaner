@@ -1,13 +1,15 @@
 # Nonblocking process lock for Storage manifest transactions on macOS.
 # The lock file is intentionally persistent: callers release the kernel lock
-# and close its descriptor, never unlink the file. All callers must use the
-# same lock path and hold the descriptor across refresh, mutation, and publish.
+# and close its descriptor, never unlink the file. Durable queue transactions
+# validate a descriptor against the exact workspace lock path before IO.
 include "../storage_manifest_lock_policy.elisa"
 
 @link_name("elisa_storage_manifest_lock_try")
 extern storage_lock_try(path: u8&, descriptor: mutable i32&) -> i32 can[Blocking.IO]
 @link_name("elisa_storage_manifest_lock_release")
 extern storage_lock_release(descriptor: i32) -> i32 can[Blocking.IO]
+@link_name("elisa_storage_manifest_lock_validate")
+extern storage_lock_validate(path: cstr, descriptor: i32) -> i32 can[Blocking.IO]
 
 module StudioStorageManifestLockFile:
     public:
@@ -30,3 +32,10 @@ module StudioStorageManifestLockFile:
         def release(descriptor: i32) -> bool can[Blocking.IO]:
             return false if descriptor < 0
             storage_lock_release(descriptor) == 1
+
+        # Rejects arbitrary, closed, reused and other-workspace descriptors.
+        # Native bookkeeping ties a live acquisition to the exact canonical
+        # path, persistent inode and locked open-file description.
+        def validate(lock_path: cstr, descriptor: i32) -> bool can[Blocking.IO]:
+            return false if descriptor < 0 or lock_path[0] == 0
+            storage_lock_validate(lock_path, descriptor) == 1
