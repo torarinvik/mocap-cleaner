@@ -640,6 +640,14 @@ new rows after the prover/replay products are rebuilt from matching sources.
   and 235/235). Retime improved to 548/560, retime laws to 862/896, and footing
   to 322/342 (footing laws 411/437); those remaining gaps are still under
   investigation. No established baseline was downgraded.
+- A follow-up matcher compares nested binary and unary call arguments
+  structurally while requiring source-validated constant facts at literal
+  substitutions. The regression with a helper call inside a binary argument
+  proves and replays 30/30 certificates. This further improves footing to
+  326/342 replayed certificates; 16 replay gaps remain. Retime remains at
+  548/560 replayed certificates (12 gaps), so the larger caller-summary issue
+  is still open. The attempted constant-aware summary comparison did not
+  change either report and was discarded.
 
 ## Issue browser and accessibility policies (2026-10-06)
 
