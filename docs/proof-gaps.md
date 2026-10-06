@@ -648,6 +648,12 @@ new rows after the prover/replay products are rebuilt from matching sources.
   548/560 replayed certificates (12 gaps), so the larger caller-summary issue
   is still open. The attempted constant-aware summary comparison did not
   change either report and was discarded.
+- The shared 12-certificate gap is localized to `range_step`: retime reports
+  the failed owner at line 314, and session-band laws report it at line 318.
+  Both traces are calls to `range_weight`; all seven recorded callee
+  precondition goals replay. The unresolved evidence is therefore in the
+  call-summary/call-witness path, not those precondition proofs. Further
+  diagnostics are pending a build against the current compiler source.
 
 ## Issue browser and accessibility policies (2026-10-06)
 
