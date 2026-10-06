@@ -167,6 +167,11 @@ Verification: Studio builds, the identity/restore/totals/window policies have
 proved scalar boundaries, and disposable native fixtures exercise checked
 move rejection, restore, destination conflicts and reconciliation. The
 Storage dialog's pointer, keyboard and VoiceOver acceptance is still open.
+A temporary native bundle rendered the empty-start guide and exposed the File
+button in its accessibility tree. AX activation left that tree unchanged;
+pointer input returned `noWindowsAvailable`. Keyboard Quit closed the process.
+This confirms the initial render and node publication, not File activation or
+Storage interaction. The temporary bundle was removed after the process exited.
 The single-file cleanup flow exposes Move to Trash review and explicit
 confirmation. No row is selected on first open. Retention cycles through 7,
 30 (default), 90 and 365 days and refreshes eligibility without moving files.
