@@ -36,6 +36,9 @@ when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
 Remaining source inventory: **75 owners, 705 ungrouped constants**.
+File-level export publisher limits, outside this module-owner inventory, now
+use private `StudioExportPublisher::Capacity` (path and staging buffer sizes).
+Numeric capacities remain a const module; typed validation outcomes use an enum.
 
 | Module | Ungrouped constants | Declaration files |
 | --- | ---: | --- |
