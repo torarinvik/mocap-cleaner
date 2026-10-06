@@ -131,3 +131,11 @@ with the valid 0.1–4 range, an example and Escape guidance. Qualify editing th
 preserved draft with Backspace and resubmitting; no invalid speed may mutate
 bands or history. The numeric capacity refusal likewise retains input and
 reports the eight-character limit instead of silently ignoring accepted input.
+
+Retime text parsing now rejects fractional digits beyond the three decimal
+places representable by permille instead of silently discarding them. The
+correction message states this precision limit. Qualify exact inputs at 0.1,
+4 and three decimal places, and refusal of a fourth fractional digit (including
+zero), retaining the draft and committed state. The existing parser's `sview`
+loop remains outside the current symbolic proof boundary; source compilation
+and native correction flow are still pending.
