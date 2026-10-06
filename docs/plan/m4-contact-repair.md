@@ -125,3 +125,9 @@ existing draft editor and are disabled without an authored interval. Tree laws
 cover parentage and endpoint traversal; the existing action-order expectation
 now includes the endpoint controls. Compile/replay and VoiceOver interaction
 remain pending, including focus after activation and draft/error announcements.
+
+Numeric input correction also preserves invalid retime-speed drafts on Enter,
+with the valid 0.1–4 range, an example and Escape guidance. Qualify editing the
+preserved draft with Backspace and resubmitting; no invalid speed may mutate
+bands or history. The numeric capacity refusal likewise retains input and
+reports the eight-character limit instead of silently ignoring accepted input.
