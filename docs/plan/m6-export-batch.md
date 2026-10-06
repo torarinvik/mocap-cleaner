@@ -176,3 +176,9 @@ The integrated Studio compile subsequently succeeded after the suggestion and
 workspace owners repaired their in-progress diagnostics. This qualifies
 compilation of the report freeze/outcome integration; it does not qualify
 publication failure recovery, source immutability or native interaction.
+
+The export result dialog and accessibility description now consume the typed
+publication outcome directly and identify the missing current sidecar, including
+the possibility of stale old reports. The redundant Boolean report-success
+flag was removed. Integrated Studio compilation succeeds with f292cbe0; native
+visual/keyboard/accessibility and sidecar failure-path qualification remain open.
