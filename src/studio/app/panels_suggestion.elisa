@@ -1,0 +1,119 @@
+# Review panel for an evaluated cleanup suggestion candidate.
+extend StudioPanels:
+    public:
+        const enum SuggestionView of i64:
+            Current = 0
+            Candidate = 1
+
+        const enum SuggestionAdjustment of i64:
+            Review = 0
+            Adjusting = 1
+
+        const enum SuggestionAction of i64:
+            Cancel = 0
+            Adjust = 1
+            Apply = 2
+            ToggleFeet = 3
+            ToggleHands = 4
+            Back = 5
+            ShowCurrent = 6
+            ShowSuggested = 7
+
+        def suggestion_dialog_box(w: f32, h: f32) -> Box:
+            sidebar_box(w, h)
+
+        def suggestion_button_box(w: f32, h: f32, action: SuggestionAction) -> Box:
+            d: Box = suggestion_dialog_box(w, h)
+            mutable x: f32 = d.x + d.w - 12.0 - 88.0
+            x <- d.x + d.w - 12.0 - 88.0 * 2.0 - 5.0 if action == SuggestionAction.Adjust or action == SuggestionAction.Back
+            x <- d.x + 12.0 if action == SuggestionAction.Cancel
+            box(x, d.y + d.h - 48.0, 84.0, 32.0)
+
+        def suggestion_toggle_box(w: f32, h: f32, action: SuggestionAction) -> Box:
+            d: Box = suggestion_dialog_box(w, h)
+            y: f32 = d.y + 380.0 if action == SuggestionAction.ToggleFeet else d.y + 418.0
+            box(d.x + 12.0, y, d.w - 24.0, 30.0)
+
+        def suggestion_pose_box(w: f32, h: f32, action: SuggestionAction) -> Box:
+            d: Box = suggestion_dialog_box(w, h)
+            x: f32 = d.x + 12.0 if action == SuggestionAction.ShowCurrent else d.x + 146.0
+            box(x, d.y + 94.0, 126.0, 26.0)
+
+        def suggestion_hit(w: f32, h: f32, px: f32, py: f32, adjustment: SuggestionAdjustment,
+                           foot_available: bool, foot_locked: bool,
+                           hand_available: bool, hand_locked: bool,
+                           apply_enabled: bool) -> SuggestionAction?:
+            return SuggestionAction.ToggleFeet if adjustment == SuggestionAdjustment.Adjusting and (foot_available or foot_locked) and inside(suggestion_toggle_box(w, h, SuggestionAction.ToggleFeet), px, py)
+            return SuggestionAction.ToggleHands if adjustment == SuggestionAdjustment.Adjusting and (hand_available or hand_locked) and inside(suggestion_toggle_box(w, h, SuggestionAction.ToggleHands), px, py)
+            return SuggestionAction.ShowCurrent if inside(suggestion_pose_box(w, h, SuggestionAction.ShowCurrent), px, py)
+            return SuggestionAction.ShowSuggested if inside(suggestion_pose_box(w, h, SuggestionAction.ShowSuggested), px, py)
+            return SuggestionAction.Cancel if inside(suggestion_button_box(w, h, SuggestionAction.Cancel), px, py)
+            return SuggestionAction.Back if adjustment == SuggestionAdjustment.Adjusting and inside(suggestion_button_box(w, h, SuggestionAction.Back), px, py)
+            return SuggestionAction.Adjust if adjustment == SuggestionAdjustment.Review and inside(suggestion_button_box(w, h, SuggestionAction.Adjust), px, py)
+            return SuggestionAction.Apply if apply_enabled and inside(suggestion_button_box(w, h, SuggestionAction.Apply), px, py)
+            null
+
+        def suggestion_metric_row(d: Box, row: i64, label: sview, current: i64,
+                                  proposed: i64, unit: sview) -> void:
+            StudioText::begin()
+            StudioText::put(label)
+            StudioText::put(": current ")
+            StudioText::put_i(current)
+            StudioText::put(" -> suggested ")
+            StudioText::put_i(proposed)
+            StudioText::put(" ")
+            StudioText::put(unit)
+            StudioDraw::text(d.x + 32.0, d.y + 168.0 + row.f32() * 20.0, 9.0, StudioText::view(), StudioDraw::ink())
+
+        def suggestion_review_panel(w: f32, h: f32, opened: bool,
+                                    adjustment: SuggestionAdjustment, stale: bool,
+                                    candidate_changed: bool, show_candidate: bool, foot_available: bool, hand_available: bool,
+                                    feet: bool, hands: bool, apply_enabled: bool,
+                                    current: StudioModel::Clip&,
+                                    candidate: StudioModel::Clip&) -> void:
+            return if not opened
+            d: Box = suggestion_dialog_box(w, h)
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::bold(d.x + 12.0, d.y + 56.0, 15.0, "Suggested cleanup", StudioDraw::ink())
+            StudioDraw::text(d.x + 12.0, d.y + 82.0, 10.0, "Boxing preset · existing steps and corrections retained.", StudioDraw::ink())
+            current_box: Box = suggestion_pose_box(w, h, SuggestionAction.ShowCurrent)
+            suggested_box: Box = suggestion_pose_box(w, h, SuggestionAction.ShowSuggested)
+            StudioDraw::rect(current_box.x, current_box.y, current_box.w, current_box.h, StudioDraw::color(58, 52, 40)) if not show_candidate
+            StudioDraw::rect(suggested_box.x, suggested_box.y, suggested_box.w, suggested_box.h, StudioDraw::color(58, 52, 40)) if show_candidate
+            StudioDraw::text(current_box.x + 8.0, current_box.y + 8.0, 10.0, "Current result", StudioDraw::ink())
+            StudioDraw::text(suggested_box.x + 8.0, suggested_box.y + 8.0, 10.0, "Suggested result", StudioDraw::ink())
+            StudioDraw::text(d.x + 12.0, d.y + 130.0, 9.0, "Adds missing median, smooth and despike steps.", StudioDraw::muted())
+            StudioDraw::text(d.x + 12.0, d.y + 145.0, 10.0, "Measured changes (frames / µm)", StudioDraw::accent())
+            suggestion_metric_row(d, 0, "Spikes", current.spikes_after, candidate.spikes_after, "frames")
+            suggestion_metric_row(d, 1, "Foot slide", current.slide_after, candidate.slide_after, "µm")
+            suggestion_metric_row(d, 2, "Foot sink", current.sink_after, candidate.sink_after, "µm")
+            suggestion_metric_row(d, 3, "Hand slide", current.hand_slide_after, candidate.hand_slide_after, "µm")
+            suggestion_metric_row(d, 4, "Balance impossible", current.impossible_frames, candidate.impossible_frames, "frames")
+            StudioDraw::text(d.x + 12.0, d.y + 280.0, 9.0, "Not measured: joints, boundaries, velocity, impacts.", StudioDraw::color(245, 175, 95))
+            StudioDraw::text(d.x + 12.0, d.y + 302.0, 9.0, "Apply needs measured passing checks.", StudioDraw::color(245, 175, 95))
+            StudioDraw::text(d.x + 12.0, d.y + 324.0, 10.0, "Candidate matches current stack; no new step to apply.", StudioDraw::muted()) if not candidate_changed
+            StudioDraw::text(d.x + 12.0, d.y + 346.0, 10.0, "Preview stale; cancel and rebuild from current result.", StudioDraw::color(245, 175, 95)) if stale
+            if adjustment == SuggestionAdjustment.Adjusting:
+                StudioDraw::bold(d.x + 12.0, d.y + 362.0, 11.0, "Adjust contact locks", StudioDraw::ink())
+                feet_box: Box = suggestion_toggle_box(w, h, SuggestionAction.ToggleFeet)
+                StudioDraw::rect(feet_box.x, feet_box.y, feet_box.w, feet_box.h, StudioDraw::panel())
+                StudioDraw::rect(feet_box.x + 9.0, feet_box.y + 7.0, 16.0, 16.0, StudioDraw::color(44, 49, 60))
+                StudioDraw::rect(feet_box.x + 12.0, feet_box.y + 10.0, 10.0, 10.0, StudioDraw::accent()) if feet
+                StudioDraw::text(feet_box.x + 34.0, feet_box.y + 7.0, 11.0, "Foot lock", StudioDraw::ink() if foot_available else StudioDraw::muted())
+                hands_box: Box = suggestion_toggle_box(w, h, SuggestionAction.ToggleHands)
+                StudioDraw::rect(hands_box.x, hands_box.y, hands_box.w, hands_box.h, StudioDraw::panel())
+                StudioDraw::rect(hands_box.x + 9.0, hands_box.y + 7.0, 16.0, 16.0, StudioDraw::color(44, 49, 60))
+                StudioDraw::rect(hands_box.x + 12.0, hands_box.y + 10.0, 10.0, 10.0, StudioDraw::accent()) if hands
+                StudioDraw::text(hands_box.x + 34.0, hands_box.y + 7.0, 11.0, "Hand lock · validated contact tracks", StudioDraw::ink() if hand_available else StudioDraw::muted())
+                if d.h >= 530.0:
+                    StudioDraw::text(d.x + 12.0, d.y + 456.0, 9.0, "Hand lock unavailable: missing roles or tracks.", StudioDraw::muted()) if not hand_available
+                    StudioDraw::text(d.x + 12.0, d.y + 475.0, 9.0, "Foot lock unavailable: missing roles or tracks.", StudioDraw::muted()) if not foot_available
+            StudioDraw::text(d.x + 12.0, d.y + d.h - 62.0, 9.0, "Scrub timeline · Space plays · Esc cancels", StudioDraw::muted()) if not (adjustment == SuggestionAdjustment.Adjusting and d.h < 530.0)
+            for action in 0..<3 |action, w, h, adjustment, apply_enabled|:
+                mutable actual: SuggestionAction = SuggestionAction.Cancel if action == 0 else (SuggestionAction.Adjust if action == 1 else SuggestionAction.Apply)
+                actual <- SuggestionAction.Back if adjustment == SuggestionAdjustment.Adjusting and action == 1
+                b: Box = suggestion_button_box(w, h, actual)
+                enabled: bool = actual != SuggestionAction.Apply or apply_enabled
+                label: sview = "Cancel" if actual == SuggestionAction.Cancel else ("Back" if actual == SuggestionAction.Back else ("Adjust" if actual == SuggestionAction.Adjust else "Apply"))
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())
+                StudioDraw::text(b.x + 13.0, b.y + 11.0, 12.0, label, StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117))

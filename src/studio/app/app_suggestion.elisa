@@ -1,0 +1,198 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def suggestion_contacts_valid(c: StudioModel::Clip&, hands: bool) -> bool:
+            left_role: i64 = Roles::LEFT_FOOT if not hands else Roles::LEFT_HAND
+            right_role: i64 = Roles::RIGHT_FOOT if not hands else Roles::RIGHT_HAND
+            left_slot: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, left_role)
+            right_slot: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, right_role)
+            return false if left_slot < 0 or right_slot < 0
+            left: darray[bool] = c.left_contact if not hands else c.left_hand_contact
+            right: darray[bool] = c.right_contact if not hands else c.right_hand_contact
+            left.count.i64() == c.frames and right.count.i64() == c.frames
+
+        def suggestion_has_kind(s: StackState::Stack&, kind: i64) -> bool:
+            for i in 0..<s.count |i, s|:
+                if s.ops[i].kind == kind:
+                    return true
+            false
+
+        def suggestion_stack_of(base: StackState::Stack&, feet: bool, hands: bool) -> StackState::Stack?:
+            mutable out: StackState::Stack = base
+            preset: darray[Ops::Operation] = Presets::operations(Presets::Preset.Boxing)
+            for op in preset |op, out|:
+                if not suggestion_has_kind(out, op.kind):
+                    return null if not StackState::add(&out, op)
+            out.feet <- feet
+            out.hands <- hands
+            out
+
+        def suggestion_baseline_ready() -> bool:
+            return false if load_failed or built <= 0
+            if built_stack is prior:
+                return StackState::same(prior, current_stack())
+            false
+
+        def suggestion_candidate_of(s: StackState::Stack) -> StudioModel::Clip?:
+            return null if memo == null
+            if memo is held:
+                mutable m: StudioModel::Memo = held
+                memo <- null
+                if clip is c:
+                    previous_points: darray[Geometry::Vec3] = c.points
+                    previous_problems: darray[i64] = c.problems
+                    previous_peaks: darray[i64] = c.peaks
+                    window: mutable StudioPerf::Window = StudioPerf::full(c.frames)
+                    result: StudioModel::Clip? = StudioModel::build_with(&m, s, previous_points, previous_problems, previous_peaks, window, rig_source_revision)
+                    memo <- move m
+                    return move result
+                memo <- move m
+            null
+
+        def suggestion_begin() -> void:
+            return if suggestion_state == StudioSuggestionPolicy::State.Open
+            if clip is c:
+                return if contact_preview_active or FootState::active(&foot_press) or contact_draft_target >= 0 or gizmo_drag != null
+                return if storage_screen_open or help_open or replacement_prompt_open or export_review_open or export_warning_detail_open or export_result_open or not suggestion_baseline_ready()
+                base: StackState::Stack = current_stack()
+                candidate_stack: StackState::Stack? = suggestion_stack_of(base, base.feet, base.hands)
+                if candidate_stack == null:
+                    status <- "suggestion unavailable: stack is full"
+                    touch()
+                    return
+                if candidate_stack is proposed:
+                    candidate: StudioModel::Clip? = suggestion_candidate_of(proposed)
+                    return if candidate == null
+                    if candidate is built_candidate:
+                        opened: StudioSuggestionPolicy::Decision = StudioSuggestionPolicy::open_decision(
+                            suggestion_state, true, built, stack_generation)
+                        return if opened != StudioSuggestionPolicy::Decision.Opened
+                        suggestion_stack <- proposed
+                        suggestion_candidate <- move built_candidate
+                        suggestion_foot_lock <- proposed.feet
+                        suggestion_hand_lock <- proposed.hands
+                        suggestion_foot_opt_in <- false
+                        suggestion_hand_opt_in <- false
+                        suggestion_document_generation <- built
+                        suggestion_stack_generation <- stack_generation
+                        suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
+                        suggestion_view <- StudioPanels::SuggestionView.Current
+                        suggestion_state <- StudioSuggestionPolicy::State.Open
+                        status <- "cleanup suggestion ready; required preservation checks are unmeasured"
+                        touch()
+
+        def suggestion_close() -> void:
+            _ = StudioSuggestionPolicy::cancel_decision(suggestion_state)
+            suggestion_state <- StudioSuggestionPolicy::State.Closed
+            suggestion_candidate <- null
+            suggestion_document_generation <- -1
+            suggestion_stack_generation <- -1
+            suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
+            touch()
+
+        def suggestion_regenerate(feet: bool, hands: bool) -> bool:
+            return false if not suggestion_baseline_ready()
+            candidate_stack: StackState::Stack? = suggestion_stack_of(current_stack(), feet, hands)
+            if candidate_stack is proposed:
+                candidate: StudioModel::Clip? = suggestion_candidate_of(proposed)
+                if candidate is ready:
+                    suggestion_stack <- proposed
+                    suggestion_candidate <- move ready
+                    suggestion_foot_lock <- feet
+                    suggestion_hand_lock <- hands
+                    suggestion_document_generation <- built
+                    suggestion_stack_generation <- stack_generation
+                    suggestion_view <- StudioPanels::SuggestionView.Candidate
+                    touch()
+                    return true
+            false
+
+        def suggestion_toggle_lock(hands: bool) -> void:
+            if clip is c:
+                if suggestion_stale():
+                    status <- "suggestion stale; cancel and rebuild from current result"
+                    touch()
+                    return
+                enabled: bool = suggestion_hand_lock if hands else suggestion_foot_lock
+                validated: bool = suggestion_contacts_valid(c, hands)
+                opted: bool = StudioSuggestionPolicy::may_enable_contact_lock(validated, true)
+                return if not enabled and not opted
+                next_hands: bool = suggestion_hand_lock if not hands else not enabled
+                next_feet: bool = suggestion_foot_lock if hands else not enabled
+                if suggestion_regenerate(next_feet, next_hands):
+                    suggestion_hand_opt_in <- not enabled if hands else suggestion_hand_opt_in
+                    suggestion_foot_opt_in <- not enabled if not hands else suggestion_foot_opt_in
+                else:
+                    status <- "could not rebuild suggestion; previous candidate retained"
+                    touch()
+
+        def suggestion_contacts_evidence() -> StudioMetricEvidencePolicy::State:
+            # These dimensions are required by the review policy, but the
+            # current evaluator does not produce measurements for them.
+            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+
+        def suggestion_joint_evidence() -> StudioMetricEvidencePolicy::State:
+            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+
+        def suggestion_boundary_evidence() -> StudioMetricEvidencePolicy::State:
+            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+
+        def suggestion_velocity_evidence() -> StudioMetricEvidencePolicy::State:
+            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+
+        def suggestion_impact_evidence() -> StudioMetricEvidencePolicy::State:
+            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+
+        def suggestion_evidence_admits() -> bool:
+            StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_impact_evidence())
+
+        def suggestion_evidence_measured() -> bool:
+            suggestion_contacts_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_joint_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_boundary_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_velocity_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_impact_evidence() != StudioMetricEvidencePolicy::State.Unknown
+
+        def suggestion_stale() -> bool:
+            suggestion_state == StudioSuggestionPolicy::State.Open and (suggestion_document_generation != built or suggestion_stack_generation != stack_generation)
+
+        def suggestion_apply_enabled() -> bool:
+            candidate: bool = suggestion_candidate != null and suggestion_document_generation == built and suggestion_stack_generation == stack_generation
+            candidate and suggestion_evidence_admits() and suggestion_stack.count > 0 and not StackState::same(suggestion_stack, current_stack())
+
+        def suggestion_action(action: StudioPanels::SuggestionAction) -> void:
+            return if suggestion_state != StudioSuggestionPolicy::State.Open
+            if action == StudioPanels::SuggestionAction.Cancel:
+                suggestion_close()
+            elif action == StudioPanels::SuggestionAction.ShowCurrent:
+                suggestion_view <- StudioPanels::SuggestionView.Current
+                touch()
+            elif action == StudioPanels::SuggestionAction.ShowSuggested:
+                suggestion_view <- StudioPanels::SuggestionView.Candidate
+                touch()
+            elif action == StudioPanels::SuggestionAction.Adjust:
+                suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Adjusting
+                touch()
+            elif action == StudioPanels::SuggestionAction.Back:
+                suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
+                touch()
+            elif action == StudioPanels::SuggestionAction.ToggleFeet:
+                suggestion_toggle_lock(false)
+            elif action == StudioPanels::SuggestionAction.ToggleHands:
+                suggestion_toggle_lock(true)
+            elif action == StudioPanels::SuggestionAction.Apply:
+                return if not suggestion_apply_enabled() or suggestion_candidate == null
+                apply: StudioSuggestionPolicy::Decision = StudioSuggestionPolicy::apply_decision(
+                    StudioSuggestionPolicy::State.Open, suggestion_document_generation,
+                    suggestion_stack_generation, built, stack_generation,
+                    suggestion_evidence_measured(),
+                    StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()),
+                    StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()),
+                    StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()),
+                    StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()),
+                    StudioMetricEvidencePolicy::admits(suggestion_impact_evidence()))
+                if StudioSuggestionPolicy::may_commit_candidate(
+                    not StackState::same(suggestion_stack, current_stack()), apply):
+                    accepted: StackState::Stack = suggestion_stack
+                    suggestion_close()
+                    commit(accepted, true)
+                else:
+                    status <- "suggestion cannot apply: preservation checks are unmeasured"
+                    touch()

@@ -3,24 +3,24 @@
 # valid for the captured document and stack revisions.
 module StudioSuggestionPolicy:
     public:
-        const module State:
-            CLOSED: i64 = 0
-            OPEN: i64 = 1
+        const enum State of i64:
+            Closed = 0
+            Open = 1
 
-        const module Event:
-            OPEN: i64 = 0
-            APPLY: i64 = 1
-            CANCEL: i64 = 2
+        const enum Event of i64:
+            Open = 0
+            Apply = 1
+            Cancel = 2
 
-        const module Decision:
-            NO_CHANGE: i64 = 0
-            OPENED: i64 = 1
-            APPLIED: i64 = 2
-            CANCELLED: i64 = 3
-            STALE: i64 = 4
-            UNMEASURED: i64 = 5
-            REGRESSION: i64 = 6
-            INVALID: i64 = 7
+        const enum Decision of i64:
+            NoChange = 0
+            Opened = 1
+            Applied = 2
+            Cancelled = 3
+            Stale = 4
+            Unmeasured = 5
+            Regression = 6
+            Invalid = 7
 
         # Contact locking needs both validated contact evidence and an
         # explicit user choice. A request alone never enables the lock.
@@ -46,61 +46,64 @@ module StudioSuggestionPolicy:
 
         # A preview may open only for a ready candidate and nonnegative
         # captured revisions. Reopening an existing preview is a no-op.
-        def open_decision(state: i64, candidate_ready: bool,
-                          document_revision: i64, stack_revision: i64) -> i64:
-            requires state == State::CLOSED or state == State::OPEN
-            ensure result == Decision::OPENED or result == Decision::NO_CHANGE
-            ensure result == Decision::OPENED implies state == State::CLOSED
-            ensure result == Decision::OPENED implies candidate_ready
-            ensure result == Decision::OPENED implies document_revision >= 0 and stack_revision >= 0
-            if state != State::CLOSED:
-                return Decision::NO_CHANGE
+        def open_decision(state: State, candidate_ready: bool,
+                          document_revision: i64, stack_revision: i64) -> Decision:
+            ensure result == Decision.Opened or result == Decision.NoChange
+            ensure result == Decision.Opened implies state == State.Closed
+            ensure result == Decision.Opened implies candidate_ready
+            ensure result == Decision.Opened implies document_revision >= 0 and stack_revision >= 0
+            if state != State.Closed:
+                return Decision.NoChange
             if not candidate_ready or document_revision < 0 or stack_revision < 0:
-                return Decision::NO_CHANGE
-            Decision::OPENED
+                return Decision.NoChange
+            Decision.Opened
 
         # Applying is admitted only for an open preview built from the exact
         # current document and stack revisions, with all preservation metrics
         # measured and passing. Stale previews are closed by the caller.
-        def apply_decision(state: i64, preview_document_revision: i64,
+        def apply_decision(state: State, preview_document_revision: i64,
                            preview_stack_revision: i64, document_revision: i64,
                            stack_revision: i64, all_measured: bool,
                            contacts_ok: bool, joints_ok: bool,
                            boundaries_ok: bool, velocity_ok: bool,
-                           impacts_ok: bool) -> i64:
-            requires state == State::CLOSED or state == State::OPEN
-            ensure result == Decision::APPLIED or result == Decision::STALE or result == Decision::UNMEASURED or result == Decision::REGRESSION or result == Decision::INVALID
-            ensure result == Decision::APPLIED implies state == State::OPEN
-            ensure result == Decision::APPLIED implies preview_document_revision >= 0 and preview_stack_revision >= 0
-            ensure result == Decision::APPLIED implies document_revision >= 0 and stack_revision >= 0
-            ensure result == Decision::APPLIED implies preview_document_revision == document_revision
-            ensure result == Decision::APPLIED implies preview_stack_revision == stack_revision
-            ensure result == Decision::APPLIED implies all_measured
-            ensure result == Decision::APPLIED implies contacts_ok
-            ensure result == Decision::APPLIED implies joints_ok
-            ensure result == Decision::APPLIED implies boundaries_ok
-            ensure result == Decision::APPLIED implies velocity_ok
-            ensure result == Decision::APPLIED implies impacts_ok
-            if state != State::OPEN:
-                return Decision::INVALID
+                           impacts_ok: bool) -> Decision:
+            ensure result == Decision.Applied or result == Decision.Stale or result == Decision.Unmeasured or result == Decision.Regression or result == Decision.Invalid
+            ensure result == Decision.Applied implies state == State.Open
+            ensure result == Decision.Applied implies preview_document_revision >= 0 and preview_stack_revision >= 0
+            ensure result == Decision.Applied implies document_revision >= 0 and stack_revision >= 0
+            ensure result == Decision.Applied implies preview_document_revision == document_revision
+            ensure result == Decision.Applied implies preview_stack_revision == stack_revision
+            ensure result == Decision.Applied implies all_measured
+            ensure result == Decision.Applied implies contacts_ok
+            ensure result == Decision.Applied implies joints_ok
+            ensure result == Decision.Applied implies boundaries_ok
+            ensure result == Decision.Applied implies velocity_ok
+            ensure result == Decision.Applied implies impacts_ok
+            if state != State.Open:
+                return Decision.Invalid
             if preview_document_revision < 0 or preview_stack_revision < 0 or document_revision < 0 or stack_revision < 0:
-                return Decision::STALE
+                return Decision.Stale
             if preview_document_revision != document_revision or preview_stack_revision != stack_revision:
-                return Decision::STALE
+                return Decision.Stale
             if all_measured and contacts_ok and joints_ok and boundaries_ok and velocity_ok and impacts_ok:
-                return Decision::APPLIED
+                return Decision.Applied
             if not all_measured:
-                return Decision::UNMEASURED
-            Decision::REGRESSION
+                return Decision.Unmeasured
+            Decision.Regression
 
         # Cancel never commits, regardless of revision freshness.
-        def cancel_decision(state: i64) -> i64:
-            requires state == State::CLOSED or state == State::OPEN
-            ensure result == Decision::CANCELLED or result == Decision::NO_CHANGE
-            ensure result == Decision::CANCELLED implies state == State::OPEN
-            Decision::CANCELLED if state == State::OPEN else Decision::NO_CHANGE
+        def cancel_decision(state: State) -> Decision:
+            ensure result == Decision.Cancelled or result == Decision.NoChange
+            ensure result == Decision.Cancelled implies state == State.Open
+            Decision.Cancelled if state == State.Open else Decision.NoChange
 
         # Events outside the recognized UI actions fail closed.
-        def event_valid(event: i64) -> bool:
-            ensure result == (event >= Event::OPEN and event <= Event::CANCEL)
-            event >= Event::OPEN and event <= Event::CANCEL
+        def event_valid(event: Event) -> bool:
+            ensure result == (event == Event.Open or event == Event.Apply or event == Event.Cancel)
+            true
+
+        # A reviewed no-op must never create an empty history entry. Future
+        # callers use this together with the revision and evidence decision.
+        def may_commit_candidate(candidate_changed: bool, decision: Decision) -> bool:
+            ensure result == (candidate_changed and decision == Decision.Applied)
+            candidate_changed and decision == Decision.Applied

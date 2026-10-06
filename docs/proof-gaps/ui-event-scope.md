@@ -38,3 +38,12 @@ exit code zero. Stage0 cannot parse the full UI's newer global fixed-array
 syntax, so the full UI comparison is not a usable Stage0 reference. The small
 example confirms intended language behavior; repaired Stage1 and integrated
 Studio compilation remain separate pending gates.
+
+Fresh Stage1 rebuild completed at `e4acb8de` with current provenance. Both
+the minimal and full UI reproductions now pass the exhaustive-return check:
+the `wire_kind` fall-through diagnostic is gone. Both still report incompatible
+`PointerEvent`/`KeyEvent` match arms. The candidate fixes hierarchy coverage,
+but the value-wall pass still lacks the needed lexical context. Complete
+compiler repair and integrated Studio qualification remain open. Logs are
+`build/repro/ui-events-and-policy-repaired.log` and
+`build/repro/lexical-event-scope-repaired.log`.
