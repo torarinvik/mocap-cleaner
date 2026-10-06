@@ -47,3 +47,9 @@ but the value-wall pass still lacks the needed lexical context. Complete
 compiler repair and integrated Studio qualification remain open. Logs are
 `build/repro/ui-events-and-policy-repaired.log` and
 `build/repro/lexical-event-scope-repaired.log`.
+
+The remaining defect is in the branch-check declaration walker: unlike other
+semantic passes, it descended into `Decl.Module` without entering/restoring
+`table.current_module`. Compiler commit `88ffc005` adds that lexical context.
+A fresh seed is running (session 81586); the fix remains unqualified until the
+same minimal and full reproductions compile with the new product.
