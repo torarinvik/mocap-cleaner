@@ -9,7 +9,7 @@ include "timeline_state.elisa"
 module FootState:
     public:
         # A press on a contact row: which side, what it grabbed
-        # (StudioFoot::NONE/FIRST/LAST/BODY), the grabbed run's ends and the
+        # (StudioFoot::ContactPart::NONE/FIRST/LAST/BODY), the grabbed run's ends and the
         # frame under the press.
         struct Press:
             side: mutable i64
@@ -19,7 +19,7 @@ module FootState:
             frame: mutable i64
 
         def idle() -> Press:
-            return Press{side: -1, part: StudioFoot::NONE, first: -1, last: -1, frame: -1}
+            return Press{side: -1, part: StudioFoot::ContactPart::NONE, first: -1, last: -1, frame: -1}
 
         def active(p: Press&) -> bool:
             return p.side >= StackState::LEFT and p.side <= StackState::RIGHT_HAND
@@ -35,7 +35,7 @@ module FootState:
         def press(flags: darray[bool]&, side: i64, x: i64, width: i64) -> Press:
             n: i64 = flags.count.i64()
             mutable p: Press = idle()
-            return p if n < 1 or width < 1 or width > Timeline::MAX_PIXELS or n > Timeline::MAX_FRAMES
+            return p if n < 1 or width < 1 or width > Timeline::MAX_PIXELS or n > StudioFoot::FrameRange::MAX_FRAMES
             p.side <- side
             p.frame <- Timeline::frame_at_x(x, width, n)
             mutable run: i64 = -1
@@ -47,7 +47,7 @@ module FootState:
                     x0: i64 = x_of(run, width, n)
                     x1: i64 = x_of(f, width, n)
                     part: i64 = StudioFoot::grab(x, x0, x1)
-                    if part != StudioFoot::NONE and p.part == StudioFoot::NONE:
+                    if part != StudioFoot::ContactPart::NONE and p.part == StudioFoot::ContactPart::NONE:
                         p.part <- part
                         p.first <- run
                         p.last <- f - 1
@@ -56,23 +56,23 @@ module FootState:
 
         # The frame a dragged end lands on.
         def landed(p: Press&, frame: i64, frames: i64) -> i64:
-            return StudioFoot::drag_first(frame, p.last) if p.part == StudioFoot::FIRST
+            return StudioFoot::drag_first(frame, p.last) if p.part == StudioFoot::ContactPart::FIRST
             return StudioFoot::drag_last(frame, p.first, frames)
 
         # Record the edit of a press released over `frame`: a dragged end
         # plants or lifts the frames it swept; a click on a run lifts it; a
-        # click off every run plants a new StudioFoot::NEW_SPAN span. False
+        # click off every run plants a new StudioFoot::ContactRow::NEW_SPAN span. False
         # when nothing changed.
         def release(s: mutable StackState::Stack&, p: Press&, frame: i64, frames: i64) -> bool:
-            return false if not active(p) or frames < 1 or frames > StudioFoot::MAX_FRAMES
+            return false if not active(p) or frames < 1 or frames > StudioFoot::FrameRange::MAX_FRAMES
             f: i64 = 0 if frame < 0 else (frames - 1 if frame >= frames else frame)
-            if p.part == StudioFoot::NONE:
+            if p.part == StudioFoot::ContactPart::NONE:
                 first: i64 = StudioFoot::new_first(f, frames)
                 return StackState::add_edit(s, p.side, first, StudioFoot::new_last(first, frames), true)
             return false if p.first < 0 or p.last < p.first or p.last >= frames
-            if p.part == StudioFoot::BODY or f == p.frame:
+            if p.part == StudioFoot::ContactPart::BODY or f == p.frame:
                 return StackState::add_edit(s, p.side, p.first, p.last, false)
-            is_first: bool = p.part == StudioFoot::FIRST
+            is_first: bool = p.part == StudioFoot::ContactPart::FIRST
             old: i64 = p.first if is_first else p.last
             moved_to: i64 = landed(p, f, frames)
             return false if not StudioFoot::moved(old, moved_to)
@@ -80,7 +80,7 @@ module FootState:
             hi: i64 = StudioFoot::edit_hi(is_first, old, moved_to)
             return StackState::add_edit(s, p.side, lo, hi, StudioFoot::edit_planted(is_first, old, moved_to))
 
-        # Frames over StudioFoot::MARK_SLIDE per-frame slide.
+        # Frames over StudioFoot::Metric::MARK_SLIDE per-frame slide.
         def marks(slide: darray[i64]&) -> i64:
             mutable n: i64 = 0
             for v in slide |v, n|:
