@@ -189,3 +189,12 @@ minimal reproduction must establish the exact collision before changing the
 compiler. Preserve genuine borrow invalidation checks and qualify both valid
 owned copies and invalid borrowed views after the repair. Changing copy syntax
 alone would not establish correctness of this compiler analysis.
+
+The combined performance fixture reproduces the failure with invalidator
+`doc`. Replacing `cleaned.extend(result)` with `cleaned <- Ops::copy(result)`
+uses an owned bulk copy and restores compile-only integration: current compiler
+`720896f4` emits `build/cache-owned-copy.pXGBQ0/fixture.o`. The helper itself
+copies with `extend`; repeated individual pushes were not restored. This
+narrows the issue to how the checker tracks the caller's container store and
+does not prove the suspected name collision. Runtime comparisons, full Studio
+compilation and the compiler analysis repair remain outstanding.
