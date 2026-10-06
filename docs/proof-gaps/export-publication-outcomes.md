@@ -189,9 +189,12 @@ published GLB byte, and only then returns the journal. Failure preserves the
 caller's journal. Stored stages do not establish current sidecar integrity.
 
 The isolated faabd1f7 compiler emitted `build/export-recovery-binding.o` without
-diagnostics. The focused pure admission policy and laws run reported two files
-proved (`build/export-recovery-binding-proof.log`); no broader native proof or
-independent replay closure is claimed here. No executable tests were added.
+diagnostics. The earlier proof wrapper reported two files processed but did not
+expose the incorrect `require` spelling in two law preconditions. After fixing
+them to `requires`, direct prover output establishes eight obligations proven
+and independently replayed, zero findings and zero semantic diagnostics
+(`build/export-recovery-binding-laws.log`). No native proof is claimed here.
+No executable tests were added.
 Same-session captured bytes are required: persisted sizes are not authenticated
 restart identities. Ownership, lock facts, native race safeguards, sidecar
 completion, Studio integration and restart recovery remain open.
