@@ -124,10 +124,11 @@ native operation. Durable journal updates now read the prior journal with
 the opened recovery directory. Initial recovery-directory creation, snapshots
 and the initial journal also use the verified root with `mkdirat` and
 `openat(O_EXCL|O_NOFOLLOW)`; files and directories are synced before success.
-Recovery enumeration and reopen reads, reservation markers and final output
+Reopen reads of snapshots and journals now use the same relative adapter.
+Recovery inventory enumeration, reservation markers and final output
 publication still use path-based APIs and retain the replacement TOCTOU. Fresh
 O0 compile-only qualification on the provenance-checked Stage1 product
-produced nonempty queue store (726,432 bytes) and review binding (942,384 bytes)
+produced nonempty queue store (728,104 bytes) and review binding (944,072 bytes)
 objects. Strict C11
 syntax checking of `storage_manifest_lock.c` and Objective-C syntax checking of
 `file_trash_appkit.m` exited 0. No native runtime, concurrent lock, fd reuse or
