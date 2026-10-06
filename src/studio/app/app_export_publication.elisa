@@ -3,6 +3,7 @@ include "app_state.elisa"
 include "../export_snapshot_policy.elisa"
 include "report_text.elisa"
 include "../export_recovery_budget_policy.elisa"
+include "../export_report_path_policy.elisa"
 
 extend Studio:
     private:
@@ -14,6 +15,10 @@ extend Studio:
             summary: darray[u8]
 
         def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool:
+            if not export_report_paths_fit(destination):
+                say_file("Export blocked: destination is too long for report filenames. Choose a shorter filename or folder.", destination)
+                touch()
+                return false
             if not artifact_destination_allowed(destination):
                 say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
                 touch()
@@ -131,6 +136,12 @@ extend Studio:
                     say_file(StudioExportValidation::message(prepare_error), destination)
                 touch()
             false
+
+        def export_report_paths_fit(destination: cstr) -> bool:
+            mutable length: usize = 0
+            while length < StudioExportReportPathPolicy::Capacity::PATH_BYTES.usize() and destination[length] != 0:
+                length <- length + 1
+            StudioExportReportPathPolicy::admitted(length.i64())
 
         def export_staged_identity(temporary: cstr) -> StudioSourceFingerprint::Fingerprint?:
             staged: GlbDocument::Document = catch GlbDocument::load(temporary):
@@ -275,7 +286,7 @@ extend Studio:
             mutable path_end: usize = 0
             while path_end < 4096 and destination[path_end] != 0:
                 path_end <- path_end + 1
-            return StudioExportPublicationPolicy::Outcome.GlbOnly if path_end == 0 or path_end >= 4096
+            return StudioExportPublicationPolicy::Outcome.GlbOnly if not StudioExportReportPathPolicy::admitted(path_end.i64())
             mutable json_path: u8[4128] = zeroed
             mutable text_path: u8[4128] = zeroed
             for index in 0..<path_end |destination, json_path, text_path|:

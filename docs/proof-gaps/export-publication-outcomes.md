@@ -250,3 +250,20 @@ existing invalid-generation law. Evidence is
 `build/export-snapshot-ready-source.log` and
 `build/export-snapshot-ready-laws.log`. No native export behavior was exercised
 and no executable tests were added.
+
+## Sidecar path preflight
+
+Studio now rejects destinations longer than 4,083 bytes before staging or
+publication: the `.report.json` suffix occupies 12 bytes and the native path
+limit is 4,096 bytes including NUL. The text suffix occupies 11 bytes. The
+same admission check guards report publication. The pure path policy proves
+and independently replays 2/2 with zero findings/diagnostics/gaps; its new
+baseline records that source evidence. Boundary laws remain open: 12 goals,
+11 proven, seven replayed, four replay gaps and one finding. Evidence:
+`build/export-report-path-source.log`, `build/export-report-path-laws.log`.
+
+The first integrated normal-compiler build stopped on undeclared
+`session_impact_invalid` in concurrent session-persistence work, recorded in
+`build/export-report-path-studio-build.log`. The owning agent has the diagnostic;
+integration remains unverified until that work compiles. No executable tests
+were added and no native long-path export was exercised.
