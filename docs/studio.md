@@ -41,6 +41,9 @@ SDK. A sealed build record establishes the recorded inputs and product binding,
 not native interaction or motion-quality acceptance. The new staging and
 restoration paths have Bash syntax checks; successful current integrated builds
 and failure/interruption exercises remain qualification work.
+The Elisa imports currently use the fixed sibling engine and UI checkouts;
+native dependency overrides selecting different checkouts are refused to avoid
+combining source from one checkout with native code from another.
 
 ## Layout
 

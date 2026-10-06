@@ -227,3 +227,22 @@ input revalidation barrier (exit 2), refusing to cache or publish mixed compiler
 source, recipe or link inputs. It published no current product pair. A new
 paired build against verified compiler `bb1f4095` is required; the refused
 build does not establish proof correctness or replay qualification.
+
+## Runtime selection refusal and terminal comparison check (2026-10-07)
+
+The subsequent pair at prover source `4b71c24a` and compiler `bb1f4095`
+produced generation `f74f69896e2d47e19011c166a93a46df`. Its internal pair
+consistency checks passed, but `scripts/check_prover_freshness.py` refused it:
+the linked global `~/.elisac/elisacore_runtime.o` differed from the selected
+compiler's `build/runtime/elisacore_runtime.o`. This generation is not current
+qualification. Rebuilding with an explicit selected runtime is in progress;
+acceptance requires the stricter freshness gate as well as producer and
+independent replay results.
+
+The earlier authorized `scripts/check.sh` run has now terminated with exit 1.
+Its log is `build/check-current-2026-10-07.log`; the proof baseline gate reports
+regressions, unsupported/unknown obligations, missing reports and entries
+needing review. Sources and selected products changed during that long run,
+so it remains comparison evidence. No baseline was relaxed to make it pass.
+A stable current snapshot needs a new complete check after compiler and prover
+qualification; this terminal failure does not establish current acceptance.
