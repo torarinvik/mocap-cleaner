@@ -15,3 +15,10 @@ Integrated compile-only Studio build succeeds with f292cbe0. Evidence:
 writes, snapshot retention, create-only retry and durable stage recovery remain
 unqualified. The existing snapshot-generation policy still guards publication
 against changing displayed results; this is not a proof of native IO semantics.
+
+Directory-sync policy qualification: source 6/9, laws 10/20 on default
+5776350b. Its native adapter distinguishes failed rename from a successful
+rename followed by failed parent-directory sync/close. Compatibility Boolean
+wrappers report observed publication only; they are not crash-durability
+evidence. Integrated Studio compile passes (`build/publication-durability-ui-build.log`).
+Native error injection, filesystem races and certificate replay remain open.

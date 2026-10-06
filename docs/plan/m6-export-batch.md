@@ -182,3 +182,12 @@ publication outcome directly and identify the missing current sidecar, including
 the possibility of stale old reports. The redundant Boolean report-success
 flag was removed. Integrated Studio compilation succeeds with f292cbe0; native
 visual/keyboard/accessibility and sidecar failure-path qualification remain open.
+
+The native publisher now attempts parent-directory sync after GLB and report
+renames, preserving published-with-durability-unknown as a distinct outcome
+rather than treating it as rollback. The export result shows this uncertainty
+visually and in accessibility text. Integrated Studio compilation succeeds with
+f292cbe0. Policy proof is 6/9 and laws 10/20 on default 5776350b; replay and
+injected native failure qualification remain open. These trusted native facts
+do not prove crash persistence, race-free publication or Storage tracking
+durability; durable journals and immutable retry ownership are still required.
