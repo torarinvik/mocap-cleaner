@@ -20,6 +20,24 @@ recovery publication adapter compiles in `build/recovery-publication.jBPo5b`.
 Full Studio compilation remains pending. No executable tests were added or run
 for this repair.
 
+## Same-named ADT constructor metadata ownership
+
+Compiler `45330579` compiles recovery completion and publication separately,
+but the integrated Studio reports that completion's two-field `Published`
+constructor requires publication's three fields. The reduced
+`build/repro/constructor-enum-owner.elisa` declares two `Outcome` enums in
+different modules with two and three fields. It fails with a wrong arity and
+payload type diagnostic in `build/constructor-owner.LMtqKC`.
+
+Semantic variant lookup selected the first bare owner/variant row, and payload
+metadata had no declaration module. Compiler commit `3c72f59f` narrows bare
+variant lookup through the existing lexical/unambiguous enum-module resolver
+and retains payload modules for constructor type, label and count checks.
+Parser-only synthetic metadata retains its separate unowned fallback. The
+normal seed is running (`build/constructor-owner-compiler-seed.log`); the fix
+still needs fresh provenance, reduced reproduction and integrated compilation.
+No executable tests were added or run for this repair.
+
 ## Current global container lowering gap
 
 Compiler `04b384ec` declines direct mutation of a mutable global darray,
