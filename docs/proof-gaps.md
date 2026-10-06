@@ -8,6 +8,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Foot cleanup, retiming and tracks (G43–G82)](proof-gaps/foot-retime-track.md)
 - [Recent proof and native boundary status (G83 onward)](proof-gaps/recent-status.md)
 
+- [Nested const enum source witness gap](proof-gaps/nested-enum-producer.md)
 - [Law assertion coverage audit](proof-gaps/law-assertion-audit.md)
 
 ## Current qualification limits
