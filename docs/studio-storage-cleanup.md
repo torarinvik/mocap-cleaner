@@ -27,10 +27,11 @@ enumerate the Studio inventory or persist receipts for the caller.
 manifest codec. It records registered artifacts and successful Trash moves
 as separate states. It bounds the record count and identity fields,
 hex-encodes paths so control characters cannot split records, validates
-decoded UTF-8, rejects duplicate original paths, and leaves the caller's
+decoded UTF-8, rejects duplicate registration or receipt identities, and leaves the caller's
 output unchanged on malformed input. The scalar identity bounds live in
 `src/studio/storage_receipt_policy.elisa` with 18/18 obligations proved. This
-is the serialization foundation only: Studio does not yet register generated
+is the serialization foundation only: Studio has a bounded manifest reader
+and verified identity snapshot API, but does not yet register generated
 artifacts, publish the manifest atomically, or expose Trash/Restore controls.
 The field-based Elisa adapter is compiled into the Studio binary, but no user
 workflow invokes it yet.

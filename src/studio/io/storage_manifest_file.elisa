@@ -1,0 +1,42 @@
+# Bounded reader for the Studio storage manifest. Publication uses the
+# existing same-directory fsync+rename writer in StudioExportPublisher.
+include "storage_manifest.elisa"
+
+@link_name("fopen")
+extern manifest_fopen(path: u8&, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+@link_name("fgetc")
+extern manifest_fgetc(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("fclose")
+extern manifest_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
+
+module StudioStorageManifestFile:
+    public:
+        const MAX_FILE_BYTES: usize = StudioStorageManifest::MAX_ENTRIES.usize() * StudioStorageManifest::MAX_LINE_BYTES + 64
+
+        # Missing-file handling and path-type checks belong to the caller so
+        # it can distinguish a first run from a permission or format failure.
+        # `out` changes only after the whole file passes the manifest decoder.
+        def load(path: cstr, out: mutable darray[StudioStorageManifest::Entry]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable bytes: darray[u8] = []
+            mutable file: mutable heap void&? = null
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                file <- manifest_fopen(path.cast[u8&], "rb".cast[u8&])
+                if file is opened:
+                    mutable reading: bool = true
+                    while reading:
+                        byte: i32 = manifest_fgetc(opened)
+                        reading <- false if byte < 0
+                        if byte >= 0:
+                            if bytes.count >= MAX_FILE_BYTES:
+                                _ = manifest_fclose(opened)
+                                return false
+                            bytes.push(byte.u8())
+                    return false if manifest_fclose(opened) != 0
+                else:
+                    return false
+            mutable parsed: darray[StudioStorageManifest::Entry] = []
+            return false if not StudioStorageManifest::decode(bytes, &parsed)
+            out.clear()
+            for entry in parsed:
+                out.push(entry)
+            true

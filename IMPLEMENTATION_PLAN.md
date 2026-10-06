@@ -297,7 +297,8 @@ visually verified solely from offscreen rendering.
       atomic manifest publication, receipt restore and the user workflow
       remain open. The versioned ownership/Trash manifest codec and bounded
       scalar proof are in place, and the field-based engine bridge is linked
-      into Studio; the app does not persist or consume receipts yet.
+      into Studio with a bounded reader and identity snapshots; the app does
+      not persist or consume entries yet.
 
 #### Storage cleanup and Restore experience
 

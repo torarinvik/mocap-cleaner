@@ -80,6 +80,13 @@ module StudioStorageManifest:
                 return false if a[index] != b[index]
             true
 
+        # One live registration per path; historical Trash receipts may
+        # coexist with a newly generated file at the same destination.
+        def same_entry_key(a: Entry, b: Entry) -> bool:
+            return false if a.state != b.state or not same_path(a.original_path, b.original_path)
+            return true if a.state == REGISTERED
+            a.device == b.device and a.inode == b.inode and a.size_bytes == b.size_bytes and a.modified_seconds == b.modified_seconds and a.modified_nanoseconds == b.modified_nanoseconds
+
         def push_text(out: mutable darray[u8]&, text: sview) -> void:
             for byte in text:
                 out.push(byte)
@@ -126,14 +133,14 @@ module StudioStorageManifest:
             push_hex(out, entry.trashed_path)
             out.push(10)
 
-        # Encode atomically with respect to `out`: invalid and duplicate
-        # original paths leave the caller's existing bytes unchanged.
+        # Encode atomically with respect to `out`: invalid or duplicate
+        # registration/identity keys leave existing bytes unchanged.
         def encode(entries: darray[Entry]&, out: mutable darray[u8]&) -> bool:
             return false if entries.count.i64() > MAX_ENTRIES
             for index in 0..<entries.count |entries|:
                 return false if not valid(entries[index])
                 for earlier in 0..<index |earlier, index, entries|:
-                    return false if same_path(entries[earlier].original_path, entries[index].original_path)
+                    return false if same_entry_key(entries[earlier], entries[index])
             mutable next: darray[u8] = []
             push_text(&next, "mocap-studio storage manifest 1")
             next.push(10)
@@ -224,7 +231,7 @@ module StudioStorageManifest:
             true
 
         # Decode into a temporary collection; malformed versions, records,
-        # duplicate original paths, and oversized manifests leave `out`
+        # duplicate registration/identity keys, and oversized manifests leave `out`
         # unchanged.
         def decode(text: darray[u8]&, out: mutable darray[Entry]&) -> bool:
             return false if text.count > MAX_ENTRIES.usize() * MAX_LINE_BYTES + 64
@@ -246,7 +253,7 @@ module StudioStorageManifest:
                     mutable entry: Entry = zeroed
                     return false if not parse_record(&line, &entry)
                     for previous in parsed:
-                        return false if same_path(previous.original_path, entry.original_path)
+                        return false if same_entry_key(previous, entry)
                     parsed.push(entry)
                 elif index <= text.count:
                     return false

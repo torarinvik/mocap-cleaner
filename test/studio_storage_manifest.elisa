@@ -1,4 +1,14 @@
 include "../src/studio/io/storage_manifest.elisa"
+include "../src/studio/io/storage_manifest_file.elisa"
+
+@link_name("fopen")
+extern test_manifest_fopen(path: u8&, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+@link_name("fwrite")
+extern test_manifest_fwrite(bytes: u8&, size: usize, count: usize, file: mutable heap void&) -> usize can[Blocking.IO]
+@link_name("fclose")
+extern test_manifest_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
+@link_name("unlink")
+extern test_manifest_unlink(path: u8&) -> i32 can[Blocking.IO]
 
 extern puts(text: cstr) -> i64
 
@@ -13,6 +23,16 @@ def same_bytes(a: darray[u8]&, b: darray[u8]&) -> bool:
     for index in 0..<a.count |a, b|:
         return false if a[index] != b[index]
     true
+
+def write_file(path: cstr, contents: darray[u8]&) -> bool:
+    mutable ok: bool = false
+    can Blocking.IO, Memory.Allocate, Memory.Release:
+        file: mutable heap void&? = test_manifest_fopen(path.cast[u8&], "wb".cast[u8&])
+        if file is opened:
+            wrote: usize = test_manifest_fwrite(&contents[0], 1, contents.count, opened) if contents.count > 0 else 0
+            closed: i32 = test_manifest_fclose(opened)
+            ok <- wrote == contents.count and closed == 0
+    ok
 
 def main() -> i32:
     return 18 if StudioStorageCleanupPolicy::RECOVERY != StudioStorageReceiptPolicy::RECOVERY
@@ -85,6 +105,33 @@ def main() -> i32:
     return 28 if not StudioStorageManifest::decode(active_bytes, &active_decoded)
     return 29 if active_decoded.count != 1 or active_decoded[0].state != StudioStorageManifest::REGISTERED
     return 30 if active_decoded[0].trashed_path.count != 0
+    current_at_old_destination: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+        state: StudioStorageManifest::REGISTERED,
+        kind: StudioStorageCleanupPolicy::TEMP_EXPORT,
+        device: 17, inode: 987654322, size_bytes: 124,
+        modified_seconds: 1791288000, modified_nanoseconds: 0,
+        original_path: receipt.original_path, trashed_path: []
+    }
+    mutable older_receipt: StudioStorageManifest::Entry = receipt
+    older_receipt.inode <- older_receipt.inode + 1
+    coexist: darray[StudioStorageManifest::Entry] = [receipt, current_at_old_destination, older_receipt]
+    coexist_bytes: darray[u8] = []
+    return 37 if not StudioStorageManifest::encode(coexist, &coexist_bytes)
+    coexist_decoded: darray[StudioStorageManifest::Entry] = []
+    return 38 if not StudioStorageManifest::decode(coexist_bytes, &coexist_decoded)
+    return 39 if coexist_decoded.count != 3
+
+    path: cstr = "build/studio_storage_manifest_test.txt"
+    return 31 if not write_file(path, active_bytes)
+    mutable loaded: darray[StudioStorageManifest::Entry] = []
+    return 32 if not StudioStorageManifestFile::load(path, &loaded)
+    return 33 if loaded.count != 1 or loaded[0].state != StudioStorageManifest::REGISTERED
+    malformed: darray[u8] = bytes("not a storage manifest\n")
+    return 34 if not write_file(path, malformed)
+    previous_loaded: darray[StudioStorageManifest::Entry] = loaded
+    return 35 if StudioStorageManifestFile::load(path, &loaded)
+    return 36 if loaded.count != previous_loaded.count or loaded[0].state != previous_loaded[0].state
+    _ = test_manifest_unlink(path.cast[u8&])
     return 17 if not same_bytes(untouched, before)
 
     _ = puts("studio storage manifest: ownership/Trash states, path escaping, bounds, and failure atomicity pass")

@@ -564,8 +564,9 @@ new rows after the prover/replay products are rebuilt from matching sources.
   `src/studio/storage_receipt_policy.elisa`; its laws prove 18/18 obligations
   with every certificate replayed. The versioned path-safe manifest codec is
   runtime-covered by `test/studio_storage_manifest.elisa`. It rejects malformed
-  UTF-8 and leaves output unchanged on malformed records. Manifest publication
-  and UI integration are still open.
+  UTF-8 and leaves output unchanged on malformed records. The engine exposes
+  canonical identity snapshots for registered files. Atomic manifest
+  publication and UI integration are still open.
 - G86: `proof/studio_storage_cleanup_policy_laws.elisa` proves 351 of 353
   obligations with all 351 certificates replayed. The two open laws are
   `eligible_items_have_no_protection_reason` (the verified eligibility gates
