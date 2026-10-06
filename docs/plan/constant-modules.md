@@ -27,7 +27,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **78 owners, 721 ungrouped constants**.
+Remaining source inventory: **77 owners, 714 ungrouped constants**.
 
 | Module | Ungrouped constants | Declaration files |
 | --- | ---: | --- |
@@ -81,7 +81,6 @@ Remaining source inventory: **78 owners, 721 ungrouped constants**.
 | `StudioSidebarLayout` | 28 | `src/studio/sidebar_layout.elisa` |
 | `StudioSourceFingerprint` | 2 | `src/studio/source_fingerprint.elisa` |
 | `StudioStorageAccessibilityCopy` | 7 | `src/studio/app/storage_accessibility_copy.elisa` |
-| `StudioStorageAgePolicy` | 7 | `src/studio/storage_age_policy.elisa` |
 | `StudioStorageArtifactDestination` | 4 | `src/studio/io/storage_artifact_destination.elisa` |
 | `StudioStorageBatchPolicy` | 18 | `src/studio/storage_batch_policy.elisa` |
 | `StudioStorageCleanupPolicy` | 22 | `src/studio/storage_cleanup_policy.elisa` |
