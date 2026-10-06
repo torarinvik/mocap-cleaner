@@ -18,8 +18,65 @@ extern studio_trash_restore_fields(build_root: cstr, original_path: cstr,
     modified_seconds: i64, modified_nanoseconds: i64,
     output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
 
+@link_name("elisa_file_trash_identity_fields")
+extern studio_trash_identity_fields(build_root: cstr, candidate: cstr,
+    canonical_path: mutable u8&, path_capacity: i32, device: mutable i64&,
+    inode: mutable i64&, size_bytes: mutable i64&,
+    modified_seconds: mutable i64&, modified_nanoseconds: mutable i64&,
+    output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
+
 module StudioFileTrash:
     public:
+        # Register only artifacts whose creation was completed by Studio.
+        # This function captures their canonical path and current identity;
+        # callers must persist the result before offering it for cleanup.
+        def snapshot(build_root: cstr, candidate: cstr, kind: i64,
+                     entry: mutable StudioStorageManifest::Entry&,
+                     message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            message.clear()
+            if kind < StudioStorageReceiptPolicy::RECOVERY or kind >= StudioStorageReceiptPolicy::KIND_COUNT:
+                explanation: sview = "Studio cannot manage this artifact type."
+                for byte in explanation:
+                    message.push(byte)
+                return false
+            mutable canonical: u8[4096] = zeroed
+            mutable error_buffer: u8[512] = zeroed
+            mutable device: i64 = 0
+            mutable inode: i64 = 0
+            mutable size_bytes: i64 = 0
+            mutable modified_seconds: i64 = 0
+            mutable modified_nanoseconds: i64 = 0
+            canonical_ptr: mutable u8& = (&canonical[0]).cast[mutable u8&] can Unsafe.PointerCast
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            code: i32 = studio_trash_identity_fields(build_root, candidate,
+                canonical_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(), &device, &inode,
+                &size_bytes, &modified_seconds, &modified_nanoseconds,
+                error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
+            mutable error_index: usize = 0
+            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+                message.push(error_buffer[error_index])
+                error_index <- error_index + 1
+            return false if code != 0
+            mutable path: darray[u8] = []
+            mutable path_index: usize = 0
+            while path_index < STUDIO_TRASH_PATH_CAPACITY and canonical[path_index] != 0:
+                path.push(canonical[path_index])
+                path_index <- path_index + 1
+            next: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+                state: StudioStorageManifest::REGISTERED, kind: kind,
+                device: device, inode: inode, size_bytes: size_bytes,
+                modified_seconds: modified_seconds,
+                modified_nanoseconds: modified_nanoseconds,
+                original_path: path, trashed_path: []}
+            if not StudioStorageManifest::valid(next):
+                explanation: sview = "The file identity is outside the supported storage range."
+                message.clear()
+                for byte in explanation:
+                    message.push(byte)
+                return false
+            entry <- next
+            true
+
         # `record` is updated only after the engine returns a complete receipt.
         # Errors are copied into `message` and remain available to the UI.
         def move(build_root: cstr, candidate: cstr, kind: i64,
