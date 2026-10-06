@@ -139,3 +139,9 @@ correction message states this precision limit. Qualify exact inputs at 0.1,
 zero), retaining the draft and committed state. The existing parser's `sview`
 loop remains outside the current symbolic proof boundary; source compilation
 and native correction flow are still pending.
+
+Retime drafts capture history generation and exact range endpoints or focused
+band at entry. Enter rejects a changed target before applying speed; three laws
+cover identity, history changes and target changes. Qualify selecting another
+band/range while typing, undo/redo and take replacement; committed bands must
+remain unchanged on refusal. Current compilation and replay remain pending.
