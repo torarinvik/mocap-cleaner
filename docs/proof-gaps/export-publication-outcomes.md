@@ -240,6 +240,23 @@ specific verifier failure. Use the nonempty isolated diagnostic above; broader
 qualification remains open. Future diagnostic commands must preserve the
 verifier exit code separately from log printing.
 
+## Primary export preserves existing reports
+
+Studio's initial JSON/text report publication now uses the existing atomic
+create-only publisher. GLB overwrite confirmation is no longer reused as
+permission to replace separate sidecars. Preflight passes overwrite=false and
+the native link operation refuses an existing report even if it appeared after
+preflight. Partial-result detail and accessibility text explicitly describe
+existing reports being kept; old reports are not represented as reports for
+the new export. A new export filename is offered as the way to save new reports.
+
+The normal f292cbe0 compile/package run is pending in session 86259, log
+`build/export-report-create-only-studio-build.log`. Existing outcome laws report
+41 obligations, 24 proven/replayed, 17 findings, zero replay gaps and zero
+semantic diagnostics (`build/export-report-create-only-laws.log`); those open
+contracts remain unchanged. Native conflict/race/IO qualification is still
+required. No executable tests were added or run for this slice.
+
 ## Report preparation now blocks unsafe publication
 
 Studio previously allowed GLB publication when staged identity or report
