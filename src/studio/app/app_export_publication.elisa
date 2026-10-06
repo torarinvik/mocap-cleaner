@@ -207,6 +207,34 @@ extend Studio:
             StudioReportText::put_i(band.blend)
             StudioReportText::view()
 
+        def report_contact(edit: StackState::FootEdit) -> sview can Unsafe.PointerCast:
+            StudioReportText::begin()
+            StudioReportText::put("side=")
+            StudioReportText::put_i(edit.side)
+            StudioReportText::put(";source_frames=")
+            StudioReportText::put_i(edit.first)
+            StudioReportText::put("..")
+            StudioReportText::put_i(edit.last)
+            StudioReportText::put(";planted=")
+            StudioReportText::put("true") if edit.planted
+            StudioReportText::put("false") if not edit.planted
+            StudioReportText::view()
+
+        def report_correction_scope(correction: Corrections::Correction) -> sview can Unsafe.PointerCast:
+            StudioReportText::begin()
+            StudioReportText::put("node=")
+            StudioReportText::put_i(correction.node)
+            StudioReportText::put(";key_frame=")
+            StudioReportText::put_i(correction.key)
+            StudioReportText::put(";source_frames=")
+            StudioReportText::put_i(correction.first)
+            StudioReportText::put("..")
+            StudioReportText::put_i(correction.last)
+            StudioReportText::put(";enabled=")
+            StudioReportText::put("true") if correction.enabled
+            StudioReportText::put("false") if not correction.enabled
+            StudioReportText::view()
+
         # Reports are best-effort sidecars after the GLB's atomic commit. The
         # source label is a basename, and fingerprints remain explicitly
         # non-cryptographic residues. Values unavailable in the current export
@@ -215,6 +243,7 @@ extend Studio:
         # Serialize all report fields before publishing the GLB or opening
         # a second confirmation dialog. Later writes consume only these bytes.
         def prepare_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, output_fp: StudioSourceFingerprint::Fingerprint) -> ExportReportSnapshot? can Unsafe.PointerCast:
+            return null if not StudioReportTextPolicy::stack_counts_admitted(active_stack.count, active_stack.band_count, active_stack.edit_count, active_stack.fix_count)
             # Source and destination lengths are independent. Never index a
             # source path using offsets measured from the export destination.
             mutable source_end: usize = 0
@@ -255,13 +284,19 @@ extend Studio:
             for index in 0..<active_stack.band_count |settings, active_stack|:
                 band: StackState::Band = active_stack.bands[index]
                 settings.push(StudioExportReport::Setting{name: report_indexed_name("retime_band_", index), value: report_band(band)})
+            for index in 0..<active_stack.edit_count |settings, active_stack|:
+                edit: StackState::FootEdit = active_stack.edits[index]
+                settings.push(StudioExportReport::Setting{name: report_indexed_name("contact_edit_", index), value: report_contact(edit)})
+            for index in 0..<active_stack.fix_count |settings, active_stack|:
+                correction: Corrections::Correction = active_stack.fixes[index]
+                settings.push(StudioExportReport::Setting{name: report_indexed_name("correction_scope_", index), value: report_correction_scope(correction)})
             settings.push(StudioExportReport::Setting{name: "retime_applied", value: "true"}) if c.retimed
             settings.push(StudioExportReport::Setting{name: "retime_applied", value: "false"}) if not c.retimed
             assumptions: darray[sview] = [
                 "Frame rate is an integer estimate; durations are floored to milliseconds.",
                 "Fingerprints are non-cryptographic studio-residue-v1 values.",
                 "Build revisions describe compile-time inputs. Dirty revisions are not exact source identities; a complete dependency manifest is unavailable.",
-                "Operation fields and retime bands are captured before GLB publication; detailed rig settings and per-frame source-time mapping are unavailable."]
+                "Operation fields, contact edits, correction scopes and retime bands are captured before GLB publication; correction offsets, detailed rig settings and per-frame source-time mapping are unavailable."]
             metrics: StudioExportReport::Metrics = StudioExportReport::Metrics{
                 changed_channels: c.changed,
                 spikes_before: c.spikes_before,

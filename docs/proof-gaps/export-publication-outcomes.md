@@ -268,6 +268,31 @@ non-slash finding and zero semantic diagnostics. Evidence:
 `build/export-source-label-laws.log`. Native filename qualification and the
 combined Studio build remain open; no executable tests were added.
 
+## Contact edits and correction scopes in the frozen report
+
+Report settings now capture each contact edit's side, source-frame range and
+planted state, plus each correction's node, key, range and enabled state.
+These come from the evaluated stack before publication. Exact correction
+rotation/translation offsets remain unavailable and are identified explicitly
+in JSON, text and report assumptions; this is not a complete replay recipe.
+
+The formatting pool expanded from 96 to 160 slots (81,920 bytes), covering the
+full stack's 146 views without overwriting retained settings. A pure admission
+guard validates all four stack counts before indexing the fixed arrays. Its
+capacity contract covers two base numeric views plus two per entry. Source
+verification proves/replays 13/13 with zero findings/diagnostics/gaps; the
+reviewed source baseline increased from ten to thirteen obligations. Expanded
+laws remain open: 31 goals, 30 proven, 24 replayed, six replay gaps and one
+finding (`build/report-stack-text-source.log`,
+`build/report-stack-text-laws.log`).
+
+Normal integrated build session 68305 terminated with exit two because the
+backend declined `install_session@72` in concurrent session work; its owner is
+repairing that index expression. No root report function was listed among the
+declines, but the combined unit was not emitted. Evidence:
+`build/report-stack-provenance-studio-build.log`. Native report observation and
+full integration qualification remain open. No executable tests were added.
+
 ## Report preparation now blocks unsafe publication
 
 Studio previously allowed GLB publication when staged identity or report
