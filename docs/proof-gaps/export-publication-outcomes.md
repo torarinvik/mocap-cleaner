@@ -233,6 +233,13 @@ unverified. This is not proof closure. Evidence is
 sent to the prover repair agent. The original broader session 3607 is still
 live at the latest handle poll and is not restarted or declared terminal.
 
+Session 3607 subsequently terminated with shell exit zero, but its redirected
+stage-law log is empty. The command's trailing `cat` masks the verifier's own
+exit status, so that shell result establishes neither proof success nor a
+specific verifier failure. Use the nonempty isolated diagnostic above; broader
+qualification remains open. Future diagnostic commands must preserve the
+verifier exit code separately from log printing.
+
 ## Report preparation now blocks unsafe publication
 
 Studio previously allowed GLB publication when staged identity or report
