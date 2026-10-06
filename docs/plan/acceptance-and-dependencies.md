@@ -72,6 +72,16 @@ depend on completion of the P1 queue UI.
 - Record every distance/angle/time/weight unit and conversion, including
   fixed-point saturation/rounding. Distinguish declared units from inferred
   scale, and invalidate affected analysis when units/floor/rig settings change.
+- Resolve the existing unit mismatch: `src/physics/balance.elisa` and
+  `src/physics/rig_physics.elisa` currently feed micrometres into proof-critical
+  kernels, while the project convention requires lengths in 0.1 mm. Inventory
+  all such kernels and their callers before changing scale. Introduce explicit
+  conversion boundaries, including signed rounding, overflow admission and
+  accumulated error bounds; convert constants, thresholds, contracts and laws
+  together. Keep exported `_um` metrics explicitly converted to micrometres
+  and match CLI/Studio results. Prove negative coordinates, sub-unit values,
+  boundary values and round-trip error bounds. Requalify correction decisions
+  around thresholds and document any intended precision change before rollout.
 - For metrics distinguish measured pass, measured failure, unknown and
   inapplicable. Include sample counts, intervals and exclusion reasons. A zero
   sample count, NaN, missing contact labels or unsupported metric is not zero
