@@ -1,0 +1,155 @@
+# Bounded scalar lifecycle for a reviewed Storage cleanup batch. The owner
+# keeps rows in stable identity order and performs at most one item per frame.
+include "storage_move_policy.elisa"
+include "storage_totals_kernel.elisa"
+
+module StudioStorageBatchPolicy:
+    public:
+        const MAX_ITEMS: i64 = StudioStorageTotalsKernel::MAX_ITEMS
+
+        const STATE_IDLE: i64 = 0
+        const STATE_RUNNING: i64 = 1
+        const STATE_CANCELLED: i64 = 2
+        const STATE_COMPLETE: i64 = 3
+        const STATE_STOP_REVIEW_CHANGED: i64 = 4
+        const STATE_STOP_RECOVERY_REQUIRED: i64 = 5
+        const STATE_STOP_UNKNOWN: i64 = 6
+        const STATE_STOP_INVALID: i64 = 7
+        const STATE_COUNT: i64 = 8
+
+        const ITEM_NOT_ATTEMPTED: i64 = 0
+        const ITEM_RECORDED: i64 = 1
+        const ITEM_KNOWN_FAILED: i64 = 2
+        const ITEM_RESTORED: i64 = 3
+        const ITEM_RECOVERY_REQUIRED: i64 = 4
+        const ITEM_UNKNOWN: i64 = 5
+        const ITEM_INVALID: i64 = 6
+        const ITEM_COUNT: i64 = 7
+
+        def valid_state(state: i64) -> bool:
+            ensure result == (state >= STATE_IDLE and state < STATE_COUNT)
+            state >= STATE_IDLE and state < STATE_COUNT
+
+
+        def valid_item_status(item_status: i64) -> bool:
+            ensure result == (item_status >= ITEM_NOT_ATTEMPTED and item_status < ITEM_COUNT)
+            item_status >= ITEM_NOT_ATTEMPTED and item_status < ITEM_COUNT
+
+        def review_ready(confirmed: bool, set_unchanged: bool,
+                         recovery_required: bool) -> bool:
+            confirmed and set_unchanged and not recovery_required
+
+        # Convert the durable move transaction outcome into the batch's
+        # accounting class. Unknown and receipt-recovery states stop progress.
+        def item_status(move_outcome: i64) -> i64:
+            ensure move_outcome != StudioStorageMovePolicy::OUTCOME_RECORDED or result == ITEM_RECORDED
+            ensure move_outcome != StudioStorageMovePolicy::OUTCOME_MOVE_FAILED_ORIGINAL or result == ITEM_KNOWN_FAILED
+            ensure move_outcome != StudioStorageMovePolicy::OUTCOME_ORIGINAL_RESTORED or result == ITEM_RESTORED
+            ensure move_outcome != StudioStorageMovePolicy::OUTCOME_RECOVERY_RECEIPT_RETAINED or result == ITEM_RECOVERY_REQUIRED
+            ensure move_outcome != StudioStorageMovePolicy::OUTCOME_MOVE_UNKNOWN or result == ITEM_UNKNOWN
+            ensure move_outcome != StudioStorageMovePolicy::OUTCOME_DURABILITY_UNKNOWN or result == ITEM_UNKNOWN
+            ensure move_outcome != StudioStorageMovePolicy::OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED or result == ITEM_UNKNOWN
+            return ITEM_INVALID if move_outcome < StudioStorageMovePolicy::OUTCOME_INVALID or move_outcome >= StudioStorageMovePolicy::OUTCOME_COUNT or move_outcome == StudioStorageMovePolicy::OUTCOME_INVALID
+            return ITEM_NOT_ATTEMPTED if move_outcome == StudioStorageMovePolicy::OUTCOME_NOT_STARTED
+            return ITEM_KNOWN_FAILED if move_outcome == StudioStorageMovePolicy::OUTCOME_MOVE_FAILED_ORIGINAL
+            return ITEM_RECORDED if move_outcome == StudioStorageMovePolicy::OUTCOME_RECORDED
+            return ITEM_RESTORED if move_outcome == StudioStorageMovePolicy::OUTCOME_ORIGINAL_RESTORED
+            return ITEM_RECOVERY_REQUIRED if move_outcome == StudioStorageMovePolicy::OUTCOME_RECEIPT_PENDING or move_outcome == StudioStorageMovePolicy::OUTCOME_ROLLBACK_REQUIRED or move_outcome == StudioStorageMovePolicy::OUTCOME_RECOVERY_RECEIPT_RETAINED
+            return ITEM_UNKNOWN if move_outcome == StudioStorageMovePolicy::OUTCOME_MOVE_UNKNOWN or move_outcome == StudioStorageMovePolicy::OUTCOME_DURABILITY_UNKNOWN or move_outcome == StudioStorageMovePolicy::OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED
+            ITEM_INVALID
+
+        # Start requires a fresh explicit review of the same stable selection.
+        # Any running batch blocks duplicate activation.
+        def may_start(state: i64, total: i64, review_confirmed: bool,
+                      reviewed_set_unchanged: bool,
+                      recovery_required: bool) -> bool:
+            requires total <= MAX_ITEMS
+            ensure not result or state != STATE_RUNNING
+            ensure not result or review_confirmed
+            ensure not result or reviewed_set_unchanged
+            ensure not result or not recovery_required
+            ensure not result or state >= STATE_IDLE
+            ensure not result or state < STATE_COUNT
+            ensure not result or total > 0
+            ensure state != STATE_RUNNING or not result
+            ensure not result or review_confirmed
+            ensure not result or reviewed_set_unchanged
+            ensure not result or not recovery_required
+            return false if state < STATE_IDLE or state >= STATE_COUNT
+            return false if state == STATE_RUNNING
+            return false if total <= 0
+            return false if total > MAX_ITEMS
+            return false if not review_ready(review_confirmed, reviewed_set_unchanged, recovery_required)
+            true
+
+        def next_index(index: i64, total: i64, item: i64) -> i64:
+            requires total >= 1 and total <= MAX_ITEMS
+            requires index >= 0 and index < total
+            requires item >= ITEM_NOT_ATTEMPTED and item < ITEM_COUNT
+            ensure result >= index
+            ensure result <= index + 1
+            ensure item != ITEM_UNKNOWN or result == index
+            index + 1 if item == ITEM_RECORDED or item == ITEM_KNOWN_FAILED or item == ITEM_RESTORED or item == ITEM_RECOVERY_REQUIRED else index
+
+        def next_completed(completed: i64, item: i64) -> i64:
+            requires completed >= 0 and completed < MAX_ITEMS
+            requires item >= ITEM_NOT_ATTEMPTED and item < ITEM_COUNT
+            ensure item != ITEM_RECORDED or result == completed + 1
+            ensure item == ITEM_RECORDED or result == completed
+            completed + 1 if item == ITEM_RECORDED else completed
+
+        def next_failed(failed: i64, item: i64) -> i64:
+            requires failed >= 0 and failed < MAX_ITEMS
+            requires item >= ITEM_NOT_ATTEMPTED and item < ITEM_COUNT
+            ensure (item != ITEM_KNOWN_FAILED and item != ITEM_RESTORED and item != ITEM_RECOVERY_REQUIRED) or result == failed + 1
+            ensure item == ITEM_KNOWN_FAILED or item == ITEM_RESTORED or item == ITEM_RECOVERY_REQUIRED or result == failed
+            failed + 1 if item == ITEM_KNOWN_FAILED or item == ITEM_RESTORED or item == ITEM_RECOVERY_REQUIRED else failed
+
+        def untouched_after_known(total: i64, next: i64) -> i64:
+            requires total >= 0 and total <= MAX_ITEMS
+            requires next >= 0 and next <= total
+            ensure result >= 0
+            ensure result <= total
+            total - next
+
+        # The item at `index` has unknown location; untouched counts only the
+        # later rows, while the batch status separately reports uncertainty.
+        def untouched_after_unknown(total: i64, index: i64) -> i64:
+            requires total >= 1 and total <= MAX_ITEMS
+            requires index >= 0 and index < total
+            ensure result >= 0
+            ensure result < total
+            ensure result == total - index - 1
+            total - index - 1
+
+        # Advance a single frame. Terminal states are sticky. Known outcomes
+        # are counted before cancellation or safety gates stop the next row.
+        def next_state(state: i64, total: i64, index: i64,
+                       item: i64, cancel_requested: bool,
+                       reviewed_set_unchanged: bool,
+                       recovery_required: bool) -> i64:
+            requires state >= STATE_IDLE and state < STATE_COUNT
+            requires total >= 1 and total <= MAX_ITEMS
+            requires index >= 0 and index < total
+            requires item >= ITEM_NOT_ATTEMPTED and item < ITEM_COUNT
+            ensure result >= STATE_IDLE
+            ensure result < STATE_COUNT
+            ensure state != STATE_RUNNING or item != ITEM_UNKNOWN or result == STATE_STOP_UNKNOWN
+            ensure state != STATE_RUNNING or item != ITEM_RECOVERY_REQUIRED or result == STATE_STOP_RECOVERY_REQUIRED
+            ensure state != STATE_RUNNING or item != ITEM_NOT_ATTEMPTED or not cancel_requested or result == STATE_CANCELLED
+            ensure state != STATE_RUNNING or item != ITEM_NOT_ATTEMPTED or cancel_requested or reviewed_set_unchanged or result == STATE_STOP_REVIEW_CHANGED
+            ensure state != STATE_RUNNING or item != ITEM_NOT_ATTEMPTED or cancel_requested or not reviewed_set_unchanged or not recovery_required or result == STATE_STOP_RECOVERY_REQUIRED
+            ensure state == STATE_RUNNING or result == state
+            return state if state != STATE_RUNNING
+            return STATE_STOP_INVALID if item == ITEM_INVALID
+            return STATE_STOP_UNKNOWN if item == ITEM_UNKNOWN
+            return STATE_STOP_RECOVERY_REQUIRED if item == ITEM_RECOVERY_REQUIRED
+            return STATE_CANCELLED if item == ITEM_NOT_ATTEMPTED and cancel_requested
+            return STATE_STOP_REVIEW_CHANGED if item == ITEM_NOT_ATTEMPTED and not reviewed_set_unchanged
+            return STATE_STOP_RECOVERY_REQUIRED if item == ITEM_NOT_ATTEMPTED and recovery_required
+            return STATE_RUNNING if item == ITEM_NOT_ATTEMPTED
+            return STATE_COMPLETE if index + 1 == total
+            return STATE_CANCELLED if cancel_requested
+            return STATE_STOP_REVIEW_CHANGED if not reviewed_set_unchanged
+            return STATE_STOP_RECOVERY_REQUIRED if recovery_required
+            STATE_RUNNING
