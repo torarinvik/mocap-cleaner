@@ -7,10 +7,15 @@ ENGINE="$(cd -- "${ELISA_ENGINE_ROOT:-$ROOT/../elisa-engine-mocap}" && pwd)"
 UI="$(cd -- "${ELISA_UI_ROOT:-$ROOT/../elisa-ui}" && pwd)"
 STAGE1="$(cd -- "${ELISA_STAGE1:-$ROOT/../Elisa-compiler}" && pwd)"
 EXECUTABLE="${1:-$ROOT/build/mocap_studio}"
-APP="$ROOT/build/MocapStudio.app"
+INPUT_RECORD="${2:-}"
+final_app="$ROOT/build/MocapStudio.app"
 
 [[ -x "$EXECUTABLE" ]] || { echo "Studio executable missing or not executable: $EXECUTABLE" >&2; exit 2; }
-rm -rf "$APP"
+if [[ -n "$INPUT_RECORD" ]]; then
+  python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$INPUT_RECORD"
+fi
+pending_package="$(mktemp -d "$ROOT/build/studio-package.XXXXXX")"
+APP="$pending_package/MocapStudio.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp -p "$EXECUTABLE" "$APP/Contents/MacOS/MocapStudio"
 cat >"$APP/Contents/Info.plist" <<'PLIST'
@@ -34,13 +39,15 @@ cat >"$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 printf 'APPL????' >"$APP/Contents/PkgInfo"
 
-python3 - "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$EXECUTABLE" "$APP/Contents/Resources/BUILD-INFO.txt" <<'PY'
+python3 - "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$APP/Contents/MacOS/MocapStudio" "$APP/Contents/Resources/BUILD-INFO.txt" "$INPUT_RECORD" <<'PY'
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
 
-project, engine, ui, compiler, executable, output = map(Path, sys.argv[1:])
+project, engine, ui, compiler, executable, output = map(Path, sys.argv[1:7])
+input_record = Path(sys.argv[7]) if sys.argv[7] else None
 
 def repo_revision(root):
     return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
@@ -81,6 +88,18 @@ def sha256(path):
             digest.update(chunk)
     return digest.hexdigest()
 
+captured_hash = "unavailable"
+qualification = "unrecorded: packaging observations do not establish compilation inputs"
+if input_record is not None:
+    record_bytes = input_record.read_bytes()
+    record = json.loads(record_bytes)
+    product = record.get("product", {})
+    if product.get("filename") != "mocap_studio" or product.get("sha256") != sha256(executable):
+        raise SystemExit("Packaged executable does not match the sealed build input record")
+    (output.parent / "BUILD-INPUTS.json").write_bytes(record_bytes)
+    captured_hash = hashlib.sha256(record_bytes).hexdigest()
+    qualification = "sealed inputs and exact copied executable verified; runtime acceptance remains separate"
+
 lines = [
     "Mocap Studio development bundle build provenance",
     f"project_revision={repo_revision(project)}",
@@ -91,11 +110,25 @@ lines = [
     f"ui_worktree_dirty={str(repo_dirty(ui)).lower()}",
     f"compiler_revision={repo_revision(compiler)}",
     f"compiler_worktree_dirty={str(repo_dirty(compiler)).lower()}",
-    f"build_inputs_sha256={source_hash.hexdigest()}",
+    f"build_inputs_sha256={captured_hash}",
+    f"packaging_observed_inputs_sha256={source_hash.hexdigest()}",
+    f"input_qualification={qualification}",
     f"executable_sha256={sha256(executable)}",
     f"runtime_object_sha256={sha256(compiler / 'build/runtime/elisacore_runtime.o')}",
 ]
 Path(output).write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 
-echo "packaged $APP"
+# Prepare the whole bundle before moving the previous one. Keep a recoverable
+# backup, and restore it if publishing the new bundle fails.
+if [[ -e "$final_app" || -L "$final_app" ]]; then
+  mv "$final_app" "$pending_package/previous.app"
+fi
+if ! mv "$APP" "$final_app"; then
+  if [[ -e "$pending_package/previous.app" || -L "$pending_package/previous.app" ]]; then
+    mv "$pending_package/previous.app" "$final_app"
+  fi
+  echo "could not publish Studio bundle; previous bundle restored" >&2
+  exit 1
+fi
+echo "packaged $final_app"
