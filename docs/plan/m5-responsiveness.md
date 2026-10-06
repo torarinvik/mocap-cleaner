@@ -49,7 +49,7 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
       and capacity refusal preserve committed edits and the last valid preview.
       Qualify the channel cache's per-instance logical admission (4,000,000
       entries / 64 MiB estimated contents) against full evaluation, including
-      disabled operations and timing/accounting during fallback. Establish
+      disabled operations and timing/accounting during fallback.
       Qualify aggregate channel-bank and rig-cache admission, each with a
       separate 256 MiB logical estimate, including replacement accounting and
       fallback summaries. Verify budget estimates against evolving schemas.
