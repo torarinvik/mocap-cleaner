@@ -90,3 +90,10 @@ cannot change source indexing, and long basenames are not truncated to a
 128-byte UI text slot. Both paths are refused when they exceed the existing
 4096-byte adapter boundary. Native Unicode/path-boundary qualification remains
 required.
+
+The Studio settings include `spike_threshold_fixed_channel_units` from the
+exported clip and `spike_measure` describing the absolute channel second
+difference and 1,000,000 scale. These are not physical acceleration units.
+The unavailable marker now concerns complete detector configuration; it does
+not negate individually captured thresholds in settings. Other callers may
+provide fewer settings, so consumers must inspect the actual entries.
