@@ -8,6 +8,8 @@ status descriptions and evidence are preserved in the linked records.
 - [Foot cleanup, retiming and tracks (G43–G82)](proof-gaps/foot-retime-track.md)
 - [Recent proof and native boundary status (G83 onward)](proof-gaps/recent-status.md)
 
+- [Law assertion coverage audit](proof-gaps/law-assertion-audit.md)
+
 ## Current qualification limits
 
 The complete check is not green. Native storage qualification requires fresh
