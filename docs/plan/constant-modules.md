@@ -6,24 +6,17 @@ the group-qualified names. Preserve literal values, visibility, source takes,
 contracts and proof coverage. Keep each maintained repository file at most
 600 lines and commit each cohesive group separately.
 
-## Current implementation and verification gate
+## Verification requirements
 
-The Storage filter values have been moved into public
-`StudioStorageListFilterPolicy::Filter`. Object and Studio builds pass.
-Repairs `49714c65` and `9ae35eff` in `../elisa-proof-mocap` normalize qualified
-nested AST names and resolve lexical relative member paths. Normal compiler
-seeding and prover rebuilding pass. The actual nested source and laws now
-prove 483/483 and 499/499, preserving the original expectations, with complete
-certificate replay and zero gaps. Flat, relative and absolute-reference probes
-also prove completely. This closes the migration gate; qualify each subsequent
-group and its consumers without weakening existing baselines.
-Do not lower proof baselines or replace real constant modules with plain
-modules to bypass this gate. Record exact compiler/prover provenance and
-certificate replay when qualifying the fix.
+Qualify each constant group and its source, proof and test consumers with
+current compiler/prover provenance. Preserve literal values and visibility;
+require independent certificate replay and retain existing proof expectations.
+The current prover supports nested and lexical relative constant paths; G96
+records the repair and qualification evidence.
 
 ## Remaining groups (2026-10-06)
 
-The initial source inventory below omits one proof owner: `KneeLaws` in
+The source inventory below has one additional proof owner: `KneeLaws` in
 `proof/knee_laws.elisa` has two public aliases (`BOUND`, `HALF`), which must
 move into a geometry group with all law references updated. Outside declared
 modules, `test/studio_shortcuts.elisa` has six file-scope event constants;
@@ -36,6 +29,8 @@ counted under their owning module. Single-constant modules need not be
 extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
+
+Remaining source inventory: **86 owners, 765 ungrouped constants**.
 
 | Module | Ungrouped constants | Declaration files |
 | --- | ---: | --- |
@@ -71,6 +66,7 @@ unrelated limits, actions and filesystem facts in one bag.
 | `StudioChrome` | 24 | `src/studio/chrome.elisa` |
 | `StudioContactEditor` | 15 | `src/studio/contact_editor.elisa` |
 | `StudioContactFramePolicy` | 3 | `src/studio/contact_frame_policy.elisa` |
+| `StudioDraw` | 93 | `src/studio/app/panels_geometry.elisa` |
 | `StudioExportPathReview` | 5 | `src/studio/export_path_review.elisa` |
 | `StudioExportPolicy` | 7 | `src/studio/export_policy.elisa` |
 | `StudioExportReport` | 6 | `src/studio/export_report.elisa` |
@@ -79,8 +75,6 @@ unrelated limits, actions and filesystem facts in one bag.
 | `StudioExportReview` | 13 | `src/studio/export_review.elisa` |
 | `StudioExportValidation` | 4 | `src/studio/export_validation.elisa` |
 | `StudioFilePolicy` | 9 | `src/studio/file_policy.elisa` |
-| `StudioFoot` | 16 | `src/studio/foot_policy.elisa` |
-| `StudioIcons` | 30 | `src/studio/app/panels_geometry.elisa` |
 | `StudioIssueAnnotation` | 3 | `src/studio/issue_annotation.elisa` |
 | `StudioIssueBrowserPolicy` | 17 | `src/studio/issue_browser_policy.elisa` |
 | `StudioIssueExplanationPolicy` | 6 | `src/studio/issue_explanation_policy.elisa` |
@@ -89,7 +83,6 @@ unrelated limits, actions and filesystem facts in one bag.
 | `StudioLegacyPrompt` | 6 | `src/studio/legacy_session_prompt.elisa` |
 | `StudioModel` | 9 | `src/studio/app/model.elisa` |
 | `StudioOverlay` | 7 | `src/studio/overlay_policy.elisa` |
-| `StudioPanels` | 80 | `src/studio/app/panels_geometry.elisa`, `src/studio/app/panels_storage.elisa`, `src/studio/app/panels_toolbar.elisa` |
 | `StudioReplacement` | 8 | `src/studio/replacement.elisa` |
 | `StudioResetScope` | 4 | `src/studio/reset_scope.elisa` |
 | `StudioRetime` | 5 | `src/studio/app/retime_panel.elisa` |
@@ -98,14 +91,12 @@ unrelated limits, actions and filesystem facts in one bag.
 | `StudioSidebarLayout` | 28 | `src/studio/sidebar_layout.elisa` |
 | `StudioSourceFingerprint` | 2 | `src/studio/source_fingerprint.elisa` |
 | `StudioStorageAccessibilityCopy` | 7 | `src/studio/app/storage_accessibility_copy.elisa` |
-| `StudioStorageAccessibilityPolicy` | 59 | `src/studio/storage_accessibility_policy.elisa` |
 | `StudioStorageAgePolicy` | 7 | `src/studio/storage_age_policy.elisa` |
 | `StudioStorageArtifactDestination` | 4 | `src/studio/io/storage_artifact_destination.elisa` |
 | `StudioStorageBatchPolicy` | 18 | `src/studio/storage_batch_policy.elisa` |
 | `StudioStorageCleanupPolicy` | 22 | `src/studio/storage_cleanup_policy.elisa` |
 | `StudioStorageExemptionPolicy` | 4 | `src/studio/storage_exemption_policy.elisa` |
-| `StudioStorageExemptionsCodec` | 8 | `src/studio/io/storage_exemptions_file.elisa` |
-| `StudioStorageExemptionsFile` | 6 | `src/studio/io/storage_exemptions_file.elisa` |
+| `StudioStorageExemptionsCodec` | 14 | `src/studio/io/storage_exemptions_file.elisa` |
 | `StudioStorageExemptionsWirePolicy` | 2 | `src/studio/io/storage_exemptions_wire_policy.elisa` |
 | `StudioStorageManifest` | 8 | `src/studio/io/storage_manifest.elisa` |
 | `StudioStorageManifestLockFile` | 4 | `src/studio/io/storage_manifest_lock_file.elisa` |
