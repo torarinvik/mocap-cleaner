@@ -139,6 +139,11 @@ paths and hard-link aliases of the active source are excluded.
 The two verified byte totals distinguish files in `build/` from files in
 Trash. Files in Trash still occupy disk space. These totals exclude records
 whose identities could not be verified; they do not estimate reclaimed space.
+The selected row shows exact bytes and completed days since modification,
+using the clock captured by the latest Refresh. Future timestamps and clock
+failures show an unverified age. Refresh keeps the selected artifact only when
+its full identity still matches; it clears selection if that artifact changed
+or disappeared.
 
 Use Up/Down to choose a row and Tab to move among Refresh, Done and Restore.
 Restore is available only for a valid, durably recorded, verified Trash
