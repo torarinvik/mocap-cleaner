@@ -1,0 +1,109 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def goto_target_now() -> StudioTimelineGotoDraftPolicy::Target:
+            StudioTimelineGotoDraftPolicy::Target{take: take_serial, document: built,
+                generation: stack_generation, frames: frames()}
+
+        def goto_stale() -> bool:
+            return true if clip == null
+            StudioTimelineGotoDraftPolicy::current(goto_target, take_serial, built,
+                stack_generation, frames()) == false
+
+        def goto_text() -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            for i in 0..<typed_len.usize():
+                StudioText::byte(typed[i])
+            StudioText::view()
+
+        def goto_result() -> StudioTimelineGotoPolicy::Result:
+            StudioTimelineGotoPolicy::parse(goto_text(), goto_target.frames)
+
+        def goto_open_dialog() -> void:
+            return if clip == null or frames() < 1 or frames() > StudioTimelineGotoPolicy::MAX_FRAMES
+            goto_target <- goto_target_now()
+            typed_len <- 0
+            typing <- true
+            goto_open <- true
+            help_open <- false
+            file_menu_open <- false
+            reset_menu_open <- false
+            goto_status <- StudioTimelineGotoPolicy::Status.Empty
+            if timeline is t and t.playing:
+                mutable paused: TimelineState::State = t
+                paused.playing <- false
+                set_timeline(paused)
+            touch()
+
+        def goto_close() -> void:
+            goto_open <- false
+            typing <- false
+            typed_len <- 0
+            touch()
+
+        def goto_apply() -> void:
+            return if not goto_open
+            if goto_stale():
+                status <- "Go to frame cancelled: the take or timeline changed. Reopen the dialog."
+                status_file <- null
+                goto_close()
+                return
+            parsed: StudioTimelineGotoPolicy::Result = goto_result()
+            goto_status <- parsed.status
+            if parsed.status == StudioTimelineGotoPolicy::Status.Exact or parsed.status == StudioTimelineGotoPolicy::Status.Clamped:
+                scrub_to(parsed.frame)
+                status <- "Frame selected" if parsed.status == StudioTimelineGotoPolicy::Status.Exact else "Frame was past the take; selected the last frame"
+                status_file <- null
+                goto_close()
+            else:
+                status <- "Enter a frame number using digits only."
+                status_file <- null
+                touch()
+
+        def goto_key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Escape:
+                goto_close()
+            elif code == UiCore::Key.Enter:
+                goto_apply()
+            elif code == UiCore::Key.Backspace:
+                typed_len <- typed_len - 1 if typed_len > 0 else 0
+                touch()
+            else:
+                goto_append_key(code)
+
+        def goto_append_key(code: UiCore::Key) -> void:
+            return if modifiers != 0 or typed_len >= 8
+            mutable digit: i64 = -1
+            digit <- 0 if code == UiCore::Key.Digit0
+            digit <- 1 if code == UiCore::Key.Digit1
+            digit <- 2 if code == UiCore::Key.Digit2
+            digit <- 3 if code == UiCore::Key.Digit3
+            digit <- 4 if code == UiCore::Key.Digit4
+            digit <- 5 if code == UiCore::Key.Digit5
+            digit <- 6 if code == UiCore::Key.Digit6
+            digit <- 7 if code == UiCore::Key.Digit7
+            digit <- 8 if code == UiCore::Key.Digit8
+            digit <- 9 if code == UiCore::Key.Digit9
+            if digit >= 0:
+                typed[typed_len.usize()] <- (48 + digit).u8()
+                typed_len <- typed_len + 1
+                touch()
+
+        def goto_pointer(x: f32, y: f32, button: i32) -> void:
+            return if button != 0
+            hit: i64 = StudioPanels::goto_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+            goto_apply() if hit == 0
+            goto_close() if hit == 1
+
+    public:
+        def request_goto_frame() -> void:
+            goto_open_dialog()
+
+        def goto_accessibility_action(widget: usize, event: i32) -> bool:
+            return false if not goto_open
+            return true if event != UiConst::WidgetEvent.Click.i32()
+            return true if widget == accessibility_goto_field_widget
+            goto_apply() if widget == accessibility_goto_apply_widget
+            goto_close() if widget == accessibility_goto_cancel_widget
+            true
