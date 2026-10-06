@@ -90,7 +90,7 @@ extend Studio:
                 index <- index + 1
             false
 
-        def install_workspace_paths(path: cstr) -> bool can[Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+        def stage_workspace_paths(path: cstr) -> bool can[Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
             mutable root_length: usize = 0
             while root_length < WorkspaceLimit::PATH_CAPACITY and path[root_length] != 0:
                 root_length <- root_length + 1
@@ -103,6 +103,9 @@ extend Studio:
             return false if not append_leaf(&workspace_candidate_preferences, &workspace_candidate_root, root_length, "studio_storage_preferences.txt".cast[cstr])
             return false if not append_leaf(&workspace_candidate_exemptions, &workspace_candidate_root, root_length, "studio_storage_exemptions.txt".cast[cstr])
             return false if not append_build_dir(&workspace_candidate_build, &workspace_candidate_root, root_length)
+            true
+
+        def commit_workspace_paths() -> void can Unsafe.PointerCast:
             for index in 0..<WorkspaceLimit::PATH_CAPACITY |index|:
                 workspace_root_bytes[index] <- workspace_candidate_root[index]
                 workspace_export_bytes[index] <- workspace_candidate_export[index]
@@ -120,7 +123,9 @@ extend Studio:
             STORAGE_LOCK_PATH <- (&workspace_lock_bytes[0]).cast[cstr]
             STORAGE_PREFERENCES_PATH <- (&workspace_preferences_bytes[0]).cast[cstr]
             STORAGE_EXEMPTIONS_PATH <- (&workspace_exemptions_bytes[0]).cast[cstr]
-            true
+
+        def workspace_operation_active() -> bool:
+            storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING or export_review_open or export_result_open
 
         def pending_root() -> cstr can Unsafe.PointerCast:
             (&workspace_pending_bytes[0]).cast[cstr]
@@ -161,7 +166,10 @@ extend Studio:
             if StudioWorkspaceRootAdapter::load() is stored:
                 decision: StudioWorkspaceRootPolicy::Decision = StudioWorkspaceRootAdapter::inspect(stored, false, false)
                 if decision == StudioWorkspaceRootPolicy::Decision.READY:
-                    workspace_ready <- install_workspace_paths(stored)
+                    staged: bool = stage_workspace_paths(stored)
+                    if StudioWorkspaceRootPolicy::commit_admitted(decision, true, staged, workspace_operation_active()):
+                        commit_workspace_paths()
+                        workspace_ready <- true
                 StudioWorkspaceRootAdapter::release(stored)
             if not workspace_ready:
                 export_path <- ""
@@ -180,7 +188,7 @@ extend Studio:
         # document unchanged. Missing build/ is held pending for explicit UI
         # confirmation; this method never creates a directory implicitly.
         def locate_workspace_root() -> StudioWorkspaceRootPolicy::Decision can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING or export_review_open or export_result_open:
+            if workspace_operation_active():
                 status <- "Finish the active Storage or export action before changing workspace."
                 status_file <- null
                 touch()
@@ -193,9 +201,12 @@ extend Studio:
             if StudioWorkspaceRootAdapter::choose(current) is chosen:
                 decision: StudioWorkspaceRootPolicy::Decision = StudioWorkspaceRootAdapter::inspect(chosen, false, false)
                 if decision == StudioWorkspaceRootPolicy::Decision.READY:
-                    if workspace_path_fits(chosen) and StudioWorkspaceRootAdapter::persist(chosen, decision):
+                    staged: bool = workspace_path_fits(chosen) and stage_workspace_paths(chosen)
+                    persisted: bool = staged and StudioWorkspaceRootAdapter::persist(chosen, decision)
+                    if StudioWorkspaceRootPolicy::commit_admitted(decision, persisted, staged, workspace_operation_active()):
                         _ = workspace_reset_storage_context()
-                        workspace_ready <- install_workspace_paths(chosen)
+                        commit_workspace_paths()
+                        workspace_ready <- true
                         workspace_create_pending <- false
                         status <- "Workspace ready"
                         status_file <- null
@@ -220,20 +231,27 @@ extend Studio:
         # This must be called only after an explicit Create build action.
         def create_workspace_build() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return false if not workspace_create_pending
+            if workspace_operation_active():
+                status <- "Finish the active Storage or export action before creating build/."
+                status_file <- null
+                touch()
+                return false
             return false if not workspace_path_fits(pending_root())
             decision: StudioWorkspaceRootPolicy::Decision = StudioWorkspaceRootAdapter::inspect(pending_root(), true, false)
             return false if decision != StudioWorkspaceRootPolicy::Decision.CREATE_BUILD
-            created: bool = StudioWorkspaceRootAdapter::create_build(pending_root(), decision)
+            staged: bool = stage_workspace_paths(pending_root())
+            created: bool = staged and StudioWorkspaceRootAdapter::create_build(pending_root(), decision)
             if created:
-                _ = workspace_reset_storage_context()
-                workspace_ready <- install_workspace_paths(pending_root())
-                if workspace_ready:
+                if StudioWorkspaceRootPolicy::commit_admitted(StudioWorkspaceRootPolicy::Decision.READY, created, staged, workspace_operation_active()):
+                    _ = workspace_reset_storage_context()
+                    commit_workspace_paths()
+                    workspace_ready <- true
                     workspace_create_pending <- false
                     status <- "Workspace ready"
                     status_file <- null
                     refresh_storage_inventory() if storage_screen_open
                 else:
-                    status <- "Could not install workspace paths. The current document and workspace remain active."
+                    status <- "Could not commit workspace paths. The current document and workspace remain active."
                     status_file <- null
             else:
                 status <- "Could not create or verify build/. The current document and workspace remain active."
