@@ -1,0 +1,31 @@
+# Runtime text adapter for the scalar Go to frame policy. This remains outside
+# the symbolic proof boundary because the current prover cannot model sview.
+include "../timeline_goto_kernel.elisa"
+
+module StudioTimelineGotoPolicy:
+    public:
+        const EMPTY: i64 = -2
+        const INVALID: i64 = -1
+        const EXACT: i64 = 0
+        const CLAMPED: i64 = 1
+        const MAX_FRAMES: i64 = StudioTimelineGotoKernel::MAX_FRAMES
+
+        struct Result:
+            status: mutable i64
+            frame: mutable i64
+
+        # Parse a frame number. Empty and malformed input do not move the
+        # playhead; valid numbers above the clip length select its final frame.
+        def parse(text: sview, count: i64) -> Result:
+            requires count >= 1
+            requires count <= MAX_FRAMES
+            return Result{status: EMPTY, frame: -1} if text.len <= 0 or text.data == null
+            mutable value: i64 = 0
+            for i in 0..<text.len.usize() |i, text, value, count|:
+                c: u8 = text.data[i]
+                return Result{status: INVALID, frame: -1} if c < 48 or c > 57
+                digit: i64 = (c - 48).i64()
+                value <- StudioTimelineGotoKernel::digit_step(value, digit, count)
+            return Result{status: INVALID, frame: -1} if value == 0
+            return Result{status: CLAMPED, frame: StudioTimelineGotoKernel::bounded_frame(value, count)} if value > count
+            Result{status: EXACT, frame: StudioTimelineGotoKernel::bounded_frame(value, count)}
