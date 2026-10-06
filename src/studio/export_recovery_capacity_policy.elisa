@@ -1,0 +1,33 @@
+include "export_recovery_budget_policy.elisa"
+
+# Count all pending records and active reservations. Unknown inventory cannot
+# be treated as zero usage. These are logical file-byte limits, not free-space
+# guarantees or proof of filesystem allocation/locking semantics.
+module StudioExportRecoveryCapacityPolicy:
+    public:
+        const module Capacity:
+            RECORDS: i64 = 16
+            RETAINED_BYTES: i64 = 1073741824
+            MAX_REQUEST_BYTES: i64 = 138543104
+
+        def reservation_admitted(inventory_verified: bool, occupied_records: i64,
+                                 retained_bytes: i64, held_bytes: i64,
+                                 requested_bytes: i64) -> bool:
+            ensure result implies inventory_verified
+            ensure result implies occupied_records >= 0 and occupied_records < Capacity::RECORDS
+            ensure result implies retained_bytes >= 0 and retained_bytes <= Capacity::RETAINED_BYTES
+            ensure result implies held_bytes >= 0 and held_bytes <= Capacity::RETAINED_BYTES - retained_bytes
+            ensure result implies requested_bytes > 0 and requested_bytes <= Capacity::MAX_REQUEST_BYTES
+            ensure result implies requested_bytes <= Capacity::RETAINED_BYTES - retained_bytes - held_bytes
+            inventory_verified and occupied_records >= 0 and occupied_records < Capacity::RECORDS and retained_bytes >= 0 and retained_bytes <= Capacity::RETAINED_BYTES and held_bytes >= 0 and held_bytes <= Capacity::RETAINED_BYTES - retained_bytes and requested_bytes > 0 and requested_bytes <= Capacity::MAX_REQUEST_BYTES and requested_bytes <= Capacity::RETAINED_BYTES - retained_bytes - held_bytes
+
+        # Two copies of every bounded file cover record bytes and their atomic
+        # replacement staging. Unremoved staging must stay charged to usage.
+        def requested_bytes(output_bytes: i64, json_bytes: i64, text_bytes: i64, journal_bytes: i64) -> i64:
+            requires output_bytes > 0 and output_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES
+            requires json_bytes > 0 and json_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+            requires text_bytes > 0 and text_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+            requires journal_bytes > 0 and journal_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            ensure result == 2 * (output_bytes + json_bytes + text_bytes + journal_bytes)
+            ensure result > 0 and result <= Capacity::MAX_REQUEST_BYTES
+            2 * (output_bytes + json_bytes + text_bytes + journal_bytes)

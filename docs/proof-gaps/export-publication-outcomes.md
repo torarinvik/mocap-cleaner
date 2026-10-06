@@ -108,3 +108,17 @@ semantic source/stack provenance qualification, round-trip proof and injected
 journal failures remain open. Format validity alone never authorizes retry or
 cleanup. Evidence: `build/export-recovery-journal-laws-build.log` and
 `build/export-recovery-store-build.log`.
+
+Recovery retention capacity now has a separate policy: at most 16 occupied
+record/reservation slots and 1 GiB of logical retained plus reserved bytes.
+Each request budgets two copies of its bounded GLB/report/journal payloads for
+atomic staging. Unknown inventory rejects admission; held reservations remain
+charged, and unremoved staging must remain in retained usage. This does not
+establish filesystem free space, native scan completeness or locking semantics.
+Default 5776350b independently replays source 16/16 (including six imported
+budget obligations), with zero gaps/findings. Laws replay 26/40; 12 producer
+certificates remain replay gaps and two obligations remain open. The source-only
+baseline is reviewed; no law baseline is weakened or added. Compilation passes
+with f292cbe0. Evidence: `build/export-recovery-capacity-source.json`,
+`build/export-recovery-capacity-laws.json`, `build/export-recovery-capacity-build.log`.
+Native inventory, reservation persistence and export integration remain required.
