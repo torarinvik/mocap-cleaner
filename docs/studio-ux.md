@@ -184,7 +184,17 @@ that set. Protected rows use a disabled checkbox marker. The selected file
 count and exact byte sum are visible. Refresh removes missing, changed or
 newly protected selections and reports the removal.
 
-Multi-item execution, grouping/filtering, persistent retention preferences,
-exemptions and per-item batch progress remain to be implemented. Move to Trash
-currently requires exactly one selected eligible file; it performs one
-reviewed move at a time.
+Move to Trash reviews the complete selected set and exact byte total. A
+changed set or retention policy cancels confirmation. Cleanup processes at
+most one file per frame and rechecks every remaining reviewed identity before
+each move. Cancel or Escape stops between files; completed receipts are kept.
+Controls that change the set are disabled while running. The result shows
+recorded, failed/restored and untouched counts, plus per-file outcomes.
+Unknown locations and receipt recovery stop the batch. Refresh can reconcile
+an uncertain item and update its result without automatically resuming moves.
+Retry requires a new review and excludes files already recorded in Trash.
+
+Grouping/filtering, persistent retention preferences, exemptions, dedicated
+review scrolling and running-window/fault-injection acceptance remain open.
+A single native filesystem operation still runs on the UI thread; the batch
+returns to the event loop between files.
