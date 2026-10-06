@@ -500,3 +500,15 @@ candidate is not the default prover and no baseline was reduced.
 The recursion-depth refusal does not set a bound on total work across all
 producer search calls. The existing `budget` value still counts finite-domain
 enumeration only; no elapsed-time or global work bound is claimed here.
+
+Further isolation in `build/proof/duration-division-repro/repro.elisa` narrows
+the duration refusals to call-summary fact preservation. Direct division with
+formal inputs `frames == 1800`, `fps == 30`, and direct division with a local
+`fps = 30`, both prove on the comparison product. Calling the duration helper
+with the same inputs refuses. The final caller goal uses the denominator
+`__elisa_rebind_0` but lacks its equality to 30; that binding was present when
+proving the call's preconditions. The refusal therefore does not establish a
+missing interval rule for explicit division facts. Repair must preserve the
+correct scoped argument binding into the summary goal without admitting
+unproved assumptions. A current rebuilt producer and independent certificate
+replay are still required; the baselines remain unchanged.
