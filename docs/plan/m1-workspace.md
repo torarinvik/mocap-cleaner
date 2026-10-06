@@ -58,6 +58,17 @@
 
 ### 6.3 Document lifecycle and recovery
 
+- [ ] Make workspace root changes transactional: stage and validate every
+      derived path before replacing active buffers or persisting preferences.
+      Public path builders must read the active root, never rejected staging
+      state. Cancellation and failure retain the current document and root.
+      On success, invalidate old Storage inventory, selection and cleanup
+      previews, then reload the new root's manifest and preferences. Captured
+      jobs and export review destinations must remain bound to their snapshot
+      or be explicitly invalidated; a root switch must not silently redirect
+      publication. Qualify rejected-root, long-path, active-job and repeat-switch
+      cases through the native UI and path-policy proofs.
+
 - [ ] Establish an explicit canonical workspace root with a writable `build/`
       directory. Persist its location separately from source/session contents;
       show it and offer Locate workspace when unavailable. Finder launch,
