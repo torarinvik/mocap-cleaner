@@ -166,16 +166,16 @@ directional searches explain why the playhead stayed unchanged. Full integrated
 compilation, current replay, pointer/AX controls, native shortcut delivery and
 selection/contact/key journey acceptance remain open.
 
-Unsigned seconds entry now has a separate counted-text adapter and integer
-millisecond kernels. It accepts whole seconds or up to three decimal places,
-including `.5`; malformed prefixes, repeated dots, excess digits and incomplete
-decimal drafts are refused. Conversion uses the evaluated clip rate and floors
-to the containing output frame; valid times past the clip clamp to its last
-frame. The scalar kernels and ten laws compile at O0 with retained symbols,
-as does the parser. No executable parser fixtures were run. Text parsing is
-outside the current symbolic boundary; current producer/replay, UI wiring,
-native text input and the actual-rate playback/time-display consistency audit
-remain open. A parser implementation alone does not close Go to time.
+Unsigned seconds entry has a counted-text adapter and integer microsecond
+kernels. It accepts whole seconds or up to six decimal places, including `.5`;
+malformed prefixes, repeated dots, excess digits and incomplete decimal drafts
+are refused. Captured-grid lookup floors to the containing output frame; valid
+times past the clip clamp to its last frame. The legacy integer-rate millisecond
+adapter remains separate. Scalar laws and parser compile at O0 with retained
+symbols. No executable parser fixtures were run. Text parsing remains outside
+the current symbolic boundary; producer/replay, native text input and integrated
+timing consistency remain open. A parser implementation alone does not close
+Go to time.
 
 The frame/time dialog is now wired to Cmd-G / Cmd-Shift-G, shared Apply/Cancel
 validation, decimal keyboard drafts, retained text-field changes and mode-specific
