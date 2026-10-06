@@ -12,6 +12,7 @@ include "../../../elisa-engine-mocap/src/assets/glb_json.elisa"
 include "report.elisa"
 include "json_string.elisa"
 include "report_diff_html.elisa"
+include "report_number.elisa"
 include "console.elisa"
 
 @link_name("fgetc")
@@ -27,8 +28,9 @@ module ReportDiff:
             key_at: i64
             key_len: i64
             value: i64
+            exponent: i64
             flag: bool
-            exact_integer: bool
+            exact_number: bool
 
         struct Identity:
             at: i64
@@ -127,27 +129,19 @@ module ReportDiff:
                     key_len: i64 = copy_string(text, key, pool)
                     mutable value: i64 = 0
                     mutable flag: bool = false
-                    mutable exact_integer: bool = true
+                    mutable exact_number: bool = true
+                    mutable exponent: i64 = 0
                     if GlbJson::text_is(text, value_token, "true") or GlbJson::text_is(text, value_token, "false"):
                         flag <- true
                         value <- 1 if GlbJson::text_is(text, value_token, "true") else 0
                     else:
-                        mutable digit: usize = value_token.start
-                        negative: bool = text[digit] == 45
-                        digit <- digit + 1 if negative
-                        while digit < value_token.stop:
-                            c: u8 = text[digit]
-                            if c < 48 or c > 57:
-                                exact_integer <- false
-                            elif exact_integer:
-                                next_digit: i64 = (c - 48).i64()
-                                if ReportDecimal::can_append_digit(value, next_digit):
-                                    value <- ReportDecimal::append_digit(value, next_digit)
-                                else:
-                                    exact_integer <- false
-                            digit <- digit + 1
-                        value <- -value if negative
-                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: value, flag: flag, exact_integer: exact_integer})
+                        match ReportNumber::parse(text, value_token.start, value_token.stop):
+                            ReportNumber::Result.Exact(coefficient, power):
+                                value <- coefficient
+                                exponent <- power
+                            ReportNumber::Result.Unavailable:
+                                exact_number <- false
+                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: value, exponent: exponent, flag: flag, exact_number: exact_number})
                 at <- value_token.after
 
         # Root scalars belong to `total`; only direct `clips` elements may
@@ -254,6 +248,20 @@ module ReportDiff:
                 for i in 0..<len.usize():
                     _ = c_putchar(pool[at.usize() + i].i32())
 
+        def print_value(value: i64, exponent: i64):
+            Out::number(value)
+            if exponent != 0:
+                Out::text("e")
+                Out::number(exponent)
+
+        def push_value_cell(out: mutable darray[u8]&, value: i64, exponent: i64):
+            Report::push_text(out, "<td>")
+            Report::push_number(out, value)
+            if exponent != 0:
+                Report::push_text(out, "e")
+                Report::push_number(out, exponent)
+            Report::push_text(out, "</td>")
+
     public:
         # Compare report files; returns the exit code (0 clean, 1 regression,
         # 2 unreadable input).
@@ -291,13 +299,14 @@ module ReportDiff:
                         errors <- errors + 1
                         Out::line("Baseline numeric metric has a Boolean value.")
                         continue
-                    if not flagged and not Regress::metric_available(m.value, m.exact_integer):
+                    if not flagged and not Regress::metric_available(m.value, m.exact_number):
                         errors <- errors + 1
                         Out::line("Baseline metric has unsupported numeric precision or range.")
                         continue
                     at: i64 = find(&pb, &mb, &pa, m)
                     mutable bad: bool = at < 0
                     mutable after: i64 = 0
+                    mutable after_exponent: i64 = 0
                     if at >= 0:
                         other: Metric = mb[at.usize()]
                         if other.flag != m.flag:
@@ -305,14 +314,21 @@ module ReportDiff:
                             Out::line("Report metric types differ between baseline and candidate.")
                             continue
                         after <- other.value
-                        if not flagged and not Regress::metric_available(after, other.exact_integer):
+                        after_exponent <- other.exponent
+                        if not flagged and not Regress::metric_available(after, other.exact_number):
                             errors <- errors + 1
                             Out::line("Candidate metric has unsupported numeric precision or range.")
                             continue
                         if flagged:
                             bad <- Regress::ok_lost(true, other.value == 1)
                         else:
-                            bad <- Regress::metric_regressed(bounded(m.value), bounded(other.value), tol, fl)
+                            match ReportDecimal::align(m.value, m.exponent, other.value, other.exponent, fl):
+                                ReportDecimal::Alignment.Exact(before_scaled, after_scaled, floor_scaled, power):
+                                    bad <- Regress::metric_regressed(before_scaled, after_scaled, tol, floor_scaled)
+                                ReportDecimal::Alignment.Unavailable:
+                                    errors <- errors + 1
+                                    Out::line("Metrics cannot share an exact scale within the supported comparison domain.")
+                                    continue
                     if bad:
                         regressions <- regressions + 1
                         Out::text("regression ")
@@ -320,10 +336,10 @@ module ReportDiff:
                         Out::text(" ")
                         print_span(&pa, m.key_at, m.key_len)
                         Out::text(" ")
-                        Out::number(m.value)
+                        print_value(m.value, m.exponent)
                         Out::text(" -> ")
                         if at >= 0:
-                            Out::number(after)
+                            print_value(after, after_exponent)
                             Out::line("")
                         else:
                             Out::line("missing")
@@ -332,9 +348,9 @@ module ReportDiff:
                     Report::push_text(&page, "</td><td>")
                     push_span(&page, &pa, m.key_at, m.key_len)
                     Report::push_text(&page, "</td>")
-                    Report::cell(&page, m.value)
+                    push_value_cell(&page, m.value, m.exponent)
                     if at >= 0:
-                        Report::cell(&page, after)
+                        push_value_cell(&page, after, after_exponent)
                     else:
                         Report::push_text(&page, "<td>missing</td>")
                     Report::push_text(&page, "<td>regressed</td></tr>" if bad else "<td>ok</td></tr>")
