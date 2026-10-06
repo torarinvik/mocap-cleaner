@@ -293,6 +293,26 @@ declines, but the combined unit was not emitted. Evidence:
 `build/report-stack-provenance-studio-build.log`. Native report observation and
 full integration qualification remain open. No executable tests were added.
 
+## Exact correction offset representation
+
+Frozen correction settings now include all four quaternion and three translation
+components as decimal unsigned IEEE 754 binary32 bit patterns, with explicit
+component order and encoding. This retains their stored representation rather
+than rounding through decimal floats or session micro-units. Scopes and enabled
+state remain alongside those bits. A complete validated replay recipe, source
+authentication and rig mapping are still unavailable, so report descriptions
+now identify correction replay as the missing feature instead of offset capture.
+
+The engine's equivalent helper is private; Studio uses a confined representation
+helper in report formatting rather than exposing engine internals. Pointer
+reinterpretation is a trusted native boundary and has not received a runtime
+round-trip qualification. Compile-only helper evidence is pending in
+`build/report-float-bits-build.log`. Full Studio run 99095 terminated with exit
+two on concurrent `install_session@73` (index expression), with no root report
+function among declines and no object emitted. Evidence:
+`build/report-correction-bits-studio-build.log`. Existing report proof gaps and
+native observation remain open; no executable tests were added or run.
+
 ## Report preparation now blocks unsafe publication
 
 Studio previously allowed GLB publication when staged identity or report
