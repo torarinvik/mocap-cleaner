@@ -54,6 +54,13 @@
       provenance, licenses and reproducible build instructions. Verify launch
       from Finder and file opening outside a development shell; assess signing
       and distribution requirements for the chosen release route.
+      The build now stages separate generations, seals a source/tool manifest
+      to the executable and packages its exact copy with that manifest. Bundle
+      publication retains the previous bundle and handles ordinary failure and
+      INT/TERM restoration. Qualify the current integrated successful build,
+      manifest mismatch refusal, failed compilation/linking, failed package
+      copy/publication and interruption recovery. Record process-kill/power-loss
+      limits and provide an explicit, reviewable old-generation cleanup flow.
 - [ ] Maintain a release checklist: P0 acceptance evidence, no critical
       data-loss bugs, documented quality limits, visual review, numerical/proof
       gates, session compatibility, export parity and usability target.

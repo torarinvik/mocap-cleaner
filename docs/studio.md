@@ -15,6 +15,33 @@ SHA-256 hashes for the executable and runtime object. This is a local
 development bundle; signing, notarization, an application icon and release
 distribution remain open.
 
+For compilation and packaging without running the separate Studio test suite,
+use `STUDIO_SKIP_CHECKS=1 bash scripts/build_studio.sh`. Each build prepares a
+fresh `build/studio-build.*` generation containing native objects, the executable
+and `inputs.json`. The manifest records the transitive Elisa sources, native
+sources and local headers, build recipes, compiler/runtime products and native
+tool hashes, plus SDK path/version. Inputs are compared before linking and
+publication; the completed manifest also binds the executable's SHA-256.
+`build/mocap_studio` points to the published generation. Failed compilation or
+linking preserves the previous executable.
+
+Packaging checks the sealed manifest and the copied executable, then includes
+`Contents/Resources/BUILD-INPUTS.json`. `BUILD-INFO.txt` distinguishes that record
+from observations made during packaging. A direct package call without a
+manifest is labelled unrecorded. Previous bundles remain in
+`build/studio-package.*/previous.app`; ordinary failures and handled INT/TERM
+interruptions restore the previous bundle when publication has not completed.
+An unhandled process kill or machine failure can leave that backup needing
+manual restoration. These generated directories are retained for recovery;
+review them before removing old generations.
+
+The input comparisons observe files at specific times; they do not detect a
+file changed and restored between observations, and they do not hash the whole
+SDK. A sealed build record establishes the recorded inputs and product binding,
+not native interaction or motion-quality acceptance. The new staging and
+restoration paths have Bash syntax checks; successful current integrated builds
+and failure/interruption exercises remain qualification work.
+
 ## Layout
 
 | Area | Contents |
