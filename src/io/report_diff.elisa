@@ -80,11 +80,14 @@ module ReportDiff:
             return false if n != len
             return ends_with(pool, at, len, s)
 
-        def lower_better(pool: darray[u8]&, m: Metric) -> bool:
+        def quality_name(pool: darray[u8]&, m: Metric) -> bool:
             return true if ends_with(pool, m.key_at, m.key_len, "_after")
             return true if ends_with(pool, m.key_at, m.key_len, "_after_um")
             return true if is_text(pool, m.key_at, m.key_len, "unbalanced_frames")
             return is_text(pool, m.key_at, m.key_len, "unbalanced_runs")
+
+        def lower_better(pool: darray[u8]&, m: Metric) -> bool:
+            expected_dimension(pool, m) != ReportUnitPolicy::Dimension.Unknown
 
         def copy_string(text: darray[u8]&, token: GlbJson::Token, pool: mutable darray[u8]&) -> i64:
             start: i64 = pool.count.i64()
@@ -186,7 +189,7 @@ module ReportDiff:
             build_index(pool, out, &metric_index)
             for index in 1..<metric_index.count:
                 first: Metric = out[metric_index[index]]
-                continue if not lower_better(pool, first) and not is_text(pool, first.key_at, first.key_len, "ok")
+                continue if not quality_name(pool, first) and not is_text(pool, first.key_at, first.key_len, "ok")
                 second: Metric = out[metric_index[index - 1]]
                 if compare_identity(pool, first, pool, second) == 0:
                     out.clear()
@@ -321,6 +324,9 @@ module ReportDiff:
             for m in ma:
                 # An invalid document/schema cannot produce a numeric judgment.
                 break if errors != 0
+                if quality_name(&pa, m) and not lower_better(&pa, m):
+                    metric_problem(&errors, &diagnostics, "Quality metric has no supported unit, direction or numeric type definition.", &pa, m)
+                    continue
                 flagged: bool = m.flag and m.value == 1 and is_text(&pa, m.key_at, m.key_len, "ok")
                 if lower_better(&pa, m) or flagged:
                     compared <- compared + 1
@@ -329,6 +335,9 @@ module ReportDiff:
                         continue
                     if not flagged and not Regress::metric_available(m.value, m.exact_number):
                         metric_problem(&errors, &diagnostics, "Baseline metric has unsupported numeric precision or range.", &pa, m)
+                        continue
+                    if not flagged and not ReportUnitPolicy::number_admitted(expected_dimension(&pa, m), m.value, m.exponent):
+                        metric_problem(&errors, &diagnostics, "Baseline quality metric must be nonnegative; counts and frame counts must be whole numbers.", &pa, m)
                         continue
                     at: i64 = find_indexed(&pb, &mb, &candidate_index, &pa, m)
                     mutable bad: bool = at < 0
@@ -343,6 +352,9 @@ module ReportDiff:
                         after_exponent <- other.exponent
                         if not flagged and not Regress::metric_available(after, other.exact_number):
                             metric_problem(&errors, &diagnostics, "Candidate metric has unsupported numeric precision or range.", &pa, m)
+                            continue
+                        if not flagged and not ReportUnitPolicy::number_admitted(expected_dimension(&pa, m), other.value, other.exponent):
+                            metric_problem(&errors, &diagnostics, "Candidate quality metric must be nonnegative; counts and frame counts must be whole numbers.", &pa, m)
                             continue
                         if flagged:
                             bad <- Regress::ok_lost(true, other.value == 1)
