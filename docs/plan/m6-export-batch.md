@@ -60,146 +60,56 @@ semantics has its own implementation, review fields and quality validation.
 misleading partial deliverable; source files remain unchanged. Batch and
 single-take output agree for identical settings.
 
-### Report diff input qualification still required
+### Report diff remaining implementation and qualification
 
-The CLI now errors when no baseline quality metric/status is comparable or a
-compared integer metric exceeds the supported regression domain. It does not
-silently accept those inputs through magnitude clamping. The domain kernel has
-contracts and composed laws; current compilation and replay remain pending.
+Implemented foundations: schema-aware root/clip extraction, JSON string and
+UTF-8 decoding, duplicate identity rejection, exact coefficient/exponent
+parsing, common-scale comparison, sorted identity indexes, and separate HTML
+presentation. Current Stage1 `f292cbe0` compiles the reader and CLI. These
+foundations still need behavioral, proof and rendered qualification; compilation
+does not close the review workflow. Historical proof/check evidence belongs in
+`docs/acceptance/` and `docs/proof-gaps/`, rather than completed plan items.
 
-- [ ] Replace the legacy flat scanner with schema-aware JSON parsing. Reject
-  malformed booleans, truncated strings, invalid escapes, duplicate identities
-  and unsupported numeric representations. Preserve fractions/exponents using
-  declared units and rounding rather than dropping their suffixes.
-- [ ] Validate metric types and availability on both sides; Boolean values
-  cannot stand in for numeric errors. Compare only compatible provenance and
-  units, and report unavailable dimensions with explicit reasons.
-- [ ] Qualify missing clips/metrics, unsupported magnitudes, empty baselines,
-  decimal/exponent values and malformed documents before closing diff review.
+- [ ] **Metric compatibility:** declare each supported metric's units, direction,
+  numeric type and availability semantics. Compare matching provenance/schema
+  versions, detector thresholds and units. Reject incompatible dimensions with
+  a specific explanation; do not infer compatibility from equal key names.
+- [ ] **Exact numeric qualification:** verify signed values, equivalent decimal
+  spellings, positive/negative exponents, zero with large exponents, range limits,
+  coefficient overflow and scale overflow. Preserve exact values in console and
+  HTML. Declare the supported scale/domain and explain unavailable comparisons.
+  Verify relative tolerance and absolute floor together at exact boundaries.
+- [ ] **Reader qualification:** verify malformed booleans, truncated/escaped
+  strings, invalid UTF-8, surrogate pairs, trailing document data, duplicate
+  root/clip/metric identities, reserved `total`, empty names, non-object clip
+  entries and metadata containing misleading metric keys. Verify decoding
+  equality for raw versus escaped Unicode without applying undocumented Unicode
+  normalization. Errors must prevent a passing qualification verdict.
+- [ ] **Index qualification:** establish stable sort order, row permutation,
+  adjacent duplicate detection and binary lookup equivalence. Prove all pool
+  spans and index accesses valid, sort progress and search-window shrinkage.
+  Qualify empty, singleton, odd-sized and reverse-ordered reports. Measure large
+  reports within the 16 MiB input budget, including memory and cancellation
+  behavior. Retain source row identities for diagnostics.
+- [ ] **Proof closure:** close arithmetic bounds for decimal append, scale and
+  floor conversion; close parser invariants and executable ADT summaries; close
+  midpoint and index traversal bounds. Replay every accepted certificate and
+  investigate reported disproved parser laws. Retain exact contracts and
+  independently validate prover repairs; never weaken baselines for acceptance.
+- [ ] **Review UI:** expose baseline selection, tolerance/floor controls, units,
+  compatibility diagnostics and unavailable reasons. Link to regressed clips
+  and frames only when exact identities exist. Preserve review context and offer
+  a clear retry path after correcting inputs.
+- [ ] **HTML review:** verify leading verdict, comparison parameters, counts,
+  empty/error states, escaped names and faithful decimal formatting in a rendered
+  browser. Qualify narrow-window scrolling, semantic headers, keyboard use and
+  screen-reader interpretation. A failed save must produce an actionable error.
+- [ ] **Snapshot acceptance:** rerun the authorized full check with clean current
+  dependency manifests and a stable product snapshot. Account for every failed
+  test, unknown obligation, replay gap and missing baseline. Record exact revisions
+  and scope; earlier successful workflows do not qualify later source changes.
 
-Report diff now checks engine JSON tokenization and an object root before metric
-extraction; failed structure/empty input produces an input error. The module
-compiled with current Stage1 `4c409da6`, without a stale override. This is only
-a structure admission step: legacy extraction still needs the schema, numeric,
-string decoding and duplicate-identity work listed above. Engine tokenization
-alone does not establish every required report validation rule.
-
-The diff comparison now rejects Boolean values for numeric quality metrics
-and mismatched baseline/candidate types, including numeric values used instead
-of a Boolean `ok` status. This does not replace schema validation or availability
-checks. Current object compilation is recorded separately from executable and
-proof acceptance.
-
-Report extraction now rejects duplicate clip/key pairs instead of letting the
-first match hide a later value. Reusing the parser clears its output buffers;
-failed duplicate admission clears extracted metrics. The module compiled on
-current Stage1 `4c409da6`. This check uses the legacy extracted byte identity;
-Unicode/escape-normalized identities and schema-aware nesting still need the
-reader replacement above. Its pairwise scan also needs an explicit input budget
-or indexed implementation before large batch-report qualification.
-
-Legacy numeric extraction now records whether its integer value is exact.
-Discarded decimal/exponent suffixes or overflowed digit accumulation mark a
-metric unavailable; compared values produce an input error instead of a false
-clean verdict. The availability kernel has contracts and two composed laws.
-Report diff compiles with current Stage1 `4c409da6`. Supporting those numeric
-representations with declared fixed-point units remains required; this guard
-does not complete the schema-aware reader or fractional report comparison.
-
-The full check exposed a duplicate-admission regression: timing-stage objects
-legitimately repeat `us`, while legacy extraction flattens them into one scope.
-Duplicate admission is now limited to compared quality metrics and `ok` status;
-proper per-object schema identity remains required in the reader replacement.
-The original rule rejected valid generated reports and is not qualified.
-
-Report reads now distinguish stream errors from normal EOF and check close
-status. Failed reads clear partial bytes before reporting unavailable input.
-This prevents complete-looking prefixes from being compared as full reports.
-
-Comparison input now has a 16 MiB per-report admission limit, applied both
-before parsing and during file reads. An oversized read closes the file and
-clears its partial bytes. This bounds input memory; indexed metric lookup and
-schema-aware traversal remain required to bound comparison work.
-`ReportBudget` has contracts and eight laws covering byte admission and unique
-identity cardinality. The published checker proves the source (6/6), but the
-laws have 17/22 certificates replayed despite 22 producer-proven obligations.
-Qualification remains open until those five composition gaps replay.
-
-The reader now extracts direct root scalars and direct scalars of named
-objects in the root `clips` array using engine token subtree boundaries.
-Names are located before extracting values, so field order does not change
-ownership. Nested metadata and timing arrays are excluded. Non-array `clips`,
-unnamed clip entries, and empty names are rejected. The CLI compiles with
-compiler `4c409da6`. This is partial structural implementation: fractional/exponent numbers,
-indexed lookup, and traversal proof coverage still need implementation and
-qualification. Unicode escape decoding is implemented below and requires
-behavioral and proof qualification.
-
-Duplicate root `clips` fields and duplicate clip `name` fields are now rejected.
-Clip identities must also be unique even when their metric sets do not overlap;
-the root identity `total` is reserved to prevent collisions. These structural
-checks compare decoded UTF-8 byte spans, including JSON Unicode escapes.
-Decoder qualification and proof coverage of traversal remain open.
-`JsonScalar` now supplies contracted Unicode scalar validation and hexadecimal
-digit conversion for the pending decoder. Its six laws assert scalar rejection
-and conversion results. The current published prover establishes all 19 source
-and 31 composed obligations, but replays only 18/19 and 27/31 respectively.
-The decoder is connected to keys and clip identities. It rejects malformed
-escapes, unpaired surrogates, and invalid raw UTF-8 throughout the report.
-Complete decoder contracts, round-trip laws, replay, and behavioral
-qualification remain open; see `docs/proof-gaps/json-string-decoder.md`.
-
-Comparison HTML presentation is now a separate module with a leading verdict,
-validation-error counts, comparison parameters, semantic column headers, and
-horizontal scrolling at small widths. An unavailable comparison explicitly
-states that the candidate is not qualified. The verdict uses the existing
-contracted `Regress::verdict`; native rendered and accessibility qualification
-remain required.
-
-Decimal comparison preparation: `ReportDecimal` admits exact common-scale
-multiplication only when it stays within the regression domain. Four laws
-cover identity scaling, zero, and rejection on both sides of the range.
-The reader uses digit admission and append contracts to reject coefficients
-outside the domain before multiplication. Matching laws
-cover first digits, the exact maximum coefficient, overflow rejection and
-admitted bounds; their replay remains pending. Decimal/exponent parsing,
-canonical mantissa/exponent representation, common-scale alignment, floor
-conversion, and faithful HTML formatting remain required. Prover `3de825c7`
-reports 75/77 source-closure obligations and 81/89 law-closure obligations
-proved, with no replay gaps among those proven. Variable division versus
-multiplication bounds and dependent summaries remain unresolved; compiler
-product verification awaits the current compiler seed.
-The source compiles on current Stage1; filesystem fault qualification remains
-open.
-
-Regression source qualification: current clean prover `d3a17832` / compiler
-`4c409da6` proves 71/71 source obligations and replays 71/71 certificates, zero
-gaps. `metric_available` states its exact predicate directly; its contract is
-unchanged. Composed law and native comparison qualification remain separate.
-
-Digit-law qualification with default prover `994f95be` (frontend `88ffc005`)
-is terminal: 206/234 obligations proven, 203 certificates replayed and three
-replay gaps. Twenty-eight obligations remain unsupported or unknown, including
-arithmetic bounds and dependent summaries. This is diagnostic evidence, not
-acceptance. The full result is `build/report-decimal-digit-laws.log`; retain the
-exact contracts and repair the arithmetic/replay gaps before closing this slice.
-
-`ReportNumber` now parses validated JSON number tokens into an ADT: unavailable
-or exact coefficient/exponent. It preserves trailing-zero equivalence and
-rejects coefficient overflow before arithmetic. Spans are limited to the report
-byte budget, and cursor/magnitude loop invariants are explicit. It compiles on
-Stage1 `2e1c1e51`; integration with common-scale comparisons and faithful output
-formatting remains open. Initial laws on prover `994f95be` report 204/231 proven,
-all 204 replayed, but three ADT wrapper guarantees are reported disproved and
-other invariants/summaries remain unresolved. Investigate these findings before
-acceptance; do not remove the requested guarantees to obtain a green result.
-Log: `build/report-number-invariant-laws.log`.
-
-
-Exact decimal integration is connected: metric records retain canonical
-coefficient/exponent values, comparisons align both operands and the absolute
-floor, and console/HTML output preserves the exponent. Scale overflow produces
-an unavailable comparison, never a clamped or rounded verdict. Report diff
-compiles on clean current Stage1 `f292cbe0`. Native end-to-end execution, boundary
-cases, common-scale proof replay and rendered HTML qualification remain open.
-The former integer-only clamping helper has been removed.
+**Exit:** compatible inputs receive exact, reproducible verdicts; malformed or
+unsupported inputs receive explicit unavailable/error states; the review view
+and exported HTML remain usable and truthful; complete proof replay and the
+full product check qualify the same snapshot.
