@@ -256,3 +256,11 @@ normal product rebuild is running. Fresh normal-product Studio compilation,
 native linking and matching prover/replay rebuild remain required. The
 ongoing full check selected the preceding `23a0e16a` product and is now
 comparison evidence, not acceptance of these newly adopted sources.
+
+The first normal seed failed at the readiness API's atomic completion store:
+Stage0 correctly requires a mutable heap reference for that write. Normal
+compiler follow-up `bb1f4095` marks the worker's state reference mutable; the
+worker still release-publishes completion only after writing the result.
+Its replacement seed is running with the same bounded 10 GB guard. No normal
+compiler product acceptance is claimed until that seed and provenance checks
+complete.
