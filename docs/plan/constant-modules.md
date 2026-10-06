@@ -25,6 +25,14 @@ certificate replay when qualifying the fix.
 
 ## Remaining groups (2026-10-06)
 
+The initial source inventory below omits one proof owner: `KneeLaws` in
+`proof/knee_laws.elisa` has two public aliases (`BOUND`, `HALF`), which must
+move into a geometry group with all law references updated. Outside declared
+modules, `test/studio_shortcuts.elisa` has six file-scope event constants;
+group these in an actual `const module` too, preserving their values and
+existing test assertions. Other audited proof/test owners have one constant
+each. No Elisa fixture files were found under `scripts/`.
+
 Counts describe ungrouped module-scope declarations; extension files are
 counted under their owning module. Single-constant modules need not be
 extracted solely for this rule. Group public and private constants separately
