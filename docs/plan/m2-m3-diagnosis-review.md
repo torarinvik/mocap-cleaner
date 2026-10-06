@@ -178,3 +178,10 @@ capacity as well as the existing Apply admission checks. Qualify disabled
 pointer/key/AX activation, especially inactive-page Back/Adjust and exhausted
 impact capacity; no state or history changes may result from refused actions.
 Current compilation and native acceptance remain open.
+
+Stale candidate viewing is now refused by a pure preview-admission contract,
+with missing/stale candidate laws. The viewport falls back to current result;
+the panel highlights the actually visible result and labels the stale suggested
+control. Qualify a document/stack change during candidate viewing: no stale pose
+may remain presented as current, and suggested-view activation stays disabled.
+Candidate metric freshness and native rendering/replay evidence remain open.
