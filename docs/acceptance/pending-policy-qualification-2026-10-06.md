@@ -18,7 +18,7 @@ Existing baselines must not be weakened to admit the edits.
 | Issue explanations | `issue_explanation`, policy and record laws | Typed category/strength and rounded-threshold replay; negative revision refusal; overflow-safe exact frame display replay; full UI compile |
 | Finding navigation availability | `issue_browser_policy`, matching browser laws | Fresh/count/action admission replay; stale and empty disabled appearance; pointer/key/AX refusal; invalid selection fallback |
 | Typed finding intent | `issue_annotation`, matching annotation laws | Const enum encoding replay; existing fixture compile/run; filter, session save and accessibility integration |
-| Export formatted-field capacity | `report_text_policy`, matching text laws and `app/report_text` | Boundary replay; oversized field invalidates complete snapshot before GLB publication; normal full-stack report preserved |
+| Export formatted-field capacity | `report_text_policy`, matching text laws and `app/report_text` | Byte/view boundary replay; oversized field or exhausted slots invalidate complete snapshot before GLB publication; no earlier view overwritten; normal full-stack report preserved |
 | Proof supervisor/cache | `scripts/prove.py` | Timeout, bad exits, partial/corrupt summaries, changed source, replaced/missing prover binary and parallel progress |
 
 The full proof corpus glob includes new direct source files and all `proof/`
