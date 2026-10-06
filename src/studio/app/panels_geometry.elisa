@@ -1,0 +1,277 @@
+include "storage_scan_time_copy.elisa"
+include "../storage_window_policy.elisa"
+include "../storage_age_policy.elisa"
+include "../storage_scan_time_policy.elisa"
+include "../storage_batch_policy.elisa"
+include "../storage_identity_policy.elisa"
+# The studio's 2D panels, drawn immediate-mode with elisa-ui primitives:
+# window layout, the toolbar with code-drawn vector icons, the timeline
+# (problem markers, contact bars, operation scope, playhead), the curve view
+# (source vs cleaned per-bone curves) and the operation stack panel. Hit
+# tests return action codes the app dispatches; all pixel mapping goes
+# through the proved Timeline and StudioView kernels.
+#
+# elisa-ui records at most UiCore::MAX_COMMANDS (1024) draw commands a
+# frame, so curves and markers are binned to a fixed number of segments.
+include "text.elisa"
+include "storage_accessibility_copy.elisa"
+include "scene.elisa"
+include "../chrome.elisa"
+include "../contact_editor.elisa"
+include "../file_policy.elisa"
+include "../replacement.elisa"
+include "../legacy_session_prompt.elisa"
+include "../accessibility.elisa"
+include "../issues.elisa"
+include "../issue_browser_policy.elisa"
+include "../issue_filter_policy.elisa"
+include "../reset_scope.elisa"
+include "../operation_duplicate_policy.elisa"
+include "../sidebar_layout.elisa"
+include "../export_review.elisa"
+include "../export_path_review.elisa"
+include "../export_result.elisa"
+include "../io/storage_manifest.elisa"
+include "../../../build/generated/studio_icon_paths.elisa"
+
+module StudioDraw:
+    public:
+        def color(r: u8, g: u8, b: u8) -> UiCore::Color:
+            UiCore::rgb(r, g, b)
+
+        def rect(x: f32, y: f32, w: f32, h: f32, c: UiCore::Color) -> void:
+            UiCore::fill(UiCore::Rect(x, y, w, h), c)
+
+        def segment(x1: f32, y1: f32, x2: f32, y2: f32, width: f32, c: UiCore::Color) -> void:
+            UiCore::fill_stroke(UiCore::Line{from_point: UiCore::Vec2(x1, y1), to_point: UiCore::Vec2(x2, y2)}, width, c)
+
+        def tri(ax: f32, ay: f32, bx: f32, by: f32, cx: f32, cy: f32, c: UiCore::Color) -> void:
+            UiCore::fill(UiCore::Triangle{a: UiCore::Vec2(ax, ay), b: UiCore::Vec2(bx, by), c: UiCore::Vec2(cx, cy)}, c)
+
+        def disc(x: f32, y: f32, r: f32, c: UiCore::Color) -> void:
+            UiCore::fill(UiCore::Circle{center: UiCore::Vec2(x, y), radius: r}, c)
+
+        # Octagon outline (enough for 16-24 px icons).
+        def ring(x: f32, y: f32, r: f32, width: f32, c: UiCore::Color) -> void:
+            d: f32 = r * 0.7071
+            StudioDraw::segment(x + r, y, x + d, y + d, width, c)
+            StudioDraw::segment(x + d, y + d, x, y + r, width, c)
+            StudioDraw::segment(x, y + r, x - d, y + d, width, c)
+            StudioDraw::segment(x - d, y + d, x - r, y, width, c)
+            StudioDraw::segment(x - r, y, x - d, y - d, width, c)
+            StudioDraw::segment(x - d, y - d, x, y - r, width, c)
+            StudioDraw::segment(x, y - r, x + d, y - d, width, c)
+            StudioDraw::segment(x + d, y - d, x + r, y, width, c)
+
+        def text(x: f32, y: f32, size: f32, body: sview, c: UiCore::Color) -> void:
+            UiCore::draw(UiCore::TextRun(UiCore::Vec2(x, y), size, body), c)
+
+        def bold(x: f32, y: f32, size: f32, body: sview, c: UiCore::Color) -> void:
+            UiCore::draw(UiCore::TextRun(UiCore::Vec2(x, y), size, body, true), c)
+
+        def ink() -> UiCore::Color:
+            color(226, 230, 238)
+
+        def muted() -> UiCore::Color:
+            color(140, 148, 166)
+
+        def accent() -> UiCore::Color:
+            color(255, 170, 40)
+
+        def panel() -> UiCore::Color:
+            color(30, 34, 44)
+
+        def severity_color(level: i64) -> UiCore::Color:
+            return color(250, 210, 60) if level == 1
+            return color(250, 130, 40) if level == 2
+            color(240, 50, 50)
+
+# Toolbar and stack icons: Lucide (ISC, assets/icons/lucide) plus custom
+# mocap icons (assets/icons/custom), 24px 2px-stroke SVGs flattened to line
+# segments by tools/svg_icons.py into build/generated/studio_icon_paths.elisa.
+# Codes are StudioIconPaths' codes; each icon fills an s x s box at (x, y).
+module StudioIcons:
+    public:
+        const PLAY: i64 = StudioIconPaths::PLAY
+        const PAUSE: i64 = StudioIconPaths::PAUSE
+        const BACK: i64 = StudioIconPaths::BACK
+        const FORWARD: i64 = StudioIconPaths::FORWARD
+        const LOOP: i64 = StudioIconPaths::LOOP
+        const UNDO: i64 = StudioIconPaths::UNDO
+        const REDO: i64 = StudioIconPaths::REDO
+        const TRAILS: i64 = StudioIconPaths::TRAILS
+        const CONTACTS: i64 = StudioIconPaths::CONTACTS
+        const HEAT: i64 = StudioIconPaths::HEAT
+        const ONION: i64 = StudioIconPaths::ONION
+        const GHOST: i64 = StudioIconPaths::GHOST
+        const XRAY: i64 = StudioIconPaths::XRAY
+        const MESH: i64 = StudioIconPaths::MESH
+        const EXPORT: i64 = StudioIconPaths::EXPORT
+        const FRAME: i64 = StudioIconPaths::FRAME
+        const EYE: i64 = StudioIconPaths::EYE
+        const EYE_OFF: i64 = StudioIconPaths::EYE_OFF
+        const UP: i64 = StudioIconPaths::UP
+        const DOWN: i64 = StudioIconPaths::DOWN
+        const TRASH: i64 = StudioIconPaths::TRASH
+        const PLUS: i64 = StudioIconPaths::PLUS
+        const BALANCE: i64 = StudioIconPaths::BALANCE
+        const CLEAN: i64 = StudioIconPaths::CLEAN
+        const OPEN: i64 = StudioIconPaths::OPEN
+        const SAVE: i64 = StudioIconPaths::SAVE
+        const FOOT_FIX: i64 = StudioIconPaths::FOOT_FIX
+        const PIVOT: i64 = StudioIconPaths::PIVOT
+        const SPIKE: i64 = StudioIconPaths::SPIKE
+        const RETIME: i64 = StudioIconPaths::RETIME
+
+        # 2 SVG units of stroke, never thinner than 1.2 px.
+        def draw(icon: i64, x: f32, y: f32, s: f32, c: UiCore::Color) -> void:
+            w: f32 = s / 12.0
+            StudioIconPaths::draw(icon, x, y, s, w if w > 1.2 else 1.2, c)
+
+module StudioPanels:
+    public:
+    private:
+        const SIDEBAR: f32 = 300.0
+    public:
+        const TOOLBAR: f32 = 44.0
+    private:
+        const TIMELINE: f32 = 116.0
+        const CURVE: f32 = 150.0
+        const STATUS: f32 = 24.0
+    public:
+        const GAP: f32 = 8.0
+    private:
+        const BUTTON: f32 = 32.0
+    public:
+        const BUTTONS: i64 = StudioAccessibility::TOOLBAR_ACTION_COUNT
+    private:
+        const ROW: f32 = StudioSidebarLayout::OPERATION_ROW_HEIGHT.f32()
+        const ADD_KINDS: i64 = 5
+        const CURVE_SEGMENTS: i64 = 40
+        const MARKER_BINS: i64 = 120
+        const FILE_MENU_ROW: f32 = 28.0
+        const FILE_MENU_WIDTH: f32 = 190.0
+        const RESET_MENU_WIDTH: f32 = 276.0
+        const RESET_MENU_HEIGHT: f32 = 148.0
+        const ISSUE_ROWS: i64 = StudioIssueBrowserPolicy::ROWS
+    public:
+        const ISSUE_FILTERED_ROWS: i64 = 1
+        const ISSUE_PREVIOUS: i64 = StudioIssueBrowserPolicy::PREVIOUS
+        const ISSUE_NEXT: i64 = StudioIssueBrowserPolicy::NEXT
+        const ISSUE_WORST: i64 = StudioIssueBrowserPolicy::WORST
+    private:
+        const RESET_CLEAR_CONTACTS: i64 = StudioResetScope::CLEAR_CONTACTS
+        const RESET_CLEAR_CORRECTIONS: i64 = StudioResetScope::CLEAR_CORRECTIONS
+        const RESET_RESTORE_SOURCE: i64 = StudioResetScope::RESTORE_SOURCE
+    public:
+        const ISSUE_GROUP_ID: usize = StudioIssueBrowserPolicy::GROUP_ID
+        const ISSUE_PREVIOUS_ID: usize = StudioIssueBrowserPolicy::PREVIOUS_ID
+        const ISSUE_NEXT_ID: usize = StudioIssueBrowserPolicy::NEXT_ID
+        const ISSUE_WORST_ID: usize = StudioIssueBrowserPolicy::WORST_ID
+    private:
+        const ISSUE_ROW_ID_FIRST: usize = StudioIssueBrowserPolicy::ROW_ID_FIRST
+
+        # Filter controls return stable field actions for app-state wiring.
+    public:
+        const ISSUE_FILTER_DETECTOR: i64 = 0
+        const ISSUE_FILTER_SUBJECT: i64 = 1
+        const ISSUE_FILTER_SEVERITY: i64 = 2
+        const ISSUE_FILTER_STATUS: i64 = 3
+        const ISSUE_FILTER_RESET: i64 = 4
+    private:
+        const ISSUE_DISPOSITION_TOGGLE: i64 = 5
+    public:
+        const CONTACT_EDIT_FIRST: i64 = -2
+        const CONTACT_EDIT_LAST: i64 = -3
+
+        # Toolbar actions, in button order.
+        const A_PLAY: i64 = 0
+        const A_BACK: i64 = 1
+        const A_FORWARD: i64 = 2
+        const A_SPEED: i64 = 3
+        const A_LOOP: i64 = 4
+        const A_UNDO: i64 = 5
+        const A_REDO: i64 = 6
+        const A_TRAILS: i64 = 7
+        const A_CONTACTS: i64 = 8
+        const A_HEAT: i64 = 9
+        const A_ONION: i64 = 10
+        const A_GHOST: i64 = 11
+        const A_XRAY: i64 = 12
+        const A_MESH: i64 = 13
+        const A_FRAME: i64 = 14
+        const A_OPEN: i64 = 15
+        const A_EXPORT: i64 = 16
+        const A_BALANCE: i64 = 17
+    private:
+        const A_CLEAN: i64 = 18
+
+        # Stack-panel hits: kind * 100 + row (kind 1 select, 2 toggle, 3 up,
+        # 4 down, 5 remove), or 600 + k for "add kind k".
+    public:
+        const HIT_SELECT: i64 = 1
+        const HIT_TOGGLE: i64 = 2
+        const HIT_UP: i64 = 3
+        const HIT_DOWN: i64 = 4
+        const HIT_REMOVE: i64 = 5
+        const HIT_ADD: i64 = 6
+        const HIT_DUPLICATE: i64 = 7
+
+        struct Box:
+            x: f32
+            y: f32
+            w: f32
+            h: f32
+
+        def box(x: f32, y: f32, w: f32, h: f32) -> Box:
+            Box{x: x, y: y, w: w if w > 1.0 else 1.0, h: h if h > 1.0 else 1.0}
+
+        def inside(b: Box, px: f32, py: f32) -> bool:
+            return StudioView::inside(px.i64(), py.i64(), b.x.i64(), b.y.i64(), b.w.i64(), b.h.i64())
+
+        # Window layout for a `w` x `h` point window.
+        def main_width(w: f32) -> f32:
+            v: f32 = w - SIDEBAR - 2.0 * GAP
+            v if v > 200.0 else 200.0
+
+        def views_height(h: f32) -> f32:
+            v: f32 = h - TOOLBAR - CURVE - TIMELINE - STATUS - 3.0 * GAP
+            v if v > 160.0 else 160.0
+
+        def view_box(index: usize, w: f32, h: f32) -> Box:
+            mw: f32 = main_width(w)
+            vh: f32 = views_height(h)
+            top: f32 = vh * 0.6
+            return box(GAP, TOOLBAR, mw, top - GAP * 0.5) if index == 0
+            half: f32 = (mw - GAP) * 0.5
+            return box(GAP, TOOLBAR + top + GAP * 0.5, half, vh - top - GAP * 0.5) if index == 1
+            box(GAP + half + GAP, TOOLBAR + top + GAP * 0.5, half, vh - top - GAP * 0.5)
+
+        def curve_box(w: f32, h: f32) -> Box:
+            box(GAP, TOOLBAR + views_height(h) + GAP, main_width(w), CURVE)
+
+        def timeline_box(w: f32, h: f32) -> Box:
+            box(GAP, TOOLBAR + views_height(h) + CURVE + 2.0 * GAP, main_width(w), TIMELINE)
+
+        def status_box(w: f32, h: f32) -> Box:
+            box(0.0, h - STATUS, w - SIDEBAR, STATUS)
+
+        def sidebar_box(w: f32, h: f32) -> Box:
+            box(w - SIDEBAR, 0.0, SIDEBAR, h)
+
+        # Inner strip of the timeline the frames map onto.
+        def strip(t: Box) -> Box:
+            box(t.x + 12.0, t.y, t.w - 196.0, t.h)
+
+        def button_x(i: i64) -> f32:
+            groups: i64 = (1 if i >= A_UNDO else 0) + (1 if i >= A_TRAILS else 0) + (1 if i >= A_FRAME else 0) + (1 if i >= A_CLEAN else 0)
+            GAP + i.f32() * (BUTTON + 4.0) + groups.f32() * 14.0
+
+        def button_box(i: i64) -> Box:
+            box(button_x(i), 6.0, BUTTON, BUTTON)
+
+        def toolbar_hit(px: f32, py: f32) -> i64:
+            for i in 0..<BUTTONS |i, px, py|:
+                return i if inside(button_box(i), px, py)
+            return -1
+

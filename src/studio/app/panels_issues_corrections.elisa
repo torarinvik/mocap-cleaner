@@ -1,0 +1,279 @@
+include "panels_geometry.elisa"
+
+extend StudioPanels:
+    public:
+    private:
+        def add_box(sb: Box, k: i64) -> Box:
+            w: f32 = (sb.w - 24.0) / 3.0
+            col: i64 = k % 3
+            row: i64 = k / 3
+            box(sb.x + 12.0 + col.f32() * w, sb.y + StudioSidebarLayout::ADD_TOP.f32() + row.f32() * StudioSidebarLayout::ADD_ROW_STEP.f32(), w - 4.0, StudioSidebarLayout::ADD_ROW_HEIGHT.f32())
+
+    public:
+        def duplicate_button_box(sb: Box) -> Box:
+            box(sb.x + 132.0, sb.y + StudioSidebarLayout::STACK_HEADING_TOP.f32() - 2.0, 76.0, 23.0)
+
+    private:
+        def row_box(sb: Box, i: i64) -> Box:
+            box(sb.x + 8.0, sb.y + StudioSidebarLayout::OPERATION_ROW_TOP.f32() + i.f32() * StudioSidebarLayout::OPERATION_ROW_STEP.f32(), sb.w - 16.0, ROW)
+
+    public:
+        def reset_menu_button_box(sb: Box) -> Box:
+            box(sb.x + sb.w - 88.0, sb.y + StudioSidebarLayout::STACK_HEADING_TOP.f32() - 2.0, 76.0, 23.0)
+
+    private:
+        def reset_menu_box(sb: Box) -> Box:
+            box(sb.x + 12.0, sb.y + StudioSidebarLayout::STACK_HEADING_BOTTOM.f32() + 4.0, RESET_MENU_WIDTH, RESET_MENU_HEIGHT)
+
+    public:
+        def reset_menu_item_box(sb: Box, slot: i64) -> Box:
+            box(reset_menu_box(sb).x + 6.0, reset_menu_box(sb).y + 25.0 + slot.f32() * 32.0, RESET_MENU_WIDTH - 12.0, 30.0)
+
+        def reset_menu_contains(sb: Box, px: f32, py: f32) -> bool:
+            inside(reset_menu_box(sb), px, py)
+
+        def reset_menu_hit(sb: Box, s: StackState::Stack&, px: f32, py: f32) -> i64:
+            return RESET_CLEAR_CONTACTS if inside(reset_menu_item_box(sb, 0), px, py) and StudioResetScope::enabled(RESET_CLEAR_CONTACTS, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            return RESET_CLEAR_CORRECTIONS if inside(reset_menu_item_box(sb, 1), px, py) and StudioResetScope::enabled(RESET_CLEAR_CORRECTIONS, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            return RESET_RESTORE_SOURCE if inside(reset_menu_item_box(sb, 2), px, py) and StudioResetScope::enabled(RESET_RESTORE_SOURCE, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            -1
+
+        def reset_menu_panel(sb: Box, s: StackState::Stack&, open: bool) -> void:
+            trigger: Box = reset_menu_button_box(sb)
+            StudioDraw::rect(trigger.x, trigger.y, trigger.w, trigger.h, StudioDraw::color(61, 52, 38) if open else StudioDraw::panel())
+            StudioDraw::text(trigger.x + 8.0, trigger.y + 5.0, 10.0, "Reset…", StudioDraw::ink())
+            return if not open
+            menu: Box = reset_menu_box(sb)
+            StudioDraw::rect(menu.x, menu.y, menu.w, menu.h, StudioDraw::color(18, 21, 28))
+            StudioDraw::bold(menu.x + 8.0, menu.y + 6.0, 11.0, "Choose reset scope", StudioDraw::ink())
+            for slot in 0..<3 |slot, sb, s, menu|:
+                item: Box = reset_menu_item_box(sb, slot)
+                action: i64 = StudioResetScope::CLEAR_CONTACTS + slot
+                enabled: bool = StudioResetScope::enabled(action, false, s.edit_count, s.fix_count, StackState::has_cleanup(s))
+                broad: bool = action == RESET_RESTORE_SOURCE
+                col: UiCore::Color = StudioDraw::color(57, 47, 35) if broad and enabled else StudioDraw::color(42, 47, 58) if enabled else StudioDraw::color(31, 34, 41)
+                StudioDraw::rect(item.x, item.y, item.w, item.h, col)
+                label: sview = "Clear contact overrides" if slot == 0 else "Clear local corrections" if slot == 1 else "Restore source result"
+                StudioDraw::text(item.x + 7.0, item.y + 3.0, 10.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
+                detail: sview = "Return frames to automatic detection" if slot == 0 else "Keep operations and contact edits" if slot == 1 else "Remove operations, corrections, contacts, locks and retiming"
+                StudioDraw::text(item.x + 7.0, item.y + 17.0, 8.0, detail, StudioDraw::muted())
+            StudioDraw::text(menu.x + 8.0, menu.y + 127.0, 8.0, "Esc closes · row trash removes one operation", StudioDraw::muted())
+
+        # Ranked issue browser occupies the sidebar above cleanup controls.
+        # The filter, navigation and finding rows have separate hit regions;
+        # navigation stays available when the ranked list is longer.
+        def issue_nav_box(sb: Box, action: i64) -> Box:
+            box(sb.x + 12.0 + action.f32() * 89.0, sb.y + StudioSidebarLayout::ISSUE_NAV_TOP.f32(), 82.0, 20.0)
+
+        def issue_area_box(sb: Box) -> Box:
+            box(sb.x + 6.0, sb.y + StudioSidebarLayout::ISSUE_TOP.f32(), sb.w - 12.0, StudioSidebarLayout::ISSUE_HEIGHT.f32())
+
+        def issue_row_id(index: i64) -> usize:
+            StudioIssueBrowserPolicy::row_id(index)
+
+    private:
+        def issue_node_parent(id: usize) -> usize:
+            StudioIssueBrowserPolicy::node_parent(id, StudioAccessibility::SIDEBAR, StudioAccessibility::NO_NODE)
+
+        def issue_node_first_child() -> usize:
+            StudioIssueBrowserPolicy::node_first_child()
+
+    public:
+        def issue_node_next_sibling(id: usize, visible_rows: i64) -> usize:
+            StudioIssueBrowserPolicy::node_next_sibling(id, visible_rows, StudioAccessibility::NO_NODE)
+
+    private:
+        def issue_window_start(selected: i64, count: i64) -> i64:
+            StudioIssueBrowserPolicy::window_start(selected, count)
+
+    public:
+        def issue_row_box(sb: Box, index: i64) -> Box:
+            box(sb.x + 8.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + index.f32() * StudioSidebarLayout::ISSUE_ROW_STEP.f32(), sb.w - 16.0, StudioSidebarLayout::ISSUE_ROW_HEIGHT.f32())
+
+        # Four compact filter chips use equal widths so the sidebar remains
+        # usable at its minimum supported width. Reset is shown only while an
+        # active filter is present; the return action is still stable either way.
+        def issue_filter_box(sb: Box, field: i64) -> Box:
+            chip_w: f32 = (sb.w - 24.0) / 4.0
+            return box(sb.x + 8.0 + field.f32() * chip_w, sb.y + StudioSidebarLayout::ISSUE_FILTER_TOP.f32(), chip_w - 3.0, 19.0) if field >= 0 and field < 4
+            box(sb.x + sb.w - 58.0, sb.y + StudioSidebarLayout::ISSUE_HEADING_TOP.f32(), 48.0, 20.0)
+
+        def issue_filter_hit(sb: Box, px: f32, py: f32) -> i64:
+            if inside(issue_filter_box(sb, ISSUE_FILTER_RESET), px, py):
+                return ISSUE_FILTER_RESET
+            for field in 0..<4 |field, sb, px, py|:
+                return field if inside(issue_filter_box(sb, field), px, py)
+            -1
+
+        def issue_filter_action(field: i64) -> i64:
+            field if field >= ISSUE_FILTER_DETECTOR and field <= ISSUE_FILTER_RESET else -1
+
+        def issue_disposition_box(sb: Box) -> Box:
+            box(sb.x + 8.0, sb.y + 294.0, sb.w - 16.0, 15.0)
+
+        def issue_disposition_hit(sb: Box, px: f32, py: f32, selection_valid: bool) -> i64:
+            return ISSUE_DISPOSITION_TOGGLE if selection_valid and inside(issue_disposition_box(sb), px, py) else -1
+
+    private:
+        def issue_disposition_action(selection_valid: bool) -> i64:
+            ISSUE_DISPOSITION_TOGGLE if selection_valid else -1
+
+        def issue_disposition_label(ignored: bool) -> sview:
+            "Restore finding" if ignored else "Ignore as intentional"
+
+    public:
+        def issue_disposition_control(sb: Box, selection_valid: bool, ignored: bool) -> void:
+            b: Box = issue_disposition_box(sb)
+            StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(48, 54, 66) if selection_valid else StudioDraw::color(36, 39, 46))
+            StudioDraw::text(b.x + 5.0, b.y + 3.0, 8.0, issue_disposition_label(ignored), StudioDraw::ink() if selection_valid else StudioDraw::muted())
+
+        def issue_filter_active(f: StudioIssueFilterPolicy::Filter) -> bool:
+            f.detector != StudioIssueFilterPolicy::ANY_DETECTOR or f.subject != StudioIssueFilterPolicy::ANY_SUBJECT or f.minimum_severity > 0 or f.status != StudioIssueFilterPolicy::ANY_STATUS
+
+        def issue_filter_controls(sb: Box, f: StudioIssueFilterPolicy::Filter) -> void:
+            # Chips identify both the filter and its current value. Clicking
+            # each chip advances that field's choice in the application.
+            for field in 0..<4 |field, sb, f|:
+                b: Box = issue_filter_box(sb, field)
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(48, 54, 66))
+                StudioText::begin()
+                if field == ISSUE_FILTER_DETECTOR:
+                    StudioText::put("Detector ")
+                    if f.detector == StudioIssueFilterPolicy::ANY_DETECTOR:
+                        StudioText::put("All")
+                    elif f.detector == 0:
+                        StudioText::put("Spike")
+                    else:
+                        StudioText::put_i(f.detector)
+                elif field == ISSUE_FILTER_SUBJECT:
+                    StudioText::put("Subject ")
+                    if f.subject == StudioIssueFilterPolicy::ANY_SUBJECT:
+                        StudioText::put("All")
+                    elif f.subject == -1:
+                        StudioText::put("Aggregate")
+                    else:
+                        StudioText::put_i(f.subject)
+                elif field == ISSUE_FILTER_SEVERITY:
+                    StudioText::put("Sev≥")
+                    StudioText::put_i(f.minimum_severity)
+                    StudioText::put("‰")
+                else:
+                    StudioText::put("Status ")
+                    if f.status == StudioIssueFilterPolicy::ANY_STATUS:
+                        StudioText::put("All")
+                    elif f.status == StudioIssueFilterPolicy::UNRESOLVED:
+                        StudioText::put("Open")
+                    else:
+                        StudioText::put("Ignored")
+                label: sview = StudioText::view()
+                StudioDraw::text(b.x + 3.0, b.y + 5.0, 8.0, label, StudioDraw::ink())
+            reset: Box = issue_filter_box(sb, ISSUE_FILTER_RESET)
+            active: bool = issue_filter_active(f)
+            StudioDraw::rect(reset.x, reset.y, reset.w, reset.h,
+                StudioDraw::color(74, 52, 38) if active else StudioDraw::panel())
+            StudioDraw::text(reset.x + 5.0, reset.y + 5.0, 9.0,
+                "Reset" if active else "Default", StudioDraw::ink() if active else StudioDraw::muted())
+
+        def issue_nav_hit(sb: Box, px: f32, py: f32) -> i64:
+            for action in 0..<3 |action, sb, px, py|:
+                return action if inside(issue_nav_box(sb, action), px, py)
+            -1
+
+        def issue_row_hit(sb: Box, count: i64, px: f32, py: f32) -> i64:
+            visible: i64 = count if count < ISSUE_FILTERED_ROWS else ISSUE_FILTERED_ROWS
+            for index in 0..<visible |index, sb, px, py|:
+                return index if inside(issue_row_box(sb, index), px, py)
+            -1
+
+        def issue_at(issues: darray[StudioIssues::Issue]&, index: i64) -> StudioIssues::Issue:
+            mutable current: i64 = 0
+            for issue in issues |current|:
+                if current == index:
+                    return issue
+                current <- current + 1
+            zeroed
+
+        def issue_navigation_target(current: i64, count: i64, action: i64) -> i64:
+            requires current >= 0
+            requires count > 0 and count <= StudioIssueBrowserPolicy::MAX_FINDINGS
+            requires current < count
+            requires action >= ISSUE_PREVIOUS and action <= ISSUE_WORST
+            StudioIssueBrowserPolicy::navigation_target(current, count, action)
+
+        def issue_row_route_enabled(index: i64, visible_rows: i64, fresh: bool) -> bool:
+            StudioIssueBrowserPolicy::row_route_enabled(index, visible_rows, fresh)
+
+        def issue_row_text(issue: StudioIssues::Issue) -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            if issue.issue_type == 0:
+                StudioText::put("Spike")
+            else:
+                StudioText::put("detector ")
+                StudioText::put_i(issue.issue_type)
+            StudioText::put(" · ")
+            if issue.subject_id >= 0:
+                StudioText::put("subject ")
+                StudioText::put_i(issue.subject_id)
+            else:
+                StudioText::put("aggregate only")
+            StudioText::put("  frame ")
+            StudioText::put_i(issue.peak_frame + 1)
+            StudioText::put("  value ")
+            StudioText::put_i(issue.peak_value)
+            StudioText::put(" / ")
+            StudioText::put_i(issue.threshold)
+            StudioText::view()
+
+        def issue_browser(sb: Box, issues: darray[StudioIssues::Issue]&, first: i64, selected: i64, stale: bool, loading: bool, filter_active: bool) -> void:
+            area: Box = issue_area_box(sb)
+            StudioDraw::rect(area.x, area.y, area.w, area.h, StudioDraw::color(30, 34, 44))
+            StudioDraw::bold(sb.x + 12.0, sb.y + StudioSidebarLayout::ISSUE_HEADING_TOP.f32(), 14.0, "Ranked findings", StudioDraw::ink())
+            StudioDraw::text(sb.x + 134.0, sb.y + StudioSidebarLayout::ISSUE_HEADING_TOP.f32() + 3.0, 10.0,
+                "Stale" if stale else "Updating" if loading else "Current",
+                StudioDraw::color(255, 170, 40) if stale or loading else StudioDraw::muted())
+            for action in 0..<3 |action, sb, selected|:
+                b: Box = issue_nav_box(sb, action)
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())
+                StudioDraw::text(b.x + 5.0, b.y + 5.0,
+                    10.0, "Previous" if action == ISSUE_PREVIOUS else "Next" if action == ISSUE_NEXT else "Worst",
+                    StudioDraw::ink())
+            count: i64 = issues.count.i64() if issues.count.i64() < ISSUE_FILTERED_ROWS else ISSUE_FILTERED_ROWS
+            if loading and issues.count == 0:
+                StudioDraw::text(sb.x + 12.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + 6.0, 11.0, "Loading findings…", StudioDraw::muted())
+            elif issues.count == 0:
+                StudioDraw::text(sb.x + 12.0, sb.y + StudioSidebarLayout::ISSUE_ROW_TOP.f32() + 6.0, 11.0,
+                    "No findings match these filters" if filter_active else "No motion findings", StudioDraw::muted())
+            for index in 0..<count |index, sb, issues, selected, stale|:
+                absolute: i64 = first + index
+                issue: StudioIssues::Issue = issue_at(issues, absolute)
+                b: Box = issue_row_box(sb, index)
+                StudioDraw::rect(b.x, b.y, b.w, b.h,
+                    StudioDraw::color(58, 52, 40) if absolute == selected else StudioDraw::panel())
+                StudioDraw::text(b.x + 5.0, b.y + 9.0, 9.0,
+                    issue_row_text(issue), StudioDraw::muted() if stale else StudioDraw::ink())
+
+    private:
+        def add_label(k: i64) -> sview:
+            return "Smooth" if k == 1
+            return "Median" if k == 2
+            return "Wring" if k == 3
+            return "Seam" if k == 4
+            "Despike"
+
+    public:
+        def stack_hit(sb: Box, s: StackState::Stack&, px: f32, py: f32) -> i64:
+            return HIT_DUPLICATE * 100 if inside(duplicate_button_box(sb), px, py)
+            for k in 0..<ADD_KINDS |k, sb, px, py|:
+                return HIT_ADD * 100 + k if inside(add_box(sb, k), px, py)
+            for i in 0..<s.count |i, sb, px, py|:
+                r: Box = row_box(sb, i)
+                if inside(r, px, py):
+                    return HIT_TOGGLE * 100 + i if px < r.x + 34.0
+                    return HIT_REMOVE * 100 + i if px >= r.x + r.w - 30.0
+                    return HIT_DOWN * 100 + i if px >= r.x + r.w - 58.0
+                    return HIT_UP * 100 + i if px >= r.x + r.w - 86.0
+                    return HIT_SELECT * 100 + i
+            return -1
+
+        # The labelled File control sits in the sidebar title row. Its popup
+        # opens downwards over the panel so it remains reachable at any size.

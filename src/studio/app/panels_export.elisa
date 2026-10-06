@@ -1,0 +1,415 @@
+include "panels_geometry.elisa"
+
+extend StudioPanels:
+    public:
+        def export_path_inspector_dialog_box(w: f32, h: f32) -> Box:
+            box((w - 820.0) / 2.0, (h - 500.0) / 2.0, 820.0, 500.0)
+
+        def export_path_inspector_button_box(w: f32, h: f32, action: i64) -> Box:
+            d: Box = export_path_inspector_dialog_box(w, h)
+            box(d.x + 24.0 + action.f32() * 134.0, d.y + 420.0, 120.0, 38.0)
+
+        def export_path_inspector_hit(w: f32, h: f32, px: f32, py: f32) -> i64:
+            for action in 0..<StudioExportPathReview::ACTION_COUNT |action, w, h, px, py|:
+                return action if inside(export_path_inspector_button_box(w, h, action), px, py)
+            -1
+
+        def export_warning_detail_dialog_box(w: f32, h: f32) -> Box:
+            box((w - 620.0) / 2.0, (h - 300.0) / 2.0, 620.0, 300.0)
+
+        def export_warning_detail_button_box(w: f32, h: f32, action: i64) -> Box:
+            d: Box = export_warning_detail_dialog_box(w, h)
+            box(d.x + 24.0 + action.f32() * 134.0, d.y + 240.0, 120.0, 38.0)
+
+        def export_warning_detail_hit(w: f32, h: f32, px: f32, py: f32) -> i64:
+            for action in 0..<StudioExportPathReview::ACTION_COUNT |action, w, h, px, py|:
+                return action if inside(export_warning_detail_button_box(w, h, action), px, py)
+            -1
+
+    private:
+        def path_preview(path: cstr) -> sview can Unsafe.PointerCast:
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                length <- length + 1
+            mutable prefix_end: usize = length
+            mutable suffix_start: usize = length
+            if length > 48:
+                prefix_end <- 8
+                # Do not leave a partial UTF-8 character at either edge.
+                while prefix_end > 0 and path[prefix_end] >= 128 and path[prefix_end] <= 191:
+                    prefix_end <- prefix_end - 1
+                suffix_start <- length - 37
+                while suffix_start < length and path[suffix_start] >= 128 and path[suffix_start] <= 191:
+                    suffix_start <- suffix_start + 1
+            StudioText::begin()
+            for index in 0..<prefix_end |index, path|:
+                StudioText::byte(path[index])
+            StudioText::put("…") if suffix_start > prefix_end
+            for index in suffix_start..<length |index, path|:
+                StudioText::byte(path[index])
+            StudioText::view()
+
+        def export_path_length(path: cstr) -> usize:
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                length <- length + 1
+            length
+
+        def export_path_line_end(path: cstr, start: usize, length: usize) -> usize:
+            mutable end: usize = start + 44
+            end <- length if end > length
+            while end > start and end < length and path[end] >= 128 and path[end] <= 191:
+                end <- end - 1
+            return start + 44 if end == start and start + 44 <= length
+            return length if end == start
+            end
+
+        def export_path_line_start(path: cstr, line: usize, length: usize) -> usize:
+            mutable offset: usize = 0
+            for index in 0..<line |index, path, offset, length|:
+                offset <- export_path_line_end(path, offset, length)
+            offset
+
+    public:
+        def export_path_pages(path: cstr) -> i64:
+            length: usize = export_path_length(path)
+            return 1 if length == 0
+            mutable offset: usize = 0
+            mutable pages: i64 = 0
+            while offset < length:
+                for row in 0..<5 |row, path, offset, length|:
+                    offset <- export_path_line_end(path, offset, length) if offset < length
+                pages <- pages + 1
+            pages
+
+        def export_path_visible_lines(path: cstr, page: i64) -> i64:
+            length: usize = export_path_length(path)
+            line: usize = (page * 5).usize()
+            mutable offset: usize = export_path_line_start(path, line, length)
+            mutable count: i64 = 0
+            while count < 5 and offset < length:
+                offset <- export_path_line_end(path, offset, length)
+                count <- count + 1
+            count
+
+        def export_path_line(path: cstr, page: i64, row: i64) -> sview can Unsafe.PointerCast:
+            length: usize = export_path_length(path)
+            line: usize = (page * 5 + row).usize()
+            start: usize = export_path_line_start(path, line, length)
+            end: usize = export_path_line_end(path, start, length)
+            StudioText::begin()
+            for index in start..<end |index, path|:
+                StudioText::byte(path[index])
+            StudioText::view()
+
+        def export_path_inspector_panel(w: f32, h: f32, opened: bool,
+                                        destination: cstr, page: i64,
+                                        focus: i64) -> void:
+            return if not opened
+            pages: i64 = export_path_pages(destination)
+            visible_lines: i64 = export_path_visible_lines(destination, page)
+            d: Box = export_path_inspector_dialog_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 22.0, 19.0, "Full export destination", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 51.0, 12.0, "Read the complete destination path. Long paths continue on the next page.", StudioDraw::muted())
+            for row in 0..<visible_lines |row, d, page, destination|:
+                line: Box = box(d.x + 24.0, d.y + 76.0 + row.f32() * 49.0, d.w - 48.0, 38.0)
+                StudioDraw::rect(line.x, line.y, line.w, line.h, StudioDraw::panel())
+                StudioDraw::text(line.x + 12.0, line.y + 11.0, 12.0,
+                    export_path_line(destination, page, row), StudioDraw::ink())
+            StudioText::begin()
+            StudioText::put("Page ")
+            StudioText::put_i(page + 1)
+            StudioText::put(" of ")
+            StudioText::put_i(pages)
+            StudioDraw::text(d.x + 24.0, d.y + 338.0, 12.0, StudioText::view(), StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 367.0, 11.0,
+                "Left/Right changes page · Tab moves · Enter selects · Esc returns", StudioDraw::muted())
+            for action in 0..<StudioExportPathReview::ACTION_COUNT |action, w, h, page, pages, focus|:
+                b: Box = export_path_inspector_button_box(w, h, action)
+                enabled: bool = StudioExportPathReview::enabled(action, page, pages)
+                selected: bool = focus == action
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
+                mutable label: sview = "Previous"
+                label <- "Next" if action == StudioExportPathReview::NEXT
+                label <- "Done" if action == StudioExportPathReview::DONE
+                StudioDraw::text(b.x + 13.0, b.y + 11.0, 12.0, label,
+                    StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117))
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
+
+    private:
+        def active_operation_count(s: StackState::Stack&) -> i64:
+            mutable count: i64 = 0
+            for index in 0..<s.count |index, s|:
+                count <- count + 1 if s.ops[index].enabled
+            count
+
+        def export_warning_row(w: f32, h: f32, row: i64, focused: bool,
+                               value: sview) -> void:
+            b: Box = export_review_warning_box(w, h, row)
+            StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(47, 55, 70)) if focused
+            StudioDraw::rect(b.x + 4.0, b.y + 3.0, 2.0, b.h - 6.0, StudioDraw::accent()) if focused
+            StudioText::begin()
+            StudioText::put(value)
+            d: Box = export_review_dialog_box(UiCore::viewport_width(), UiCore::viewport_height())
+            StudioDraw::text(d.x + 36.0, b.y + 4.0, 11.0, StudioText::view(), StudioDraw::color(245, 145, 100))
+            StudioDraw::text(d.x + d.w - 82.0, b.y + 4.0, 9.0, "Inspect", StudioDraw::muted())
+
+        def export_warning_metric_row(label: sview, before: i64, after: i64) -> sview:
+            StudioText::begin()
+            StudioText::put(label)
+            mm_put(before)
+            StudioText::put(" -> ")
+            mm_put(after)
+            StudioText::view()
+
+    public:
+        def export_warning_detail_title(kind: i64) -> sview:
+            return "Unresolved balance frames" if kind == StudioExportReview::BALANCE_WARNING
+            return "Spikes increased" if kind == StudioExportReview::SPIKE_WARNING
+            return "Foot slide increased" if kind == StudioExportReview::FOOT_SLIDE_WARNING
+            return "Foot sink increased" if kind == StudioExportReview::FOOT_SINK_WARNING
+            return "Hand slide increased" if kind == StudioExportReview::HAND_SLIDE_WARNING
+            "Quality warning"
+
+        def export_warning_detail_metric(c: StudioModel::Clip&, kind: i64) -> sview:
+            if kind == StudioExportReview::BALANCE_WARNING:
+                return StudioText::number("Unresolved output frames: ", c.impossible_frames)
+            elif kind == StudioExportReview::SPIKE_WARNING:
+                return StudioText::pair("Source spikes: ", c.spikes_before, "  Cleaned spikes: ", c.spikes_after)
+            elif kind == StudioExportReview::FOOT_SLIDE_WARNING:
+                StudioText::begin()
+                StudioText::put("Foot slide: ")
+                mm_put(c.slide_before)
+                StudioText::put(" -> ")
+                mm_put(c.slide_after)
+                return StudioText::view()
+            elif kind == StudioExportReview::FOOT_SINK_WARNING:
+                StudioText::begin()
+                StudioText::put("Foot sink: ")
+                mm_put(c.sink_before)
+                StudioText::put(" -> ")
+                mm_put(c.sink_after)
+                return StudioText::view()
+            elif kind == StudioExportReview::HAND_SLIDE_WARNING:
+                StudioText::begin()
+                StudioText::put("Hand slide: ")
+                mm_put(c.hand_slide_before)
+                StudioText::put(" -> ")
+                mm_put(c.hand_slide_after)
+                return StudioText::view()
+            "No metric is available for this warning."
+
+        def export_warning_detail_evidence(c: StudioModel::Clip&, kind: i64) -> sview:
+            if kind == StudioExportReview::BALANCE_WARNING:
+                mutable frame: i64 = -1
+                for index in 0..<c.balance.count |index, c, frame|:
+                    frame <- index.i64() if frame < 0 and c.balance[index] == StudioOverlay::IMPOSSIBLE
+                return StudioText::number("First affected output frame: ", frame) if frame >= 0
+                return "No per-frame balance marker is available."
+            elif kind == StudioExportReview::SPIKE_WARNING:
+                mutable frame: i64 = -1
+                limit: usize = c.problems.count if c.problems.count < c.source_problems.count else c.source_problems.count
+                for index in 0..<limit |index, c, frame|:
+                    frame <- index.i64() if frame < 0 and c.problems[index] > c.source_problems[index]
+                return StudioText::number("First output frame with more spikes: ", frame) if frame >= 0
+                return "The category total increased; no matching per-frame comparison is retained."
+            elif kind == StudioExportReview::FOOT_SLIDE_WARNING:
+                if c.foot_slide.count > 0 and c.worst_frame >= 0:
+                    StudioText::begin()
+                    StudioText::put("Largest cleaned per-frame slide: frame ")
+                    StudioText::put_i(c.worst_frame)
+                    StudioText::put(" at ")
+                    mm_put(c.worst_slide)
+                    return StudioText::view()
+                return "No per-frame foot-slide sample is available."
+            elif kind == StudioExportReview::FOOT_SINK_WARNING:
+                return "This is a take-level before/after metric; no per-frame sink samples are retained."
+            elif kind == StudioExportReview::HAND_SLIDE_WARNING:
+                return "This is a take-level before/after metric; no per-frame hand-slide samples are retained."
+            "No additional frame evidence is available."
+
+        def export_warning_detail_panel(w: f32, h: f32, opened: bool,
+                                        c: StudioModel::Clip&, kind: i64,
+                                        index: i64, warnings: i64,
+                                        focus: i64) -> void:
+            return if not opened
+            d: Box = export_warning_detail_dialog_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 24.0, 18.0, export_warning_detail_title(kind), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 46.0, 10.0,
+                StudioText::pair("Warning ", index + 1, " of ", warnings), StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 68.0, 12.0,
+                export_warning_detail_metric(c, kind), StudioDraw::color(245, 145, 100))
+            StudioDraw::text(d.x + 24.0, d.y + 108.0, 12.0,
+                export_warning_detail_evidence(c, kind), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 167.0, 11.0,
+                "Frame references are zero-based output frames. Aggregate-only metrics do not identify a jump target.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 193.0, 10.0,
+                "Done returns to the same export review and keeps its destination and acknowledgement.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 224.0, 10.0,
+                "Tab changes control   arrows change warning   Esc returns", StudioDraw::muted())
+            for action in 0..<StudioExportPathReview::ACTION_COUNT |action, w, h, focus, index, warnings|:
+                b: Box = export_warning_detail_button_box(w, h, action)
+                enabled: bool = StudioExportPathReview::enabled(action, index, warnings)
+                selected: bool = action == focus
+                mutable label: sview = "Previous"
+                label <- "Next" if action == StudioExportPathReview::NEXT
+                label <- "Done" if action == StudioExportPathReview::DONE
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
+                StudioDraw::text(b.x + 13.0, b.y + 11.0, 12.0, label,
+                    StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117))
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
+
+        def export_review_panel(w: f32, h: f32, opened: bool, destination: cstr,
+                                animation: cstr, c: StudioModel::Clip&,
+                                s: StackState::Stack&, warnings: i64,
+                                acknowledged: bool, focus: i64,
+                                selected_warning: i64) -> void:
+            return if not opened
+            d: Box = export_review_dialog_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 22.0, 19.0, "Review cleaned export", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 50.0, 12.0, "Check the output details and quality notes before publishing.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 80.0, 11.0, "Destination (must be inside build):", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 99.0, 12.0, path_preview(destination), StudioDraw::ink())
+            path_button: Box = export_review_destination_box(w, h)
+            StudioDraw::rect(path_button.x, path_button.y, path_button.w, path_button.h,
+                StudioDraw::color(58, 52, 40) if focus == StudioExportReview::DESTINATION else StudioDraw::panel())
+            StudioDraw::text(path_button.x + 10.0, path_button.y + 8.0, 11.0,
+                "Inspect full path", StudioDraw::ink())
+            StudioDraw::rect(path_button.x + 4.0, path_button.y + 4.0, 2.0, path_button.h - 8.0,
+                StudioDraw::accent()) if focus == StudioExportReview::DESTINATION
+
+            StudioText::begin()
+            StudioText::put("Selected animation: ")
+            StudioPanels::file_name_put(animation)
+            StudioText::put(" #")
+            StudioText::put_i(c.anim + 1)
+            StudioText::put(" (cleaned)  ·  ")
+            StudioText::put_i(GlbDocument::animation_count(c.cleaned).i64())
+            StudioText::put(" animations included; other clips unchanged")
+            StudioDraw::text(d.x + 24.0, d.y + 135.0, 12.0, StudioText::view(), StudioDraw::ink())
+            StudioText::begin()
+            StudioText::put("Timing: ")
+            StudioText::put_i(c.frames)
+            StudioText::put(" output frames from ")
+            StudioText::put_i(c.source_frames)
+            StudioText::put(" source frames at ")
+            StudioText::put_i(c.rate)
+            StudioText::put(" fps")
+            StudioText::put(" (retimed)") if c.retimed
+            StudioDraw::text(d.x + 24.0, d.y + 158.0, 12.0, StudioText::view(), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 178.0, 11.0, "Rig profile: none saved; source hierarchy retained; no retargeting", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 198.0, 11.0, "Root motion: no extraction or in-place conversion", StudioDraw::muted())
+            StudioText::begin()
+            StudioText::put("Cleanup: ")
+            StudioText::put_i(active_operation_count(s))
+            StudioText::put(" active steps, ")
+            StudioText::put_i(s.fix_count)
+            StudioText::put(" corrections, feet ")
+            StudioText::put("on" if s.feet else "off")
+            StudioText::put(", hands ")
+            StudioText::put("on" if s.hands else "off")
+            StudioDraw::text(d.x + 24.0, d.y + 218.0, 11.0, StudioText::view(), StudioDraw::muted())
+
+            StudioDraw::bold(d.x + 24.0, d.y + 242.0, 12.0, "Active operation steps and settings", StudioDraw::ink())
+            mutable operation_slot: i64 = 0
+            for index in 0..<s.count |index, s, d, operation_slot|:
+                op: Ops::Operation = s.ops[index]
+                if op.enabled:
+                    column: i64 = 1 if operation_slot >= 8 else 0
+                    row: i64 = operation_slot - 8 if column == 1 else operation_slot
+                    x: f32 = d.x + 36.0 if column == 0 else d.x + 372.0
+                    StudioText::begin()
+                    StudioText::put(StackState::kind_label(op.kind))
+                    StudioText::put(": ")
+                    StudioPanels::param_put(op)
+                    StudioDraw::text(x, d.y + 266.0 + row.f32() * 17.0, 10.0, StudioText::view(), StudioDraw::ink())
+                    operation_slot <- operation_slot + 1
+            StudioDraw::text(d.x + 36.0, d.y + 268.0, 10.0, "No operation steps are active.", StudioDraw::muted()) if operation_slot == 0
+
+            StudioDraw::bold(d.x + 24.0, d.y + 406.0, 12.0, "Quality review", StudioDraw::ink())
+            if warnings == 0:
+                StudioDraw::text(d.x + 24.0, d.y + 432.0, 11.0, "No unresolved balance frames or worsened tracked metrics.", StudioDraw::color(150, 210, 160))
+            else:
+                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0, StudioText::number("Review required · warning categories: ", warnings), StudioDraw::color(245, 175, 95))
+                mutable warning_row: i64 = 0
+                if c.impossible_frames > 0:
+                    export_warning_row(w, h, warning_row, focus == StudioExportReview::INSPECT_WARNINGS and warning_row == selected_warning, StudioText::number("Unresolved balance frames: ", c.impossible_frames))
+                    warning_row <- warning_row + 1
+                if c.spikes_after > c.spikes_before:
+                    export_warning_row(w, h, warning_row, focus == StudioExportReview::INSPECT_WARNINGS and warning_row == selected_warning, StudioText::pair("Spikes increased: ", c.spikes_before, " -> ", c.spikes_after))
+                    warning_row <- warning_row + 1
+                if c.slide_after > c.slide_before:
+                    export_warning_row(w, h, warning_row, focus == StudioExportReview::INSPECT_WARNINGS and warning_row == selected_warning, export_warning_metric_row("Foot slide increased: ", c.slide_before, c.slide_after))
+                    warning_row <- warning_row + 1
+                if c.sink_after > c.sink_before:
+                    export_warning_row(w, h, warning_row, focus == StudioExportReview::INSPECT_WARNINGS and warning_row == selected_warning, export_warning_metric_row("Foot sink increased: ", c.sink_before, c.sink_after))
+                    warning_row <- warning_row + 1
+                if c.hand_slide_after > c.hand_slide_before:
+                    export_warning_row(w, h, warning_row, focus == StudioExportReview::INSPECT_WARNINGS and warning_row == selected_warning, export_warning_metric_row("Hand slide increased: ", c.hand_slide_before, c.hand_slide_after))
+
+                ack: Box = export_review_ack_box(w, h)
+                StudioDraw::rect(ack.x, ack.y, ack.w, ack.h, StudioDraw::color(47, 55, 70) if focus == StudioExportReview::ACKNOWLEDGE else StudioDraw::panel())
+                StudioDraw::rect(ack.x + 8.0, ack.y + 6.0, 16.0, 16.0, StudioDraw::color(44, 49, 60))
+                StudioDraw::rect(ack.x + 11.0, ack.y + 9.0, 10.0, 10.0, StudioDraw::accent()) if acknowledged
+                StudioDraw::text(ack.x + 34.0, ack.y + 6.0, 11.0, "I reviewed these notes and want to export this result.", StudioDraw::ink())
+
+            StudioDraw::text(d.x + 24.0, d.y + 564.0, 10.0, "Tab / arrows move   Space acknowledges   Enter selects   Esc cancels", StudioDraw::muted())
+            for button_slot in 0..<2 |button_slot, w, h, focus, warnings, acknowledged|:
+                option: i64 = StudioExportReview::CANCEL if button_slot == 0 else StudioExportReview::EXPORT
+                b: Box = export_review_button_box(w, h, option)
+                enabled: bool = option != StudioExportReview::EXPORT or StudioExportReview::export_enabled(warnings, acknowledged)
+                selected: bool = option == focus
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
+                StudioDraw::text(b.x + 13.0, b.y + 11.0, 12.0, "Cancel" if option == StudioExportReview::CANCEL else "Export GLB", StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117))
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
+
+        def export_result_panel(w: f32, h: f32, opened: bool, destination: cstr, focus: i64, report_saved: bool) -> void:
+            return if not opened
+            d: Box = export_result_dialog_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 24.0, 19.0, "Export complete", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 58.0, 13.0, "The GLB was written, reopened and validated.", StudioDraw::color(150, 210, 160))
+            StudioDraw::text(d.x + 24.0, d.y + 78.0, 11.0, "Quality report sidecars were saved beside the GLB.", StudioDraw::muted()) if report_saved
+            StudioDraw::text(d.x + 24.0, d.y + 78.0, 11.0, "Quality report sidecars were not saved; retry export to create them.", StudioDraw::color(240, 170, 110)) if not report_saved
+            StudioDraw::text(d.x + 24.0, d.y + 96.0, 11.0, "Saved result:", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 116.0, 12.0, path_preview(destination), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 158.0, 11.0, "Open Result uses your default GLB application; Show in Folder opens Finder.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 180.0, 11.0, "This export is separate from the editable session. Cmd-S saves that session.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 218.0, 10.0, "Tab / arrows move   Enter selects   Esc closes", StudioDraw::muted())
+            for action in 0..<StudioExportResult::ACTION_COUNT |action, w, h, focus|:
+                b: Box = export_result_button_box(w, h, action)
+                selected: bool = action == focus
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
+                mutable label: sview = "Open Result"
+                label <- "Show in Folder" if action == StudioExportResult::SHOW_IN_FOLDER
+                label <- "Done" if action == StudioExportResult::DONE
+                StudioDraw::bold(b.x + 12.0, b.y + 11.0, 12.0, label, StudioDraw::ink())
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
+
+        # Frame rate of the loaded clip, set by the app when a clip is built.
+    private:
+        global mutable shown_rate: i64 = Timeline::RATE
+
