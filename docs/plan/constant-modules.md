@@ -27,7 +27,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **76 owners, 712 ungrouped constants**.
+Remaining source inventory: **75 owners, 705 ungrouped constants**.
 
 | Module | Ungrouped constants | Declaration files |
 | --- | ---: | --- |
@@ -91,7 +91,6 @@ Remaining source inventory: **76 owners, 712 ungrouped constants**.
 | `StudioStorageManifestLockFile` | 4 | `src/studio/io/storage_manifest_lock_file.elisa` |
 | `StudioStorageManifestLockPolicy` | 5 | `src/studio/storage_manifest_lock_policy.elisa` |
 | `StudioStorageMovePolicy` | 24 | `src/studio/storage_move_policy.elisa` |
-| `StudioStorageOverviewPolicy` | 7 | `src/studio/storage_overview_policy.elisa` |
 | `StudioStoragePreferencesCodec` | 2 | `src/studio/io/storage_preferences_codec.elisa` |
 | `StudioStoragePreferencesFile` | 6 | `src/studio/io/storage_preferences_file.elisa` |
 | `StudioStoragePreferencesPolicy` | 4 | `src/studio/storage_preferences_policy.elisa` |
