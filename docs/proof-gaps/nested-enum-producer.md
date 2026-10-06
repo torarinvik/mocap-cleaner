@@ -25,6 +25,20 @@ composed law proofs. This is a support gap, not evidence that the laws hold.
 - Retain reviewed proof baselines and stronger law assertions. Do not replace
   enums with integers or relax replay validation to obtain passing counts.
 
-The prover owner is implementing the fix. The current full check is using the
-existing binary; a changed binary must not replace it during that run. Results
-from the fixed prover require a separate qualified run before acceptance.
+## Candidate repair — 2026-10-06
+
+Prover commit `6bced403` adds source-backed equality and disequality witnesses
+for explicit const enum integer tags and exact scoped enum paths in the kernel
+type environment. A focused generated probe under the isolated candidate,
+built with compiler `f292cbe0766f2d5086f174c984b0f2cd0a64d85c`, proved and
+independently replayed both `Outer::Status.Zero != Outer::Status.One` and
+`Other::Status.Zero == Other::Status.ZeroAlias`; all 5 issued certificates
+replayed with 0 gaps. The two `Status` declarations have repeated names in
+sibling modules and different tag values. A same-value alias is accepted as
+equal, and the false alias-disequality obligation remains unproved.
+
+This is focused candidate evidence, not qualification of the default proof
+binary. Broader source obligations still include unsupported proposition
+formation and the existing non-comparison return-goal refusal. Keep reviewed
+baselines and the default binary unchanged until those gaps have a separate
+qualified replay run.
