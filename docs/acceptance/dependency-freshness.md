@@ -219,3 +219,11 @@ live isolated host build. The prover fuel patch likewise awaits a matching
 compiler. These fetch results establish published-source ancestry only;
 they do not establish binary freshness or complete Studio/proof acceptance.
 No checkout was repointed and no stale-product override was used.
+
+A fresh fetch of all four origins on 2026-10-07 found no missing published
+`origin/main` commits at the selected compiler/prover/UI/engine heads above.
+The prover build started with the preceding compiler product terminated at its
+input revalidation barrier (exit 2), refusing to cache or publish mixed compiler,
+source, recipe or link inputs. It published no current product pair. A new
+paired build against verified compiler `bb1f4095` is required; the refused
+build does not establish proof correctness or replay qualification.

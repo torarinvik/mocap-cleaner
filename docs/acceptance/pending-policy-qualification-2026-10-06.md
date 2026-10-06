@@ -49,3 +49,18 @@ syntax/type evidence only. The dynamic compile-only reproduction
 The first direct panel compile failed because standalone context omitted
 elisa-ui imports; it does not qualify the dialog. Full Studio compilation,
 current proof replay and native keyboard/accessibility acceptance remain open.
+
+The frame field now uses a real retained `UiFlat::text_field`, rather than a
+button action with a TextField role. Native Change events copy only bounded
+digit drafts into the shared modal draft; rejected input restores the prior
+retained value. A reentrancy guard separates programmatic synchronization from
+foreign edits. Closed controls are hidden/disabled, and dismissal clears modal
+focus before attempting to restore the previously retained focus. Focus loss
+uses the same dismissal path. Native setter/readback, accessible rejection
+feedback, focus announcements and fallback focus still need qualification.
+
+`studio_timeline_goto_input_laws` covers counted extents, missing storage and
+ASCII digit admission. Normal `bb1f4095` compiled the law source (syntax/type
+evidence), and a dynamic compile-only reproduction emitted `_main` in
+`build/goto-input-codegen.QUGNec/input.o` with exit 0. Neither artifact was
+executed; current producer and independent replay remain required.
