@@ -11,6 +11,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Regression summary composition and replay](proof-gaps/regression-composition.md)
 - [Nested const enum source witness gap](proof-gaps/nested-enum-producer.md)
 - [Const enum distinct-value exclusion replay](proof-gaps/const-enum-value-exclusion.md)
+- [Strict positive quotient bound replay](proof-gaps/strict-positive-quotient.md)
 - [Law assertion coverage audit](proof-gaps/law-assertion-audit.md)
 - [JSON report string decoder qualification](proof-gaps/json-string-decoder.md)
 - [Compiler UI event scope collision](proof-gaps/ui-event-scope.md)
