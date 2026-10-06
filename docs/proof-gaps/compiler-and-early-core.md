@@ -198,3 +198,15 @@ copies with `extend`; repeated individual pushes were not restored. This
 narrows the issue to how the checker tracks the caller's container store and
 does not prove the suspected name collision. Runtime comparisons, full Studio
 compilation and the compiler analysis repair remain outstanding.
+
+Further checker inspection identifies a different, concrete route:
+`storage_view_owned_call` recognizes unqualified identifier calls only.
+Qualified owned-array calls such as `GlbTracks::read` and
+`Ops::evaluate_timed` fall through to conservative argument-source collection,
+which can mark the owned result as borrowing `doc` or `source`. A later
+container store then retains those false dependencies. The summary repair
+must resolve owned returns by module-qualified identity while preserving
+rejection of genuine borrowed results and unknown calls. No matching borrowed
+`read/3` collision was found in the included sources, so the earlier VRO-union
+explanation remains an unconfirmed separate hypothesis, not the established
+cause. Reduced before/after compile qualification remains pending.
