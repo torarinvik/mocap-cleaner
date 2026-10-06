@@ -4,17 +4,25 @@ Start after the current correctness fixes. Every repository file must fit
 within 600 lines. Generated build artifacts and external dependency checkouts
 are outside this repository source inventory.
 
-## Inventory (2026-10-06)
+## Completed extraction (2026-10-06)
 
-| File | Lines | Proposed responsibility boundaries |
-| --- | ---: | --- |
-| `src/studio/app/app.elisa` | 5370 | Application state and lifecycle; document loading; viewport; corrections; sessions; storage inventory and actions; accessibility publication; input dispatch. |
-| `src/studio/app/panels.elisa` | 2039 | Shared geometry; import and export dialogs; storage screen; correction panels; timeline and viewport overlays. |
-| `src/ops/rig_stack.elisa` | 1000 | Shared stack types; individual correction evaluators; validation; composition and dispatch. |
-| `src/cli/main.elisa` | 886 | Argument parsing; command handlers; output formatting; entry point. |
-| `IMPLEMENTATION_PLAN.md` | 779 | Keep the roadmap index and move detailed milestones into linked documents. |
-| `docs/proof-gaps.md` | 720 | Keep an index and split gap records into linked topic documents, preserving identifiers. |
-| `src/tools/track.elisa` | 696 | Track representation; sampling and interpolation; transforms and export helpers. |
+All seven previously oversized files have been split. The original paths
+remain composition roots or documentation indexes, preserving their callers.
+
+| Original file | Extracted responsibilities |
+| --- | --- |
+| `src/studio/app/app.elisa` | Private state, paths, character/views, issues, corrections, contact editor, timeline/stack, session save, export destination/review/publication, storage persistence/selection/inventory/moves/batch, replacement, viewport, lifecycle, accessibility by screen, pointer input, gizmo and keyboard input. |
+| `src/studio/app/panels.elisa` | Geometry, toolbar, timeline/curves, issues/corrections, file dialogs, storage, export and stack/contact panels. |
+| `src/ops/rig_stack.elisa` | Schema, hinges, legs, hands and dispatch. |
+| `src/cli/main.elisa` | Dependencies, arguments, output formatting, pipeline and commands. |
+| `src/tools/track.elisa` | Support, filters, contact tools and plant tools. |
+| `IMPLEMENTATION_PLAN.md` | Linked product/baseline and milestone documents in `docs/plan/`. |
+| `docs/proof-gaps.md` | Linked historical and recent records in `docs/proof-gaps/`. |
+
+A count of tracked text files found no file above 600 lines. Studio and CLI
+builds pass after the extraction. Existing track-tools and rig-tools tests
+pass. The authorized full check is being run at the integration boundary;
+these build results do not resolve existing proof or compiler provenance gaps.
 
 ## Refactor acceptance
 
