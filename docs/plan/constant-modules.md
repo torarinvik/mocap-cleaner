@@ -194,3 +194,6 @@ qualification remain open; existing baselines were not changed.
 values 9 / 13; existing integer role boundaries use explicit `.i64()`
 conversions. All source, law and fixture consumers were migrated. Current
 compiler and proof qualification remain pending.
+Compile-only qualification with current compiler `1f136742` emitted
+`build/hand-role-compile.NGRICE/hands.o` from the existing hands fixture.
+The fixture was not executed; proof replay and rig integration remain open.
