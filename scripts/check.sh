@@ -34,15 +34,21 @@ build_test() {
     if [ -x "build/test/$name" ] && [ "$(cat "build/test/$name.build-key" 2>/dev/null)" = "$test_build_key" ]; then
         echo cached >"build/test/$name.status"
     else
-        pending="build/test/$name.next"
-        rm -f "$pending"
+        pending_directory=$(mktemp -d "build/test/$name.compile.XXXXXX") || {
+            echo failed >"build/test/$name.status"
+            return
+        }
+        pending="$pending_directory/executable"
         if "$ELISAC" -emit exe -o "$pending" "$t" >"build/test/$name.log" 2>&1 && [ -s "$pending" ] && [ -x "$pending" ]; then
             mv "$pending" "build/test/$name"
+            rmdir "$pending_directory" 2>/dev/null || true
             echo "$test_build_key" >"build/test/$name.build-key.tmp"
             mv "build/test/$name.build-key.tmp" "build/test/$name.build-key"
             echo ok >"build/test/$name.status"
         else
-            rm -f "$pending"
+            # Preserve any partial output for diagnostics. Remove only an
+            # empty private directory; never infer cleanup ownership by name.
+            rmdir "$pending_directory" 2>/dev/null || true
             echo failed >"build/test/$name.status"
         fi
     fi
