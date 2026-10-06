@@ -1,0 +1,60 @@
+# Counted-text adapter; scalar time arithmetic has a separate proof boundary.
+include "timeline_time_input_kernel.elisa"
+
+module StudioTimelineTimeInput:
+    public:
+        const module Input:
+            MAX_WHOLE_DIGITS: i64 = 8
+            MAX_FRACTION_DIGITS: i64 = 3
+            MAX_BYTES: i64 = 12
+
+        const enum Status of i64:
+            Empty = -2
+            Invalid = -1
+            Exact = 0
+            Clamped = 1
+
+        struct Result:
+            status: Status
+            frame: i64
+            millis: i64
+
+        # Unsigned seconds with an optional decimal fraction of up to three
+        # digits. Do not discard characters or accept a partially valid prefix.
+        def parse(text: sview, rate: i64, count: i64) -> Result:
+            requires rate >= 1 and rate <= StudioTimelineTimeInputKernel::Domain::MAX_RATE
+            requires count >= 1 and count <= StudioTimelineTimeInputKernel::Domain::MAX_FRAMES
+            ensure result.status != Status.Empty and result.status != Status.Invalid or result.frame == -1
+            ensure result.status != Status.Exact and result.status != Status.Clamped or result.frame >= 0 and result.frame < count
+            return Result{status: Status.Empty, frame: -1, millis: -1} if text.len == 0
+            return Result{status: Status.Invalid, frame: -1, millis: -1} if text.len < 0 or text.len > Input::MAX_BYTES or text.data == null
+            mutable seconds: i64 = 0
+            mutable fraction: i64 = 0
+            mutable scale: i64 = 1
+            mutable whole_digits: i64 = 0
+            mutable fraction_digits: i64 = 0
+            mutable decimal: bool = false
+            for i in 0..<text.len.usize() |i, text, seconds, fraction, scale, whole_digits, fraction_digits, decimal|:
+                byte: u8 = text.data[i]
+                if byte == 46:
+                    return Result{status: Status.Invalid, frame: -1, millis: -1} if decimal
+                    decimal <- true
+                elif byte >= 48 and byte <= 57:
+                    digit: i64 = (byte - 48).i64()
+                    if decimal:
+                        return Result{status: Status.Invalid, frame: -1, millis: -1} if fraction_digits >= Input::MAX_FRACTION_DIGITS
+                        fraction <- fraction * 10 + digit
+                        scale <- scale * 10
+                        fraction_digits <- fraction_digits + 1
+                    else:
+                        return Result{status: Status.Invalid, frame: -1, millis: -1} if whole_digits >= Input::MAX_WHOLE_DIGITS
+                        seconds <- StudioTimelineTimeInputKernel::seconds_digit(seconds, digit)
+                        whole_digits <- whole_digits + 1
+                else:
+                    return Result{status: Status.Invalid, frame: -1, millis: -1}
+            return Result{status: Status.Invalid, frame: -1, millis: -1} if whole_digits + fraction_digits == 0 or decimal and fraction_digits == 0
+            part: i64 = StudioTimelineTimeInputKernel::fraction_millis(fraction, scale) if fraction_digits > 0 else 0
+            millis: i64 = StudioTimelineTimeInputKernel::milliseconds(seconds, part)
+            frame: i64 = StudioTimelineTimeInputKernel::frame(millis, rate, count)
+            status: Status = Status.Clamped if StudioTimelineTimeInputKernel::clamped(millis, rate, count) else Status.Exact
+            Result{status: status, frame: frame, millis: millis}

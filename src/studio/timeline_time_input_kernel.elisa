@@ -1,0 +1,58 @@
+# Time entry uses integer milliseconds at the evaluated clip's displayed rate.
+# Playback speed is deliberately absent: review speed never changes clip time.
+module StudioTimelineTimeInputKernel:
+    public:
+        const module Domain:
+            MAX_FRAMES: i64 = 10000000
+            MAX_RATE: i64 = 1000
+            MAX_SECONDS: i64 = 10000000
+            MAX_MILLIS: i64 = 10000000000
+            MILLIS_PER_SECOND: i64 = 1000
+
+        # Saturating decimal accumulator. The extra value records that entry
+        # exceeds the supported time domain; subsequent digits stay bounded.
+        def seconds_digit(value: i64, digit: i64) -> i64:
+            requires value >= 0 and value <= Domain::MAX_SECONDS + 1
+            requires digit >= 0 and digit <= 9
+            ensure result >= 0 and result <= Domain::MAX_SECONDS + 1
+            ensure value <= Domain::MAX_SECONDS or result == Domain::MAX_SECONDS + 1
+            raw: i64 = value * 10 + digit
+            Domain::MAX_SECONDS + 1 if raw > Domain::MAX_SECONDS else raw
+
+        # Fractions with one/two/three digits mean tenths/hundredths/thousandths
+        # of a second. The parser supplies the matching decimal denominator.
+        def fraction_millis(value: i64, scale: i64) -> i64:
+            requires scale == 10 or scale == 100 or scale == 1000
+            requires value >= 0 and value < scale
+            ensure result >= 0 and result < Domain::MILLIS_PER_SECOND
+            ensure result == value * Domain::MILLIS_PER_SECOND / scale
+            value * Domain::MILLIS_PER_SECOND / scale
+
+        def milliseconds(seconds: i64, fraction: i64) -> i64:
+            requires seconds >= 0 and seconds <= Domain::MAX_SECONDS + 1
+            requires fraction >= 0 and fraction < Domain::MILLIS_PER_SECOND
+            ensure result >= 0 and result <= Domain::MAX_MILLIS + 1
+            ensure seconds < Domain::MAX_SECONDS or result >= Domain::MAX_MILLIS
+            return Domain::MAX_MILLIS + 1 if seconds > Domain::MAX_SECONDS
+            raw: i64 = seconds * Domain::MILLIS_PER_SECOND + fraction
+            Domain::MAX_MILLIS + 1 if raw > Domain::MAX_MILLIS else raw
+
+        # Floor selects the frame whose start precedes the entered clip time.
+        # A time beyond the clip selects its last frame; zero selects its first.
+        def frame(millis: i64, rate: i64, count: i64) -> i64:
+            requires millis >= 0 and millis <= Domain::MAX_MILLIS + 1
+            requires rate >= 1 and rate <= Domain::MAX_RATE
+            requires count >= 1 and count <= Domain::MAX_FRAMES
+            ensure result >= 0 and result < count
+            ensure millis != 0 or result == 0
+            ensure millis * rate / Domain::MILLIS_PER_SECOND >= count or result == millis * rate / Domain::MILLIS_PER_SECOND
+            ensure millis * rate / Domain::MILLIS_PER_SECOND < count or result == count - 1
+            raw: i64 = millis * rate / Domain::MILLIS_PER_SECOND
+            count - 1 if raw >= count else raw
+
+        def clamped(millis: i64, rate: i64, count: i64) -> bool:
+            requires millis >= 0 and millis <= Domain::MAX_MILLIS + 1
+            requires rate >= 1 and rate <= Domain::MAX_RATE
+            requires count >= 1 and count <= Domain::MAX_FRAMES
+            ensure result == (millis * rate / Domain::MILLIS_PER_SECOND >= count)
+            millis * rate / Domain::MILLIS_PER_SECOND >= count
