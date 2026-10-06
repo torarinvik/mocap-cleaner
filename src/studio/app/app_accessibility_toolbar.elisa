@@ -2,6 +2,112 @@ include "app_state.elisa"
 
 extend Studio:
     private:
+        def suggestion_accessibility_actions() -> darray[StudioPanels::SuggestionAction]:
+            [StudioPanels::SuggestionAction.Cancel,
+             StudioPanels::SuggestionAction.Adjust,
+             StudioPanels::SuggestionAction.Apply,
+             StudioPanels::SuggestionAction.ToggleFeet,
+             StudioPanels::SuggestionAction.ToggleHands,
+             StudioPanels::SuggestionAction.Back,
+             StudioPanels::SuggestionAction.ShowCurrent,
+             StudioPanels::SuggestionAction.ShowSuggested]
+
+        def suggestion_accessibility_index(action: StudioPanels::SuggestionAction) -> usize:
+            action.i64().usize()
+
+        def suggestion_accessibility_label(action: StudioPanels::SuggestionAction) -> sview:
+            return "Cancel suggestion review" if action == StudioPanels::SuggestionAction.Cancel
+            return "Adjust contact locks" if action == StudioPanels::SuggestionAction.Adjust
+            return "Apply suggested cleanup" if action == StudioPanels::SuggestionAction.Apply
+            return "Toggle foot contact lock" if action == StudioPanels::SuggestionAction.ToggleFeet
+            return "Toggle hand contact lock" if action == StudioPanels::SuggestionAction.ToggleHands
+            return "Finish lock adjustment" if action == StudioPanels::SuggestionAction.Back
+            return "Show current result" if action == StudioPanels::SuggestionAction.ShowCurrent
+            "Show suggested result"
+
+        def suggestion_accessibility_enabled(action: StudioPanels::SuggestionAction) -> bool:
+            suggestion_focusable(action)
+
+        def suggestion_accessibility_visible_actions() -> darray[StudioPanels::SuggestionAction]:
+            mutable actions: darray[StudioPanels::SuggestionAction] = [
+                StudioPanels::SuggestionAction.Cancel,
+                StudioPanels::SuggestionAction.ShowCurrent,
+                StudioPanels::SuggestionAction.ShowSuggested]
+            if suggestion_adjustment == StudioPanels::SuggestionAdjustment.Review:
+                actions.push(StudioPanels::SuggestionAction.Adjust)
+            else:
+                actions.push(StudioPanels::SuggestionAction.Back)
+                actions.push(StudioPanels::SuggestionAction.ToggleFeet)
+                actions.push(StudioPanels::SuggestionAction.ToggleHands)
+            actions.push(StudioPanels::SuggestionAction.Apply)
+            actions
+
+        def suggestion_accessibility_id(action: StudioPanels::SuggestionAction) -> usize:
+            StudioAccessibility::SUGGESTION_ACTION_FIRST + suggestion_accessibility_index(action)
+
+        def suggestion_accessibility_first_id() -> usize:
+            actions: darray[StudioPanels::SuggestionAction] = suggestion_accessibility_visible_actions()
+            suggestion_accessibility_id(actions[0])
+
+        def suggestion_accessibility_action(widget: usize, event: i32) -> bool:
+            return false if suggestion_state != StudioSuggestionPolicy::State.Open or event != UiConst::WidgetEvent.Click.i32()
+            for action in suggestion_accessibility_actions() |action, widget|:
+                if widget == accessibility_suggestion_widgets[suggestion_accessibility_index(action)]:
+                    suggestion_action(action) if suggestion_accessibility_enabled(action)
+                    return true
+            false
+
+        def publish_suggestion_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_suggestion_ready or suggestion_state != StudioSuggestionPolicy::State.Open
+            none: usize = StudioAccessibility::NO_NODE
+            dialog: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Dialog,
+                "Suggested cleanup review",
+                "Switch between current and suggested poses while scrubbing or playing. Required knee and elbow, boundary, velocity and impact checks are unmeasured, so Apply is disabled.",
+                UiCore::Rect(dialog.x, dialog.y, dialog.w, dialog.h),
+                StudioAccessibility::SUGGESTION_GROUP, none, true, false, false,
+                0.0, "", "", revision.usize(), 0, 0,
+                StudioAccessibility::SIDEBAR,
+                StudioAccessibility::SUGGESTION_ACTION_FIRST, none, 0.0, 1.0, false)
+            visible_actions: darray[StudioPanels::SuggestionAction] = suggestion_accessibility_visible_actions()
+            for action in visible_actions |action, w, h, visible_actions|:
+                idx: usize = suggestion_accessibility_index(action)
+                widget: usize = accessibility_suggestion_widgets[idx]
+                enabled: bool = suggestion_accessibility_enabled(action)
+                UiFlat::set_enabled(widget, enabled)
+                id: usize = suggestion_accessibility_id(action)
+                mutable next: usize = none
+                for position in 0..<visible_actions.count |position, visible_actions, idx, id, next, none|:
+                    if visible_actions[position] == action and position + 1 < visible_actions.count:
+                        next <- suggestion_accessibility_id(visible_actions[position + 1])
+                mutable role: UiCore::AccessibilityRole = UiCore::AccessibilityRole.Button
+                role <- UiCore::AccessibilityRole.CheckBox if action == StudioPanels::SuggestionAction.ToggleFeet or action == StudioPanels::SuggestionAction.ToggleHands
+                mutable selected: bool = false
+                mutable value: sview = ""
+                if action == StudioPanels::SuggestionAction.ShowCurrent:
+                    selected <- suggestion_view == StudioPanels::SuggestionView.Current
+                    value <- "Current pose shown" if selected else "Current pose hidden"
+                elif action == StudioPanels::SuggestionAction.ShowSuggested:
+                    selected <- suggestion_view == StudioPanels::SuggestionView.Candidate
+                    value <- "Suggested pose shown" if selected else "Suggested pose hidden"
+                elif action == StudioPanels::SuggestionAction.ToggleFeet:
+                    selected <- suggestion_foot_lock
+                    value <- "Enabled" if selected else "Disabled"
+                elif action == StudioPanels::SuggestionAction.ToggleHands:
+                    selected <- suggestion_hand_lock
+                    value <- "Enabled" if selected else "Disabled"
+                mutable b: StudioPanels::Box = StudioPanels::suggestion_button_box(w, h, action)
+                b <- StudioPanels::suggestion_pose_box(w, h, action) if action == StudioPanels::SuggestionAction.ShowCurrent or action == StudioPanels::SuggestionAction.ShowSuggested
+                b <- StudioPanels::suggestion_toggle_box(w, h, action) if action == StudioPanels::SuggestionAction.ToggleFeet or action == StudioPanels::SuggestionAction.ToggleHands
+                if action == StudioPanels::SuggestionAction.Back:
+                    b <- StudioPanels::suggestion_button_box(w, h, action)
+                UiCore::accessibility_with_metadata(role, suggestion_accessibility_label(action),
+                    "Activates the same review action as the visible control.",
+                    UiCore::Rect(b.x, b.y, b.w, b.h), id,
+                    widget, enabled, suggestion_focus == action,
+                    selected, 0.0, value, "", revision.usize(), 0, 0,
+                    StudioAccessibility::SUGGESTION_GROUP, none, next, 0.0, 1.0, false)
+
         def init_accessibility_toolbar() -> void:
             UiFlat::reset()
             transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
@@ -82,6 +188,13 @@ extend Studio:
                 accessibility_issue_row_widgets[index.usize()] <- widget
                 issue_widgets_ready <- false if widget == UiFlat::NONE
             accessibility_issue_ready <- issue_widgets_ready
+            mutable suggestion_ready: bool = true
+            for action in suggestion_accessibility_actions() |action, transparent, suggestion_ready|:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
+                    transparent, transparent, transparent)
+                accessibility_suggestion_widgets[suggestion_accessibility_index(action)] <- widget
+                suggestion_ready <- false if widget == UiFlat::NONE
+            accessibility_suggestion_ready <- suggestion_ready
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::A_LOOP or action == StudioPanels::A_TRAILS or action == StudioPanels::A_CONTACTS or action == StudioPanels::A_HEAT or action == StudioPanels::A_ONION or action == StudioPanels::A_GHOST or action == StudioPanels::A_XRAY or action == StudioPanels::A_MESH or action == StudioPanels::A_BALANCE
@@ -104,6 +217,8 @@ extend Studio:
 
     public:
         def toolbar_accessibility_action(widget: usize, event: i32) -> void:
+            if suggestion_accessibility_action(widget, event):
+                return
             if storage_path_inspector and export_path_inspector_open:
                 if event == UiConst::WidgetEvent.Click.i32() and accessibility_path_ready:
                     activate_export_path_inspector(StudioExportPathReview::PREVIOUS) if widget == accessibility_path_previous_widget

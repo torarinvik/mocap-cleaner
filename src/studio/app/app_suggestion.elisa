@@ -77,6 +77,7 @@ extend Studio:
                         suggestion_document_generation <- built
                         suggestion_stack_generation <- stack_generation
                         suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
+                        suggestion_focus <- StudioPanels::SuggestionAction.Cancel
                         suggestion_view <- StudioPanels::SuggestionView.Current
                         suggestion_state <- StudioSuggestionPolicy::State.Open
                         status <- "cleanup suggestion ready; required preservation checks are unmeasured"
@@ -157,8 +158,46 @@ extend Studio:
             candidate: bool = suggestion_candidate != null and suggestion_document_generation == built and suggestion_stack_generation == stack_generation
             candidate and suggestion_evidence_admits() and suggestion_stack.count > 0 and not StackState::same(suggestion_stack, current_stack())
 
+        def suggestion_focusable(action: StudioPanels::SuggestionAction) -> bool:
+            return true if action == StudioPanels::SuggestionAction.Cancel or action == StudioPanels::SuggestionAction.ShowCurrent or action == StudioPanels::SuggestionAction.ShowSuggested
+            return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Review if action == StudioPanels::SuggestionAction.Adjust
+            return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting if action == StudioPanels::SuggestionAction.Back
+            if action == StudioPanels::SuggestionAction.ToggleFeet:
+                return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_foot_lock or suggestion_lock_available(false))
+            if action == StudioPanels::SuggestionAction.ToggleHands:
+                return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_hand_lock or suggestion_lock_available(true))
+            action == StudioPanels::SuggestionAction.Apply and suggestion_apply_enabled()
+
+        def suggestion_lock_available(hands: bool) -> bool:
+            if clip is c:
+                return suggestion_contacts_valid(c, hands)
+            false
+
+        def suggestion_focus_move(direction: i64) -> void:
+            actions: darray[StudioPanels::SuggestionAction] = [
+                StudioPanels::SuggestionAction.Cancel,
+                StudioPanels::SuggestionAction.ShowCurrent,
+                StudioPanels::SuggestionAction.ShowSuggested,
+                StudioPanels::SuggestionAction.Adjust,
+                StudioPanels::SuggestionAction.Back,
+                StudioPanels::SuggestionAction.ToggleFeet,
+                StudioPanels::SuggestionAction.ToggleHands,
+                StudioPanels::SuggestionAction.Apply]
+            mutable current: i64 = 0
+            for i in 0..<actions.count |i, actions|:
+                current <- i if actions[i] == suggestion_focus
+            count: i64 = actions.count.i64()
+            for step in 1..<(count + 1) |step, actions, current, count, direction|:
+                mutable at: i64 = (current + direction * step) % count
+                at <- at + count if at < 0
+                if suggestion_focusable(actions[at.usize()]):
+                    suggestion_focus <- actions[at.usize()]
+                    touch()
+                    return
+
         def suggestion_action(action: StudioPanels::SuggestionAction) -> void:
             return if suggestion_state != StudioSuggestionPolicy::State.Open
+            suggestion_focus <- action
             if action == StudioPanels::SuggestionAction.Cancel:
                 suggestion_close()
             elif action == StudioPanels::SuggestionAction.ShowCurrent:
