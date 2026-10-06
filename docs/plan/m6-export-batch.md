@@ -141,7 +141,7 @@ provenance or the other detector settings still listed above.
 Unit-object and member lookup now use explicit `Missing`, `Invalid` and
 `Present(index)` algebraic states rather than negative index sentinels. Reader
 and declaration-state laws compile on the current compiler. State-law proof
-checking is ongoing; token traversal bounds and malformed/duplicate declaration
+checking remains incomplete; token traversal bounds and malformed/duplicate declaration
 behavior still require full qualification.
 
 Lower-is-better admission now uses supported metric definitions rather than
