@@ -60,9 +60,7 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `Studio` | 11 | `src/studio/app/app_state.elisa` |
 | `StudioAccessibility` | 46 | `src/studio/accessibility.elisa` |
 | `StudioCharacterBind` | 5 | `src/studio/character_bind_policy.elisa` |
-| `StudioChrome` | 24 | `src/studio/chrome.elisa` |
 | `StudioContactEditor` | 15 | `src/studio/contact_editor.elisa` |
-| `StudioDraw` | 93 | `src/studio/app/panels_geometry.elisa` |
 | `StudioExportPathReview` | 5 | `src/studio/export_path_review.elisa` |
 | `StudioExportPolicy` | 7 | `src/studio/export_policy.elisa` |
 | `StudioExportReview` | 13 | `src/studio/export_review.elisa` |
@@ -72,6 +70,7 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioLegacyPrompt` | 6 | `src/studio/legacy_session_prompt.elisa` |
 | `StudioModel` | 9 | `src/studio/app/model.elisa` |
 | `StudioOverlay` | 7 | `src/studio/overlay_policy.elisa` |
+| `StudioPanels` | 47 | `src/studio/app/panels_geometry.elisa` |
 | `StudioReplacement` | 8 | `src/studio/replacement.elisa` |
 | `StudioResetScope` | 4 | `src/studio/reset_scope.elisa` |
 | `StudioRetime` | 5 | `src/studio/app/retime_panel.elisa` |
@@ -96,7 +95,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioStorageRegistrationPolicy` | 7 | `src/studio/storage_registration_policy.elisa` |
 | `StudioStorageReservedNamespace` | 3 | `src/studio/io/storage_reserved_namespace.elisa` |
 | `StudioStorageSelectionPolicy` | 9 | `src/studio/storage_selection_policy.elisa` |
-| `Timeline` | 9 | `src/studio/timeline.elisa` |
 | `Track` | 6 | `src/tools/track_support.elisa` |
 
 `StudioText::Buffer` now groups slots, width and capacity; its static buffer and
@@ -104,9 +102,25 @@ fixed-view generic use the qualified capacity. `StudioView::Coordinate`,
 `Curve` and `Severity` separately group pixel bound, curve magnitude and
 level count. Source contracts, view laws, curve-panel consumers and the
 existing Studio fixture use qualified constants with unchanged values.
-No proof law or baseline was removed. These source migrations await the
-fresh normal compiler/prover products; native Studio qualification remains
-open.
+No proof law or baseline was removed. Normal Stage1 `bb1f4095` emitted fresh
+compile-only objects for the Text and View sources, view laws and existing
+Studio fixture; independent proof replay and native Studio qualification
+remain open.
+
+`StudioChrome` now models Escape layers, screens and parameter units as explicit
+stable-code enums; frame, gain, session and correction bounds use separate
+const modules. `Timeline` groups domain, clock and duration limits and
+represents the three playback divisors as a stable-code enum. Consumers,
+laws and fixtures use the new paths with unchanged numeric values.
+`StudioIcons::Icon` records the generated icon codes as an enum; icon sizing,
+panel layout, panel capacities and menu dimensions have purpose-specific
+groups. The old `StudioDraw | 93` inventory row was misattributed: that file
+declares `StudioIcons` and `StudioPanels`, while `StudioDraw` itself has no
+constants. `StudioPanels` has 47 remaining ungrouped constants.
+Normal Stage1 `bb1f4095` (seed 13359) produced compile-only objects for Chrome
+and Timeline sources/laws and the existing session, units and capacity fixtures;
+these are not proof-certificate replay or native Studio acceptance. The
+full panel/app compile and native UI qualification remain open.
 
 Export-result actions migrated to `StudioExportResult::Action`; policy/laws
 retain 7/7 and 16/16 proved results. Existing test compilation is pending a
