@@ -62,7 +62,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioCharacterBind` | 5 | `src/studio/character_bind_policy.elisa` |
 | `StudioChrome` | 24 | `src/studio/chrome.elisa` |
 | `StudioContactEditor` | 15 | `src/studio/contact_editor.elisa` |
-| `StudioContactFramePolicy` | 3 | `src/studio/contact_frame_policy.elisa` |
 | `StudioDraw` | 93 | `src/studio/app/panels_geometry.elisa` |
 | `StudioExportPathReview` | 5 | `src/studio/export_path_review.elisa` |
 | `StudioExportPolicy` | 7 | `src/studio/export_policy.elisa` |
@@ -204,3 +203,9 @@ kernel. Existing scalar laws retain that kernel and explicit enum conversions;
 a new law covers typed equivalence. Compile qualification is pending because
 the compiler source changed and its provenance guard rejected the prior binary.
 No stale-product override was used; proof expectations remain unchanged.
+
+`StudioContactFramePolicy::Endpoint` replaces loose First/Last codes with
+closed alternatives, preserving codes 0/1 through explicit integer boundary
+conversions. `Domain` holds the frame limit. Source, proof and fixture consumers
+retain existing invalid-target rejection and atomic invalid-draft behavior.
+Current compile/replay qualification awaits the compiler rebuild.
