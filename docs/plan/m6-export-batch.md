@@ -137,3 +137,9 @@ admission policy reports 3/3 and its laws 11/11 on the default prover; reader
 and updated existing fixtures compile. Independent replay and behavioral
 qualification remain required. These checks do not supply missing immutable
 provenance or the other detector settings still listed above.
+
+Unit-object and member lookup now use explicit `Missing`, `Invalid` and
+`Present(index)` algebraic states rather than negative index sentinels. Reader
+and declaration-state laws compile on the current compiler. State-law proof
+checking is ongoing; token traversal bounds and malformed/duplicate declaration
+behavior still require full qualification.
