@@ -2218,6 +2218,12 @@ module Studio:
             reviewed: darray[StudioStorageManifest::Entry] = storage_review_selection
             retention: i64 = storage_review_retention
             refresh_storage_inventory()
+            if storage_manifest_state != 1 or not storage_preferences_valid or not storage_exemptions_valid or storage_release_uncertain:
+                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+                if reviewed.count > 0 and reviewed.count.i64() <= StudioStorageBatchPolicy::MAX_ITEMS:
+                    storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(reviewed.count.i64(), 0)
+                touch()
+                return
             current: darray[StudioStorageManifest::Entry] = storage_cleanup_selection
             mutable unchanged: bool = reviewed.count == current.count and retention == storage_retention_preset
             if unchanged:
@@ -2286,6 +2292,11 @@ module Studio:
                 touch()
                 return
             refresh_storage_inventory()
+            if storage_manifest_state != 1 or storage_release_uncertain:
+                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+                storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, index)
+                touch()
+                return
             if not storage_batch_remaining_is_fresh():
                 storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_REVIEW_CHANGED
                 storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, index)
@@ -2336,8 +2347,12 @@ module Studio:
             elif action == StudioPanels::STORAGE_RETENTION:
                 next_preset: i64 = (storage_retention_preset + 1) % StudioStorageSelectionPolicy::RETENTION_PRESET_COUNT
                 saved: bool = save_storage_retention(next_preset)
+                save_message: i64 = storage_message
                 refresh_storage_inventory()
-                storage_message <- 17 if not saved and storage_preferences_valid
+                if not saved and (save_message == 21 or save_message == 22):
+                    storage_message <- save_message
+                elif not saved and storage_preferences_valid and storage_message != 1 and storage_message != 2 and storage_message != 5:
+                    storage_message <- 17
                 touch()
             elif action == StudioPanels::STORAGE_TRASH and storage_trash_available():
                 if storage_move_review:
@@ -3893,6 +3908,9 @@ module Studio:
             StudioText::put(". Untouched: ")
             StudioText::put_i(storage_batch_untouched)
             StudioText::put(". Trash still uses disk space. Completed receipts are preserved.")
+            if storage_message == 21 or storage_message == 22:
+                StudioText::put(" ")
+                StudioText::put(StudioStorageAccessibilityCopy::result_announcement(storage_message))
             StudioText::view()
 
         def publish_storage_accessibility(w: f32, h: f32) -> void:
