@@ -216,7 +216,7 @@ hard links and files retained in Trash can keep disk space allocated.
 A verified inventory with no eligible files explains the next safe action:
 review protection reasons and retention, then Refresh after changes.
 
-Grouping/filtering, user exemptions, dedicated review scrolling and
+Grouping/filtering, stale-exemption management, dedicated review scrolling and
 running-window/fault-injection acceptance remain open.
 A single native filesystem operation still runs on the UI thread; the batch
 returns to the event loop between files.
@@ -247,5 +247,16 @@ A matched file is protected and excluded from selection. Source, recovery,
 active-output and metadata protections continue independently. Unreadable,
 unsupported or unsafe exemption files block cleanup and produce an alert.
 Atomic exemption publication reloads the saved file before accepting its
-state. The pointer/keyboard/accessibility control to add and remove exemptions
-is not yet implemented; this is the data and eligibility integration only.
+state. The inspected verified row offers Keep this file or Remove exemption
+through pointer, keyboard and accessibility actions. Activation refreshes
+identity evidence before saving; changing protection never moves files and
+removal still requires a fresh cleanup review. The policy and laws prove
+112/112 and 140/140 obligations with replay. Studio builds and the existing
+accessibility semantic test passes; native interaction acceptance remains
+open. Missing or changed saved entries still need a dedicated management view.
+
+The overview and accessible inventory summary include the last scan value
+or an explicit unavailable state, including empty inventories. The first
+implementation labels Unix seconds explicitly; human-readable formatting
+is being improved. This records scan time, not artifact creation or Trash
+move time.
