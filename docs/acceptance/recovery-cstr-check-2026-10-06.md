@@ -19,3 +19,10 @@ adapter. That evidence does not establish new payload runtime behavior, crash
 durability, filesystem race safety or complete implementation-plan acceptance.
 No new executable tests were added. Native recovery failures and direct payload
 runtime qualification remain separate requirements.
+
+While this run remained live, proof wrapper commit `03376ea` changed its
+dispatch summary from “proved” to “processed” and made missing results or
+abnormal verifier termination fail the wrapper. Abnormal partial output cannot
+enter its cache. Python syntax parsing passed; no runtime wrapper tests were
+added or run. The already-running diagnostic loaded the earlier wrapper and
+does not qualify this change. Its handle was polled again and remained live.
