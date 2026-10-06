@@ -699,3 +699,14 @@ new rows after the prover/replay products are rebuilt from matching sources.
   not claimed as proved. Its runtime load status keeps open, read, capacity,
   close, and format failures distinct; atomic publication remains the caller's
   responsibility through the existing publisher.
+
+## G92: composed inspection step replay (2026-10-06)
+
+Storage inspection has verified exact next/previous helpers and a total
+wrapper that rejects invalid counts and proves its output stays in bounds.
+Source proves 37/37 and the bounds/helper laws prove 55/55 with full replay.
+Independent forward/backward step laws through `inspection_target` still
+leave two goals unknown, despite the helpers' exact contracts. The current
+proof boundary verifies the helpers and wrapper bounds separately; composed
+step replay remains open. Earlier direct implication contracts on the
+unbounded wrapper also left forward-return goals unknown.

@@ -125,7 +125,7 @@ mkdir -p build/proof
 rm -f build/proof/*.txt build/proof/*.cached
 # The pure preferences codec lives beside its IO adapter, but participates
 # in the same reviewed proof corpus as the Studio kernels.
-set -- src/*/*.elisa src/studio/io/storage_preferences_codec.elisa proof/*.elisa
+set -- src/*/*.elisa src/studio/io/*_policy.elisa src/studio/io/storage_preferences_codec.elisa proof/*.elisa
 python3 scripts/prove.py ${PROOF_RECHECK:+--recheck-sample "$PROOF_RECHECK"} "$PROVER" "$@" || status=1
 for f in "$@"; do
     [ -f "$f" ] || continue
