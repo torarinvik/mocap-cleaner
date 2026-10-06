@@ -21,8 +21,11 @@ remain composition roots or documentation indexes, preserving their callers.
 
 A count of tracked text files found no file above 600 lines. Studio and CLI
 builds pass after the extraction. Existing track-tools and rig-tools tests
-pass. The authorized full check is being run at the integration boundary;
-these build results do not resolve existing proof or compiler provenance gaps.
+pass. The authorized full check completed: all 78 rebuilt tests and four CLI
+scenarios passed. The overall check returned 1 because native qualification
+rejects stale compiler provenance and the proof baseline gate still reports
+existing regressions and missing reviewed entries. The original baselines
+remain intact. Native UI journey qualification remains open.
 
 ## Refactor acceptance
 

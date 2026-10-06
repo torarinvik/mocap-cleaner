@@ -356,3 +356,11 @@ pipeline 3478/1542, commands 3478/1576 and dependencies 3423/1317. Existing
 composition baselines remain unchanged. All 78 rebuilt runtime tests and all
 four CLI scenarios pass after extraction; strict native qualification still
 refuses stale compiler provenance.
+
+The complete post-extraction `scripts/check.sh` returned 1. All 78 test
+programs rebuilt and returned 0, as did four CLI scenarios. The proof gate
+reported existing regressions (including Track 15 to 17 open obligations)
+and missing reviewed entries in earlier Studio work. No original baseline
+was relaxed. The strict native gate rejects source revision/tree provenance;
+both compiler checkouts currently contain uncommitted work, which this task
+left intact. Detailed output is `build/test/module-refactor-full-check.log`.
