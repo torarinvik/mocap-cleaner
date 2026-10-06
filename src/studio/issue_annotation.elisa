@@ -4,9 +4,12 @@ include "issues.elisa"
 
 module StudioIssueAnnotation:
     public:
-        const MAX_ANNOTATIONS: i64 = 256
-        const UNRESOLVED: i64 = 0
-        const IGNORED: i64 = 1
+        const module Capacity:
+            MAX_ANNOTATIONS: i64 = 256
+
+        const enum Disposition of i64:
+            Unresolved = 0
+            Ignored = 1
 
         struct Annotation:
             active: mutable bool
@@ -30,7 +33,7 @@ module StudioIssueAnnotation:
             issue.selectable and issue.first_frame >= 0 and issue.first_frame <= issue.last_frame and issue.peak_frame >= issue.first_frame and issue.peak_frame <= issue.last_frame and issue.issue_type >= 0 and issue.subject_id >= -1 and issue.source_revision >= 0 and issue.severity >= 0 and issue.severity <= StudioIssues::MAX_SEVERITY
 
         def marked_index(store: Store&, issue: StudioIssues::Issue) -> i64:
-            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            requires store.count >= 0 and store.count <= Capacity::MAX_ANNOTATIONS
             mutable found: i64 = -1
             for i in 0..<store.count |i, store, issue, found|:
                 a: Annotation = store.annotations[i.usize()]
@@ -40,21 +43,21 @@ module StudioIssueAnnotation:
         # Return the first reusable slot, or the next unallocated slot. -1
         # means every bounded slot currently holds an ignored finding.
         def available_slot(store: Store&) -> i64:
-            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            requires store.count >= 0 and store.count <= Capacity::MAX_ANNOTATIONS
             for i in 0..<store.count |i, store|:
                 return i if not store.annotations[i.usize()].active
-            return store.count if store.count < MAX_ANNOTATIONS
+            return store.count if store.count < Capacity::MAX_ANNOTATIONS
             -1
 
-        def disposition(store: Store&, issue: StudioIssues::Issue) -> i64:
-            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
-            ensure result == UNRESOLVED or result == IGNORED
-            IGNORED if valid_issue(issue) and marked_index(store, issue) >= 0 else UNRESOLVED
+        def disposition(store: Store&, issue: StudioIssues::Issue) -> Disposition:
+            requires store.count >= 0 and store.count <= Capacity::MAX_ANNOTATIONS
+            ensure result == Disposition.Unresolved or result == Disposition.Ignored
+            Disposition.Ignored if valid_issue(issue) and marked_index(store, issue) >= 0 else Disposition.Unresolved
 
         # Drop intent that belongs to an older analysis revision. Freed slots
         # can be reused, so repeated cleanup does not exhaust the fixed store.
         def prune_revisions(store: mutable Store&, source_revision: i64) -> i64:
-            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            requires store.count >= 0 and store.count <= Capacity::MAX_ANNOTATIONS
             requires source_revision >= 0
             ensure result >= 0
             ensure result <= store.count
@@ -69,7 +72,7 @@ module StudioIssueAnnotation:
         # Mark as intentional. Repeating the same request is harmless; at
         # capacity the store is left intact and the caller can explain why.
         def ignore(store: mutable Store&, issue: StudioIssues::Issue) -> bool:
-            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            requires store.count >= 0 and store.count <= Capacity::MAX_ANNOTATIONS
             return false if not valid_issue(issue)
             return true if marked_index(store, issue) >= 0
             slot: i64 = available_slot(store)
@@ -80,7 +83,7 @@ module StudioIssueAnnotation:
 
         # Restore a finding to unresolved. A missing mark is already restored.
         def restore(store: mutable Store&, issue: StudioIssues::Issue) -> bool:
-            requires store.count >= 0 and store.count <= MAX_ANNOTATIONS
+            requires store.count >= 0 and store.count <= Capacity::MAX_ANNOTATIONS
             return false if not valid_issue(issue)
             index: i64 = marked_index(store, issue)
             return true if index < 0
