@@ -53,7 +53,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
 | `RigOps` | 9 | `src/ops/rig_hands.elisa`, `src/ops/rig_legs.elisa`, `src/ops/rig_schema.elisa` |
 | `Roles` | 31 | `src/core/roles.elisa` |
-| `SessionIssueAnnotationPolicy` | 4 | `src/studio/state/session_issue_annotation_policy.elisa` |
 | `SessionState` | 20 | `src/studio/state/session_state.elisa` |
 | `StackPolicy` | 2 | `src/studio/stack_policy.elisa` |
 | `StackState` | 8 | `src/studio/state/stack_state.elisa` |
@@ -261,3 +260,12 @@ convert the named alternatives at that boundary. The encoding law and existing
 fixture emitted fresh diagnostic objects in `build/filter-disposition-compile.QbizwZ`
 and `build/filter-disposition-compile.RQTe4c`. Replay, fixture execution and full
 application qualification remain pending.
+
+`SessionIssueAnnotationPolicy::Capacity` groups the annotation record bound,
+and `Domain` groups severity/frame validation bounds. The independently
+versioned analysis schema remains one public constant. Literal values and wire
+schema are unchanged. Normal `bb1f4095` compiled the policy and law sources
+(syntax/type evidence) and emitted a fresh nonempty object for the existing
+`studio_session_annotations` fixture under `build/annotation-bound-compile.*`.
+The fixture was not executed; current proof/replay and full Studio acceptance
+remain required.
