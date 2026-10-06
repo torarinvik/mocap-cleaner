@@ -5,6 +5,13 @@ include "export_batch_publication.elisa"
 # in the binding and never cross the panel projection boundary.
 module StudioExportBatchPanelPolicy:
     public:
+        const module Page:
+            ROWS: i64 = 7
+
+        const enum Direction of i64:
+            Previous = -1
+            Next = 1
+
         const enum Action of i64:
             None = 0
             Enqueue = 1
@@ -61,7 +68,7 @@ module StudioExportBatchPanelPolicy:
         # Converts a row offset in the clipped viewport into a queue index.
         # Negative or off-page rows have no hit target.
         def visible_row(first_row: i64, visible_count: i64, offset: i64) -> i64:
-            requires first_row >= 0 and visible_count >= 0 and visible_count <= 7
+            requires first_row >= 0 and visible_count >= 0 and visible_count <= Page::ROWS
             ensure result >= -1
             ensure result == -1 or result >= first_row and result < first_row + visible_count
             return -1 if offset < 0 or offset >= visible_count
@@ -131,3 +138,30 @@ module StudioExportBatchPanelPolicy:
             return "Staging removed after publication" if receipt.staging == StudioExportBatchPublication::StagingDisposition.Removed
             "Recovery snapshots retained"
 
+
+        def last_page(total: i64) -> i64:
+            requires total >= 0 and total <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            ensure result >= 0 and result <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            ensure total != 0 or result == 0
+            ensure total == 0 or result < total
+            0 if total == 0 else ((total - 1) / Page::ROWS) * Page::ROWS
+
+        def page_move(first: i64, total: i64, direction: Direction) -> i64:
+            requires total >= 0 and total <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            requires first >= 0 and first <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            requires first % Page::ROWS == 0
+            ensure result >= 0 and result <= last_page(total)
+            ensure result % Page::ROWS == 0
+            end: i64 = last_page(total)
+            current: i64 = end if first > end else first
+            if direction == Direction.Previous:
+                return 0 if current < Page::ROWS else current - Page::ROWS
+            return end if current + Page::ROWS > end else current + Page::ROWS
+
+        def visible_count(first: i64, total: i64) -> i64:
+            requires total >= 0 and total <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            requires first >= 0 and first <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            ensure result >= 0 and result <= Page::ROWS
+            ensure first < total or result == 0
+            remaining: i64 = total - first
+            0 if remaining <= 0 else (Page::ROWS if remaining > Page::ROWS else remaining)
