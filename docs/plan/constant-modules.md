@@ -52,7 +52,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `Hand` | 4 | `src/core/hand.elisa` |
 | `Hinge` | 3 | `src/core/hinge.elisa` |
 | `Knee` | 9 | `src/core/knee.elisa` |
-| `PerfCache` | 4 | `src/core/perf_cache.elisa` |
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
 | `Pivot` | 3 | `src/core/pivot.elisa` |
 | `Retime` | 8 | `src/core/retime.elisa` |
@@ -134,6 +133,15 @@ choices, which retain their typed representation. All cache/law consumers use
 qualified names. Compiler `3c72f59f` accepts the existing performance fixture;
 candidate prover `4da37c97` reports source 78/78 and laws 165/166, with all 165
 law certificates replayed. The existing unresolved law and baseline are retained.
+
+`PerfCache::Layout` holds the bank stride and `Capacity` holds track/frame
+bounds. Values and contracts are unchanged; source/law/runtime consumers use
+qualified paths. Compilation/replay await the current compiler rebuild and
+stable proof run. The single `NONE` sentinel remains in the existing integer
+index API. A follow-up should represent missing/present slots with an ADT at
+the semantic boundary while preserving explicitly validated integer indices
+where array/native interfaces require them; grouping numeric bounds does not
+complete that API audit.
 
 `Codec::Domain` holds decimal field magnitude and serialized operation-kind
 count. These numeric format bounds are not choices; operation variants remain
