@@ -45,11 +45,13 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 ## Delivery requirements
 
 - Commit each small improvement.
-- Use the latest compiler and proof assistant, retaining required mocap fixes.
+- Use the latest compiler, proof assistant, Elisa UI and engine dependencies,
+  retaining required mocap fixes.
   Record fetched upstream revisions, source changes and binary manifests; rebuild
   stale products before acceptance. Build scripts must not silently permit stale
   binaries or select historical worktrees. Explicit historical comparisons remain
-  separate from current-snapshot qualification.
+  separate from current-snapshot qualification. See the
+  [dependency freshness audit](docs/acceptance/dependency-freshness.md).
 - Preserve source takes; put derived files in `build/`.
 - Land contracts and proof laws alongside proof-critical logic.
 - Enforce the mandatory 600-line file limit on every change; see
