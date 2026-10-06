@@ -163,3 +163,30 @@ still need investigation. The diagnostic compile exits 2 with the same 24
 refusals and no application object. No native or executable acceptance follows
 from this trace. Go to frame UI integration remains pending while this blocker
 is investigated.
+
+## Reduced recovery-key collision and candidate repair
+
+The compile-only reduction
+`build/repro/hierarchy-with-recovery-key.elisa` adds the recovery dialog policy
+to the previously passing real-UI/suggestion event example. With normal current
+compiler `23a0e16a`, its log at
+`build/event-recovery-key.YUtIK1/compile.log` records ten declined bodies,
+including the event match, exits 2 and emits no object. Adding only the engine
+viewport instead passes and emits
+`build/event-engine-viewport.uzEDXd/repro.o`. Adding the UI gesture Contact
+declaration also passes (`build/event-contact-collision.CUUMAI/repro.o`).
+
+The recovery policy introduces a second const enum named `Key`. Inline
+hierarchy registration resolves payload annotations without setting the
+member's declaring module as `current_owner`. The bare enum lookup refuses
+multiple foreign namesakes, so the UiCore KeyEvent payload cannot resolve
+lexically in this context. This gives a reproducible registration failure,
+beyond the earlier two-Event include-order hypothesis.
+
+Isolated compiler candidate `dcbab5cf` sets the owner while registering each
+hierarchy member and restores it on every continuing path. It is not adopted:
+the diagnostic seed rebuild is waiting for another live host-wide self-host
+build. Qualification must rebuild with matching provenance, compile the
+reduction in both include orders and the complete Studio graph, and examine
+remaining refusals. This source inspection and failing reduction do not yet
+prove that the candidate repairs the full application.
