@@ -138,3 +138,7 @@ These numeric limits remain a const module rather than an enum.
 Current compiler `4c409da6` accepts the weight source. Prover `d3a17832` proves
 and replays source 36/36 and laws 60/60, with zero gaps. Correction executable
 qualification must be rerun after this consumer change.
+
+Codec follow-up with current prover `d3a17832`: source 50/50 obligations and
+certificates replayed, zero gaps; laws 71/74 replayed with three gaps and no
+producer findings. Law replay remains open; source success is not a substitute.

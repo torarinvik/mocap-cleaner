@@ -20,8 +20,13 @@ alone do not invalidate executable behavior, but source/dependency changes do.
 
 ## Scope limitations and pending results
 
-CLI scenarios and proof gates are still running. No overall green result is
-claimed. The existing report-diff fixture covers tolerance, regression, missing
+The command completed with exit code 1. CLI clean/report, folder batch and
+retime scenarios passed. Hands-plus-diff failed with rc=8 because valid repeated
+timing fields were rejected by the duplicate-identity guard; `67197dc` corrects
+that scope, pending rebuilt CLI verification. The proof regression gate failed
+on unresolved source obligations, independent replay gaps and missing reviewed
+baselines. Exact file diagnostics remain in the derived full log. No overall
+green result is claimed, and no baseline was relaxed. The existing report-diff fixture covers tolerance, regression, missing
 clips, lost status, unreadable files and HTML generation. It does not establish
 new malformed/duplicate/type/precision admission cases. Native UI interaction,
 workspace adoption and motion preservation acceptance remain open. Prover
