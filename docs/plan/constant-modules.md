@@ -35,7 +35,8 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **70 owners, 693 ungrouped constants**.
+The remaining source groups are listed below; historical totals are omitted
+because incremental migrations change the inventory.
 File-level export publisher limits, outside this module-owner inventory, now
 use private `StudioExportPublisher::Capacity` (path and staging buffer sizes).
 Numeric capacities remain a const module; typed validation outcomes use an enum.
@@ -85,7 +86,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioScene` | 13 | `src/studio/app/scene.elisa` |
 | `StudioShortcuts` | 13 | `src/studio/shortcuts.elisa` |
 | `StudioSidebarLayout` | 28 | `src/studio/sidebar_layout.elisa` |
-| `StudioSourceFingerprint` | 2 | `src/studio/source_fingerprint.elisa` |
 | `StudioStorageAccessibilityCopy` | 7 | `src/studio/app/storage_accessibility_copy.elisa` |
 | `StudioStorageArtifactDestination` | 4 | `src/studio/io/storage_artifact_destination.elisa` |
 | `StudioStorageBatchPolicy` | 18 | `src/studio/storage_batch_policy.elisa` |
@@ -110,12 +110,19 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioView` | 3 | `src/studio/view.elisa` |
 | `Timeline` | 9 | `src/studio/timeline.elisa` |
 | `Track` | 6 | `src/tools/track_support.elisa` |
-| `Window` | 2 | `src/core/window.elisa` |
 | `WorkerWaitPolicy` | 4 | `src/io/worker_wait_policy.elisa` |
 
 Export-result actions migrated to `StudioExportResult::Action`; policy/laws
 retain 7/7 and 16/16 proved results. Existing test compilation is pending a
 provenance-valid Stage1 product after the external compiler source edit.
+
+`Window::Domain` groups frame, radius and reflection-magnitude bounds. These
+are numeric domain limits rather than alternatives. Source contracts, laws,
+track consumers and the existing fixture use qualified constants with unchanged
+values. Current compiler qualification is pending the constructor-owner seed;
+focused proof evidence is recorded separately without lowering the baseline.
+`StudioSourceFingerprint::Residue` already groups both residue moduli and has
+been removed from the remaining inventory.
 
 `Codec::Domain` holds decimal field magnitude and serialized operation-kind
 count. These numeric format bounds are not choices; operation variants remain
