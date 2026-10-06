@@ -155,11 +155,11 @@ its roles, units and scopes.
 | Milestone | Priority | Depends on | Deliverable |
 |---|---|---|---|
 | M0 — Evidence and interaction specification | P0 | Existing studio | Honest baseline, fixture corpus, agreed screen flows and quality thresholds. |
-| M1 — Safe, discoverable workspace | P0 | M0 | Pointer/keyboard task paths, document lifecycle, responsive layout and accessible controls. |
-| M2 — Import, rig and diagnosis | P0 | M1 | Reliable setup and a navigable explanation of capture problems. |
+| M1 — Safe, discoverable workspace | P0 | M0; shared identity schemas with M2 | Pointer/keyboard task paths, document lifecycle, responsive layout and accessible controls. |
+| M2 — Import, rig and diagnosis | P0 | M0; co-develop identity with M1 shell | Reliable setup and a navigable explanation of capture problems. |
 | M3 — Guided cleanup and review | P0 | M2 | Conservative recommendations, meaningful comparison and complete operation inspection. |
 | M4 — Contact and local repair quality | P0 | M2–M3 | Precise contact editing, existing advanced tools exposed, local regression protection. |
-| M5 — Responsive long-session editing | P0 | M1 state model; benchmark corpus | Safe background evaluation, scalable state and reliable recovery. Start infrastructure before M3 if measurements demand it. |
+| M5 — Responsive long-session editing | P0 | M1 state model; benchmark corpus | Safe background evaluation, scalable state and reliable recovery. Prototype ownership before expensive M3 integration. |
 | M6 — Export and production workflow | P0 single export; P1 batch | M3–M5 | Validated export, reusable recipes, studio batch review and reproducibility. |
 | M7 — Release qualification | P0 | All P0 gates | On-screen, numerical, proof, reliability and usability release evidence. |
 | M8 — Advanced cleanup research | P2 | Quality corpus and measured failures | Evidence-backed extensions, separately gated before becoming defaults. |
@@ -192,7 +192,8 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       feedback, atomicity, memory and accessibility/draw overflow; close the
       still-unverified capacity cases in `docs/studio-capacities.md`. Visually
       check contact fields and keyboard nudges at the supported frame boundary
-      and close the larger-domain proof gaps.
+      and retain the existing larger-domain proof evidence; resolve any newly
+      observed gaps without weakening reviewed baselines.
 - [ ] Establish benchmark takes: short boxing, walking/running, idle jitter,
       turns, jumps/landings, planted hands, unusual proportions, noisy input,
       long clips and multi-animation GLBs. Use licensed or synthetic fixtures;

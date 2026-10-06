@@ -26,11 +26,14 @@ comparison metrics, visual review, runtime cost and adopt/reject decision.
 Do not change default recipes until preservation and failure behavior are
 qualified on the expanded corpus.
 
-## 14. First implementation slices
+## 14. Remaining implementation and qualification slices
 
-Start in this order; each row should become several small reviewable commits.
+Use this as priority order, with the shared dependency decisions governing
+parallel progress. Existing implementation needs its remaining qualification,
+not reimplementation. Each row should become small reviewable commits; a
+blocked native or participant gate does not stop independent implementation.
 
-| Slice | Concrete result | Evidence needed before moving on |
+| Slice | Concrete result | Evidence needed before closing |
 |---|---|---|
 | 1 | M0 studio audit, corrected current-behavior docs and interaction specifications | Running-window captures, gap matrix, measured limits and reviewed first-use flows. |
 | 2 | Finish command discovery, focus rules and accessible alternatives | Pointer and keyboard journeys; native tree gives every primary control a clear name, role-appropriate actions, correct value and useful focus; dialogs and status are announced; VoiceOver and keyboard users finish the core tasks; text fields cannot trigger global cleanup; focus survives dialogs and panels. |

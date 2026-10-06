@@ -32,19 +32,31 @@
 
 - [ ] Expand the current aggregate spike intervals to typed findings with
       known bone/chain, interval, peak frame, severity, measured value,
-      threshold and confidence or uncertainty reason. Retain exact frames
+      threshold units and evidence state (measured, inferred or unavailable),
+      with an uncertainty reason. Numeric confidence requires calibration on
+      labelled fixtures. Retain exact frames
       behind visual bins; never attach an unknown aggregate finding to an
       arbitrary joint.
 - [ ] Link exact issue selection to the curves and inspector, focus a known
       subject, and optionally frame the affected region in the viewport.
-- [ ] Explain each issue in ordinary language with source/result readings:
-      slide, penetration, jitter, spike, pole jump, seam or balance warning.
-      Show detector settings and analysis revision in advanced details.
+- [ ] Integrate ordinary-language explanations for the currently produced
+      aggregate spike findings, including exact peak frame/value, threshold
+      units and unknown subject. Connect the explanation policy to the UI.
+- [ ] Implement and qualify distinct producers before presenting slide,
+      penetration, jitter, pole jump, seam or balance findings. Each type needs
+      its own labelled positive and intentional-motion negative fixtures,
+      declared false-positive budget and source/result readings. Show detector
+      settings and analysis generation in advanced details.
 - [ ] Distinguish confirmed user contacts from inferred contacts. Show low
       confidence and data limitations; balance and ballistic heuristics must
       not be presented as ground-truth physical validity.
 - [ ] Keep visible status, row selection, filter counts and navigation
-      synchronized with the displayed document revision. Validate compact
+      synchronized with the displayed analysis generation. Keep durable
+      source/animation/rig identity, process-local analysis generation and
+      detector/configuration schema distinct. Persist annotation intent against
+      durable identity, schema and finding fingerprint; never persist a build
+      counter as a content revision. Qualify reopen, rebuild, retime and rig
+      reassignment invalidation. Validate compact
       controls at the minimum window size and provide a discoverable way to
       inspect each available filter choice.
 
@@ -66,7 +78,12 @@ positives before enabling recommendations.
       Do not enable hand locks simply because the user chose automatic cleanup.
 - [ ] Separate preview state from committed stack. Offer Apply, Adjust and
       Cancel; Apply adds one grouped undo entry without erasing unrelated
-      existing corrections or silently duplicating operations.
+      existing corrections or silently duplicating operations. The existing pure
+      admission policy still requires model and UI integration. Apply requires
+      exact document and stack revisions plus measured passing results for
+      every applicable preservation constraint; unavailable data blocks an
+      automatic pass. Cancel/Escape leave stack and history unchanged; Apply
+      followed by Undo restores their exact prior state.
 - [ ] Evaluate candidate improvement against preservation constraints:
       contacts, knee/elbow transitions, boundaries, peak velocity and intended
       impact timing. Flag or withhold candidates that worsen protected metrics.

@@ -7,14 +7,18 @@
 ### 9.1 Contact editor
 
 - [ ] Show a contextual preview while an endpoint is dragged and make
-      cancellation leave the saved contact state untouched. Validate range
+      cancellation leave the saved contact state untouched. Preview follows
+      pointer movement; Escape or focus loss preserves stack/history/output,
+      and release creates exactly one commit. Validate range
       handles at the minimum supported window size and on long takes.
 - [ ] Add timeline zoom/pan, fitted range, visible row labels and draggable
       handles with usable hit targets. Visually verify the shipped 1-based
       endpoint fields and keyboard nudges on valid takes, including focus,
       invalid drafts, clip boundaries, long clips and the minimum window size.
-      Verify the supported frame boundary and expose contact selection and
-      edits through native accessibility actions.
+      Qualify existing endpoint fields/buttons through native accessibility;
+      implement semantic row/frame selection where still missing. Cover first,
+      last, one-frame and 10,000,000-frame editing boundaries, plus refusal at
+      the 32-contact-edit capacity with the draft and history preserved.
 - [ ] Show automatic versus edited intervals, lock/pivot choice, anchor point,
       target surface, blend-in/out and confidence. Users can revert an interval
       without deleting other contact edits.
@@ -68,7 +72,8 @@
 
 ### 9.4 Tool-specific acceptance records
 
-Populate the following records during M0 before tuning defaults. Numerical
+Populate missing records before further default tuning; reuse existing
+foot-workflow corpus evidence where applicable. Numerical
 thresholds must include rig scale, sampling rate and units. A mathematically
 valid kernel can still fail the visual or preservation gate.
 
@@ -85,7 +90,8 @@ valid kernel can still fail the visual or preservation gate.
 | Physics heuristics | Selected path/spike measure improves with assumptions recorded. | Contact and pose distortion budgets pass; unavailable mass/environment information is disclosed. |
 
 For each case retain the source, recipe, detector settings, expected metrics,
-worst-frame references and reviewed captures. Record both absolute error and
+worst-frame references, reviewed captures, artifact paths and named reviewer.
+Freeze per-case thresholds before comparison and record explicit pass/fail. Record both absolute error and
 change from source; summing errors across clips must not hide a failed case.
 
 **Exit:** contact and correction editing is discoverable and precise;

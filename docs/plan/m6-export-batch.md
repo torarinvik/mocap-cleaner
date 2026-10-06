@@ -19,23 +19,33 @@ Do not offer root extraction/in-place conversion or key reduction until that
 semantics has its own implementation, review fields and quality validation.
 - [ ] Add semantic round-trip fixtures for animation selection, evaluated
       poses, duration, contact/key timing and untouched nodes/skins/meshes on
-      top of the publisher's current reload and byte-equality check. Compare
+      top of the publisher's serialization byte-count check and reload/document-equivalence
+      validation. Compare
       evaluated output against the reviewed revision. Surface a clear
       distinction between file integrity and motion-quality review.
-- [ ] Complete the remaining schema-v2 `.report.json` and `.report.txt`
-      provenance from one immutable export snapshot: rig configuration,
+- [ ] Extend the existing schema-v2 `.report.json` and `.report.txt` baseline
+      (identifiers, timing estimates, settings, assumptions, metrics and
+      unavailable reasons) with missing provenance from one immutable export snapshot: rig configuration,
       tool/dependency versions, detector thresholds and per-frame retime
       mapping. Keep explicit unavailable reasons until the publisher can
       supply those exact values. Add cryptographic source/output hashes only
-      when the exact source and validated output bytes are available.
+      when the exact source and validated output bytes are available. Current
+      `studio-residue-v1` identifiers are non-cryptographic. Freeze animation,
+      stack/result revisions, settings and metrics before publication; reports
+      must not read later live state. Bind each sidecar to that export identity
+      so an old or partially replaced report cannot appear current.
 
 ### 11.2 Studio batch and repeatability (P1)
 
 - [ ] Wrap the existing batch/parallel/report capabilities in a queue UI:
       input list, animation selection, compatible recipe, output naming,
-      collision policy, worker limit, progress, cancel and retry failures.
+      collision policy, worker limit, progress, cancel and retry failures. Define
+      whether cancellation drains or terminates running workers; stop new
+      launches, identify interrupted outputs and retain valid completed ones.
+      Retry only failed/cancelled inputs with create-only publication.
 - [ ] Show per-take outcomes: passed, warning, failed, cancelled; aggregate
-      completion must not conceal failed takes. Allow source/result review
+      completion must not conceal failed takes. Mark the manifest incomplete
+      when any input or required report is unfinished. Allow source/result review
       before approving warning outputs.
 - [ ] Add dry-run validation of paths, rig compatibility and expected outputs.
       Do not apply one rig's absolute bone indices across unrelated inputs.
