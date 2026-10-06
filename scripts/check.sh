@@ -5,6 +5,15 @@ cd "$(dirname "$0")/.."
 ELISAC="${ELISAC:-../Elisa-compiler/scripts/elisac_stage1.sh}"
 PROVER="${ELISA_PROOF:-../elisa-proof-mocap/build/elisa-proof}"
 mkdir -p build/test
+# Generated round-trip destinations must be absent for exclusive writers.
+# Reset only these named test artifacts; the fixture inputs are rebuilt by
+# their existing tests. This also prevents stale bytes from satisfying reads.
+python3 - <<'PY'
+from pathlib import Path
+for name in ("rig_tools.ops", "diff-a.json", "diff-same.json", "diff-worse.json",
+             "diff-lost.json", "diff-gone.json", "diff.html"):
+    (Path("build/test") / name).unlink(missing_ok=True)
+PY
 # Folder fixture for test/folder.elisa (empty files; only names matter).
 rm -rf build/folder-test && mkdir -p build/folder-test/sub.glb
 touch build/folder-test/a.glb build/folder-test/b.glb build/folder-test/C.GLB build/folder-test/.hidden.glb build/folder-test/c.txt
