@@ -10,9 +10,12 @@ Candidate compiler source/binary provenance is `faabd1f7`, based on current
 The initial native Trash support build reports normal compiler `f292cbe0`;
 inspect later unit/CLI logs before claiming candidate coverage of those builds.
 
-Log: `build/recovery-cstr-check.log`. The tool session is `19112`, confirmed
-running at dispatch. Results remain pending. Do not infer completion from an
-unchanged log, lock file or this historical session observation; poll the handle.
+Log: `build/recovery-cstr-check.log`. Tool session `19112` subsequently terminated
+with exit one. All 78 executable test rows and all four CLI workflows report
+rc=0. The proof baseline gate failed with missing rows, regressions and stale
+rows. Concurrent source/baseline changes mean this is diagnostic evidence, not
+acceptance of an immutable project revision. The initial native support build
+used normal f292cbe0 as recorded above.
 
 The candidate compiles C-string constructors/extraction and the composed recovery
 adapter. That evidence does not establish new payload runtime behavior, crash
@@ -26,3 +29,6 @@ abnormal verifier termination fail the wrapper. Abnormal partial output cannot
 enter its cache. Python syntax parsing passed; no runtime wrapper tests were
 added or run. The already-running diagnostic loaded the earlier wrapper and
 does not qualify this change. Its handle was polled again and remained live.
+The later terminal handle poll establishes completion; historical live polls
+do not supersede that result. This run does not qualify recovery native IO or
+the newer report/session changes committed after its executable phase.
