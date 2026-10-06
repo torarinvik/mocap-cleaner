@@ -239,6 +239,14 @@ remain open; export reports and curve timing still need consistent integration.
       Current proof replay, displayed-time round trips and boundary/clamp native
       behavior remain pending. The legacy millisecond adapter retains its prior
       three-digit limit; it is not used for captured-clock navigation.
+The updated toolbar's compile-only UI-host context reached the backend but
+exited 2 without an object: `StudioText::view`'s call to
+`UiText::fixed_bytes_view_range` was declined. This context contains inert host
+callbacks and is not an integrated application qualification. Parser and scalar
+law objects compile independently; this backend refusal and the separate full
+graph atomic-load lookup failure still require compiler repair and fresh current
+app qualification. No native timing behavior is claimed from those objects.
+
 - [ ] Qualify shared Play availability through pointer, keyboard and native
       accessibility routes. The toolbar and accessibility enablement now share
       the handler's captured-clock readiness/count predicate, with Stop admitted
