@@ -27,9 +27,19 @@ must remain separate from current acceptance evidence.
 Freshness does not establish product correctness. The reproduced UI event
 scope collision now compiles successfully; integrated Studio qualification is
 separate. Export validation source proves/replays 6/6 and its laws 14/14 with
-zero gaps or findings. The full gate using these current default products is
-running, recorded in `build/current-indexed-decimal-check.log`. Source changes
+zero gaps or findings. The full gate using these default products finished with exit code 1,
+recorded in `build/current-indexed-decimal-check.log`. Source changes
 during a run prevent treating it as immutable snapshot acceptance.
 
 Repeat fetch, ancestry and manifest checks before final snapshot acceptance.
 Rebuild stale binaries and rerun affected verification after dependency changes.
+
+## Latest upstream refresh
+
+A subsequent fetch confirmed zero missing `origin/main` commits in compiler
+`f292cbe0`, mocap prover `f9c98954`, engine `01f5aec7`, UI `8ab2eb39`,
+and primary prover `151a2772`. The mocap prover source advanced beyond the
+default binary to repair decimal append arithmetic. Its separate clean
+candidate proves and independently replays the focused append obligations
+3/3; expanded decimal laws still have replay gaps. Promotion remains pending
+qualification. Source freshness and default binary qualification are separate.
