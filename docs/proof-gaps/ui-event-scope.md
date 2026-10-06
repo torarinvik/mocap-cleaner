@@ -77,3 +77,11 @@ plain-enum registration because the foreign UI hierarchy shares its bare name.
 Compiler commit `2e1c1e51` restricts hierarchy suppression to non-const enums.
 A new seed is running; combined compilation remains required. Logs for the
 qualified preceding product end in `-owner.log`.
+
+Fresh compiler `f292cbe0` now compiles the full UI plus suggestion policy
+reproduction successfully. Plain enum registration (`2e1c1e51`) retains const
+namesakes, and lexical const lookup (`f292cbe0`) respects local payload enums
+before a foreign const fallback. The product reports current clean provenance.
+Log: `build/repro/ui-policy-cross.log`. This closes the reproduced compiler
+collision; integrated Studio compilation and native behavior remain separate
+gates. The report diff module also compiles on this product.
