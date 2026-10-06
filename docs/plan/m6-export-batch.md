@@ -140,6 +140,11 @@ Clip identities must also be unique even when their metric sets do not overlap;
 the root identity `total` is reserved to prevent collisions. These structural
 checks currently compare the reader's decoded byte spans; complete Unicode
 escape normalization and proof coverage of traversal remain open.
+`JsonScalar` now supplies contracted Unicode scalar validation and hexadecimal
+digit conversion for the pending decoder. Its six laws assert scalar rejection
+and conversion results. The current published prover establishes all 19 source
+and 31 composed obligations, but replays only 18/19 and 27/31 respectively.
+The decoder is not yet connected to report identity extraction.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
 
