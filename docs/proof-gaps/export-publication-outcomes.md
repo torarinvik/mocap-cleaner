@@ -45,3 +45,13 @@ this confirms emitted layout only, not native runtime or ownership correctness.
 Evidence: `build/recovery-creation-payload.ll` and
 `build/export-recovery-store-build.log`. Integration awaits candidate adoption
 and durable record establishment before GLB publication.
+
+`StudioExportRecoveryPreparePolicy` requires owned storage, reserved capacity,
+synced GLB/JSON/text snapshots, synced prepared journal and directory sync before
+publication admission. Default 5776350b independently replays source 9/9 and
+laws 25/25, with zero gaps or findings. All seven missing-fact cases reject
+publication regardless of the other facts. Native code must establish these
+facts; the policy is not yet connected to the export operation. Evidence:
+`build/export-recovery-prepare-source.json`,
+`build/export-recovery-prepare-laws.json` and compile-only
+`build/export-recovery-prepare-build.log` (normal compiler f292cbe0).
