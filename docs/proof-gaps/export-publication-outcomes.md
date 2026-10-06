@@ -35,3 +35,13 @@ Normal f292cbe0 rejects C-string fields in ordinary payload enums. The candidate
 uses the existing one-word typed pointer representation, but runtime and ABI
 qualification remain required before adoption. Directory creation, ownership,
 durable journals and recovery integration are not yet accepted.
+
+The adapter now exposes closed record names for JSON, text, journal and output
+snapshot paths. Bounded length admission rejects invalid names before copying;
+allocated strings have explicit release ownership. No recovery directory is
+created by the compile-only qualification. Candidate LLVM IR represents the
+created variant as `{ i32, [1 x i64] }` and stores its C-string with `store ptr`;
+this confirms emitted layout only, not native runtime or ownership correctness.
+Evidence: `build/recovery-creation-payload.ll` and
+`build/export-recovery-store-build.log`. Integration awaits candidate adoption
+and durable record establishment before GLB publication.

@@ -1,0 +1,78 @@
+include "../export_recovery_path_policy.elisa"
+
+# Native directory creation is trusted host IO. Callers supply the selected,
+# canonical build directory; derived recovery files never belong beside sources.
+module StudioExportRecoveryStore:
+    public:
+        const enum Failure of i64:
+            InvalidBuildPath = 0
+            AllocationFailed = 1
+            CreationFailed = 2
+
+        enum Creation:
+            Rejected(reason: Failure)
+            Created(path: cstr)
+
+        # Closed names prevent traversal and accidental writes to unrelated
+        # files. Each returned path is separately owned by the caller.
+        const enum Record of i64:
+            JsonReport = 0
+            TextReport = 1
+            Journal = 2
+            OutputSnapshot = 3
+
+        def record_path(directory: cstr, record: Record) -> cstr? can[Memory.Allocate, Unsafe.PointerCast]:
+            leaf: cstr = record_name(record)
+            mutable directory_length: usize = 0
+            while directory_length < StudioExportRecoveryPathPolicy::Capacity::PATH_BYTES.usize() and directory[directory_length] != 0:
+                directory_length <- directory_length + 1
+            mutable leaf_length: usize = 0
+            while leaf[leaf_length] != 0:
+                leaf_length <- leaf_length + 1
+            return null if not StudioExportRecoveryPathPolicy::child_path_admitted(directory_length.i64(), leaf_length.i64())
+            mutable buffer: u8[4096] = zeroed
+            for index in 0..<directory_length |buffer, directory, index|:
+                buffer[index] <- directory[index]
+            buffer[directory_length] <- 47
+            for index in 0..<leaf_length |buffer, leaf, index, directory_length|:
+                buffer[directory_length + 1 + index] <- leaf[index]
+            recovery_strdup((&buffer[0]).cast[cstr])
+
+        # mkdtemp creates a private, unique directory. On success the caller owns
+        # path and releases only its memory with release_path; releasing the
+        # handle never removes recovery evidence from disk.
+        def create(build_directory: cstr) -> Creation can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            mutable length: usize = 0
+            while length < StudioExportRecoveryPathPolicy::Capacity::PATH_BYTES.usize() and build_directory[length] != 0:
+                length <- length + 1
+            return Creation.Rejected(Failure.InvalidBuildPath) if not StudioExportRecoveryPathPolicy::build_path_admitted(length.i64())
+            mutable template: u8[4096] = zeroed
+            for index in 0..<length |template, build_directory, index|:
+                template[index] <- build_directory[index]
+            suffix: cstr = "/.mocap-export-recovery-XXXXXX"
+            for index in 0..<StudioExportRecoveryPathPolicy::Capacity::DIRECTORY_SUFFIX_BYTES.usize() |template, suffix, index, length|:
+                template[length + index] <- suffix[index]
+            if recovery_strdup((&template[0]).cast[cstr]) is retained:
+                if recovery_mkdtemp(retained.cast[u8&]) is created:
+                    return Creation.Created(retained)
+                recovery_free(retained)
+                return Creation.Rejected(Failure.CreationFailed)
+            Creation.Rejected(Failure.AllocationFailed)
+
+        def release_path(path: cstr) -> void can Memory.Release:
+            recovery_free(path)
+
+    private:
+        def record_name(record: Record) -> cstr:
+            return "report.json" if record == Record.JsonReport
+            return "report.txt" if record == Record.TextReport
+            return "journal.json" if record == Record.Journal
+            return "output.glb" if record == Record.OutputSnapshot
+            ""
+
+        @link_name("strdup")
+        extern recovery_strdup(path: cstr) -> cstr? can[Memory.Allocate]
+        @link_name("mkdtemp")
+        extern recovery_mkdtemp(template: u8&) -> cstr? can[Blocking.IO]
+        @link_name("free")
+        extern recovery_free(path: cstr) -> void can[Memory.Release]
