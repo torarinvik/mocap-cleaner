@@ -127,7 +127,13 @@ Compilation of this refinement is pending because Stage1 rejected the current
 external compiler source-tree mismatch. Existing generation-policy proof
 results remain as documented above; native stale-review qualification is open.
 
-Unknown export-validation codes now report unavailable status rather than
-claiming successful validation. Validation results use an actual `Result`
-const module; focused policy/law results remain 4/4 and 8/8. Compilation of
-this refinement is pending Stage1 provenance renewal.
+Export validation now uses a typed `Result` const enum throughout the publisher,
+its preparation error output and the UI diagnostic. Required backing values
+remain 0–3; `valid_result` retains the explicit raw-code boundary check. Internal
+callers carry the enum rather than accepting arbitrary integer statuses.
+
+The four validation laws now require their named status and assert the result;
+the earlier 4/4 source and 8/8 law counts are historical and do not qualify these
+stronger obligations. The existing publisher test compiled to an object with
+current Stage1 `812c0547`, without a stale override. It was not executed in this
+focused step. Updated proof assistant replay and native acceptance remain open.
