@@ -47,6 +47,11 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
       Set explicit budgets, retention and eviction order. Stress repeated take
       swaps, undo/redo, long sessions and batch use. Saving, undo, cancellation
       and capacity refusal preserve committed edits and the last valid preview.
+      Qualify the channel cache's per-instance logical admission (4,000,000
+      entries / 64 MiB estimated contents) against full evaluation, including
+      disabled operations and timing/accounting during fallback. Establish
+      aggregate bank, rig cache, allocator and transient memory bounds; the
+      channel admission limit alone does not establish a process RAM bound.
 - [ ] Optimize curves, issue rows and overlays for draw budget and density.
       Use explicit level of detail; selection and peak markers remain accurate.
 - [ ] Record per-stage latency, memory, cache hits and stale-job rejection in
