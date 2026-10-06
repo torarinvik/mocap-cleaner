@@ -6,11 +6,14 @@
 
 ### 9.1 Contact editor
 
-- [ ] Show a contextual preview while an endpoint is dragged and make
-      cancellation leave the saved contact state untouched. Preview follows
-      pointer movement; Escape or focus loss preserves stack/history/output,
-      and release creates exactly one commit. Validate range
-      handles at the minimum supported window size and on long takes.
+- [ ] Qualify the shipped endpoint range overlay and cancellation on screen:
+      pointer movement updates the proposed interval, Escape/focus loss leaves
+      saved state untouched, release creates one history entry and unchanged
+      ranges create none. Validate capacity-refusal feedback, minimum-window
+      handles and long takes. The range overlay does not yet evaluate a new
+      cleaned pose during dragging; qualify or implement that contextual pose
+      preview with explicit approximation limits. See
+      `docs/studio-contact-preview.md` for implementation/proof evidence.
 - [ ] Add timeline zoom/pan, fitted range, visible row labels and draggable
       handles with usable hit targets. Visually verify the shipped 1-based
       endpoint fields and keyboard nudges on valid takes, including focus,
