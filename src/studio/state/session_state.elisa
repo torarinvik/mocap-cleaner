@@ -11,10 +11,13 @@
 #
 # Tag 4 (version 2) is a gizmo correction: quaternion components in
 # millionths, translation in micrometres. Tag 5 (version 3) saves the opt-in
-# hand fix. Tag 6 (version 4) binds the cleanup to exact source bytes, the
-# selected animation, its source frame count and the document-node count.
+# hand fix. Tag 6 (version 4) binds the cleanup to Studio's two-part bounded
+# residue fingerprint, selected animation, source frame count and node count.
+# This is a conservative identity association, not a cryptographic digest.
 # Optional tag 8 saves ignored findings, bound to tag 6 and a versioned stable
-# analysis result identity.
+# analysis result identity. Tag 9 stores impact review rows with their own
+# schema and repeated source/animation/frame/rig binding; malformed, mixed,
+# duplicate or mismatched rows reject the session. No tag 9 means unreviewed.
 # Versions 1 through 3 remain readable only through an explicit legacy path;
 # they have no source identity and must not be silently restored.
 # Fields are signed decimals (OpsFile's reader). Every value is brought
@@ -24,6 +27,7 @@
 include "stack_state.elisa"
 include "session_band_policy.elisa"
 include "session_issue_annotation_policy.elisa"
+include "session_impact_annotation_policy.elisa"
 include "../chrome.elisa"
 include "../../io/ops_file.elisa"
 
@@ -63,6 +67,7 @@ module SessionState:
         # source-bound v4 envelope remains compatible.
         const TAG_BAND: i64 = 7
         const TAG_ANNOTATION: i64 = 8
+        const TAG_IMPACT: i64 = 9
 
         const SAVE_ERROR_NONE: i64 = 0
         const SAVE_ERROR_PATH: i64 = 1
@@ -70,6 +75,7 @@ module SessionState:
         const SAVE_ERROR_WRITE: i64 = 3
         const SAVE_ERROR_COMMIT: i64 = 4
         const SAVE_ERROR_ANNOTATIONS: i64 = 5
+        const SAVE_ERROR_IMPACT: i64 = 6
 
         const LOAD_ERROR_NONE: i64 = 0
         const LOAD_ERROR_READ: i64 = 1
@@ -77,6 +83,7 @@ module SessionState:
         const LOAD_ERROR_LEGACY: i64 = 3
         const LOAD_ERROR_SOURCE: i64 = 4
         const LOAD_ERROR_ANNOTATIONS: i64 = 5
+        const LOAD_ERROR_IMPACT: i64 = 6
 
         struct SourceIdentity:
             first: i64
@@ -117,22 +124,55 @@ module SessionState:
             return Ops::Kind.LimitWring if code == 4
             return Ops::Kind.Median
 
+        def impact_records_valid(records: darray[SessionImpactAnnotationPolicy::Stored]&,
+                                 state: SessionImpactAnnotationPolicy::ReviewState,
+                                 identity: SourceIdentity) -> bool:
+            return false if records.count.i64() > SessionImpactAnnotationPolicy::MAX_RECORDS
+            return records.count.i64() == 0 if state == SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+            return false if records.count.i64() == 0
+            return false if state == SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed and records.count.i64() != 1
+            return false if state != SessionImpactAnnotationPolicy::ReviewState.EventsMarked and state != SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+            mutable valid: bool = true
+            for record in records |record, state, records, valid, identity|:
+                valid <- false if not SessionImpactAnnotationPolicy::schema_matches(record)
+                valid <- false if not SessionImpactAnnotationPolicy::source_identity_valid(record.source_first, record.source_second, record.animation, record.source_frames, record.nodes)
+                valid <- false if not SessionImpactAnnotationPolicy::source_matches(record, identity.first, identity.second, identity.animation, identity.frames, identity.nodes)
+                valid <- false if record.review != state
+                if state == SessionImpactAnnotationPolicy::ReviewState.EventsMarked:
+                    valid <- false if record.record_count != records.count.i64()
+                    valid <- false if not SessionImpactAnnotationPolicy::event_count_valid(record.record_count)
+                    valid <- false if not SessionImpactAnnotationPolicy::source_frame_valid(record.source_frame, identity.frames)
+                    mutable occurrences: i64 = 0
+                    for other in records |other, record, occurrences|:
+                        occurrences <- occurrences + 1 if other.source_frame == record.source_frame
+                    valid <- false if occurrences != 1
+                else:
+                    valid <- false if record.record_count != 0 or record.source_frame != -1
+            valid
+
         def encode_session(s: StackState::Stack&, identity: SourceIdentity, out: mutable darray[u8]&):
             mutable records: darray[SessionIssueAnnotationPolicy::Stored] = []
             _ = encode_session_with_annotations(s, identity, records, out)
 
-        # Optional v4 tag 8 stores exact finding result rows. Tag 6 scopes all
-        # records to source bytes, animation, frames and document nodes; tag 8
+        # Optional v4 tag 8 stores finding result rows. Tag 6 scopes all
+        # records to the bounded source fingerprint, animation, frames and nodes; tag 8
         # adds the schema, analysis output frame count and full stable detector
         # result needed to expire intent if analysis output changes.
         def encode_session_with_annotations(s: StackState::Stack&, identity: SourceIdentity, records: darray[SessionIssueAnnotationPolicy::Stored]&, out: mutable darray[u8]&) -> bool:
+            mutable impact_records: darray[SessionImpactAnnotationPolicy::Stored] = []
+            encode_session_with_reviews(s, identity, records, SessionImpactAnnotationPolicy::ReviewState.Unreviewed, impact_records, out)
+
+        def encode_session_with_reviews(s: StackState::Stack&, identity: SourceIdentity,
+                                        records: darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: SessionImpactAnnotationPolicy::ReviewState,
+                                        impact_records: darray[SessionImpactAnnotationPolicy::Stored]&, out: mutable darray[u8]&) -> bool:
             return false if records.count.i64() > SessionIssueAnnotationPolicy::MAX_RECORDS
             for record in records |record|:
                 return false if not SessionIssueAnnotationPolicy::valid(record.finding, record.analysis_frames)
+            return false if not impact_records_valid(impact_records, impact_state, identity)
             out.clear()
             Report::push_text(out, session_header())
             out.push(10)
-            Report::push_text(out, "# 1 feet blend | 2 operation | 3 contact edit | 4 correction | 5 hands | 6 source identity | 7 retime band | 8 ignored finding")
+            Report::push_text(out, "# 1 feet blend | 2 operation | 3 contact edit | 4 correction | 5 hands | 6 source identity | 7 retime band | 8 ignored finding | 9 impact review")
             out.push(10)
             source: darray[i64] = [TAG_IDENTITY, identity.first, identity.second, identity.animation, identity.frames, identity.nodes]
             for k in 0..<source.count:
@@ -183,6 +223,12 @@ module SessionState:
             for i in 0..<record_count |i, records, out, identity|:
                 r: SessionIssueAnnotationPolicy::Stored = records[i.usize()]
                 f: darray[i64] = [TAG_ANNOTATION, SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA, r.analysis_frames, r.finding.first_frame, r.finding.last_frame, r.finding.issue_type, r.finding.subject_id, r.finding.peak_frame, r.finding.severity, r.finding.peak_value, r.finding.threshold]
+                for k in 0..<f.count:
+                    out.push(32) if k > 0
+                    OpsFile::push_number(out, f[k])
+                out.push(10)
+            for record in impact_records |record, out|:
+                f: darray[i64] = [TAG_IMPACT, record.schema, record.review.i64(), record.source_first, record.source_second, record.animation, record.source_frames, record.nodes, record.record_count, record.source_frame]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
@@ -252,7 +298,15 @@ module SessionState:
             decode_session_with_annotations(text, frames, nodes, expected, allow_legacy, &records)
 
         def decode_session_with_annotations(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool, annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&) -> StackState::Stack?:
+            mutable state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+            mutable impact: darray[SessionImpactAnnotationPolicy::Stored] = []
+            decode_session_with_reviews(text, frames, nodes, expected, allow_legacy, annotations, &state, &impact)
+
+        def decode_session_with_reviews(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
+                                        annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                                        impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
             session_annotation_overflow <- false
+            session_impact_invalid <- false
             return null if frames < 1 or frames > StudioChrome::CHROME_FRAMES
             return null if not header_line(text)
             version: i64 = header_version(text)
@@ -264,6 +318,8 @@ module SessionState:
             mutable identity_count: i64 = 0
             mutable identity_matches: bool = false
             mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
+            mutable decoded_impact: darray[SessionImpactAnnotationPolicy::Stored] = []
+            mutable decoded_impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
             mutable annotation_overflow: bool = false
             mutable k: usize = 0
             while k <= text.count:
@@ -327,12 +383,27 @@ module SessionState:
                                     duplicate <- duplicate or (SessionIssueAnnotationPolicy::output_frames_match(prior.analysis_frames, record.analysis_frames) and SessionIssueAnnotationPolicy::same_analysis(prior.finding, record.finding))
                                 if not duplicate:
                                     decoded_annotations.push(record)
+                    elif tag == TAG_IMPACT:
+                        if version != StudioChrome::CHROME_VERSION or fields.count != 10 or fields[1] != SessionImpactAnnotationPolicy::SCHEMA or (fields[2] != SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() and fields[2] != SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed.i64()):
+                            session_impact_invalid <- true
+                        else:
+                            review: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.EventsMarked if fields[2] == SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() else SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+                            record: SessionImpactAnnotationPolicy::Stored = SessionImpactAnnotationPolicy::Stored{schema: fields[1], review: review, source_first: fields[3], source_second: fields[4], animation: fields[5], source_frames: fields[6], nodes: fields[7], record_count: fields[8], source_frame: fields[9]}
+                            if decoded_impact.count.i64() >= SessionImpactAnnotationPolicy::MAX_RECORDS:
+                                session_impact_invalid <- true
+                            else:
+                                decoded_impact_state <- review if decoded_impact.count.i64() == 0
+                                decoded_impact.push(record)
                 cur.clear()
             return null if version == StudioChrome::CHROME_VERSION and (identity_count != 1 or not identity_matches)
             session_annotation_overflow <- annotation_overflow
             return null if annotation_overflow
+            session_impact_invalid <- true if not impact_records_valid(decoded_impact, decoded_impact_state, expected)
+            return null if session_impact_invalid
             s.selected <- -1 if s.count == 0 else 0
             annotations <- move decoded_annotations
+            impact_state <- decoded_impact_state
+            impact_annotations <- move decoded_impact
             return s
 
         def save_session(s: StackState::Stack&, identity: SourceIdentity, path: cstr) -> bool:
@@ -341,9 +412,16 @@ module SessionState:
             atomic_save(&text, path)
 
         def save_session_with_annotations(s: StackState::Stack&, identity: SourceIdentity, records: darray[SessionIssueAnnotationPolicy::Stored]&, path: cstr) -> bool:
+            mutable impact_records: darray[SessionImpactAnnotationPolicy::Stored] = []
+            save_session_with_reviews(s, identity, records, SessionImpactAnnotationPolicy::ReviewState.Unreviewed, impact_records, path)
+
+        def save_session_with_reviews(s: StackState::Stack&, identity: SourceIdentity,
+                                      records: darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: SessionImpactAnnotationPolicy::ReviewState,
+                                      impact_records: darray[SessionImpactAnnotationPolicy::Stored]&, path: cstr) -> bool:
             mutable text: darray[u8] = []
-            if not encode_session_with_annotations(s, identity, records, &text):
+            if not encode_session_with_reviews(s, identity, records, impact_state, impact_records, &text):
                 session_save_error <- SAVE_ERROR_ANNOTATIONS
+                session_save_error <- SAVE_ERROR_IMPACT if impact_records.count.i64() > 0 or impact_state != SessionImpactAnnotationPolicy::ReviewState.Unreviewed
                 return false
             atomic_save(&text, path)
 
@@ -355,7 +433,15 @@ module SessionState:
             load_session_with_annotations(path, frames, nodes, expected, allow_legacy, &records)
 
         def load_session_with_annotations(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool, annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&) -> StackState::Stack?:
+            mutable state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+            mutable impact: darray[SessionImpactAnnotationPolicy::Stored] = []
+            load_session_with_reviews(path, frames, nodes, expected, allow_legacy, annotations, &state, &impact)
+
+        def load_session_with_reviews(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
+                                      annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                                      impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
             session_load_error <- LOAD_ERROR_NONE
+            session_impact_invalid <- false
             mutable text: darray[u8] = []
             if not OpsFile::read_bytes(path, &text):
                 session_load_error <- LOAD_ERROR_READ
@@ -368,9 +454,12 @@ module SessionState:
                 session_load_error <- LOAD_ERROR_LEGACY
                 return null
             session_annotation_overflow <- false
-            if decode_session_with_annotations(&text, frames, nodes, expected, allow_legacy, annotations) is decoded:
+            if decode_session_with_reviews(&text, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations) is decoded:
                 return decoded
-            session_load_error <- LOAD_ERROR_ANNOTATIONS if session_annotation_overflow else LOAD_ERROR_SOURCE if version == StudioChrome::CHROME_VERSION else LOAD_ERROR_FORMAT
+            session_load_error <- LOAD_ERROR_IMPACT if session_impact_invalid
+            session_load_error <- LOAD_ERROR_ANNOTATIONS if session_annotation_overflow and not session_impact_invalid
+            session_load_error <- LOAD_ERROR_SOURCE if session_load_error == LOAD_ERROR_NONE and version == StudioChrome::CHROME_VERSION
+            session_load_error <- LOAD_ERROR_FORMAT if session_load_error == LOAD_ERROR_NONE
             return null
 
         def load_error() -> i64:
@@ -380,6 +469,7 @@ module SessionState:
         global mutable session_save_error: i64 = SAVE_ERROR_NONE
         global mutable session_load_error: i64 = LOAD_ERROR_NONE
         global mutable session_annotation_overflow: bool = false
+        global mutable session_impact_invalid: bool = false
 
         def atomic_save(out: darray[u8]&, path: cstr) -> bool:
             session_save_error <- SAVE_ERROR_NONE

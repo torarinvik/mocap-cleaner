@@ -222,14 +222,48 @@ extend Studio:
             suggestion_unknown_evidence()
 
         def suggestion_impact_source_matches(c: StudioModel::Clip&) -> bool:
-            c.source_fingerprint.first == suggestion_impact_source_first and c.source_fingerprint.second == suggestion_impact_source_second
+            c.source_fingerprint.first == suggestion_impact_source_first and c.source_fingerprint.second == suggestion_impact_source_second and c.anim.i64() == suggestion_impact_animation and c.source_frames == suggestion_impact_source_frames and GlbDocument::node_count(&c.source).i64() == suggestion_impact_nodes
 
         def suggestion_impact_prepare(c: StudioModel::Clip&) -> void:
             if not suggestion_impact_source_matches(c):
                 suggestion_impact_source_first <- c.source_fingerprint.first
                 suggestion_impact_source_second <- c.source_fingerprint.second
+                suggestion_impact_animation <- c.anim.i64()
+                suggestion_impact_source_frames <- c.source_frames
+                suggestion_impact_nodes <- GlbDocument::node_count(&c.source).i64()
                 suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed
                 suggestion_impact_annotation_count <- 0
+
+        def suggestion_impact_snapshot_valid(c: StudioModel::Clip&) -> bool:
+            return false if not suggestion_impact_source_matches(c)
+            return false if suggestion_impact_annotation_count < 0 or suggestion_impact_annotation_count > StudioImpactAnnotationPolicy::MAX_ANNOTATIONS
+            return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.Unreviewed and suggestion_impact_annotation_count != 0
+            return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and suggestion_impact_annotation_count != 0
+            return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked and suggestion_impact_annotation_count == 0
+            return false if suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.EventsMarked
+            mutable valid: bool = true
+            for index in 0..<suggestion_impact_annotation_count |index, valid, c|:
+                annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index.usize()]
+                valid <- false if annotation.source_first != c.source_fingerprint.first or annotation.source_second != c.source_fingerprint.second or not StudioImpactAnnotationPolicy::source_frame_valid(annotation.source_frame, c.source_frames)
+                for prior in 0..<index |prior, valid, index|:
+                    valid <- false if suggestion_impact_annotations[prior.usize()].source_frame == annotation.source_frame
+            valid
+
+        def suggestion_impact_session_records(c: StudioModel::Clip&) -> darray[SessionImpactAnnotationPolicy::Stored]:
+            mutable records: darray[SessionImpactAnnotationPolicy::Stored] = []
+            identity: SessionState::SourceIdentity = session_identity(c)
+            if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed:
+                records.push(SessionImpactAnnotationPolicy::Stored{schema: SessionImpactAnnotationPolicy::SCHEMA, review: SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed, source_first: identity.first, source_second: identity.second, animation: identity.animation, source_frames: identity.frames, nodes: identity.nodes, record_count: 0, source_frame: -1})
+            elif suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked:
+                for index in 0..<suggestion_impact_annotation_count |index, records, identity|:
+                    annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index.usize()]
+                    records.push(SessionImpactAnnotationPolicy::Stored{schema: SessionImpactAnnotationPolicy::SCHEMA, review: SessionImpactAnnotationPolicy::ReviewState.EventsMarked, source_first: identity.first, source_second: identity.second, animation: identity.animation, source_frames: identity.frames, nodes: identity.nodes, record_count: suggestion_impact_annotation_count, source_frame: annotation.source_frame})
+            records
+
+        def suggestion_impact_session_state() -> SessionImpactAnnotationPolicy::ReviewState:
+            return SessionImpactAnnotationPolicy::ReviewState.EventsMarked if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked
+            return SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+            SessionImpactAnnotationPolicy::ReviewState.Unreviewed
 
         def suggestion_impact_has_frame(frame: i64) -> bool:
             for i in 0..<suggestion_impact_annotation_count |i, frame|:

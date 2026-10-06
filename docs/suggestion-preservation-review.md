@@ -15,8 +15,10 @@ The candidate is built from the same source and operation stack revision capture
 
 Studio's GLB loader currently receives no source-tagged impact annotations. In the dialog, the user can mark the playhead as an impact, explicitly confirm that the take has no impact events, or clear the review. A mark records the source frame, the current source frame count is checked, and the annotation stores the take's two-part `StudioSourceFingerprint` identity. Candidate timing passes only when each annotation maps to the same output frame in both clips. Explicitly reviewed zero-event lists are `Inapplicable`; missing or unreviewed annotations remain `Unknown`.
 
-Annotations are held in memory for the current source and are not written to session files yet. The two-part fingerprint is a bounded identity check, not a cryptographic digest. Contact onsets and acceleration peaks remain separate measurements and are not treated as semantic impacts.
+Impact reviews are persisted in sessions as versioned tag 9 records. Each record carries the review schema, source fingerprint pair, selected animation, source frame count, rig node count, total event count and source frame. Explicit “no events” uses one sentinel row. The session loader rejects mixed states, mismatched identities, invalid frames, duplicate frames and incomplete records. A session without tag 9 restores impact review as `Unknown`.
+
+The two-part fingerprint is a bounded identity check, not a cryptographic digest; a matching pair does not prove byte-for-byte source identity. Contact onsets and acceleration peaks remain separate measurements and are not treated as semantic impacts.
 
 ## Verification
 
-The measurement kernel and annotation policy carry inline contracts and focused proof files. The Studio compile is the current integration check; native-screen acceptance and executable checks remain separate qualification work.
+The measurement and session impact binding kernels carry inline contracts and focused proof files. The Studio compile is the current integration check; native-screen acceptance and executable checks remain separate qualification work.
