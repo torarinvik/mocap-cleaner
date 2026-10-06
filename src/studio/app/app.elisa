@@ -13,6 +13,7 @@ include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 include "../io/file_trash.elisa"
 include "../storage_restore_policy.elisa"
+include "../storage_move_policy.elisa"
 include "../storage_identity_policy.elisa"
 include "../storage_totals_kernel.elisa"
 include "../io/storage_clock.elisa"
@@ -111,6 +112,8 @@ module Studio:
         global mutable storage_selected: i64 = 0
         global mutable storage_restore_review: bool = false
         global mutable storage_restore_entry: StudioStorageManifest::Entry = zeroed
+        global mutable storage_move_outcome: i64 = StudioStorageMovePolicy::OUTCOME_NOT_STARTED
+        global mutable storage_retained_receipt: StudioStorageManifest::Entry? = null
         global mutable storage_message: i64 = 0
         global mutable storage_scan_seconds: i64 = -1
         global mutable storage_protected_records: i64 = 0
@@ -1761,6 +1764,75 @@ module Studio:
             # the on-disk receipt so another refresh can finish recovery.
             refresh_storage_inventory()
             storage_message <- 8 if storage_message == 5 or storage_message == 1 else 6
+            touch()
+
+        # The reviewed identity is already durable before the native move.
+        # Engine reconciliation can recover it after a crash before receipt save.
+        def move_storage_reviewed_entry(expected: StudioStorageManifest::Entry, confirmed: bool) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            refresh_storage_inventory()
+            mutable fresh_matches: bool = false
+            mutable fresh_eligible: bool = false
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            reasons: darray[i64] = storage_visible_reasons
+            for index in 0..<entries.count |entries, reasons, expected, fresh_matches, fresh_eligible|:
+                entry: StudioStorageManifest::Entry = entries[index]
+                if entry.state == StudioStorageManifest::REGISTERED and storage_identity_matches(expected, entry):
+                    fresh_matches <- true
+                    fresh_eligible <- index < reasons.count and reasons[index] == StudioStorageCleanupPolicy::PROTECT_NONE
+            if not StudioStorageMovePolicy::may_move(storage_manifest_state == 1 and storage_message != 5,
+                    StudioStorageManifest::valid(expected) and expected.state == StudioStorageManifest::REGISTERED,
+                    fresh_matches, fresh_eligible, confirmed):
+                storage_move_outcome <- StudioStorageMovePolicy::OUTCOME_NOT_STARTED
+                storage_message <- 9
+                touch()
+                return
+            mutable receipt: StudioStorageManifest::Entry = zeroed
+            mutable explanation: darray[u8] = []
+            mutable moved: bool = StudioFileTrash::move_entry("build", expected, &receipt, &explanation)
+            if not moved:
+                # A native failure can follow a move and failed internal rollback.
+                # A verified recovery lookup is stronger evidence than its code.
+                moved <- StudioFileTrash::reconcile("build", expected, &receipt, &explanation)
+            if not moved:
+                mutable original: StudioStorageManifest::Entry = zeroed
+                original_known: bool = StudioFileTrash::snapshot_path("build", expected.original_path, expected.kind, &original, &explanation) and storage_identity_matches(expected, original)
+                storage_move_outcome <- StudioStorageMovePolicy::outcome(
+                    StudioStorageMovePolicy::MOVE_FAILED_ORIGINAL_KNOWN if original_known else StudioStorageMovePolicy::MOVE_UNKNOWN_AFTER_FAILURE,
+                    StudioStorageMovePolicy::WRITE_NOT_ATTEMPTED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
+                refresh_storage_inventory()
+                storage_message <- 11 if original_known else 15
+                touch()
+                return
+            storage_retained_receipt <- receipt
+            mutable updated: darray[StudioStorageManifest::Entry] = []
+            for entry in storage_entries |entry, updated, expected, receipt|:
+                updated.push(receipt if storage_identity_matches(expected, entry) else entry)
+            if persist_storage_manifest(updated):
+                storage_entries <- updated
+                storage_retained_receipt <- null
+                storage_move_outcome <- StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED,
+                    StudioStorageMovePolicy::WRITE_SUCCEEDED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
+                refresh_storage_inventory()
+                storage_message <- 10
+                touch()
+                return
+            # Preserve the verified receipt until a fresh original snapshot
+            # proves rollback, or an atomic save makes the receipt durable.
+            _ = StudioFileTrash::restore("build", receipt, &explanation)
+            mutable original: StudioStorageManifest::Entry = zeroed
+            original_restored: bool = StudioFileTrash::snapshot_path("build", expected.original_path, expected.kind, &original, &explanation) and storage_identity_matches(expected, original)
+            mutable rollback: i64 = StudioStorageMovePolicy::ROLLBACK_SUCCEEDED if original_restored else StudioStorageMovePolicy::ROLLBACK_UNKNOWN
+            if not original_restored:
+                mutable still_in_trash: StudioStorageManifest::Entry = zeroed
+                if StudioFileTrash::reconcile("build", receipt, &still_in_trash, &explanation):
+                    storage_retained_receipt <- still_in_trash
+                    rollback <- StudioStorageMovePolicy::ROLLBACK_FAILED
+            else:
+                storage_retained_receipt <- null
+            storage_move_outcome <- StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED,
+                StudioStorageMovePolicy::WRITE_FAILED, rollback)
+            refresh_storage_inventory()
+            storage_message <- 12 if original_restored else 13 if rollback == StudioStorageMovePolicy::ROLLBACK_FAILED else 15
             touch()
 
         def storage_action(action: i64) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
