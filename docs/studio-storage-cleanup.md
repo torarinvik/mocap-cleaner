@@ -18,8 +18,10 @@ receipt records the canonical original path, resulting Trash path, and file
 identity (device, inode, size, and modification time). Move rechecks that the
 candidate is a regular non-symlink under the canonical build root; restore
 requires the original destination to be absent and the Trash item to match
-the receipt. The adapter does not enumerate the Studio inventory or persist
-receipts for the caller.
+the receipt. A field-based ABI exposes those values to Elisa without mirroring
+the native struct layout; if the adapter cannot verify a post-move receipt, it
+attempts to restore the file before returning failure. The adapter does not
+enumerate the Studio inventory or persist receipts for the caller.
 
 `src/studio/io/storage_receipts.elisa` now defines the version 1 receipt
 manifest codec. It bounds the record count and identity fields, hex-encodes
@@ -29,6 +31,8 @@ malformed input. The scalar receipt bounds live in
 `src/studio/storage_receipt_policy.elisa` with 18/18 obligations proved. This
 is the serialization foundation only: Studio does not yet enumerate owned
 artifacts, publish the manifest atomically, or expose Trash/Restore controls.
+The field-based Elisa adapter is compiled into the Studio binary, but no user
+workflow invokes it yet.
 
 `protection_reason` returns a stable numeric reason for the first applicable
 protection rule, including unmanaged files, paths outside `build/`, symlinks,

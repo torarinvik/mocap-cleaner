@@ -1,0 +1,122 @@
+# Field-based macOS Trash ABI. The native adapter owns filesystem identity
+# checks; this wrapper converts its bounded C strings into Elisa receipt data.
+include "storage_receipts.elisa"
+
+const STUDIO_TRASH_PATH_CAPACITY: usize = 4096
+const STUDIO_TRASH_ERROR_CAPACITY: usize = 512
+
+@link_name("elisa_file_trash_move_fields")
+extern studio_trash_move_fields(build_root: cstr, candidate: cstr,
+    original_path: mutable u8&, trashed_path: mutable u8&, path_capacity: i32,
+    device: mutable i64&, inode: mutable i64&, size_bytes: mutable i64&,
+    modified_seconds: mutable i64&, modified_nanoseconds: mutable i64&,
+    output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
+
+@link_name("elisa_file_trash_restore_fields")
+extern studio_trash_restore_fields(build_root: cstr, original_path: cstr,
+    trashed_path: cstr, device: i64, inode: i64, size_bytes: i64,
+    modified_seconds: i64, modified_nanoseconds: i64,
+    output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
+
+module StudioFileTrash:
+    public:
+        # `record` is updated only after the engine returns a complete receipt.
+        # Errors are copied into `message` and remain available to the UI.
+        def move(build_root: cstr, candidate: cstr, kind: i64,
+                 record: mutable StudioStorageReceipts::Receipt&,
+                 message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            message.clear()
+            if kind < StudioStorageReceiptPolicy::RECOVERY or kind >= StudioStorageReceiptPolicy::KIND_COUNT:
+                explanation: sview = "Studio cannot manage this artifact type."
+                for byte in explanation:
+                    message.push(byte)
+                return false
+            mutable original: u8[4096] = zeroed
+            mutable trashed: u8[4096] = zeroed
+            mutable error_buffer: u8[512] = zeroed
+            mutable device: i64 = 0
+            mutable inode: i64 = 0
+            mutable size_bytes: i64 = 0
+            mutable modified_seconds: i64 = 0
+            mutable modified_nanoseconds: i64 = 0
+            original_ptr: mutable u8& = (&original[0]).cast[mutable u8&] can Unsafe.PointerCast
+            trashed_ptr: mutable u8& = (&trashed[0]).cast[mutable u8&] can Unsafe.PointerCast
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            code: i32 = studio_trash_move_fields(build_root, candidate,
+                original_ptr, trashed_ptr,
+                STUDIO_TRASH_PATH_CAPACITY.i32(), &device, &inode, &size_bytes,
+                &modified_seconds, &modified_nanoseconds,
+                error_ptr,
+                STUDIO_TRASH_ERROR_CAPACITY.i32())
+            message.clear()
+            mutable error_index: usize = 0
+            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+                message.push(error_buffer[error_index])
+                error_index <- error_index + 1
+            return false if code != 0
+            mutable original_bytes: darray[u8] = []
+            mutable trashed_bytes: darray[u8] = []
+            mutable original_index: usize = 0
+            mutable trashed_index: usize = 0
+            while original_index < STUDIO_TRASH_PATH_CAPACITY and original[original_index] != 0:
+                original_bytes.push(original[original_index])
+                original_index <- original_index + 1
+            while trashed_index < STUDIO_TRASH_PATH_CAPACITY and trashed[trashed_index] != 0:
+                trashed_bytes.push(trashed[trashed_index])
+                trashed_index <- trashed_index + 1
+            next: StudioStorageReceipts::Receipt = StudioStorageReceipts::Receipt{
+                kind: kind, device: device, inode: inode, size_bytes: size_bytes,
+                modified_seconds: modified_seconds,
+                modified_nanoseconds: modified_nanoseconds,
+                original_path: original_bytes, trashed_path: trashed_bytes}
+            if not StudioStorageReceipts::valid(next):
+                message.clear()
+                explanation: sview = "The file moved, but its receipt data was outside the supported range."
+                for byte in explanation:
+                    message.push(byte)
+                # Roll back immediately when a host identity cannot be
+                # represented safely by the versioned manifest.
+                _ = restore_fields(build_root, next, message)
+                return false
+            record <- next
+            true
+
+        # The receipt remains unchanged on failure and is cleared by the UI
+        # only after this function confirms that the engine restored the file.
+        def restore(build_root: cstr, record: StudioStorageReceipts::Receipt,
+                    message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            message.clear()
+            if not StudioStorageReceipts::valid(record):
+                explanation: sview = "This restore receipt is incomplete or invalid."
+                for byte in explanation:
+                    message.push(byte)
+                return false
+            restore_fields(build_root, record, message)
+
+    private:
+        def restore_fields(build_root: cstr, record: StudioStorageReceipts::Receipt,
+                           message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            mutable original: u8[4096] = zeroed
+            mutable trashed: u8[4096] = zeroed
+            mutable error_buffer: u8[512] = zeroed
+            for index in 0..<record.original_path.count |record, original|:
+                original[index] <- record.original_path[index]
+            original[record.original_path.count] <- 0
+            for index in 0..<record.trashed_path.count |record, trashed|:
+                trashed[index] <- record.trashed_path[index]
+            trashed[record.trashed_path.count] <- 0
+            original_ptr: cstr = (&original[0]).cast[cstr] can Unsafe.PointerCast
+            trashed_ptr: cstr = (&trashed[0]).cast[cstr] can Unsafe.PointerCast
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            code: i32 = studio_trash_restore_fields(build_root,
+                original_ptr, trashed_ptr,
+                record.device, record.inode, record.size_bytes,
+                record.modified_seconds, record.modified_nanoseconds,
+                error_ptr,
+                STUDIO_TRASH_ERROR_CAPACITY.i32())
+            message.clear()
+            mutable error_index: usize = 0
+            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+                message.push(error_buffer[error_index])
+                error_index <- error_index + 1
+            code == 0

@@ -296,7 +296,8 @@ visually verified solely from offscreen rendering.
       and exact-sum laws tracked in `docs/proof-gaps.md`. Studio inventory,
       atomic manifest publication, receipt restore and the user workflow
       remain open. The versioned receipt codec and its bounded scalar proof
-      are in place, but the app does not persist or consume receipts yet.
+      are in place, and the field-based engine bridge is linked into Studio;
+      the app does not persist or consume receipts yet.
 
 #### Storage cleanup and Restore experience
 
