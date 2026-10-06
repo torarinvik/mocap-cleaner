@@ -75,3 +75,10 @@ cache. Recheck timeouts are failures rather than claims of a semantic cache
 mismatch. Existing already-running jobs are unaffected. Qualify timeout cleanup,
 cache refusal and subsequent-file progress before relying on this supervisor;
 it does not establish bounded prover search work or the proof timing target.
+
+Runner cache format v3 also rejects prover exits outside the documented CLI
+report codes 0/1, even if stdout contains a verification marker. Error reports
+are discarded and not cached. Earlier cache entries are invalidated rather than
+assuming they were produced under this stricter admission rule. Completed
+unproven reports remain evidence of unresolved work, subject to existing proof
+baselines; they are not promoted to successful verification.

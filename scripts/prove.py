@@ -45,7 +45,7 @@ CACHE = os.path.join(OUT, "cache")
 DURATIONS = os.path.join(CACHE, "durations.json")
 KEEP = re.compile(r"verification state|proven:|failed:|unproven:")
 # Bump when the key layout or the cached line format changes.
-KEY_VERSION = b"prove-cache-v2"
+KEY_VERSION = b"prove-cache-v3"
 # The prover is run as `PROVER <absolute file>`; part of the key so a change
 # here cannot reuse results produced by another invocation.
 INVOCATION = b"argv:PROVER,ABSFILE"
@@ -217,6 +217,12 @@ def main():
                 stdout="", stderr=f"proof file exceeded {args.file_timeout:g}s wall-time limit; partial output discarded")
         took = time.monotonic() - start
         line = summary(run.stdout)
+        # The current CLI returns 0 for complete source verification and 1
+        # for a completed report with unresolved obligations. Other exits are
+        # invocation/internal failures, even if a report marker was printed.
+        invalid = timed_out or "verification state" not in line or run.returncode not in (0, 1)
+        if invalid:
+            line = ""
         if old is not None and line != old:
             # The cache was wrong: report the fresh line, drop the stale one.
             marker = out[:-4] + ".cached"
@@ -227,12 +233,11 @@ def main():
         with open(out, "w") as o:
             o.write(line)
         # Never cache an empty result (crash, missing prover output).
-        if "verification state" in line and run.returncode >= 0:
+        if not invalid:
             tmp = cached + ".tmp"
             with open(tmp, "w") as o:
                 o.write(line)
             os.replace(tmp, cached)
-        invalid = timed_out or "verification state" not in line or run.returncode < 0
         if invalid and os.path.exists(cached):
             os.remove(cached)
         diagnostic = (run.stderr or run.stdout).strip() if invalid else ""
