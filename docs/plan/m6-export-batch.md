@@ -130,8 +130,8 @@ objects in the root `clips` array using engine token subtree boundaries.
 Names are located before extracting values, so field order does not change
 ownership. Nested metadata and timing arrays are excluded. Non-array `clips`,
 unnamed clip entries, and empty names are rejected. The CLI compiles with
-compiler `4c409da6`. This is partial structural implementation: duplicate
-container/name fields, clip identity normalization (including Unicode JSON
+compiler `4c409da6`. This is partial structural implementation: clip identity
+normalization (including Unicode JSON
 escapes), fractional/exponent numbers, indexed lookup, and traversal proof
 coverage still need implementation and qualification.
 
