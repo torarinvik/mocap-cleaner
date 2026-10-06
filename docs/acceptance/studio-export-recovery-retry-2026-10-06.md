@@ -1,7 +1,8 @@
 # Same-session prepared export retry
 
 `src/studio/app/app_export_recovery_retry.elisa` exposes
-`retry_retained_export(index)` for a retained same-session record. It reads the
+`retry_retained_export(index)` and `recovery_retry_message(result)` for a
+retained same-session record. It reads the
 captured binding and bytes from memory, compares the recorded build directory
 with the current canonical build path, takes the Storage transaction lock, and
 rechecks the workspace, destinations, native directory type, journal, retained
