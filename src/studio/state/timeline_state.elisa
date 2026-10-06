@@ -1,6 +1,7 @@
 # Timeline state: the playhead, play/pause, speed and looping, as value
 # transitions over the proved kernels in ../timeline.elisa.
 include "../timeline.elisa"
+include "../sample_clock.elisa"
 
 module TimelineState:
     public:
@@ -13,39 +14,51 @@ module TimelineState:
             # Clip time of the playhead, in microseconds (only advanced
             # while playing; scrubbing resets it to the frame start).
             time_us: mutable i64
+            sample_clock: mutable StudioSampleClock::Clock?
 
 
 
         def create(count: i64) -> State:
             n: i64 = 1 if count < 1 else (Timeline::Domain::MAX_FRAMES if count > Timeline::Domain::MAX_FRAMES else count)
-            return State{count: n, frame: 0, playing: false, divisor: Timeline::Speed.Full.i64(), looping: false, time_us: 0}
+            return State{count: n, frame: 0, playing: false, divisor: Timeline::Speed.Full.i64(), looping: false, time_us: 0, sample_clock: null}
+
+        def attach_clock(s: State, clock: StudioSampleClock::Clock) -> State:
+            mutable out: State = s
+            out.sample_clock <- clock
+            out <- safe(out)
+            out.time_us <- frame_time(out, out.frame)
+            out
 
         def safe(s: State) -> State:
             mutable out: State = s
             out.count <- 1 if out.count < 1 else (Timeline::Domain::MAX_FRAMES if out.count > Timeline::Domain::MAX_FRAMES else out.count)
             out.frame <- Timeline::clamp(out.frame, out.count)
             out.divisor <- out.divisor if Timeline::valid_divisor(out.divisor) else Timeline::Speed.Full.i64()
-            out.time_us <- Timeline::time_of_frame(out.frame) if out.time_us < 0 or out.time_us > Timeline::duration_us(out.count) else out.time_us
+            if out.sample_clock is clock:
+                out.playing <- false if not StudioSampleClock::ready(clock) or StudioSampleClock::count(clock) != out.count
+            out.time_us <- frame_time(out, out.frame) if out.time_us < 0 or out.time_us >= end_time(out) else out.time_us
             return out
 
         # Move the playhead to `frame` (clamped); playback continues from there.
         def scrub(s: State, frame: i64) -> State:
             mutable out: State = safe(s)
             out.frame <- Timeline::clamp(frame, out.count)
-            out.time_us <- Timeline::time_of_frame(out.frame)
+            out.time_us <- frame_time(out, out.frame)
             return out
 
         def step_by(s: State, delta: i64) -> State:
             mutable out: State = safe(s)
             d: i64 = -out.count if delta < -out.count else (out.count if delta > out.count else delta)
             out.frame <- Timeline::step(out.frame, d, out.count, out.looping)
-            out.time_us <- Timeline::time_of_frame(out.frame)
+            out.time_us <- frame_time(out, out.frame)
             out.playing <- false
             return out
 
         def toggle_play(s: State) -> State:
             mutable out: State = safe(s)
             out.playing <- not out.playing
+            if out.sample_clock is clock:
+                out.playing <- false if not StudioSampleClock::ready(clock) or StudioSampleClock::count(clock) != out.count
             # Play from the start when parked on the last frame.
             if out.playing and not out.looping and out.frame == out.count - 1:
                 out.frame <- 0
@@ -65,20 +78,33 @@ module TimelineState:
         def tick(s: State, elapsed_us: i64) -> State:
             mutable out: State = safe(s)
             return out if not out.playing
-            length: i64 = Timeline::duration_us(out.count)
+            length: i64 = end_time(out)
             mutable t: i64 = out.time_us + Timeline::advance_us(elapsed_us, out.divisor)
             if t >= length:
                 if out.looping:
-                    t <- t - length
-                    t <- 0 if t >= length else t
+                    t <- StudioSampleTimePolicy::loop_phase(t, length)
                 else:
-                    t <- Timeline::time_of_frame(out.count - 1)
+                    t <- frame_time(out, out.count - 1)
                     out.playing <- false
             out.time_us <- t
-            out.frame <- Timeline::frame_at_time(t, out.count)
+            if out.sample_clock is clock and StudioSampleClock::ready(clock) and StudioSampleClock::count(clock) == out.count:
+                out.frame <- StudioSampleClock::frame_at_us(clock, t)
+            else:
+                out.frame <- Timeline::frame_at_time(t, out.count)
             return out
 
         def speed_label(d: i64) -> sview:
             return "1/2x" if d == Timeline::Speed.Half.i64()
             return "1/4x" if d == Timeline::Speed.Quarter.i64()
             return "1x"
+
+    private:
+        def frame_time(s: State&, frame: i64) -> i64:
+            if s.sample_clock is clock and StudioSampleClock::ready(clock) and StudioSampleClock::count(clock) == s.count:
+                return StudioSampleClock::start_us(clock, frame)
+            Timeline::time_of_frame(frame)
+
+        def end_time(s: State&) -> i64:
+            if s.sample_clock is clock and StudioSampleClock::ready(clock) and StudioSampleClock::count(clock) == s.count:
+                return StudioSampleClock::end_us(clock)
+            Timeline::duration_us(s.count)
