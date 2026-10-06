@@ -66,3 +66,8 @@ New navigation, empty-inventory and NoHit laws accompany the policy. The
 conflict law's contradictory postcondition was corrected to assert its actual
 claim that conflicts disable retry. These edits await current compiler and
 certificate-replay qualification; no native interaction result is claimed.
+
+Compile-only evidence: current Stage1 `1f136742` emitted a fresh object for
+`proof/studio_export_recovery_ui_laws.elisa` at
+`build/recovery-actions-compile.TMsp2d/laws.o`. This covers the policy and law
+syntax/types, but does not establish the contracts or complete Studio build.
