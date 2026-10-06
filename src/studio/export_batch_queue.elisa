@@ -34,6 +34,7 @@ module StudioExportBatchQueue:
 
         def create(worker_limit: i64) -> Queue:
             requires worker_limit > 0 and worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS
+            ensure valid(result)
             ensure result.items.count == 0
             ensure result.worker_limit == worker_limit
             ensure result.active_workers == 0
@@ -42,6 +43,7 @@ module StudioExportBatchQueue:
 
         def enqueue(queue: mutable Queue&, preflight: StudioExportBatchPreflightPolicy::Outcome) -> bool:
             requires valid(queue)
+            ensure valid(queue)
             ensure not result or preflight == StudioExportBatchPreflightPolicy::Outcome.Ready
             ensure not result or queue.items.count <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
             return false if queue.cancel_requested
@@ -54,6 +56,7 @@ module StudioExportBatchQueue:
         # Returns -1 when cancelled, full, or no queued item remains.
         def launch_next(queue: mutable Queue&) -> i64:
             requires valid(queue)
+            ensure valid(queue)
             ensure result >= -1
             ensure result < queue.items.count.i64()
             ensure result < 0 or queue.items[result.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
@@ -70,6 +73,8 @@ module StudioExportBatchQueue:
         # running workers stay active until their completion is recorded.
         def cancel(queue: mutable Queue&) -> i64:
             requires valid(queue)
+            ensure valid(queue)
+            ensure queue.cancel_requested
             ensure result >= 0
             ensure result <= queue.items.count.i64()
             queue.cancel_requested <- true
@@ -87,7 +92,10 @@ module StudioExportBatchQueue:
             requires queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
             requires queue.active_workers > 0
             requires warning_count >= 0
+            ensure valid(queue)
             ensure result
+            ensure queue.items[index.usize()].state == StudioExportBatchQueuePolicy::completion(succeeded, staged_outputs_valid, warning_count)
+            ensure queue.items[index.usize()].warning_count == warning_count
             queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::completion(succeeded, staged_outputs_valid, warning_count)
             queue.items[index.usize()].warning_count <- warning_count
             queue.active_workers <- queue.active_workers - 1
@@ -97,6 +105,7 @@ module StudioExportBatchQueue:
                     destinations_create_only: bool, all_outputs_published: bool) -> bool:
             requires valid(queue)
             requires index >= 0 and index < queue.items.count.i64()
+            ensure valid(queue)
             return false if not StudioExportBatchQueuePolicy::may_publish(queue.items[index.usize()].state, reviewed, destinations_create_only)
             state_before: StudioExportBatchQueuePolicy::ItemState = queue.items[index.usize()].state
             queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::publication_result(state_before, all_outputs_published)
@@ -106,6 +115,8 @@ module StudioExportBatchQueue:
         def approve_warning(queue: mutable Queue&, index: i64, reviewed: bool) -> bool:
             requires valid(queue)
             requires index >= 0 and index < queue.items.count.i64()
+            ensure valid(queue)
+            ensure result implies queue.items[index.usize()].approved
             return false if not StudioExportBatchQueuePolicy::may_approve_warning(queue.items[index.usize()].state, reviewed)
             queue.items[index.usize()].approved <- true
             true
@@ -116,6 +127,7 @@ module StudioExportBatchQueue:
                   preflight: StudioExportBatchPreflightPolicy::Outcome) -> bool:
             requires valid(queue)
             requires index >= 0 and index < queue.items.count.i64()
+            ensure valid(queue)
             ensure result implies queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Queued
             ensure result implies preflight == StudioExportBatchPreflightPolicy::Outcome.Ready
             return false if queue.active_workers > 0
@@ -130,6 +142,7 @@ module StudioExportBatchQueue:
         # remain queued until this action; completed results are retained.
         def resume(queue: mutable Queue&) -> bool:
             requires valid(queue)
+            ensure valid(queue)
             ensure result implies not queue.cancel_requested
             ensure result implies queue.active_workers == 0
             return false if not StudioExportBatchResumePolicy::admitted(queue.cancel_requested, queue.active_workers)
