@@ -211,30 +211,42 @@ def main():
         with open(out, "w") as o:
             o.write(line)
         # Never cache an empty result (crash, missing prover output).
-        if "verification state" in line:
+        if "verification state" in line and run.returncode >= 0:
             tmp = cached + ".tmp"
             with open(tmp, "w") as o:
                 o.write(line)
             os.replace(tmp, cached)
-        return f, took, old, line
+        invalid = "verification state" not in line or run.returncode < 0
+        if invalid and os.path.exists(cached):
+            os.remove(cached)
+        diagnostic = (run.stderr or run.stdout).strip() if invalid else ""
+        return f, took, old, line, invalid, run.returncode, diagnostic
 
     mismatches = []
+    invalid_runs = []
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        for f, took, old, line in pool.map(prove, work):
+        for f, took, old, line, invalid, returncode, diagnostic in pool.map(prove, work):
             durations[f] = round(took, 3)
+            if invalid:
+                invalid_runs.append((f, returncode, diagnostic))
             if old is not None and line != old:
                 mismatches.append((f, old, line))
     tmp = DURATIONS + ".tmp"
     with open(tmp, "w") as o:
         json.dump(durations, o, indent=1, sort_keys=True)
     os.replace(tmp, DURATIONS)
-    print(f"prove: {len(hits)} cached, {len(todo)} proved, {len(sample)} rechecked; "
+    print(f"prove: {len(hits)} cached, {len(todo)} processed, {len(sample)} rechecked; "
           f"key: {how} {revision[:24]}", file=sys.stderr)
     if mismatches:
         print("prove: CACHE MISMATCH - cached results differ from a fresh run:", file=sys.stderr)
         for f, old, line in mismatches:
             print(f"  {f}\n    cached: {old}\n    fresh:  {line}", file=sys.stderr)
         sys.exit(3)
+    if invalid_runs:
+        print("prove: invalid verifier runs (no result or abnormal termination):", file=sys.stderr)
+        for f, returncode, diagnostic in invalid_runs:
+            print(f"  {f}: exit {returncode}\n    {diagnostic[:2000]}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
