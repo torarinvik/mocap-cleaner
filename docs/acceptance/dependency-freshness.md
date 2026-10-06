@@ -74,3 +74,25 @@ replay 5/5; broader proposition formation and caller-summary gaps remain open.
 The default binary is still `5776350b`. Compiler candidate extraction IR also
 loads the C-string payload with `load ptr`; emitted constructor and extraction
 layouts agree, but this is compile evidence rather than runtime qualification.
+
+## Current adoption status
+
+Fetched all five origins again on 2026-10-06: compiler `04b384ec` is
+40 commits ahead / zero behind, mocap prover `3ac99624` is 21 ahead / zero
+behind, primary prover `151a2772` is equal to upstream, engine `01f5aec7`
+is 20 ahead / zero behind, and UI `8ab2eb39` is 6 ahead / zero behind.
+
+The C-string payload patch was adopted into the normal compiler source as
+`04b384ec`. Its candidate compatibility run passed 78 executable tests and
+four CLI workflows; direct payload runtime qualification remains open.
+The normal compiler seed rebuild is running, recorded in
+`build/recovery-cstr-adopted-compiler-seed.log`. Until its provenance check
+passes, the installed normal binary must not be described as matching this
+new source revision.
+
+Clean isolated prover `3ac99624` independently replayed the focused recovery
+report-stage obligations (78 source and 99 law obligations). Broader stage
+and journal proof runs have abnormal exits under investigation. The default
+prover remains `5776350b`; adopting the latest source as the default binary
+is unfinished. These are current limitations, superseding the earlier
+candidate-running and compiler-not-adopted entries above.
