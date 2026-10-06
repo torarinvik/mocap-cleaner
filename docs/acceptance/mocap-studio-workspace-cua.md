@@ -21,3 +21,17 @@ CUA did not activate the File button through AX click. `Cmd-O` and Tab produced 
 ## Still open
 
 Locate/Create menu behavior, keyboard and accessibility focus, chooser cancellation preserving a loaded take, and successful workspace selection remain unqualified. No valid take was loaded, so cancellation preservation was not exercised. Do not treat this record as closure of the native workflow gate.
+
+## Follow-up build
+
+After the CUA attempt, the no-take accessibility tree was updated to expose
+the workspace status as a Status node after File. Compile and package-only
+build succeeded. The resulting bundle executable SHA-256 is
+`3d90aab321ffacab030f0a176a8c6ba12ffa23a674dfe2cb6e27141b17a2a169`, with
+build input fingerprint
+`194a0b0869d70f265d8a448b99495cd188340c100d1b77d92ef0c1e76b2c09de`.
+The build record names source revision `4686b26de4d6809437caeaad268a6f5fe86e0d2b`
+and marks the project worktree dirty. This follow-up binary has not been
+inspected through CUA: the existing app process remained alive, and its input
+path still reports `noWindowsAvailable`. The new status node is compile-qualified
+only, not natively observed.
