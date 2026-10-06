@@ -25,6 +25,13 @@ extern studio_trash_identity_fields(build_root: cstr, candidate: cstr,
     modified_seconds: mutable i64&, modified_nanoseconds: mutable i64&,
     output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
 
+@link_name("elisa_file_trash_reconcile_fields")
+extern studio_trash_reconcile_fields(build_root: cstr, original_path: cstr,
+    device: i64, inode: i64, size_bytes: i64,
+    modified_seconds: i64, modified_nanoseconds: i64,
+    trashed_path: mutable u8&, path_capacity: i32,
+    output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
+
 module StudioFileTrash:
     public:
         # Register only artifacts whose creation was completed by Studio.
@@ -75,6 +82,69 @@ module StudioFileTrash:
                     message.push(byte)
                 return false
             entry <- next
+            true
+
+        # Byte-path form used by the manifest inventory. Its local C string
+        # never escapes this call, and embedded NUL/oversized paths fail closed.
+        def snapshot_path(build_root: cstr, candidate: darray[u8]&, kind: i64,
+                          entry: mutable StudioStorageManifest::Entry&,
+                          message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            message.clear()
+            return false if candidate.count == 0 or candidate.count >= STUDIO_TRASH_PATH_CAPACITY
+            for byte in candidate:
+                return false if byte == 0
+            mutable path: u8[4096] = zeroed
+            for index in 0..<candidate.count |candidate, path|:
+                path[index] <- candidate[index]
+            pointer: cstr = (&path[0]).cast[cstr] can Unsafe.PointerCast
+            snapshot(build_root, pointer, kind, entry, message)
+
+        # Recover a move receipt after a process interruption between the OS
+        # Trash move and manifest receipt persistence. The engine only searches
+        # native Trash for this exact saved identity; it never scans build/.
+        def reconcile(build_root: cstr, record: StudioStorageManifest::Entry,
+                      recovered: mutable StudioStorageManifest::Entry&,
+                      message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            message.clear()
+            return false if not StudioStorageManifest::valid(record)
+            return false if record.original_path.count >= STUDIO_TRASH_PATH_CAPACITY
+            mutable original: u8[4096] = zeroed
+            mutable trashed: u8[4096] = zeroed
+            mutable error_buffer: u8[512] = zeroed
+            for index in 0..<record.original_path.count |record, original|:
+                original[index] <- record.original_path[index]
+            original_path: cstr = (&original[0]).cast[cstr] can Unsafe.PointerCast
+            trashed_ptr: mutable u8& = (&trashed[0]).cast[mutable u8&] can Unsafe.PointerCast
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            code: i32 = studio_trash_reconcile_fields(build_root, original_path,
+                record.device, record.inode, record.size_bytes,
+                record.modified_seconds, record.modified_nanoseconds,
+                trashed_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(),
+                error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
+            mutable error_index: usize = 0
+            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+                message.push(error_buffer[error_index])
+                error_index <- error_index + 1
+            return false if code != 0
+            mutable trash_path: darray[u8] = []
+            mutable path_index: usize = 0
+            while path_index < STUDIO_TRASH_PATH_CAPACITY and trashed[path_index] != 0:
+                trash_path.push(trashed[path_index])
+                path_index <- path_index + 1
+            next: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+                state: StudioStorageManifest::IN_TRASH, kind: record.kind,
+                device: record.device, inode: record.inode,
+                size_bytes: record.size_bytes,
+                modified_seconds: record.modified_seconds,
+                modified_nanoseconds: record.modified_nanoseconds,
+                original_path: record.original_path, trashed_path: trash_path}
+            if not StudioStorageManifest::valid(next):
+                message.clear()
+                explanation: sview = "The Trash location could not be represented safely."
+                for byte in explanation:
+                    message.push(byte)
+                return false
+            recovered <- next
             true
 
         # `record` is updated only after the engine returns a complete receipt.
