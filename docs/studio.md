@@ -5,7 +5,15 @@ An interactive window for cleaning one clip. It shows three engine viewports, a 
 ```
 scripts/build_studio.sh                      # build, run studio tests, prove kernels
 build/mocap_studio [clip.glb [animation]]    # default: boxing black-boxer.glb, "jab"
+open build/MocapStudio.app                    # launch the current Finder bundle
 ```
+
+The build also creates `build/MocapStudio.app` with a Finder bundle identifier,
+display name, version and executable. Its `Contents/Resources/BUILD-INFO.txt`
+records dependency revisions, worktree state, a build-input fingerprint and
+SHA-256 hashes for the executable and runtime object. This is a local
+development bundle; signing, notarization, an application icon and release
+distribution remain open.
 
 ## Layout
 

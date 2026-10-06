@@ -44,6 +44,7 @@ clang -o "$OUT/mocap_studio" \
   -framework Cocoa -framework Foundation -framework CoreText -framework CoreGraphics -framework ImageIO \
   -framework QuartzCore -framework IOSurface -framework Metal -framework UniformTypeIdentifiers
 echo "built $OUT/mocap_studio"
+bash "$ROOT/scripts/package_studio_app.sh" "$OUT/mocap_studio"
 
 [[ "${STUDIO_SKIP_CHECKS:-0}" == "1" ]] && exit 0
 
