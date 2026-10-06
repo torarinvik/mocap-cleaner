@@ -1,0 +1,235 @@
+include "dependencies.elisa"
+
+module Cli:
+    private:
+        def same(arg: cstr, text: cstr) -> bool:
+            mutable i: usize = 0
+            while text[i] != 0:
+                return false if arg[i] != text[i]
+                i <- i + 1
+            return arg[i] == 0
+
+        def preset_of(name: cstr) -> Presets::Preset:
+            return Presets::Preset.Boxing if same(name, "boxing".cast[cstr])
+            return Presets::Preset.Raw if same(name, "raw".cast[cstr])
+            return Presets::Preset.Rokoko if same(name, "rokoko".cast[cstr])
+            return Presets::Preset.Unknown
+
+        # Profile slots of `clean_take` (CPU clock units, microseconds): the stages,
+        # then one slot per curve op of the preset from TIME_OPS on.
+        const TIME_LOAD: usize = 0
+        const TIME_TRACKS: usize = 1
+        const TIME_RIG: usize = 2
+        const TIME_PHYSICS: usize = 3
+        const TIME_SAVE: usize = 4
+        const TIME_OPS: usize = 5
+
+        def split_fields(text: cstr) -> darray[darray[u8]]:
+            mutable out: darray[darray[u8]] = []
+            mutable cur: darray[u8] = []
+            mutable i: usize = 0
+            while text[i] != 0:
+                if text[i] == 58:
+                    out.push(cur)
+                    cur <- []
+                else:
+                    cur.push(text[i])
+                i <- i + 1
+            out.push(cur)
+            return out
+
+        # Signed decimal (optionally with a fraction, scaled by `scale`); ok=false on junk.
+        def parse_scaled(bytes: darray[u8]&, scale: i64) -> (ok: bool, value: i64):
+            return (false, 0) if bytes.count == 0
+            mutable k: usize = 0
+            negative: bool = bytes[0] == 45
+            k <- 1 if negative
+            mutable whole: i64 = 0
+            mutable frac: i64 = 0
+            mutable div: i64 = 1
+            mutable dot: bool = false
+            mutable digits: i64 = 0
+            while k < bytes.count:
+                c: u8 = bytes[k]
+                if c == 46 and not dot:
+                    dot <- true
+                elif c >= 48 and c <= 57:
+                    return (false, 0) if digits > 12
+                    digits <- digits + 1
+                    if dot:
+                        if div < 1000000:
+                            frac <- frac * 10 + (c - 48).i64()
+                            div <- div * 10
+                    else:
+                        whole <- whole * 10 + (c - 48).i64()
+                else:
+                    return (false, 0)
+                k <- k + 1
+            return (false, 0) if digits == 0
+            value: i64 = whole * scale + frac * scale / div
+            return (true, -value if negative else value)
+
+        def role_field(bytes: darray[u8]&) -> i64:
+            return RigMap::role_of_name(bytes)
+
+        # --pin ROLE:FIRST:LAST[:BLEND]
+        def parse_pin(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+            f: darray[darray[u8]] = split_fields(text)
+            bad: RigOps::RigOp = RigOps::pin(Roles::NONE, 0, 0, 1)
+            return (false, bad) if f.count < 3 or f.count > 4
+            role: i64 = role_field(&f[0])
+            first: (ok: bool, value: i64) = parse_scaled(&f[1], 1)
+            last: (ok: bool, value: i64) = parse_scaled(&f[2], 1)
+            mutable blend: (ok: bool, value: i64) = (true, 8)
+            blend <- parse_scaled(&f[3], 1) if f.count == 4
+            return (false, bad) if not Roles::role_valid(role) or (Roles::effector_hinge(role) < 0 and role != Roles::HEAD)
+            return (false, bad) if not first.ok or not last.ok or not blend.ok or first.value < 0 or last.value < first.value or blend.value < 1
+            return (true, RigOps::pin(role, first.value, last.value, blend.value))
+
+        # --offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]
+        def parse_offset(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+            f: darray[darray[u8]] = split_fields(text)
+            bad: RigOps::RigOp = RigOps::offset(Roles::NONE, 0, 0, 0, 0, 1)
+            return (false, bad) if f.count < 5 or f.count > 6
+            role: i64 = role_field(&f[0])
+            return (false, bad) if not Roles::role_valid(role) or f[1].count != 1
+            axis: i64 = (f[1][0] - 120).i64()
+            return (false, bad) if axis < 0 or axis > 2
+            degrees: (ok: bool, value: i64) = parse_scaled(&f[2], 1000000)
+            first: (ok: bool, value: i64) = parse_scaled(&f[3], 1)
+            last: (ok: bool, value: i64) = parse_scaled(&f[4], 1)
+            mutable fade: (ok: bool, value: i64) = (true, 8)
+            fade <- parse_scaled(&f[5], 1) if f.count == 6
+            return (false, bad) if not degrees.ok or not first.ok or not last.ok or not fade.ok
+            return (false, bad) if first.value < 0 or last.value < first.value or fade.value < 1
+            return (false, bad) if degrees.value > 360000000 or degrees.value < -360000000
+            radians: i64 = degrees_to_micro_rad(degrees.value)
+            return (true, RigOps::offset(role, axis, radians, first.value, last.value, fade.value))
+
+        def degrees_to_micro_rad(degrees: i64) -> i64:
+            return degrees * 314159 / 18000000
+
+        # --keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES[...]: segments of the curve.
+        def parse_keyed(text: cstr, out: mutable darray[RigOps::RigOp]&) -> bool:
+            f: darray[darray[u8]] = split_fields(text)
+            return false if f.count < 6 or f.count % 2 != 0
+            role: i64 = role_field(&f[0])
+            return false if not Roles::role_valid(role) or f[1].count != 1
+            axis: i64 = (f[1][0] - 120).i64()
+            return false if axis < 0 or axis > 2
+            mutable frames: darray[i64] = []
+            mutable angles: darray[i64] = []
+            mutable k: usize = 2
+            while k + 1 < f.count:
+                frame: (ok: bool, value: i64) = parse_scaled(&f[k], 1)
+                degrees: (ok: bool, value: i64) = parse_scaled(&f[k + 1], 1000000)
+                return false if not frame.ok or not degrees.ok or frame.value < 0 or frame.value > Fade::MAX_FRAMES
+                return false if degrees.value > 360000000 or degrees.value < -360000000
+                return false if frames.count > 0 and frame.value <= frames[frames.count - 1]
+                frames.push(frame.value)
+                angles.push(degrees_to_micro_rad(degrees.value))
+                k <- k + 2
+            for seg in RigOps::keyed(role, axis, &frames, &angles):
+                out.push(seg)
+            return true
+
+        def bytes_are(bytes: darray[u8]&, text: sview) -> bool:
+            mutable t: darray[u8] = []
+            Report::push_text(&t, text)
+            return false if t.count != bytes.count
+            for k in 0..<t.count:
+                return false if t[k] != bytes[k]
+            return true
+
+        # --retime FIRST:LAST:SPEED[:BLEND] (SPEED as a decimal, 0.5 = half speed)
+        def parse_retime(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+            f: darray[darray[u8]] = split_fields(text)
+            bad: RigOps::RigOp = RigOps::retime(0, 0, 1000, 0)
+            return (false, bad) if f.count < 3 or f.count > 4
+            first: (ok: bool, value: i64) = parse_scaled(&f[0], 1)
+            last: (ok: bool, value: i64) = parse_scaled(&f[1], 1)
+            speed: (ok: bool, value: i64) = parse_scaled(&f[2], 1000)
+            mutable blend: (ok: bool, value: i64) = (true, Retime::DEFAULT_BLEND)
+            blend <- parse_scaled(&f[3], 1) if f.count == 4
+            return (false, bad) if not first.ok or not last.ok or not speed.ok or not blend.ok
+            return (false, bad) if first.value < 0 or last.value <= first.value or blend.value < 0
+            return (false, bad) if not Retime::speed_ok(speed.value)
+            return (true, RigOps::retime(first.value, last.value, speed.value, blend.value))
+
+        # --contact FOOT:FIRST:LAST:on|off
+        def parse_contact(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+            f: darray[darray[u8]] = split_fields(text)
+            bad: RigOps::RigOp = RigOps::contact_edit(Roles::NONE, 0, 0, false)
+            return (false, bad) if f.count != 4
+            role: i64 = RigOps::ALL if bytes_are(&f[0], "all") else role_field(&f[0])
+            return (false, bad) if role != RigOps::ALL and role != Roles::LEFT_FOOT and role != Roles::RIGHT_FOOT
+            first: (ok: bool, value: i64) = parse_scaled(&f[1], 1)
+            last: (ok: bool, value: i64) = parse_scaled(&f[2], 1)
+            return (false, bad) if not first.ok or not last.ok or first.value < 0 or last.value < first.value
+            on: bool = bytes_are(&f[3], "on")
+            return (false, bad) if not on and not bytes_are(&f[3], "off")
+            return (true, RigOps::contact_edit(role, first.value, last.value, on))
+
+        # --hand-contact HAND:FIRST:LAST:on|off (one named hand, never "all").
+        def parse_hand_contact(text: cstr) -> (ok: bool, op: RigOps::RigOp):
+            f: darray[darray[u8]] = split_fields(text)
+            bad: RigOps::RigOp = RigOps::contact_edit(Roles::NONE, 0, 0, false)
+            return (false, bad) if f.count != 4
+            role: i64 = role_field(&f[0])
+            return (false, bad) if role != Roles::LEFT_HAND and role != Roles::RIGHT_HAND
+            first: (ok: bool, value: i64) = parse_scaled(&f[1], 1)
+            last: (ok: bool, value: i64) = parse_scaled(&f[2], 1)
+            return (false, bad) if not first.ok or not last.ok or first.value < 0 or last.value < first.value
+            on: bool = bytes_are(&f[3], "on")
+            return (false, bad) if not on and not bytes_are(&f[3], "off")
+            return (true, RigOps::contact_edit(role, first.value, last.value, on))
+
+        def parse_op(name: cstr) -> (ok: bool, op: RigOps::RigOp):
+            return (true, RigOps::twist(RigOps::ALL, 280000, 500)) if same(name, "twist".cast[cstr])
+            return (true, RigOps::pole(RigOps::ALL, 2, 0)) if same(name, "pole".cast[cstr])
+            return (true, RigOps::pelvis(4)) if same(name, "pelvis".cast[cstr])
+            return (true, RigOps::foot_lock(4)) if same(name, "lock".cast[cstr])
+            return (true, RigOps::foot_pivot(4)) if same(name, "pivot".cast[cstr])
+            return (true, RigOps::hand_lock(4)) if same(name, "hands".cast[cstr])
+            return (false, RigOps::pelvis(1))
+
+        # Physics op by name.
+        def parse_phys(name: cstr) -> (ok: bool, op: Physics::PhysOp):
+            return (true, Physics::balance(false)) if same(name, "balance".cast[cstr])
+            return (true, Physics::ballistic(true)) if same(name, "ballistic".cast[cstr])
+            return (true, Physics::momentum(true, 0)) if same(name, "momentum".cast[cstr])
+            return (false, Physics::balance(false))
+
+        def has_kind(ops: darray[Physics::PhysOp]&, kind: Physics::PhysKind) -> bool:
+            for op in ops:
+                return true if op.kind == kind
+            return false
+
+        # Batch reports always carry the physics detectors.
+        def with_detectors(ops: darray[Physics::PhysOp]&) -> darray[Physics::PhysOp]:
+            mutable out: darray[Physics::PhysOp] = []
+            for op in ops:
+                out.push(op)
+            out.push(Physics::balance(false)) if not has_kind(ops, Physics::PhysKind.Balance)
+            out.push(Physics::ballistic(false)) if not has_kind(ops, Physics::PhysKind.Ballistic)
+            out.push(Physics::momentum(false, 0)) if not has_kind(ops, Physics::PhysKind.Momentum)
+            return out
+
+        def push_op(value: cstr, rig: mutable darray[RigOps::RigOp]&, phys: mutable darray[Physics::PhysOp]&) -> bool:
+            parsed: (ok: bool, op: RigOps::RigOp) = parse_op(value)
+            if parsed.ok:
+                rig.push(parsed.op)
+                return true
+            p: (ok: bool, op: Physics::PhysOp) = parse_phys(value)
+            phys.push(p.op) if p.ok
+            return p.ok
+
+        # Clean one batch take and append its report rows; false when it failed.
+        def parse_count(text: cstr) -> (ok: bool, value: i64):
+            mutable value: i64 = 0
+            mutable i: usize = 0
+            while text[i] >= 48 and text[i] <= 57 and value <= 1024:
+                value <- value * 10 + (text[i] - 48).i64()
+                i <- i + 1
+            return (text[i] == 0 and i > 0 and value >= 1 and value <= 1024, value)
+

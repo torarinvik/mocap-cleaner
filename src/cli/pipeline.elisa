@@ -1,0 +1,171 @@
+include "output.elisa"
+
+extend Cli:
+    private:
+        def output_error(reason: i64) -> sview:
+            return "path could not be verified" if reason == CliOutputGuardPolicy::PATH_UNRESOLVED
+            return "derived files must be inside build/" if reason == CliOutputGuardPolicy::OUTSIDE_BUILD
+            return "destination aliases a source file" if reason == CliOutputGuardPolicy::SOURCE_COLLISION
+            return "destination is a symbolic link" if reason == CliOutputGuardPolicy::SYMBOLIC_LINK
+            return "destination is not a regular file" if reason == CliOutputGuardPolicy::NOT_REGULAR
+            return "destination already exists; choose a new name" if reason == CliOutputGuardPolicy::EXISTS
+            return "destination is reserved for Studio metadata or its namespace could not be verified" if reason == CliOutputGuardPolicy::RESERVED_METADATA
+            "destination was not admitted"
+
+        def output_allowed(source: cstr, destination: cstr) -> bool:
+            reason: i64 = CliOutputGuard::file_decision("build".cast[cstr], source, destination)
+            return true if reason == CliOutputGuardPolicy::ALLOW
+            Out::text("error: ")
+            Out::text(output_error(reason))
+            Out::text(": ")
+            Out::c_text(destination)
+            Out::line("")
+            false
+
+        def optional_output_allowed(source: cstr, destination: cstr) -> bool:
+            destination[0] == 0 or output_allowed(source, destination)
+
+        def optional_outputs_distinct(first: cstr, second: cstr) -> bool:
+            return true if first[0] == 0 or second[0] == 0
+            return true if CliOutputGuard::distinct_destinations(first, second)
+            Out::line("error: output paths overlap or cannot be compared; choose distinct verified names")
+            false
+
+        def load_or_empty(path: cstr) -> GlbDocument::Document:
+            doc: GlbDocument::Document = catch GlbDocument::load(path):
+                value: value
+                error failure: GlbDocument::Document()
+            return move doc
+
+        def animation_matches(doc: GlbDocument::Document&, a: usize, name: cstr) -> bool:
+            mutable text: darray[u8] = []
+            n: usize = GlbDocument::animation_name(doc, a, &text)
+            for i in 0..<n:
+                return false if name[i] == 0 or name[i] != text[i]
+            return name[n] == 0
+
+        def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, phys: darray[Physics::PhysOp]&, rig: mutable RigOps::Summary&, found: mutable Physics::Findings&, bank: mutable darray[Ops::Cache]&, clips: mutable i64&, times: mutable darray[i64]&, clip_reports: mutable darray[u8]&) -> Report::Row:
+            failed: Report::Row = Report::Row{ok: false, tracks: 0, changed: 0, before: 0, after: 0}
+            return failed if not output_allowed(input, output)
+            ops: darray[Ops::Operation] = Presets::operations(preset)
+            times.clear()
+            for slot in 0..<(TIME_OPS + ops.count) |times|:
+                times.push(0)
+            mutable op_times: darray[i64] = []
+            start: i64 = s_clock()
+            mutable doc: GlbDocument::Document = catch GlbDocument::load(input):
+                value: value
+                error failure: return failed
+            times[TIME_LOAD] <- s_clock() - start
+            clips <- GlbDocument::animation_count(&doc).i64()
+            return failed if clips == 0
+            clip_reports.clear()
+            threshold: i64 = Presets::spike_threshold(preset)
+            mutable rig_ops: darray[RigOps::RigOp] = Presets::rig_operations(preset)
+            for op in extra:
+                rig_ops.push(op)
+            mutable tracks: i64 = 0
+            mutable changed: i64 = 0
+            mutable before: i64 = 0
+            mutable after: i64 = 0
+            for a in 0..<GlbDocument::animation_count(&doc):
+                continue if only[0] != 0 and not animation_matches(&doc, a, only)
+                mutable animation_name: darray[u8] = []
+                _ = GlbDocument::animation_name(&doc, a, &animation_name)
+                t0: i64 = s_clock()
+                result: (tracks: i64, changed: i64, before: i64, after: i64) = GlbTracks::clean_animation_timed(&doc, a, ops, threshold, bank, &op_times, true)
+                t1: i64 = s_clock()
+                tracks <- tracks + result.tracks
+                changed <- changed + result.changed
+                before <- before + result.before
+                after <- after + result.after
+                summary: RigOps::Summary = RigOps::run(&doc, a, &rig_ops, threshold)
+                add_summary(rig, summary)
+                t2: i64 = s_clock()
+                clip_found: Physics::Findings = Physics::run(&doc, a, phys)
+                Physics::add(found, &clip_found)
+                if clip_reports.count > 0:
+                    clip_reports.extend([44u8, 10u8])
+                append_clip_report(clip_reports, a.i64(), &animation_name, result, summary, clip_found)
+                # Retime runs last, on the finished pose.
+                mutable timed: RetimeApply::Report = RetimeApply::empty_report()
+                retimed: GlbDocument::Document = RetimeApply::apply(&doc, a, &rig_ops, &timed)
+                doc <- move retimed
+                print_retime(&timed)
+                t3: i64 = s_clock()
+                times[TIME_TRACKS] <- times[TIME_TRACKS] + t1 - t0
+                times[TIME_RIG] <- times[TIME_RIG] + t2 - t1
+                times[TIME_PHYSICS] <- times[TIME_PHYSICS] + t3 - t2
+            for i in 0..<op_times.count |op_times, times|:
+                times[TIME_OPS + i] <- op_times[i]
+            t4: i64 = s_clock()
+            saved: bool = output_allowed(input, output) and CliOutputPublisher::publish_glb(&doc, output)
+            times[TIME_SAVE] <- s_clock() - t4
+            Out::line("error: cleaned GLB could not be published; its destination was not overwritten") if not saved
+            return Report::Row{ok: saved, tracks: tracks, changed: changed, before: before, after: after}
+
+        # Column names of a profile (see TIME_*), for the reports.
+        def join(dir: cstr, path: cstr, name: cstr) -> darray[u8]:
+            mutable out: darray[u8] = []
+            mutable i: usize = 0
+            while dir[i] != 0:
+                out.push(dir[i])
+                i <- i + 1
+            out.push(47)
+            if name[0] != 0:
+                mutable n: usize = 0
+                while name[n] != 0:
+                    out.push(name[n])
+                    n <- n + 1
+            else:
+                mutable start: usize = 0
+                mutable j: usize = 0
+                while path[j] != 0:
+                    start <- j + 1 if path[j] == 47
+                    j <- j + 1
+                for k in start..<j:
+                    out.push(path[k])
+            out.push(0)
+            return out
+
+        # Rig (`--op twist`...) or physics (`--op balance`...) op into the lists.
+        def take_row(input: cstr, outdir: cstr, preset: Presets::Preset, extra: darray[RigOps::RigOp]&, checks: darray[Physics::PhysOp]&, bank: mutable darray[Ops::Cache]&, html: mutable darray[u8]&, profile: mutable darray[u8]&) -> bool can[Memory.Allocate, Memory.Release, Abort.Panic, Unsafe.PointerCast, Console, Blocking.IO]:
+            target: darray[u8] = join(outdir, input, "".cast[cstr])
+            output: cstr = (&target[0]).cast[cstr]
+            mutable rig: RigOps::Summary = RigOps::empty_summary()
+            mutable found: Physics::Findings = Physics::empty_findings()
+            mutable clips: i64 = 0
+            mutable times: darray[i64] = []
+            mutable clip_reports: darray[u8] = []
+            row: Report::Row = clean_take(input, output, preset, "".cast[cstr], extra, checks, &rig, &found, bank, &clips, &times, &clip_reports)
+            Report::row_detail(html, input, row, detail_of(clips, &rig, &found))
+            Report::time_row(profile, input, &times)
+            Out::c_text(input)
+            Out::text(": ")
+            print_row(row)
+            print_rig(&rig)
+            print_physics(&found)
+            return row.ok
+
+        # <outdir>/.mc-part-<index>.<kind>, NUL-terminated (a worker's output).
+        def part_path(outdir: cstr, index: usize, kind: sview) -> darray[u8]:
+            mutable out: darray[u8] = []
+            mutable i: usize = 0
+            while outdir[i] != 0:
+                out.push(outdir[i])
+                i <- i + 1
+            Report::push_text(&out, "/.mc-part-")
+            Report::push_number(&out, index.i64())
+            out.push(46)
+            Report::push_text(&out, kind)
+            out.push(0)
+            return out
+
+        # Bytes of a worker's part file, which is then removed.
+        def take_part(outdir: cstr, index: usize, kind: sview) -> darray[u8] can[Memory.Allocate, Memory.Release, Abort.Panic, Unsafe.PointerCast, Blocking.IO]:
+            path: darray[u8] = part_path(outdir, index, kind)
+            bytes: darray[u8] = Workers::read_all((&path[0]).cast[cstr])
+            Workers::remove((&path[0]).cast[cstr])
+            return bytes
+
+        # Positive decimal count (1..1024).

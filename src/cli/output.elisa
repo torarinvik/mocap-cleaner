@@ -1,0 +1,264 @@
+include "arguments.elisa"
+
+extend Cli:
+    private:
+        def op_name(kind: Ops::Kind) -> sview:
+            match kind:
+                Ops::Kind.Despike:
+                    return "despike"
+                Ops::Kind.SmoothPath:
+                    return "smooth_path"
+                Ops::Kind.LimitWring:
+                    return "limit_wring"
+                Ops::Kind.Median:
+                    return "median"
+                Ops::Kind.CloseSeam:
+                    return "close_seam"
+                Ops::Kind.PinContacts:
+                    return "pin_contacts"
+
+        # Clean one take. `only` is an animation name, or empty for all. The GLB is
+        # parsed once; `clips` gets its animation count and `times` the profile.
+        def time_names(preset: Presets::Preset) -> darray[sview]:
+            mutable names: darray[sview] = ["load", "tracks", "rig", "physics", "save"]
+            for op in Presets::operations(preset) |names|:
+                names.push(op_name(op.kind))
+            return names
+
+        def print_retime(r: RetimeApply::Report&):
+            return if r.ranges.count == 0
+            Out::field("retime frames before: ", r.frames_before)
+            Out::field("retime frames after: ", r.frames_after)
+            Out::field("retime status: ", r.status)
+            for g in r.ranges:
+                Out::field("retime range first: ", g.first)
+                Out::field("  last: ", g.last)
+                Out::field("  speed permille: ", g.speed)
+                Out::field("  source frames: ", g.source_frames)
+                Out::field("  output frames: ", g.output_frames)
+
+        def add_summary(total: mutable RigOps::Summary&, s: RigOps::Summary):
+            total.ops <- total.ops + s.ops
+            total.changed <- total.changed + s.changed
+            total.twist_max <- s.twist_max if s.twist_max > total.twist_max
+            total.pole_before <- total.pole_before + s.pole_before
+            total.pole_after <- total.pole_after + s.pole_after
+            total.slide_before <- total.slide_before + s.slide_before
+            total.slide_after <- total.slide_after + s.slide_after
+            total.pelvis_before <- total.pelvis_before + s.pelvis_before
+            total.pelvis_after <- total.pelvis_after + s.pelvis_after
+            total.sink_before <- total.sink_before + s.sink_before
+            total.sink_after <- total.sink_after + s.sink_after
+            total.hand_before <- total.hand_before + s.hand_before
+            total.hand_after <- total.hand_after + s.hand_after
+
+        def print_rig(s: RigOps::Summary&):
+            return if s.ops == 0
+            Out::field("rig ops: ", s.ops)
+            Out::field("rig values changed: ", s.changed)
+            Out::field("twist removed max (urad): ", s.twist_max)
+            Out::field("pole spikes before: ", s.pole_before)
+            Out::field("pole spikes after: ", s.pole_after)
+            Out::field("pelvis spikes before: ", s.pelvis_before)
+            Out::field("pelvis spikes after: ", s.pelvis_after)
+            Out::field("foot slide before (um): ", s.slide_before)
+            Out::field("foot slide after (um): ", s.slide_after)
+            Out::field("pivot sink before (um): ", s.sink_before)
+            Out::field("pivot sink after (um): ", s.sink_after)
+            Out::field("hand slide before (um): ", s.hand_before)
+            Out::field("hand slide after (um): ", s.hand_after)
+
+        def print_physics(f: Physics::Findings&):
+            return if f.ops == 0
+            Out::field("physics ops: ", f.ops)
+            Out::field("physics values changed: ", f.changed)
+            Out::field("planted frames: ", f.planted)
+            Out::field("unbalanced frames: ", f.unbalanced)
+            Out::field("unbalanced runs: ", f.unbalanced_runs)
+            Out::field("stepping frames (recovered): ", f.stepped)
+            Out::field("airborne frames: ", f.airborne)
+            Out::field("flights: ", f.flights)
+            Out::field("ballistic residual before (um): ", f.ballistic_before)
+            Out::field("ballistic residual after (um): ", f.ballistic_after)
+            Out::field("momentum cap (urad/frame^2): ", f.momentum_cap)
+            Out::field("momentum spikes before: ", f.momentum_before)
+            Out::field("momentum spikes after: ", f.momentum_after)
+            Out::field("momentum max drift (urad): ", f.momentum_drift)
+
+        def detail_of(clips: i64, s: RigOps::Summary&, f: Physics::Findings&) -> Report::Detail:
+            mutable d: Report::Detail = Report::empty_detail()
+            d.animations <- clips
+            d.rig_changed <- s.changed + f.changed
+            d.pole_before <- s.pole_before
+            d.pole_after <- s.pole_after
+            d.slide_before <- s.slide_before
+            d.slide_after <- s.slide_after
+            d.planted <- f.planted
+            d.unbalanced <- f.unbalanced
+            d.unbalanced_runs <- f.unbalanced_runs
+            d.airborne <- f.airborne
+            d.flights <- f.flights
+            d.momentum_before <- f.momentum_before
+            d.momentum_after <- f.momentum_after
+            return d
+
+        def json_field(out: mutable darray[u8]&, name: sview, value: i64, last: bool):
+            Report::push_text(out, "  \"")
+            Report::push_text(out, name)
+            Report::push_text(out, "\": ")
+            Report::push_number(out, value)
+            if last:
+                Report::push_text(out, "\n")
+            else:
+                Report::push_text(out, ",\n")
+
+        def json_bool_field(out: mutable darray[u8]&, name: sview, value: bool, last: bool):
+            Report::push_text(out, "  \"")
+            Report::push_text(out, name)
+            Report::push_text(out, "\": ")
+            Report::push_text(out, "true" if value else "false")
+            Report::push_text(out, "\n" if last else ",\n")
+
+        def json_quoted(out: mutable darray[u8]&, value: darray[u8]&):
+            out.push(34)
+            for c in value |out|:
+                if c == 34 or c == 92:
+                    out.extend([92u8, c])
+                elif c == 8:
+                    Report::push_text(out, "\\b")
+                elif c == 9:
+                    Report::push_text(out, "\\t")
+                elif c == 10:
+                    Report::push_text(out, "\\n")
+                elif c == 12:
+                    Report::push_text(out, "\\f")
+                elif c == 13:
+                    Report::push_text(out, "\\r")
+                elif c < 32:
+                    Report::push_text(out, "\\u00")
+                    hex: sview = "0123456789abcdef"
+                    out.extend([hex[(c / 16).usize()], hex[(c % 16).usize()]])
+                else:
+                    out.push(c)
+            out.push(34)
+
+        # Append one machine-readable animation record. The synthetic name is unique
+        # even when a GLB repeats an animation name; the original name remains beside
+        # it for display.
+        def append_clip_report(out: mutable darray[u8]&, index: i64, animation_name: darray[u8]&, row: (tracks: i64, changed: i64, before: i64, after: i64), rig: RigOps::Summary, physics: Physics::Findings):
+            Report::push_text(out, "  {\n    \"name\": \"animation_")
+            Report::push_number(out, index)
+            Report::push_text(out, "\",\n    \"animation_name\": ")
+            json_quoted(out, animation_name)
+            Report::push_text(out, ",\n")
+            json_field(out, "tracks", row.tracks, false)
+            json_field(out, "values_changed", row.changed, false)
+            json_field(out, "spikes_before", row.before, false)
+            json_field(out, "spikes_after", row.after, false)
+            json_field(out, "rig_ops", rig.ops, false)
+            json_field(out, "rig_values_changed", rig.changed, false)
+            json_field(out, "twist_removed_max_urad", rig.twist_max, false)
+            json_field(out, "pole_before", rig.pole_before, false)
+            json_field(out, "pole_after", rig.pole_after, false)
+            json_field(out, "pelvis_before", rig.pelvis_before, false)
+            json_field(out, "pelvis_after", rig.pelvis_after, false)
+            json_field(out, "slide_before_um", rig.slide_before, false)
+            json_field(out, "slide_after_um", rig.slide_after, false)
+            json_field(out, "hand_slide_before_um", rig.hand_before, false)
+            json_field(out, "hand_slide_after_um", rig.hand_after, false)
+            json_field(out, "physics_ops", physics.ops, false)
+            json_field(out, "physics_values_changed", physics.changed, false)
+            json_field(out, "planted_frames", physics.planted, false)
+            json_field(out, "unbalanced_frames", physics.unbalanced, false)
+            json_field(out, "unbalanced_runs", physics.unbalanced_runs, false)
+            json_field(out, "stepping_frames", physics.stepped, false)
+            json_field(out, "airborne_frames", physics.airborne, false)
+            json_field(out, "flights", physics.flights, false)
+            json_field(out, "ballistic_before_um", physics.ballistic_before, false)
+            json_field(out, "ballistic_after_um", physics.ballistic_after, false)
+            json_field(out, "momentum_cap_urad", physics.momentum_cap, false)
+            json_field(out, "momentum_before", physics.momentum_before, false)
+            json_field(out, "momentum_after", physics.momentum_after, false)
+            json_field(out, "momentum_drift_urad", physics.momentum_drift, false)
+            json_bool_field(out, "ok", true, false)
+            json_field(out, "animation_index", index, true)
+            Report::push_text(out, "  }")
+
+        # Machine-readable report of one `clean` run.
+        def json_report(row: Report::Row, s: RigOps::Summary&, f: Physics::Findings&, names: darray[sview]&, times: darray[i64]&, clip_reports: darray[u8]&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            Report::push_text(&out, "{\n  \"ok\": ")
+            if row.ok:
+                Report::push_text(&out, "true,\n")
+            else:
+                Report::push_text(&out, "false,\n")
+            json_field(&out, "tracks", row.tracks, false)
+            json_field(&out, "values_changed", row.changed, false)
+            json_field(&out, "spikes_before", row.before, false)
+            json_field(&out, "spikes_after", row.after, false)
+            json_field(&out, "rig_ops", s.ops, false)
+            json_field(&out, "rig_values_changed", s.changed, false)
+            json_field(&out, "twist_removed_max_urad", s.twist_max, false)
+            json_field(&out, "pole_before", s.pole_before, false)
+            json_field(&out, "pole_after", s.pole_after, false)
+            json_field(&out, "pelvis_before", s.pelvis_before, false)
+            json_field(&out, "pelvis_after", s.pelvis_after, false)
+            json_field(&out, "slide_before_um", s.slide_before, false)
+            json_field(&out, "slide_after_um", s.slide_after, false)
+            json_field(&out, "hand_slide_before_um", s.hand_before, false)
+            json_field(&out, "hand_slide_after_um", s.hand_after, false)
+            json_field(&out, "physics_ops", f.ops, false)
+            json_field(&out, "physics_values_changed", f.changed, false)
+            json_field(&out, "planted_frames", f.planted, false)
+            json_field(&out, "unbalanced_frames", f.unbalanced, false)
+            json_field(&out, "unbalanced_runs", f.unbalanced_runs, false)
+            json_field(&out, "stepping_frames", f.stepped, false)
+            json_field(&out, "airborne_frames", f.airborne, false)
+            json_field(&out, "flights", f.flights, false)
+            json_field(&out, "ballistic_before_um", f.ballistic_before, false)
+            json_field(&out, "ballistic_after_um", f.ballistic_after, false)
+            json_field(&out, "momentum_cap_urad", f.momentum_cap, false)
+            json_field(&out, "momentum_before", f.momentum_before, false)
+            json_field(&out, "momentum_after", f.momentum_after, false)
+            json_field(&out, "momentum_drift_urad", f.momentum_drift, false)
+            # CPU microseconds per stage; "tracks" includes the curve ops listed
+            # after it (each op's own time).
+            Report::push_text(&out, "  \"time_us\": [")
+            for i in 0..<times.count |out, names, times|:
+                Report::push_text(&out, ", ") if i > 0
+                Report::push_text(&out, "{\"stage\": \"")
+                Report::push_text(&out, names[i]) if i < names.count
+                Report::push_text(&out, "\", \"us\": ")
+                Report::push_number(&out, times[i])
+                Report::push_text(&out, "}")
+            Report::push_text(&out, "],\n  \"clips\": [\n")
+            for c in clip_reports |out|:
+                out.push(c)
+            Report::push_text(&out, "\n  ]\n}\n")
+            return out
+
+        # Fields of "A:B:C" split at ':' (each NUL-free byte run).
+        def print_row(row: Report::Row):
+            if row.ok:
+                Out::line("ok")
+            else:
+                Out::line("failed")
+            Out::field("tracks: ", row.tracks)
+            Out::field("values changed: ", row.changed)
+            Out::field("spikes before: ", row.before)
+            Out::field("spikes after: ", row.after)
+
+        def usage() -> i64:
+            Out::line("usage: mocap-cleaner clean <in.glb> (<out.glb> | -o <out.glb>) [--preset boxing|raw|rokoko]")
+            Out::line("           [--anim NAME] [--report r.json] [--op OP] [--pin ROLE:FIRST:LAST[:BLEND]]")
+            Out::line("           [--offset ROLE:AXIS:DEGREES:FIRST:LAST[:FADE]]")
+            Out::line("           [--keyed ROLE:AXIS:FRAME:DEGREES:FRAME:DEGREES...]")
+            Out::line("           [--contact FOOT:FIRST:LAST:on|off] [--hand-contact HAND:FIRST:LAST:on|off]")
+            Out::line("           [--retime FIRST:LAST:SPEED[:BLEND]]")
+            Out::line("           [--ops FILE] [--save-ops FILE]")
+            Out::line("       mocap-cleaner batch <outdir> [--preset boxing|raw|rokoko] [--op OP] [--jobs N] <in.glb|folder>...")
+            Out::line("       mocap-cleaner diff <a.json> <b.json> [--tolerance PERCENT] [--floor N] [--html out.html]")
+            Out::line("  OP: twist pole pelvis lock pivot hands balance ballistic momentum")
+            return 2
+
+        # <dir>/<basename of path>, NUL-terminated.
