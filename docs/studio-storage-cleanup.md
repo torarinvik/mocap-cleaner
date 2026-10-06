@@ -119,6 +119,13 @@ that bypasses identity, eligibility or manifest-version checks. Select eligible
 uses displayed rows; Clear selection clears the whole selection. The future
 controls must state these scopes and announce selections hidden by a filter.
 
+The hidden-selection accounting policy validates complete, visible, selected
+and visibly selected counts together, including the capacity of the hidden
+portion. It derives the hidden count only from valid facts. Invalid accounting
+must display unknown, never a misleading zero. Source and laws prove 60/60
+and 80/80 obligations respectively; the policy object compiles. UI integration
+and native acceptance remain pending.
+
 ## Hard links and allocation: next native boundary
 
 Current totals are logical file sizes. A fresh native measurement must provide
