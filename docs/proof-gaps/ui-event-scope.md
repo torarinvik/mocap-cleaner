@@ -119,3 +119,11 @@ compiler therefore classifies this event match as an i64 before payload-enum
 dispatch; investigating type resolution and declaration registration is the
 next step. The exact cause remains unproven. The log filename does not indicate
 acceptance: this build still declines 24 bodies and explicitly writes no object.
+
+A reduced real-UiCore event match also compiles when the scalar
+`StudioSuggestionPolicy::Event` is included before UiCore. The fresh current
+diagnostic compile exits 0 and emits the nonempty object
+`build/event-include-order.gs9r_9wr/reverse.o` (log alongside it). Together with
+the UI-first reduction, this rules out those two declarations' simple include
+order as a sufficient reproduction. It does not rule out registration timing
+or another collision in the complete graph. No runtime was executed.
