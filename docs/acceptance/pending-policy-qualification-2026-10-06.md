@@ -15,10 +15,11 @@ Existing baselines must not be weakened to admit the edits.
 | Typed hand/pivot roles | `core/hand`, `core/pivot`, matching laws | Scalar/typed equivalence replay, full rig consumer compilation and runtime |
 | Suggested-preview freshness | `suggestion_policy`, matching policy laws | Missing/stale preview replay, current result rendering, withheld stale evidence |
 | Cache arithmetic extraction | `core/cache_budget_arithmetic`, matching laws | Current replay, inherited remaining refusals resolved without lowering baseline |
+| Issue explanations | `issue_explanation`, policy and record laws | Typed category/strength and rounded-threshold replay; negative revision refusal; full UI compile |
 | Proof supervisor/cache | `scripts/prove.py` | Timeout, bad exits, partial/corrupt summaries, changed source and parallel progress |
 
 The full proof corpus glob includes new direct source files and all `proof/`
-files. New retime-draft and cache-arithmetic files currently have no reviewed
+files. New retime-draft, issue-explanation record and cache-arithmetic files currently have no reviewed
 rows in `scripts/proof-baseline.tsv`; this must remain a gate failure until
 reports are inspected and independently replayed. Do not substitute historical
 candidate counts for current baselines.
