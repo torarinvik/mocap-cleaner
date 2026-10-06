@@ -679,3 +679,19 @@ new rows after the prover/replay products are rebuilt from matching sources.
   proved. The runtime path distinguishes open, read (`ferror`), size, close,
   and format failures through `load_status`; the bool `load` entrypoint reports
   success only after all checks pass.
+
+## Storage exemption file adapter (2026-10-06)
+
+- `src/studio/io/storage_exemptions_wire_policy.elisa` isolates the exact
+  28-byte `mocap-storage-exemptions-v1\n` prefix. Its source proves 58/58
+  obligations and focused size laws prove 60/60, with every certificate
+  replayed. The file adapter delegates record parsing, duplicate rejection,
+  paths, and manifest bounds to `StudioStorageManifest::decode` and applies
+  exemption-only state and identity checks before changing caller output.
+- The adapter's direct report includes the manifest parser and libc IO graph:
+  the latest report has 640 obligations, 572 proven, and 73 findings, with
+  unresolved loop/index proofs in manifest parsing, unsupported native IO
+  effect propositions, and an opaque output resource summary. The adapter is
+  not claimed as proved. Its runtime load status keeps open, read, capacity,
+  close, and format failures distinct; atomic publication remains the caller's
+  responsibility through the existing publisher.
