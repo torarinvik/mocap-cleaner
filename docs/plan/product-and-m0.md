@@ -33,12 +33,16 @@ Run `python3 scripts/check_file_lengths.py` before committing; the same static
 check runs before compilation in `scripts/check.sh`. It inspects tracked and
 non-ignored untracked UTF-8 text files, including documentation and proofs.
 
-### Constant module requirement
+### Constants and finite choice representation
 
-Modules with multiple constant values must group them in Elisa `const module`
-declarations, with purpose-specific names and appropriate public/private
-visibility. Update all callers, contracts and proof references when extracting
-a group. This applies to existing modules and every new change.
+Prefer a `const enum` when constants denote a closed set of alternatives.
+Prefer an algebraic data type when cases carry distinct data or should exclude
+invalid combinations. Otherwise group multiple related constants in actual
+Elisa `const module` declarations with purpose-specific names. Apply this to
+existing and new modules; preserve public/private visibility and update all
+callers, contracts and proof references. Preserve required serialized/native
+values through explicit, validated boundary conversions. Do not leave a weaker
+integer representation solely because a constant group already exists.
 
 ### Architecture and safety requirements
 

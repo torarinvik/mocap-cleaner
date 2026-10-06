@@ -1,10 +1,18 @@
-# Constant module migration
+# Constants and finite choice migration
 
-Every module with multiple constants must use actual Elisa `const module`
-declarations. Bare members live inside purpose-specific groups; callers use
-the group-qualified names. Preserve literal values, visibility, source takes,
-contracts and proof coverage. Keep each maintained repository file at most
-600 lines and commit each cohesive group separately.
+Audit each existing/new group for its best domain representation. Use a
+`const enum` for a closed set of alternatives, an algebraic data type for
+cases with distinct payloads or invalid combinations, and a `const module`
+for related numeric limits, units or configuration values. A completed grouping
+still requires reassessment when a stronger type fits its meaning.
+
+Preserve visibility, source takes, contracts and proof coverage. Keep every
+maintained file within 600 lines and commit each cohesive migration separately.
+For serialized/native integer codes, validate explicit encode/decode functions
+and preserve required wire values; unknown codes must not become success or
+another valid case. Cover all variants, invalid boundary input, round-trip
+conversion and public/private API scope in the contracts/proofs. Do not assume
+that equal discriminant values alone prove behavior preservation.
 
 ## Verification requirements
 

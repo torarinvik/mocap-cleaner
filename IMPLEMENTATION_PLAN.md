@@ -18,15 +18,17 @@ keep helpers private and expose only the APIs callers need. Preserve includes,
 behavior and proof coverage, and check file lengths before committing. Generated
 `build/` artifacts and sibling repositories are outside this repository rule.
 
-## Constant modules
+## Constants and finite choices
 
-Whenever a module contains multiple constant values, group those constants
-in Elisa `const module` declarations. Give groups names that describe their
-purpose (such as limits, actions or statuses), preserve public/private
-visibility, and update callers and proof references. Use bare constant members
-inside `const module` bodies. Apply this rule to existing code and every new
-change, while retaining the 600-line maximum. See the
-[constant module migration inventory](docs/plan/constant-modules.md).
+Choose the representation that expresses the domain: prefer a `const enum`
+for a closed set of alternatives, and an algebraic data type when alternatives
+carry different data or must exclude invalid combinations. Use purpose-specific
+`const module` groups for related numeric limits, units or configuration values
+that are not better represented by those types. This applies to existing code
+and every new change. Preserve public/private visibility, contracts, proof
+coverage and the 600-line maximum. Update all consumers and validate explicit
+conversions at serialization/native boundaries; preserve required wire values.
+See the [representation migration inventory](docs/plan/constant-modules.md).
 
 ## Detailed roadmap
 
