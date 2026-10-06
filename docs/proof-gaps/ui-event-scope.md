@@ -15,3 +15,11 @@ resolution collision is suspected; the exact resolver defect remains to be
 identified. Fix the scope handling rather than accepting a renamed type as
 qualification. Integrated Studio remains unqualified until the current compiler
 accepts both modules and the complete app builds.
+
+The candidate fix is committed in the compiler as `dedd2dbe`, with loop-state
+threading follow-up `3e716ca8`. Enum value walls now resolve declarations in
+the current lexical module before considering globally unique names. Hierarchy
+coverage now filters same-named variant rows using the existing module resolver,
+as flat-enum coverage already does. Product verification is pending: the seed
+request was refused because another live host seed (PID 53052) owns the shared
+memory-protection lock. No stale compiler override was enabled.
