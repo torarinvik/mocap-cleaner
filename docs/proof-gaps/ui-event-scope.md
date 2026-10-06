@@ -212,3 +212,12 @@ neither produced a qualified replacement compiler. A bounded `-O1` seed with
 a 10 GB guard is running after observing 24 GB physical RAM and 81% reported
 free memory. The earlier validation sessions have disappeared without terminal
 full-check evidence; their partial logs cannot establish completion.
+
+The 10 GB diagnostic seed completed with matching provenance at `b49c0d77`.
+In `build/event-owner-candidate.XPB4Ma`, the original event reduction and
+both recovery-Key include orders all exit 0 and emit nonempty objects. This
+qualifies the reduced hierarchy repair only. The global-array reduction still
+declines: the index reader's mutable-global branch returns before the general
+address fallback. Follow-up candidate `925bcbb2` adds the dynamic-array read
+to that branch, using the ordinary bounds and reference-element handling.
+Its reseed is queued behind a verified live host build; it remains unqualified.
