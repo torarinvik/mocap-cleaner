@@ -101,3 +101,13 @@ change from source; summing errors across clips must not hide a failed case.
 difficult fixtures satisfy declared local quality gates or show a clear
 unresolved warning. Every exposed tool survives undo/session/export replay.
 
+
+### Endpoint no-op qualification
+
+The typed frame dispatcher now closes an unchanged endpoint draft with
+explicit feedback, without committing history or rebuilding the preview.
+`StudioContactFramePolicy::changes_interval` rejects invalid plans and compares
+both endpoints; two laws cover unchanged and invalid candidates. Qualify this
+behavior with current compiler/prover products and native keyboard/pointer
+flows: re-entering an existing endpoint must leave undo depth, dirty state and
+preview revision unchanged. This implementation does not close native acceptance.
