@@ -64,3 +64,12 @@ both the reader and laws compile with normal f292cbe0. Evidence:
 `build/export-recovery-budget-source.json`,
 `build/export-recovery-budget-laws.json`, `build/export-recovery-bytes-build.log`.
 Total retained disk capacity and concurrent file mutation remain unqualified.
+
+Recovery storage now writes each closed record type with the atomic create-only
+publisher and enforces its byte limit. Output snapshot storage consumes exact
+nonempty bytes from the private staging file, rather than GLB reserialization.
+These APIs compile with isolated faabd1f7 (`build/export-recovery-store-build.log`).
+The caller must supply an owned directory from creation and retain evidence on
+partial failure. This does not establish durable prepared journals, total disk
+reservation, exact final-output verification or integration with export; those
+remain required before admitting publication through the prepared-record gate.

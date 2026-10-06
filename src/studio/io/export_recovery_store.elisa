@@ -1,4 +1,6 @@
 include "../export_recovery_path_policy.elisa"
+include "export_recovery_bytes.elisa"
+include "../app/export_publisher.elisa"
 
 # Native directory creation is trusted host IO. Callers supply the selected,
 # canonical build directory; derived recovery files never belong beside sources.
@@ -20,6 +22,27 @@ module StudioExportRecoveryStore:
             TextReport = 1
             Journal = 2
             OutputSnapshot = 3
+
+        # Use only a directory returned by create. Existing record files are
+        # never replaced. The caller must retain this directory on any failure
+        # and distinguish published bytes from directory durability.
+        def write_record(directory: cstr, record: Record, bytes: darray[u8]&) -> StudioPublicationDurabilityPolicy::Result:
+            limit: i64 = record_byte_limit(record)
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportRecoveryBudgetPolicy::append_admitted(0, bytes.count.i64(), limit)
+            if record_path(directory, record) is destination:
+                status: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(destination, bytes)
+                release_path(destination)
+                return status
+            StudioPublicationDurabilityPolicy::Result.NotPublished
+
+        # Reads the private staging file without parsing or reserializing it.
+        # This establishes a stored byte snapshot, not yet a checked binding
+        # between that snapshot and a subsequently published destination.
+        def snapshot_output(directory: cstr, staging: cstr) -> StudioPublicationDurabilityPolicy::Result:
+            mutable bytes: darray[u8] = []
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportRecoveryBytes::read(staging, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES, &bytes)
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if bytes.count == 0
+            write_record(directory, Record.OutputSnapshot, bytes)
 
         def record_path(directory: cstr, record: Record) -> cstr? can[Memory.Allocate, Unsafe.PointerCast]:
             leaf: cstr = record_name(record)
@@ -63,6 +86,12 @@ module StudioExportRecoveryStore:
             recovery_free(path)
 
     private:
+        def record_byte_limit(record: Record) -> i64:
+            return StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES if record == Record.JsonReport or record == Record.TextReport
+            return StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES if record == Record.Journal
+            return StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES if record == Record.OutputSnapshot
+            0
+
         def record_name(record: Record) -> cstr:
             return "report.json" if record == Record.JsonReport
             return "report.txt" if record == Record.TextReport
