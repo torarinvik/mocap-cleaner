@@ -1,8 +1,7 @@
 # Exact review binding around the existing in-memory lifecycle queue.
 include "export_batch_queue.elisa"
 include "export_batch_identity.elisa"
-include "app/export_publisher.elisa"
-include "io/export_recovery_bytes.elisa"
+include "export_batch_publication.elisa"
 include "io/export_batch_source_identity.elisa"
 include "io/export_batch_queue_store.elisa"
 include "io/export_batch_root_identity.elisa"
@@ -26,35 +25,12 @@ module StudioExportBatchReviewBinding:
                 attempt: i64
                 issued: bool
 
-        const enum ArtifactStage of i64:
-            Pending = 0
-            NotPublished = 1
-            PublishedDurabilityUnknown = 2
-            PublishedDirectorySynced = 3
-            ExistingExact = 4
-            ConflictingOrUnavailable = 5
-
-        const enum StagingDisposition of i64:
-            NotInspected = 0
-            StillPresent = 1
-            Removed = 2
-            Unknown = 3
-
-        struct PublicationReceipt:
-            glb: ArtifactStage
-            glb_bytes_verified: bool
-            json: ArtifactStage
-            json_bytes_verified: bool
-            text: ArtifactStage
-            text_bytes_verified: bool
-            staging: StagingDisposition
-
         struct BoundQueue:
             private:
                 queue: StudioExportBatchQueue::Queue
                 identities: mutable darray[StudioExportBatchIdentity::Identity]
                 attempts: mutable darray[i64]
-                publication: mutable darray[PublicationReceipt]
+                publication: mutable darray[StudioExportBatchPublication::Receipt]
                 durable: mutable bool
                 build_directory: mutable darray[u8]
                 build_identity: mutable StudioExportBatchRootIdentity::Facts
@@ -114,7 +90,7 @@ module StudioExportBatchReviewBinding:
         def counts(queue: BoundQueue&) -> StudioExportBatchQueuePolicy::Aggregate:
             StudioExportBatchQueue::counts(queue.queue)
 
-        def publication_receipt(queue: BoundQueue&, index: i64) -> PublicationReceipt:
+        def publication_receipt(queue: BoundQueue&, index: i64) -> StudioExportBatchPublication::Receipt:
             requires index >= 0 and index < queue.publication.count.i64()
             queue.publication[index.usize()]
 
@@ -148,10 +124,6 @@ module StudioExportBatchReviewBinding:
             requires claim.issued
             ensure result > 0
             claim.attempt
-
-        def outputs_verified(receipt: PublicationReceipt) -> bool:
-            ensure result == (receipt.glb_bytes_verified and receipt.json_bytes_verified and receipt.text_bytes_verified)
-            receipt.glb_bytes_verified and receipt.json_bytes_verified and receipt.text_bytes_verified
 
         # Capture the immutable identity at the same boundary as admission.
         # The native adapter must establish every preflight fact from the OS.
@@ -187,7 +159,7 @@ module StudioExportBatchReviewBinding:
             return false if not StudioExportBatchQueue::enqueue(&queue.queue, preflight)
             queue.identities.push(identity)
             queue.attempts.push(0)
-            queue.publication.push(PublicationReceipt{glb: ArtifactStage.Pending, glb_bytes_verified: false, json: ArtifactStage.Pending, json_bytes_verified: false, text: ArtifactStage.Pending, text_bytes_verified: false, staging: StagingDisposition.NotInspected})
+            queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.NotInspected})
             queue.recovery_directories.push(recovery_directory)
             queue.journals.push(durable_record)
             true
@@ -224,7 +196,7 @@ module StudioExportBatchReviewBinding:
             return false if not StudioExportBatchQueue::restore_item(&queue.queue, item)
             queue.identities.push(identity)
             queue.attempts.push(1)
-            queue.publication.push(PublicationReceipt{glb: ArtifactStage.Pending, glb_bytes_verified: false, json: ArtifactStage.Pending, json_bytes_verified: false, text: ArtifactStage.Pending, text_bytes_verified: false, staging: StagingDisposition.StillPresent})
+            queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.StillPresent})
             queue.recovery_directories.push(recovery_directory)
             queue.journals.push(durable_record)
             true
@@ -400,7 +372,7 @@ module StudioExportBatchReviewBinding:
                 return false if not StudioExportBatchQueue::restore_item(&queue.queue, item)
                 queue.identities.push(identity)
                 queue.attempts.push(record.attempt)
-                queue.publication.push(PublicationReceipt{glb: ArtifactStage.Pending, glb_bytes_verified: false, json: ArtifactStage.Pending, json_bytes_verified: false, text: ArtifactStage.Pending, text_bytes_verified: false, staging: StagingDisposition.NotInspected})
+                queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.NotInspected})
                 queue.recovery_directories.push(directories[selected.usize()])
                 if record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64():
                     next_record: StudioExportBatchJournal::Record @r = record
@@ -489,9 +461,13 @@ module StudioExportBatchReviewBinding:
         def publish_item_outputs(queue: mutable BoundQueue&, index: i64,
                                  identity: StudioExportBatchIdentity::Identity,
                                  reviewed: bool, lock_descriptor: i32) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
-            receipt: PublicationReceipt = publish_exact_create_only(identity)
+            mutable receipt: StudioExportBatchPublication::Receipt = zeroed
+            if queue.durable:
+                receipt <- StudioExportBatchPublication::publish_durable_exact_create_only(queue.build_directory, queue.build_identity, lock_descriptor, identity)
+            else:
+                receipt <- StudioExportBatchPublication::publish_exact_create_only(identity)
             queue.publication[index.usize()] <- receipt
-            complete: bool = outputs_verified(receipt)
+            complete: bool = StudioExportBatchPublication::outputs_verified(receipt)
             if queue.durable:
                 current: StudioExportBatchQueue::Item = StudioExportBatchQueue::item(queue.queue, index)
                 next_record: StudioExportBatchJournal::Record = queue.journals[index.usize()]
@@ -532,50 +508,6 @@ module StudioExportBatchReviewBinding:
             for byte in bytes:
                 return false if byte == 0
             true
-
-        def publish_exact_create_only(identity: StudioExportBatchIdentity::Identity&) -> PublicationReceipt can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
-            staged: darray[u8] = nul_terminated(identity.staged_path)
-            destination: darray[u8] = nul_terminated(identity.output_path)
-            json_path: darray[u8] = nul_terminated(identity.report_json_path)
-            text_path: darray[u8] = nul_terminated(identity.report_text_path)
-            staged_ptr: cstr = (&staged[0]).cast[cstr] can Unsafe.PointerCast
-            destination_ptr: cstr = (&destination[0]).cast[cstr] can Unsafe.PointerCast
-            json_ptr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
-            text_ptr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
-            staged_matches: bool = StudioExportRecoveryBytes::matches(staged_ptr, identity.staged_result_bytes, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
-            mutable glb_stage: ArtifactStage = ArtifactStage.NotPublished
-            mutable staging: StagingDisposition = StagingDisposition.Unknown
-            if staged_matches:
-                glb_commit: StudioExportPublisher::ExclusiveCommit = StudioExportPublisher::commit_new_with_status(staged_ptr, destination_ptr)
-                glb_stage <- stage_for_result(glb_commit.status)
-                staging <- StagingDisposition.Removed if StudioPublicationDurabilityPolicy::published(glb_commit.status) and glb_commit.staging_removed
-                staging <- StagingDisposition.StillPresent if not glb_commit.staging_removed
-            glb_exact: bool = StudioExportRecoveryBytes::matches(destination_ptr, identity.staged_result_bytes, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
-            glb_stage <- ArtifactStage.ExistingExact if glb_exact and glb_stage == ArtifactStage.NotPublished
-            glb_stage <- ArtifactStage.ConflictingOrUnavailable if not glb_exact
-            return PublicationReceipt{glb: glb_stage, glb_bytes_verified: glb_exact, json: ArtifactStage.Pending, json_bytes_verified: false, text: ArtifactStage.Pending, text_bytes_verified: false, staging: staging} if not glb_exact
-            mutable json_stage: ArtifactStage = ArtifactStage.NotPublished
-            mutable json_exact: bool = StudioExportRecoveryBytes::matches(json_ptr, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
-            if not json_exact:
-                json_result: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(json_ptr, identity.report_json_bytes)
-                json_stage <- stage_for_result(json_result)
-                json_exact <- StudioExportRecoveryBytes::matches(json_ptr, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
-            json_stage <- ArtifactStage.ExistingExact if json_exact and json_stage == ArtifactStage.NotPublished
-            json_stage <- ArtifactStage.ConflictingOrUnavailable if not json_exact
-            mutable text_stage: ArtifactStage = ArtifactStage.NotPublished
-            mutable text_exact: bool = StudioExportRecoveryBytes::matches(text_ptr, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
-            if not text_exact:
-                text_result: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(text_ptr, identity.report_text_bytes)
-                text_stage <- stage_for_result(text_result)
-                text_exact <- StudioExportRecoveryBytes::matches(text_ptr, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
-            text_stage <- ArtifactStage.ExistingExact if text_exact and text_stage == ArtifactStage.NotPublished
-            text_stage <- ArtifactStage.ConflictingOrUnavailable if not text_exact
-            PublicationReceipt{glb: glb_stage, glb_bytes_verified: glb_exact, json: json_stage, json_bytes_verified: json_exact, text: text_stage, text_bytes_verified: text_exact, staging: staging}
-
-        def stage_for_result(result: StudioPublicationDurabilityPolicy::Result) -> ArtifactStage:
-            return ArtifactStage.NotPublished if result == StudioPublicationDurabilityPolicy::Result.NotPublished
-            return ArtifactStage.PublishedDurabilityUnknown if result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
-            ArtifactStage.PublishedDirectorySynced
 
         def nul_terminated(bytes: darray[u8]&) -> darray[u8]:
             mutable result: darray[u8] = []

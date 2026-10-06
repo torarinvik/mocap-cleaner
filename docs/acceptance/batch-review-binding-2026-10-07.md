@@ -91,29 +91,14 @@ the queue store checks that the marker remains a regular non-symlink file under
 the live transaction. Reservation cleanup and native collision/race behavior
 remain unqualified.
 
-The native build root identity adapter opens the candidate with
-`O_DIRECTORY|O_NOFOLLOW`, obtains device/inode from `fstat`, and obtains the
-canonical path from the same descriptor with `F_GETPATH`. The identity checks
-do not close the replacement race between a check and later path-based IO.
-Recovery directory creation, snapshot/journal reads and writes, and publication
-still need descriptor-relative operations rooted at a verified directory fd.
-This TOCTOU remains open and must not be treated as solved by path/device/inode
-rechecks.
-The storage lock adapter keeps a duplicated open-file-description anchor for
-each acquisition and validates the registered descriptor against its named
-and canonical lock path, device/inode, and exclusive flock. Queue store derives
-the expected lock file from canonical `<workspace>/build` and validates every
-operation before file IO. Current compile-only evidence used the
-provenance-checked normal Stage1 product at O0: queue store 721,568 bytes,
-review binding 937,384 bytes, root identity laws 10,304 bytes, recipe codec
-1,391,712 bytes, recipe laws 1,422,000 bytes, queue model laws 165,312 bytes,
-queue policy laws 65,272 bytes, item laws 65,496 bytes, panel policy laws
-953,104 bytes, review-binding laws 964,480 bytes. `clang -fsyntax-only
-native/storage_manifest_lock.c` and `clang -fsyntax-only -fobjc-arc
-native/file_trash_appkit.m` exited 0. These are compiler and native syntax
-checks only; no filesystem operation, law replay, queue UI, transaction-release
-callsite, concurrent lock use, descriptor misuse, replacement race, collision
-race or durability behavior was run.
+The native build-root adapter captures canonical path and device/inode from an
+opened `O_DIRECTORY|O_NOFOLLOW` descriptor. Path/device/inode rechecks alone do
+not close the replacement race; operations must remain relative to that opened
+directory. The current adapter now does this for durable queue snapshots,
+journals and final output/report publication. Recovery inventory enumeration,
+batch-ID markers and source identity/output preflight checks remain path based.
+Those checks retain a TOCTOU and are not described as secure same-object
+operations.
 
 The latest native slice adds a registry mutex and a release check that verifies
 the caller descriptor still refers to the registered file and open-file
@@ -124,12 +109,17 @@ native operation. Durable journal updates now read the prior journal with
 the opened recovery directory. Initial recovery-directory creation, snapshots
 and the initial journal also use the verified root with `mkdirat` and
 `openat(O_EXCL|O_NOFOLLOW)`; files and directories are synced before success.
-Reopen reads of snapshots and journals now use the same relative adapter.
-Recovery inventory enumeration, reservation markers and final output
-publication still use path-based APIs and retain the replacement TOCTOU. Fresh
-O0 compile-only qualification on the provenance-checked Stage1 product
-produced nonempty queue store (728,104 bytes) and review binding (944,072 bytes)
-objects. Strict C11
+Reopen reads of snapshots and journals now use the same relative adapter. Final
+GLB and report publication traverses each target parent with
+`openat(O_DIRECTORY|O_NOFOLLOW)` and creates only absent regular files with
+`O_EXCL|O_NOFOLLOW`, preserving unrelated outputs. A partial write is reported
+as a partial artifact; a later report failure leaves earlier outputs intact and
+the queue's receipt records each artifact separately. Recovery inventory
+enumeration, reservation markers and source identity/output preflight checks
+remain path based and retain the replacement TOCTOU. Fresh O0 compile-only
+qualification on the provenance-checked Stage1 product produced nonempty queue
+store (728,104 bytes), review binding (949,472 bytes), publication module
+(124,480 bytes), and publication laws (129,056 bytes) objects. Strict C11
 syntax checking of `storage_manifest_lock.c` and Objective-C syntax checking of
 `file_trash_appkit.m` exited 0. No native runtime, concurrent lock, fd reuse or
 filesystem replacement behavior was exercised.

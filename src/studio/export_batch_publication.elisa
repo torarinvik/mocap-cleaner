@@ -1,0 +1,121 @@
+include "app/export_publisher.elisa"
+include "io/export_recovery_bytes.elisa"
+include "io/export_batch_root_identity.elisa"
+include "export_batch_identity.elisa"
+
+@link_name("elisa_storage_batch_publish_file_new")
+extern batch_publish_file_new(build_directory: cstr, lock_descriptor: i32,
+    device: i64, inode: i64, target_path: cstr, bytes: u8&,
+    byte_count: u64) -> i32 can[Blocking.IO]
+
+# Captures exact per-artifact publication evidence. Durable queues use native
+# build-root-relative create-only publication; in-memory compatibility queues
+# continue through the existing publisher.
+module StudioExportBatchPublication:
+    public:
+        const enum ArtifactStage of i64:
+            Pending = 0
+            NotPublished = 1
+            PublishedDurabilityUnknown = 2
+            PublishedDirectorySynced = 3
+            ExistingExact = 4
+            ConflictingOrUnavailable = 5
+
+        const enum StagingDisposition of i64:
+            NotInspected = 0
+            StillPresent = 1
+            Removed = 2
+            Unknown = 3
+
+        struct Receipt:
+            glb: ArtifactStage
+            glb_bytes_verified: bool
+            json: ArtifactStage
+            json_bytes_verified: bool
+            text: ArtifactStage
+            text_bytes_verified: bool
+            staging: StagingDisposition
+
+        def outputs_verified(receipt: Receipt) -> bool:
+            ensure result == (receipt.glb_bytes_verified and receipt.json_bytes_verified and receipt.text_bytes_verified)
+            receipt.glb_bytes_verified and receipt.json_bytes_verified and receipt.text_bytes_verified
+
+        def stage_for_native_status(status: i32) -> ArtifactStage:
+            ensure result == (ArtifactStage.PublishedDirectorySynced if status == 1 else ArtifactStage.PublishedDurabilityUnknown if status == 2 else ArtifactStage.ExistingExact if status == 3 else ArtifactStage.ConflictingOrUnavailable)
+            return ArtifactStage.PublishedDirectorySynced if status == 1
+            return ArtifactStage.PublishedDurabilityUnknown if status == 2
+            return ArtifactStage.ExistingExact if status == 3
+            ArtifactStage.ConflictingOrUnavailable
+
+        def native_bytes_verified(status: i32) -> bool:
+            ensure result == (status == 1 or status == 2 or status == 3)
+            status == 1 or status == 2 or status == 3
+
+        def publish_exact_create_only(identity: StudioExportBatchIdentity::Identity&) -> Receipt can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            staged: darray[u8] = nul_terminated(identity.staged_path)
+            destination: darray[u8] = nul_terminated(identity.output_path)
+            json_path: darray[u8] = nul_terminated(identity.report_json_path)
+            text_path: darray[u8] = nul_terminated(identity.report_text_path)
+            staged_ptr: cstr = (&staged[0]).cast[cstr] can Unsafe.PointerCast
+            destination_ptr: cstr = (&destination[0]).cast[cstr] can Unsafe.PointerCast
+            json_ptr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
+            text_ptr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
+            staged_matches: bool = StudioExportRecoveryBytes::matches(staged_ptr, identity.staged_result_bytes, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            mutable glb_stage: ArtifactStage = ArtifactStage.NotPublished
+            mutable staging: StagingDisposition = StagingDisposition.Unknown
+            if staged_matches:
+                glb_commit: StudioExportPublisher::ExclusiveCommit = StudioExportPublisher::commit_new_with_status(staged_ptr, destination_ptr)
+                glb_stage <- stage_for_result(glb_commit.status)
+                staging <- StagingDisposition.Removed if StudioPublicationDurabilityPolicy::published(glb_commit.status) and glb_commit.staging_removed
+                staging <- StagingDisposition.StillPresent if not glb_commit.staging_removed
+            glb_exact: bool = StudioExportRecoveryBytes::matches(destination_ptr, identity.staged_result_bytes, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            glb_stage <- ArtifactStage.ExistingExact if glb_exact and glb_stage == ArtifactStage.NotPublished
+            glb_stage <- ArtifactStage.ConflictingOrUnavailable if not glb_exact
+            return Receipt{glb: glb_stage, glb_bytes_verified: glb_exact, json: ArtifactStage.Pending, json_bytes_verified: false, text: ArtifactStage.Pending, text_bytes_verified: false, staging: staging} if not glb_exact
+            mutable json_stage: ArtifactStage = ArtifactStage.NotPublished
+            mutable json_exact: bool = StudioExportRecoveryBytes::matches(json_ptr, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            if not json_exact:
+                json_result: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(json_ptr, identity.report_json_bytes)
+                json_stage <- stage_for_result(json_result)
+                json_exact <- StudioExportRecoveryBytes::matches(json_ptr, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            json_stage <- ArtifactStage.ExistingExact if json_exact and json_stage == ArtifactStage.NotPublished
+            json_stage <- ArtifactStage.ConflictingOrUnavailable if not json_exact
+            mutable text_stage: ArtifactStage = ArtifactStage.NotPublished
+            mutable text_exact: bool = StudioExportRecoveryBytes::matches(text_ptr, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            if not text_exact:
+                text_result: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(text_ptr, identity.report_text_bytes)
+                text_stage <- stage_for_result(text_result)
+                text_exact <- StudioExportRecoveryBytes::matches(text_ptr, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            text_stage <- ArtifactStage.ExistingExact if text_exact and text_stage == ArtifactStage.NotPublished
+            text_stage <- ArtifactStage.ConflictingOrUnavailable if not text_exact
+            Receipt{glb: glb_stage, glb_bytes_verified: glb_exact, json: json_stage, json_bytes_verified: json_exact, text: text_stage, text_bytes_verified: text_exact, staging: staging}
+
+        def publish_durable_exact_create_only(build_directory: darray[u8]&,
+                build_identity: StudioExportBatchRootIdentity::Facts&,
+                lock_descriptor: i32, identity: StudioExportBatchIdentity::Identity&) -> Receipt can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            mutable root: darray[u8] = nul_terminated(build_directory)
+            mutable output: darray[u8] = nul_terminated(identity.output_path)
+            mutable json: darray[u8] = nul_terminated(identity.report_json_path)
+            mutable text: darray[u8] = nul_terminated(identity.report_text_path)
+            glb_status: i32 = batch_publish_file_new((&root[0]).cast[cstr], lock_descriptor,
+                build_identity.device, build_identity.inode, (&output[0]).cast[cstr],
+                &identity.staged_result_bytes[0], identity.staged_result_bytes.count.u64())
+            json_status: i32 = batch_publish_file_new((&root[0]).cast[cstr], lock_descriptor,
+                build_identity.device, build_identity.inode, (&json[0]).cast[cstr],
+                &identity.report_json_bytes[0], identity.report_json_bytes.count.u64())
+            text_status: i32 = batch_publish_file_new((&root[0]).cast[cstr], lock_descriptor,
+                build_identity.device, build_identity.inode, (&text[0]).cast[cstr],
+                &identity.report_text_bytes[0], identity.report_text_bytes.count.u64())
+            Receipt{glb: stage_for_native_status(glb_status), glb_bytes_verified: native_bytes_verified(glb_status), json: stage_for_native_status(json_status), json_bytes_verified: native_bytes_verified(json_status), text: stage_for_native_status(text_status), text_bytes_verified: native_bytes_verified(text_status), staging: StagingDisposition.Unknown}
+
+        def stage_for_result(result: StudioPublicationDurabilityPolicy::Result) -> ArtifactStage:
+            return ArtifactStage.NotPublished if result == StudioPublicationDurabilityPolicy::Result.NotPublished
+            return ArtifactStage.PublishedDurabilityUnknown if result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+            ArtifactStage.PublishedDirectorySynced
+
+    private:
+        def nul_terminated(bytes: darray[u8]&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            out.extend(bytes)
+            out.push(0)
+            out
