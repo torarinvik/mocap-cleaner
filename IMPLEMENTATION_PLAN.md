@@ -340,10 +340,10 @@ Restore implementation. Current implementation and evidence are recorded in
       the exact identity. Verify retained receipts, known original restoration
       and unknown locations are reported accurately, with a manual Finder
       recovery path. Never overwrite malformed manifests or claim freed space.
-- [ ] Protect concurrent manifest updates with a transaction/version or lock
-      protocol. Exercise two Studio instances and a retry during an external
-      manifest update. Preserve other receipts, reject stale reviews and keep
-      successful moves out of subsequent retries. Validate cancellation at
+- [ ] Exercise the implemented manifest lock and complete-content review
+      version protocol with two Studio instances and a retry during an external
+      manifest update. Verify other receipts survive, stale reviews are rejected
+      and successful moves stay out of subsequent retries. Validate cancellation at
       every item boundary, terminal unknown/recovery stops, duplicate activation,
       maximum batch size and refreshed per-item accounting.
 - [ ] Add a dedicated **Recently moved to Trash** view with original location,

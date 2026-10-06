@@ -25,6 +25,7 @@ include "../storage_accessibility_policy.elisa"
 include "../io/storage_manifest_file.elisa"
 include "../io/storage_manifest_lock_file.elisa"
 include "../io/storage_artifact_destination.elisa"
+include "../io/storage_manifest_version.elisa"
 include "../io/storage_preferences_file.elisa"
 include "../io/storage_exemptions_file.elisa"
 include "scene.elisa"
@@ -129,6 +130,9 @@ module Studio:
         global mutable storage_restore_review: bool = false
         global mutable storage_move_review: bool = false
         global mutable storage_move_entry: StudioStorageManifest::Entry = zeroed
+        global mutable storage_review_manifest_version: darray[u8] = zeroed
+        global mutable storage_batch_manifest_version: darray[u8] = zeroed
+        global mutable storage_restore_manifest_version: darray[u8] = zeroed
         global mutable storage_review_selection: darray[StudioStorageManifest::Entry] = zeroed
         global mutable storage_review_retention: i64 = StudioStorageSelectionPolicy::RETENTION_PRESET_DEFAULT
         global mutable storage_batch_entries: darray[StudioStorageManifest::Entry] = zeroed
@@ -2081,7 +2085,9 @@ module Studio:
                     entry: StudioStorageManifest::Entry = entries[index]
                     if index < statuses.count and statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH and storage_identity_matches(expected, entry) and StudioStorageManifest::same_path(expected.trashed_path, entry.trashed_path):
                         still_available <- true
-            if not still_available:
+            lock_outcome: i64 = StudioStorageManifestLockPolicy::OUTCOME_ACQUIRED if storage_transaction_active and not storage_release_uncertain else StudioStorageManifestLockPolicy::OUTCOME_INVALID
+            exact_version: bool = StudioStorageManifestVersion::matches(storage_restore_manifest_version, storage_entries, storage_manifest_state == 1)
+            if not StudioStorageManifestLockPolicy::may_publish(lock_outcome, storage_manifest_state == 1, exact_version, still_available):
                 storage_message <- 9
                 touch()
                 return
@@ -2139,7 +2145,9 @@ module Studio:
                 if entry.state == StudioStorageManifest::REGISTERED and storage_identity_matches(expected, entry):
                     fresh_matches <- true
                     fresh_eligible <- index < reasons.count and reasons[index] == StudioStorageCleanupPolicy::PROTECT_NONE
-            if not StudioStorageMovePolicy::may_move(storage_manifest_state == 1 and storage_message != 5,
+            lock_outcome: i64 = StudioStorageManifestLockPolicy::OUTCOME_ACQUIRED if storage_transaction_active and not storage_release_uncertain else StudioStorageManifestLockPolicy::OUTCOME_INVALID
+            exact_version: bool = StudioStorageManifestVersion::matches(storage_batch_manifest_version, storage_entries, storage_manifest_state == 1)
+            if not StudioStorageManifestLockPolicy::may_move(lock_outcome, storage_manifest_state == 1, exact_version, fresh_matches) or not StudioStorageMovePolicy::may_move(storage_manifest_state == 1 and storage_message != 5,
                     StudioStorageManifest::valid(expected) and expected.state == StudioStorageManifest::REGISTERED,
                     fresh_matches, fresh_eligible, confirmed):
                 storage_move_outcome <- StudioStorageMovePolicy::OUTCOME_NOT_STARTED
@@ -2167,8 +2175,9 @@ module Studio:
             mutable updated: darray[StudioStorageManifest::Entry] = []
             for entry in storage_entries |entry, updated, expected, receipt|:
                 updated.push(receipt if storage_identity_matches(expected, entry) else entry)
-            if persist_storage_manifest(updated):
+            if StudioStorageManifestLockPolicy::may_publish(lock_outcome, storage_manifest_state == 1, exact_version, storage_identity_matches(expected, receipt)) and persist_storage_manifest(updated):
                 storage_entries <- updated
+                storage_batch_manifest_version <- StudioStorageManifestVersion::capture(updated, true)
                 storage_retained_receipt <- null
                 storage_move_outcome <- StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED,
                     StudioStorageMovePolicy::WRITE_SUCCEEDED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
@@ -2226,6 +2235,15 @@ module Studio:
             storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, storage_batch_index)
 
         def begin_storage_batch() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            if descriptor == -1:
+                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+                touch()
+                return
+            begin_storage_batch_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def begin_storage_batch_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
             reviewed: darray[StudioStorageManifest::Entry] = storage_review_selection
             retention: i64 = storage_review_retention
@@ -2237,7 +2255,7 @@ module Studio:
                 touch()
                 return
             current: darray[StudioStorageManifest::Entry] = storage_cleanup_selection
-            mutable unchanged: bool = reviewed.count == current.count and retention == storage_retention_preset
+            mutable unchanged: bool = reviewed.count == current.count and retention == storage_retention_preset and StudioStorageManifestVersion::matches(storage_review_manifest_version, storage_entries, storage_manifest_state == 1)
             if unchanged:
                 for index in 0..<reviewed.count |reviewed, current, unchanged|:
                     unchanged <- false if not storage_identity_matches(reviewed[index], current[index])
@@ -2256,6 +2274,7 @@ module Studio:
             for index in 0..<reviewed.count |items|:
                 items.push(StudioStorageBatchPolicy::ITEM_NOT_ATTEMPTED)
             storage_batch_entries <- reviewed
+            storage_batch_manifest_version <- storage_review_manifest_version
             storage_batch_items <- items
             storage_batch_index <- 0
             storage_batch_completed <- 0
@@ -2309,7 +2328,7 @@ module Studio:
                 storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, index)
                 touch()
                 return
-            if not storage_batch_remaining_is_fresh():
+            if not StudioStorageManifestVersion::matches(storage_batch_manifest_version, storage_entries, storage_manifest_state == 1) or not storage_batch_remaining_is_fresh():
                 storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_REVIEW_CHANGED
                 storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, index)
                 storage_message <- 9
@@ -2371,6 +2390,12 @@ module Studio:
                     begin_storage_batch()
                 else:
                     entries: darray[StudioStorageManifest::Entry] = storage_cleanup_selection
+                    version: darray[u8] = StudioStorageManifestVersion::capture(storage_entries, storage_manifest_state == 1)
+                    if version.count == 0:
+                        storage_message <- 9
+                        touch()
+                        return
+                    storage_review_manifest_version <- version
                     storage_move_entry <- entries[0]
                     storage_review_selection <- entries
                     storage_review_retention <- storage_retention_preset
@@ -2388,6 +2413,12 @@ module Studio:
                     restore_storage_entry()
                 else:
                     entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+                    version: darray[u8] = StudioStorageManifestVersion::capture(storage_entries, storage_manifest_state == 1)
+                    if version.count == 0:
+                        storage_message <- 9
+                        touch()
+                        return
+                    storage_restore_manifest_version <- version
                     storage_restore_entry <- entries[storage_selected]
                     storage_move_review <- false
                     storage_restore_review <- true

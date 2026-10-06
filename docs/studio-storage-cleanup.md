@@ -1,7 +1,7 @@
 # Studio storage cleanup policy
 
 `StudioStorageCleanupPolicy` defines which Studio-generated artifacts can be
-offered in a future cleanup review. It currently recognizes recovery
+offered in the storage cleanup review. It currently recognizes recovery
 snapshots, abandoned temporary exports, and generated reports. A candidate
 must be Studio-managed, resolve canonically under `build/`, be older than its
 configured retention period, and not be a symlink, source take, open document,
@@ -32,9 +32,10 @@ output unchanged on malformed input. The scalar identity bounds live in
 `src/studio/storage_receipt_policy.elisa` with 18/18 obligations proved. This
 is the storage foundation: Studio has a bounded manifest reader, snapshots
 canonical identity through the engine, and atomically records report sidecars
-after successful export. The app does not yet display inventory or expose
-Trash/Restore controls, so those registered reports cannot yet be managed by
-the user. The field-based Elisa adapter is compiled into the Studio binary.
+after successful export. The app displays a bounded inventory with reviewed
+Move to Trash and Restore actions. Saved sessions are registered as protected
+recovery artifacts. Native UI acceptance remains open. The field-based Elisa
+adapter is compiled into the Studio binary.
 
 `protection_reason` returns a stable numeric reason for the first applicable
 protection rule, including unmanaged files, paths outside `build/`, symlinks,
@@ -60,3 +61,24 @@ displayed by the UI. This kernel does not impose defaults. The focused
 executable checks boundary examples; its proof file currently replays 351 of
 353 obligations. The two open explanation-code and exact-sum laws are tracked
 in `docs/proof-gaps.md`. No file operation is implemented by this policy.
+
+## Complete manifest review versions (2026-10-06)
+
+Move and Restore reviews capture the deterministic encoding of the entire
+verified manifest, including every persisted field and record order. Under
+the manifest lock, confirmation reloads the inventory and compares that
+encoding before acting. Changes to unselected records also invalidate review.
+This token represents canonical decoded content, not the original file bytes;
+equivalent text encodings do not count as a content change.
+
+Each batch step repeats this comparison. After its own successful receipt
+publication, the batch advances its token to the document it published. A
+failed publication followed by later receipt reconciliation leaves the old
+token in place, so another step requires a fresh review. Lock failures and
+version drift never queue an automatic retry.
+
+The existing lock policy proves the admission gates. Manifest encoding,
+byte comparison, native locking and app transaction wiring remain runtime
+boundaries; the new version adapter is not claimed as wholly proved. The
+Studio build passed with check skipping enabled; runtime concurrent-writer
+and Restore scenarios remain to be verified.
