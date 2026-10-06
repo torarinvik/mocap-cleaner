@@ -22,3 +22,16 @@ rename followed by failed parent-directory sync/close. Compatibility Boolean
 wrappers report observed publication only; they are not crash-durability
 evidence. Integrated Studio compile passes (`build/publication-durability-ui-build.log`).
 Native error injection, filesystem races and certificate replay remain open.
+
+Recovery path bounds live in `StudioExportRecoveryPathPolicy`, separately from
+the fully replayed retry admission baseline. Default 5776350b proves and replays
+its source 6/6. Its laws produce 18 certificates; 14 independently replay and
+four remain gaps involving scoped capacity constants and caller summaries.
+Evidence: `build/export-recovery-path-source.json` and
+`build/export-recovery-path-laws.json`. No reviewed baseline is weakened.
+
+The native recovery directory adapter compiles with isolated compiler faabd1f7.
+Normal f292cbe0 rejects C-string fields in ordinary payload enums. The candidate
+uses the existing one-word typed pointer representation, but runtime and ABI
+qualification remain required before adoption. Directory creation, ownership,
+durable journals and recovery integration are not yet accepted.

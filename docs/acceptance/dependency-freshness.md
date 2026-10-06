@@ -37,9 +37,17 @@ Rebuild stale binaries and rerun affected verification after dependency changes.
 ## Latest upstream refresh
 
 A subsequent fetch confirmed zero missing `origin/main` commits in compiler
-`f292cbe0`, mocap prover `f9c98954`, engine `01f5aec7`, UI `8ab2eb39`,
+`f292cbe0`, mocap prover `493ab83f`, engine `01f5aec7`, UI `8ab2eb39`,
 and primary prover `151a2772`. The mocap prover source advanced beyond the
 default binary to repair decimal append arithmetic. Its separate clean
 candidate proves and independently replays the focused append obligations
 3/3; expanded decimal laws still have replay gaps. Promotion remains pending
 qualification. Source freshness and default binary qualification are separate.
+
+The latest mocap prover source also repairs scoped enum ownership; additional
+enum value evidence remains in development. The default remains the qualified
+`5776350b` build until the replacement's certificates independently replay.
+An isolated compiler candidate `faabd1f7`, based on current `f292cbe0`, admits
+C-string ADT payloads. Its seed manifest matches its source commit and both the
+minimal payload example and recovery store compile successfully. Runtime and
+ABI qualification remain open, so the normal compiler has not been replaced.
