@@ -21,3 +21,9 @@ explicit nibble reads. Current standalone compilation succeeds. The law closure
 remains unsupported: 47/59 obligations producer-proven, with dependent decoder
 summaries, index bounds, and control-flow budget failures. The laws are intended
 requirements rather than accepted proof evidence.
+
+Raw UTF-8 decoding is now isolated in a private `raw_sequence` helper with
+an explicit successful cursor-bound contract. Public decoding retains the
+same input and output behavior. Standalone object and full CLI compilation
+succeed with current compiler `4c409da6`; focused source proof requalification
+is running. This refactor does not establish decoder qualification by itself.
