@@ -26,6 +26,18 @@ The copying-to-local workaround must pass region-escape checks and have its
 arena lifetime inspected before qualification. Native recovery acceptance and
 the full Studio compile remain open.
 
+Root inspected emitted LLVM for the local byte-array mutation plus global
+assignment form at `build/retention-ir.Q8UHGB/repro.ll`. With compiler
+`04b384ec`, the function grows in its auto region, stores the global header,
+calls the generated global `rehome` helper, then frees the auto region.
+The helper calls `arena_adopt`, clones the complete payload, and flips between
+two global region generations. This confirms generated lifetime handling is
+present; it does not qualify runtime arena semantics or repeated updates.
+Logical retained byte counts do not bound physical RAM: old and new global
+generations, growth storage, clones and export preparation coexist. Recovery
+retention must account for these copies and avoid repeatedly rehoming the
+entire payload for individual fields. Memory and native acceptance remain open.
+
 # elisa-proof gaps found by the mocap cleaner
 
 Historically, fixes were developed in the `../elisa-proof-mocap` worktree on
