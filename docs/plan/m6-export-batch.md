@@ -113,3 +113,13 @@ does not close the review workflow. Historical proof/check evidence belongs in
 unsupported inputs receive explicit unavailable/error states; the review view
 and exported HTML remain usable and truthful; complete proof replay and the
 full product check qualify the same snapshot.
+
+Current metadata implementation: CLI reports declare `mocap-cleaner-report-v1`,
+known comparison metric units, and the spike threshold from the actual preset
+used for evaluation. The reader rejects declared schema/unit mismatches and
+malformed declarations; unknown/legacy metadata is explicitly unqualified in
+console and HTML. Unit metadata is capped at 128 declarations by a contracted
+budget. Exact unit conversion, full detector-setting/provenance compatibility,
+strict acceptance gating for unknown metadata, metadata traversal proof replay
+and native edge-case qualification remain required. The compatibility policy
+has source contracts and schema/unit laws; current Stage1 compilation succeeds.
