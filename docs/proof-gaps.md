@@ -15,6 +15,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Law assertion coverage audit](proof-gaps/law-assertion-audit.md)
 - [JSON report string decoder qualification](proof-gaps/json-string-decoder.md)
 - [Compiler UI event scope collision](proof-gaps/ui-event-scope.md)
+- [Literal multiplication in denied integer orders (2026-10-07)](proof-gaps/literal-product-denial-replay-20261007.md)
 
 - [Export publication outcome qualification](proof-gaps/export-publication-outcomes.md)
 - [Scoped constant call summary replay](proof-gaps/summary-call-constant-rebind.md)
