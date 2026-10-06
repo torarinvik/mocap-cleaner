@@ -4,7 +4,7 @@
 module StudioExportRecoveryUiPolicy:
     public:
         const module Capacity:
-            const FOCUS_COUNT: i64 = 6
+            const FOCUS_COUNT: i64 = 7
 
         const enum Focus of i64:
             Close = 0
@@ -13,6 +13,8 @@ module StudioExportRecoveryUiPolicy:
             Retry = 3
             OpenOutput = 4
             OpenRecovery = 5
+            Refresh = 6
+            NoHit = 7
 
         const enum Key of i64:
             Forward = 0
@@ -28,21 +30,78 @@ module StudioExportRecoveryUiPolicy:
             Retry = 4
             OpenOutput = 5
             OpenRecovery = 6
+            Refresh = 7
+
+        const enum RecoveryCheck of i64:
+            Unavailable = 0
+            VerifiedPrepared = 1
+            VerifiedPublished = 2
+
+        const enum ReportCheck of i64:
+            Unknown = 0
+            Missing = 1
+            Matches = 2
+            Conflicts = 3
+
+        const module Node:
+            const NO_NODE: usize = 256
+            const DIALOG: usize = 240
+            const ACTION_FIRST: usize = 241
+            const ACTION_COUNT: i64 = 7
+
+        def action_node(action: Focus) -> usize:
+            ensure (action == Focus.NoHit and result == Node::NO_NODE) or (action != Focus.NoHit and result >= Node::ACTION_FIRST and result < Node::ACTION_FIRST + Node::ACTION_COUNT.usize())
+            return Node::NO_NODE if action == Focus.NoHit
+            Node::ACTION_FIRST + action.i64().usize()
+
+        def action_from_node(id: usize) -> Focus:
+            ensure (id < Node::ACTION_FIRST or id >= Node::ACTION_FIRST + Node::ACTION_COUNT.usize()) and result == Focus.NoHit or (id >= Node::ACTION_FIRST and id < Node::ACTION_FIRST + Node::ACTION_COUNT.usize() and result.i64() == (id - Node::ACTION_FIRST).i64())
+            return Focus.Close if id == Node::ACTION_FIRST
+            return Focus.Previous if id == Node::ACTION_FIRST + 1
+            return Focus.Next if id == Node::ACTION_FIRST + 2
+            return Focus.Retry if id == Node::ACTION_FIRST + 3
+            return Focus.OpenOutput if id == Node::ACTION_FIRST + 4
+            return Focus.OpenRecovery if id == Node::ACTION_FIRST + 5
+            return Focus.Refresh if id == Node::ACTION_FIRST + 6
+            Focus.NoHit
+
+        def node_parent(id: usize) -> usize:
+            ensure (id == Node::DIALOG and result == Node::NO_NODE) or (id >= Node::ACTION_FIRST and id < Node::ACTION_FIRST + Node::ACTION_COUNT.usize() and result == Node::DIALOG) or ((id < Node::ACTION_FIRST or id >= Node::ACTION_FIRST + Node::ACTION_COUNT.usize()) and result == Node::NO_NODE)
+            return Node::NO_NODE if id == Node::DIALOG
+            return Node::DIALOG if id >= Node::ACTION_FIRST and id < Node::ACTION_FIRST + Node::ACTION_COUNT.usize()
+            Node::NO_NODE
+
+        def node_first_child() -> usize:
+            ensure result == Node::ACTION_FIRST
+            Node::ACTION_FIRST
+
+        def node_next_sibling(id: usize) -> usize:
+            ensure (id == Node::ACTION_FIRST + (Node::ACTION_COUNT - 1).usize() and result == Node::NO_NODE) or (id >= Node::ACTION_FIRST and id < Node::ACTION_FIRST + (Node::ACTION_COUNT - 1).usize() and result == id + 1) or ((id < Node::ACTION_FIRST or id >= Node::ACTION_FIRST + Node::ACTION_COUNT.usize()) and result == Node::NO_NODE)
+            return id + 1 if id >= Node::ACTION_FIRST and id + 1 < Node::ACTION_FIRST + Node::ACTION_COUNT.usize()
+            Node::NO_NODE
 
         def focus_forward(focus: Focus) -> Focus:
+            ensure result != Focus.NoHit
+            ensure focus != Focus.NoHit or result == Focus.Close
             return Focus.Previous if focus == Focus.Close
             return Focus.Next if focus == Focus.Previous
             return Focus.Retry if focus == Focus.Next
             return Focus.OpenOutput if focus == Focus.Retry
             return Focus.OpenRecovery if focus == Focus.OpenOutput
+            return Focus.Refresh if focus == Focus.OpenRecovery
+            return Focus.Close if focus == Focus.Refresh
             Focus.Close
 
         def focus_backward(focus: Focus) -> Focus:
-            return Focus.OpenRecovery if focus == Focus.Close
+            ensure result != Focus.NoHit
+            ensure focus != Focus.NoHit or result == Focus.OpenOutput
+            return Focus.Refresh if focus == Focus.Close
             return Focus.Close if focus == Focus.Previous
             return Focus.Previous if focus == Focus.Next
             return Focus.Next if focus == Focus.Retry
             return Focus.Retry if focus == Focus.OpenOutput
+            return Focus.OpenOutput if focus == Focus.OpenRecovery
+            return Focus.OpenRecovery if focus == Focus.Refresh
             Focus.OpenOutput
 
         def entry_selected(index: i64, count: i64) -> bool:
@@ -61,6 +120,14 @@ module StudioExportRecoveryUiPolicy:
             ensure result == (open and selected and recovery_admitted)
             open and selected and recovery_admitted
 
+        def retry_enabled(check: RecoveryCheck, glb: ReportCheck, json: ReportCheck, text: ReportCheck) -> bool:
+            ensure result implies glb == ReportCheck.Missing or glb == ReportCheck.Matches
+            ensure result implies json == ReportCheck.Missing or json == ReportCheck.Matches
+            ensure result implies text == ReportCheck.Missing or text == ReportCheck.Matches
+            return false if glb == ReportCheck.Unknown or glb == ReportCheck.Conflicts or json == ReportCheck.Unknown or json == ReportCheck.Conflicts or text == ReportCheck.Unknown or text == ReportCheck.Conflicts
+            return true if check == RecoveryCheck.VerifiedPrepared
+            check == RecoveryCheck.VerifiedPublished and glb == ReportCheck.Matches and (json == ReportCheck.Missing or text == ReportCheck.Missing)
+
         def activate(open: bool, focus: Focus, selected: bool, retry_admitted: bool) -> Intent:
             return Intent.Ignore if not open
             return Intent.Close if focus == Focus.Close
@@ -69,6 +136,7 @@ module StudioExportRecoveryUiPolicy:
             return Intent.Retry if focus == Focus.Retry and retry_requested(open, selected, retry_admitted)
             return Intent.OpenOutput if focus == Focus.OpenOutput and selected
             return Intent.OpenRecovery if focus == Focus.OpenRecovery and selected
+            return Intent.Refresh if focus == Focus.Refresh
             Intent.Ignore
 
         def key_intent(open: bool, key: Key, focus: Focus, selected: bool, retry_admitted: bool) -> Intent:

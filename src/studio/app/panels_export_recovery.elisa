@@ -1,0 +1,151 @@
+include "panels_geometry.elisa"
+include "../export_recovery_ui_policy.elisa"
+
+extend StudioPanels:
+    public:
+        def export_recovery_entry_box(w: f32) -> Box:
+            box(w - 126.0, 5.0, 112.0, 28.0)
+
+        def export_recovery_entry_hit(w: f32, x: f32, y: f32) -> bool:
+            inside(export_recovery_entry_box(w), x, y)
+
+        def export_recovery_dialog_box(w: f32, h: f32) -> Box:
+            box((w - 780.0) / 2.0, (h - 500.0) / 2.0, 780.0, 500.0)
+
+        def recovery_path_preview(value: u8[4096]&) -> sview:
+            StudioText::begin()
+            mutable length: usize = 0
+            while length < 4096 and value[length] != 0:
+                length <- length + 1
+            if length <= 128:
+                for index in 0..<length |index, value|:
+                    StudioText::byte(value[index])
+            else:
+                for index in 0..<60 |index, value|:
+                    StudioText::byte(value[index])
+                StudioText::put("...")
+                for index in length - 65..<length |index, value|:
+                    StudioText::byte(value[index])
+            StudioText::view()
+
+        def export_recovery_action_box(w: f32, h: f32, focus: StudioExportRecoveryUiPolicy::Focus) -> Box:
+            d: Box = export_recovery_dialog_box(w, h)
+            mutable x: f32 = d.x + 18.0
+            if focus == StudioExportRecoveryUiPolicy::Focus.Previous:
+                x <- d.x + 18.0
+            elif focus == StudioExportRecoveryUiPolicy::Focus.Next:
+                x <- d.x + 126.0
+            elif focus == StudioExportRecoveryUiPolicy::Focus.Retry:
+                x <- d.x + 234.0
+            elif focus == StudioExportRecoveryUiPolicy::Focus.OpenOutput:
+                x <- d.x + 342.0
+            elif focus == StudioExportRecoveryUiPolicy::Focus.OpenRecovery:
+                x <- d.x + 450.0
+            elif focus == StudioExportRecoveryUiPolicy::Focus.Refresh:
+                x <- d.x + 558.0
+            else:
+                x <- d.x + 666.0
+            box(x, d.y + 440.0, 96.0, 36.0)
+
+        def export_recovery_hit(w: f32, h: f32, x: f32, y: f32) -> StudioExportRecoveryUiPolicy::Focus:
+            return StudioExportRecoveryUiPolicy::Focus.Previous if inside(export_recovery_action_box(w, h, StudioExportRecoveryUiPolicy::Focus.Previous), x, y)
+            return StudioExportRecoveryUiPolicy::Focus.Next if inside(export_recovery_action_box(w, h, StudioExportRecoveryUiPolicy::Focus.Next), x, y)
+            return StudioExportRecoveryUiPolicy::Focus.Retry if inside(export_recovery_action_box(w, h, StudioExportRecoveryUiPolicy::Focus.Retry), x, y)
+            return StudioExportRecoveryUiPolicy::Focus.OpenOutput if inside(export_recovery_action_box(w, h, StudioExportRecoveryUiPolicy::Focus.OpenOutput), x, y)
+            return StudioExportRecoveryUiPolicy::Focus.OpenRecovery if inside(export_recovery_action_box(w, h, StudioExportRecoveryUiPolicy::Focus.OpenRecovery), x, y)
+            return StudioExportRecoveryUiPolicy::Focus.Refresh if inside(export_recovery_action_box(w, h, StudioExportRecoveryUiPolicy::Focus.Refresh), x, y)
+            return StudioExportRecoveryUiPolicy::Focus.Close if inside(export_recovery_action_box(w, h, StudioExportRecoveryUiPolicy::Focus.Close), x, y)
+            StudioExportRecoveryUiPolicy::Focus.NoHit
+
+        def export_recovery_dialog_panel(w: f32, h: f32, opened: bool, index: i64, count: i64,
+                check: StudioExportRecoveryUiPolicy::RecoveryCheck, glb_check: StudioExportRecoveryUiPolicy::ReportCheck,
+                json_check: StudioExportRecoveryUiPolicy::ReportCheck,
+                text_check: StudioExportRecoveryUiPolicy::ReportCheck, record: StudioExportRecoveryJournal::Record&,
+                destination: u8[4096]&, json_destination: u8[4096]&, text_destination: u8[4096]&, 
+                recovery_directory: u8[4096]&, path_diagnostics: i64, message: sview,
+                focus: StudioExportRecoveryUiPolicy::Focus) -> void:
+            return if not opened
+            d: Box = export_recovery_dialog_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 18.0, 19.0, "Pending export recovery", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 48.0, 12.0, "In-memory records survive closing this view and loading another take; they belong to this Studio session.", StudioDraw::muted())
+            StudioText::begin()
+            StudioText::put("Record ")
+            StudioText::put_i(index + 1 if count > 0 else 0)
+            StudioText::put(" of ")
+            StudioText::put_i(count)
+            StudioDraw::text(d.x + 24.0, d.y + 76.0, 13.0, StudioText::view(), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 108.0, 13.0, recovery_check_text(check), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 136.0, 12.0, "Observed publication: ", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 136.0, 12.0, recovery_stage_text(check, record.observed, false), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 160.0, 12.0, "Recorded durability: ", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 160.0, 12.0, recovery_stage_text(check, record.durable, true), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 190.0, 12.0, "GLB destination", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 190.0, 12.0, recovery_path_preview(destination), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 208.0, 12.0, "GLB result", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 208.0, 12.0, report_check_text(glb_check), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 232.0, 12.0, "JSON report", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 232.0, 12.0, recovery_path_preview(json_destination), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 260.0, 12.0, "JSON result", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 260.0, 12.0, report_check_text(json_check), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 288.0, 12.0, "Text report", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 288.0, 12.0, recovery_path_preview(text_destination), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 316.0, 12.0, "Text result", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 316.0, 12.0, report_check_text(text_check), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 344.0, 12.0, "Recovery files", StudioDraw::muted())
+            StudioDraw::text(d.x + 190.0, d.y + 344.0, 12.0, recovery_path_preview(recovery_directory), StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 366.0, 12.0, message, StudioDraw::color(225, 190, 130))
+            StudioText::begin()
+            StudioText::put("Additional retained cleanup paths: ")
+            StudioText::put_i(path_diagnostics)
+            StudioText::put(". Use Show recovery to inspect their folder.")
+            StudioDraw::text(d.x + 24.0, d.y + 394.0, 11.0, StudioText::view(), StudioDraw::muted())
+            for action in [StudioExportRecoveryUiPolicy::Focus.Previous, StudioExportRecoveryUiPolicy::Focus.Next,
+                           StudioExportRecoveryUiPolicy::Focus.Retry, StudioExportRecoveryUiPolicy::Focus.OpenOutput,
+                           StudioExportRecoveryUiPolicy::Focus.OpenRecovery, StudioExportRecoveryUiPolicy::Focus.Refresh,
+                           StudioExportRecoveryUiPolicy::Focus.Close] |action, w, h, focus|:
+                b: Box = export_recovery_action_box(w, h, action)
+                mutable enabled: bool = true
+                enabled <- count > 0 if action == StudioExportRecoveryUiPolicy::Focus.Previous or action == StudioExportRecoveryUiPolicy::Focus.Next
+                enabled <- StudioExportRecoveryUiPolicy::retry_enabled(check, glb_check, json_check, text_check) if action == StudioExportRecoveryUiPolicy::Focus.Retry
+                enabled <- check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPublished if action == StudioExportRecoveryUiPolicy::Focus.OpenOutput
+                enabled <- check != StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable if action == StudioExportRecoveryUiPolicy::Focus.OpenRecovery
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(65, 78, 102) if focus == action else StudioDraw::panel())
+                mutable label: sview = "Previous" if action == StudioExportRecoveryUiPolicy::Focus.Previous else ""
+                label <- "Close" if action == StudioExportRecoveryUiPolicy::Focus.Close
+                label <- "Next" if action == StudioExportRecoveryUiPolicy::Focus.Next
+                label <- "Retry" if action == StudioExportRecoveryUiPolicy::Focus.Retry
+                label <- "Show GLB" if action == StudioExportRecoveryUiPolicy::Focus.OpenOutput
+                label <- "Show recovery" if action == StudioExportRecoveryUiPolicy::Focus.OpenRecovery
+                label <- "Refresh" if action == StudioExportRecoveryUiPolicy::Focus.Refresh
+                StudioDraw::text(b.x + 8.0, b.y + 12.0, 11.0, label, StudioDraw::ink() if enabled else StudioDraw::color(95, 99, 108))
+
+        def recovery_check_text(check: StudioExportRecoveryUiPolicy::RecoveryCheck) -> sview:
+            return "Live record unavailable; retry is disabled." if check == StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+            return "Prepared record verified; GLB publication is not confirmed." if check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPrepared
+            "Journal, retained payloads, and published GLB were reread and matched."
+
+        def recovery_stage_text(check: StudioExportRecoveryUiPolicy::RecoveryCheck, stage: StudioExportRecoveryStagePolicy::Stage, durable: bool) -> sview:
+            return "Unknown (not reread)" if check == StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+            return "Prepared" if stage == StudioExportRecoveryStagePolicy::Stage.Prepared
+            return "GLB publication recorded" if stage == StudioExportRecoveryStagePolicy::Stage.GlbPublished
+            return "GLB and JSON recorded" if stage == StudioExportRecoveryStagePolicy::Stage.GlbAndJsonPublished
+            return "GLB and text recorded" if stage == StudioExportRecoveryStagePolicy::Stage.GlbAndTextPublished
+            return "GLB and both reports recorded" if stage == StudioExportRecoveryStagePolicy::Stage.Complete
+            "Unknown (unrecognized journal stage)"
+
+        def report_check_text(check: StudioExportRecoveryUiPolicy::ReportCheck) -> sview:
+            return "Not checked" if check == StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+            return "Destination is missing; create-only retry is possible." if check == StudioExportRecoveryUiPolicy::ReportCheck.Missing
+            return "Exact report bytes already match." if check == StudioExportRecoveryUiPolicy::ReportCheck.Matches
+            "Different file occupies destination; it will not be replaced."
+
+        def export_recovery_entry(w: f32, opened: bool) -> void:
+            b: Box = export_recovery_entry_box(w)
+            StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(75, 82, 98) if opened else StudioDraw::panel())
+            StudioDraw::text(b.x + 10.0, b.y + 8.0, 11.0, "Pending exports", StudioDraw::ink())

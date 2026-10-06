@@ -1,0 +1,346 @@
+include "app_state.elisa"
+include "app_storage_persistence.elisa"
+include "app_export_recovery.elisa"
+include "../io/export_recovery_inventory.elisa"
+include "../io/export_recovery_completion.elisa"
+include "../export_recovery_ui_policy.elisa"
+
+# Recovery view state is an observation cache only. Every retry rereads the
+# retained bytes and journal under the workspace lock before publishing.
+extend Studio:
+    public:
+    private:
+        global mutable export_recovery_open: bool = false
+        global mutable export_recovery_focus: StudioExportRecoveryUiPolicy::Focus = StudioExportRecoveryUiPolicy::Focus.Close
+        global mutable export_recovery_return_widget: usize = 0
+        global mutable export_recovery_restore_file_menu: bool = false
+        global mutable export_recovery_return_file_focus: i64 = 0
+        global mutable export_recovery_selected: i64 = 0
+        global mutable export_recovery_check: StudioExportRecoveryUiPolicy::RecoveryCheck = StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+        global mutable export_recovery_output_check: StudioExportRecoveryUiPolicy::ReportCheck = StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+        global mutable export_recovery_json_check: StudioExportRecoveryUiPolicy::ReportCheck = StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+        global mutable export_recovery_text_check: StudioExportRecoveryUiPolicy::ReportCheck = StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+        global mutable export_recovery_record: StudioExportRecoveryJournal::Record = zeroed
+        global mutable export_recovery_directory: u8[4096] = zeroed
+        global mutable export_recovery_staging: u8[4096] = zeroed
+        global mutable export_recovery_output_path: u8[4096] = zeroed
+        global mutable export_recovery_json_path: u8[4096] = zeroed
+        global mutable export_recovery_text_path: u8[4096] = zeroed
+        global mutable export_recovery_message: sview = "Refresh to inspect retained exports."
+        global mutable export_recovery_entry_focused: bool = false
+        global mutable accessibility_recovery_open_widget: usize = 0
+        global mutable accessibility_recovery_action_widgets: usize[7] = zeroed
+        global mutable accessibility_recovery_ready: bool = false
+
+        def export_recovery_entry_available() -> bool:
+            not export_recovery_open and not storage_screen_open and not export_path_inspector_open and not export_warning_detail_open and not export_result_open and not export_review_open and not legacy_prompt_open and not replacement_prompt_open and not help_open
+
+        def recovery_path_copy(out: mutable u8[4096]&, value: darray[u8]&) -> bool:
+            return false if value.count == 0 or value.count >= 4096
+            for index in 0..<value.count |out, value, index|:
+                return false if value[index] == 0
+                out[index] <- value[index]
+            out[value.count] <- 0
+            true
+
+        def recovery_matches_path(value: darray[u8]&, path: cstr) -> bool:
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                length <- length + 1
+            return false if length >= 4096 or length != value.count
+            for index in 0..<length:
+                return false if path[index] != value[index]
+            true
+
+        def recovery_owned_directory(root: cstr, directory: cstr, record: StudioExportRecoveryJournal::Record&) -> bool:
+            return false if not recovery_matches_path(record.workspace, root)
+            mutable root_length: usize = 0
+            while root_length < 4096 and root[root_length] != 0:
+                root_length <- root_length + 1
+            return false if root_length == 0 or root_length >= 4096 or directory[root_length] != 47
+            for index in 0..<root_length:
+                return false if directory[index] != root[index]
+            prefix: sview = "/.mocap-export-recovery-"
+            for index in 0..<prefix.len.usize():
+                return false if directory[root_length + index] != prefix[index]
+            mutable end: usize = root_length + prefix.len.usize()
+            while end < 4096 and directory[end] != 0:
+                return false if directory[end] == 47 or directory[end] == 92
+                end <- end + 1
+            return false if end == 4096 or end == root_length + prefix.len.usize()
+            facts: i64 = FilePanel::path_facts(directory)
+            facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+
+        def recovery_report_state(path: cstr, bytes: darray[u8]&) -> StudioExportRecoveryUiPolicy::ReportCheck can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            recovery_destination_state(path, bytes, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+
+        def recovery_destination_state(path: cstr, bytes: darray[u8]&, limit: i64) -> StudioExportRecoveryUiPolicy::ReportCheck can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            facts: i64 = FilePanel::path_facts(path)
+            return StudioExportRecoveryUiPolicy::ReportCheck.Unknown if facts < 0 or (facts & FilePanel::PATH_SYMLINK) != 0
+            return StudioExportRecoveryUiPolicy::ReportCheck.Missing if facts == 0
+            return StudioExportRecoveryUiPolicy::ReportCheck.Unknown if (facts & FilePanel::PATH_REGULAR) == 0
+            return StudioExportRecoveryUiPolicy::ReportCheck.Matches if StudioExportRecoveryBytes::matches(path, bytes, limit)
+            StudioExportRecoveryUiPolicy::ReportCheck.Conflicts
+
+        def export_recovery_refresh_finish(descriptor: i32, message_text: sview) -> void:
+            export_recovery_message <- message_text
+            released: bool = end_storage_transaction(descriptor)
+            if not released:
+                export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+                export_recovery_output_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                export_recovery_json_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                export_recovery_text_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                export_recovery_message <- "Storage lock release is uncertain. No further workspace writes are allowed until restart."
+
+        def export_recovery_retry_finish(descriptor: i32, message_text: sview) -> bool:
+            export_recovery_message <- message_text
+            released: bool = end_storage_transaction(descriptor)
+            if not released:
+                export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+                export_recovery_output_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                export_recovery_json_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                export_recovery_text_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                export_recovery_message <- "Storage lock release is uncertain. No further workspace writes are allowed until restart."
+                return false
+            true
+
+        def export_recovery_action_enabled(action: StudioExportRecoveryUiPolicy::Focus) -> bool:
+            count: i64 = retained_export_recovery_count()
+            return count > 0 if action == StudioExportRecoveryUiPolicy::Focus.Previous or action == StudioExportRecoveryUiPolicy::Focus.Next
+            return StudioExportRecoveryUiPolicy::retry_enabled(export_recovery_check, export_recovery_output_check, export_recovery_json_check, export_recovery_text_check) if action == StudioExportRecoveryUiPolicy::Focus.Retry
+            return export_recovery_check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPublished if action == StudioExportRecoveryUiPolicy::Focus.OpenOutput
+            return export_recovery_check != StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable if action == StudioExportRecoveryUiPolicy::Focus.OpenRecovery
+            true
+
+        def export_recovery_action_label(action: StudioExportRecoveryUiPolicy::Focus) -> sview:
+            return "Close recovery" if action == StudioExportRecoveryUiPolicy::Focus.Close
+            return "Previous export" if action == StudioExportRecoveryUiPolicy::Focus.Previous
+            return "Next export" if action == StudioExportRecoveryUiPolicy::Focus.Next
+            return "Retry export and reports" if action == StudioExportRecoveryUiPolicy::Focus.Retry
+            return "Show published GLB" if action == StudioExportRecoveryUiPolicy::Focus.OpenOutput
+            return "Show recovery files" if action == StudioExportRecoveryUiPolicy::Focus.OpenRecovery
+            "Refresh recovery status"
+
+        def export_recovery_retry_feedback(result: RecoveryRetryResult&) -> sview:
+            if result.tracking_failed:
+                StudioText::begin()
+                StudioText::put("Storage lock release is uncertain. Restart Studio before further workspace writes. ")
+                StudioText::put("The GLB is already published; do not publish it again. ") if result.published
+                StudioText::put("No GLB was published. Keep the staging file and recovery package. ") if not result.published and result.keep_staging
+                StudioText::put("The staging file remains in the recovery folder. Its path could not be added because the cleanup diagnostics list is full. ") if result.recovery_path_unavailable
+                return StudioText::view()
+            if result.recovery_path_unavailable:
+                StudioText::begin()
+                StudioText::put("The GLB may be published, but the cleanup diagnostics list is full. Keep the remaining staging file in the recovery folder and inspect it before retrying. ") if result.published
+                StudioText::put("No GLB was published. Keep the staging file and recovery package; its path could not be recorded because the cleanup diagnostics list is full. ") if not result.published
+                return StudioText::view()
+            recovery_retry_message(result)
+
+        def export_recovery_refresh() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+            export_recovery_output_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+            export_recovery_json_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+            export_recovery_text_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+            count: i64 = retained_export_recovery_count()
+            if count <= 0:
+                export_recovery_message <- "No pending export recovery records are retained in this Studio session."
+                return
+            export_recovery_selected <- 0 if export_recovery_selected < 0 or export_recovery_selected >= count
+            mutable directory: darray[u8] = []
+            mutable staging: darray[u8] = []
+            mutable record: StudioExportRecoveryJournal::Record = zeroed
+            mutable output: darray[u8] = []
+            mutable json: darray[u8] = []
+            mutable text: darray[u8] = []
+            if not retained_export_recovery_at(export_recovery_selected, &directory, &staging, &record, &output, &json, &text):
+                export_recovery_message <- "The retained recovery record is unavailable. Keep the recovery files and refresh."
+                return
+            mutable root: cstr = workspace_build_directory()
+            if not recovery_matches_path(record.workspace, root):
+                export_recovery_message <- "This record belongs to another workspace. Select that workspace before retrying; no other workspace was scanned."
+                return
+            descriptor: i32 = begin_storage_transaction()
+            if descriptor < 0:
+                export_recovery_message <- "Storage workspace is busy or unavailable. Refresh after the current operation finishes."
+                return
+            root <- workspace_build_directory()
+            if not recovery_matches_path(record.workspace, root):
+                export_recovery_refresh_finish(descriptor, "The canonical workspace changed before the lock was acquired. Refresh before retrying.")
+                return
+            scan: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan(root)
+            if scan is StudioExportRecoveryInventory::Scan.Rejected(reason):
+                export_recovery_refresh_finish(descriptor, "Recovery inventory is incomplete or contains an unsafe path. No retry is available.")
+                return
+            mutable directory_c: u8[4096] = zeroed
+            mutable staging_c: u8[4096] = zeroed
+            if not recovery_path_copy(&directory_c, directory) or not recovery_path_copy(&staging_c, staging):
+                export_recovery_refresh_finish(descriptor, "Recovery paths exceed the supported length. No retry is available.")
+                return
+            if not recovery_owned_directory(root, (&directory_c[0]).cast[cstr], record):
+                export_recovery_refresh_finish(descriptor, "This record belongs to another workspace or its recovery directory cannot be verified. Select that workspace before retrying.")
+                return
+            mutable journal: StudioExportRecoveryJournal::Record = record
+            owned: bool = true
+            locked: bool = true
+            prepared: bool = StudioExportRecoveryBinding::load_prepared((&directory_c[0]).cast[cstr], record, output, json, text, owned, locked, &journal)
+            if not prepared:
+                export_recovery_refresh_finish(descriptor, "Journal or retained bytes no longer match. No retry is available; keep these files for inspection.")
+                return
+            if journal.observed == StudioExportRecoveryStagePolicy::Stage.Prepared:
+                export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPrepared
+            else:
+                mutable published: StudioExportRecoveryJournal::Record = record
+                if not StudioExportRecoveryBinding::load((&directory_c[0]).cast[cstr], record, output, json, text, owned, locked, &published):
+                    export_recovery_refresh_finish(descriptor, "The recorded GLB does not match the retained export bytes. No retry is available.")
+                    return
+                journal <- published
+                export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPublished
+            mutable output_path: u8[4096] = zeroed
+            mutable json_path: u8[4096] = zeroed
+            mutable text_path: u8[4096] = zeroed
+            if not recovery_path_copy(&output_path, journal.destination) or not recovery_path_copy(&json_path, journal.json_destination) or not recovery_path_copy(&text_path, journal.text_destination):
+                export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+                export_recovery_refresh_finish(descriptor, "A recorded destination exceeds the supported path length. No retry is available.")
+                return
+            export_recovery_json_check <- recovery_report_state((&json_path[0]).cast[cstr], json)
+            export_recovery_text_check <- recovery_report_state((&text_path[0]).cast[cstr], text)
+            if export_recovery_check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPrepared:
+                export_recovery_output_check <- recovery_destination_state((&output_path[0]).cast[cstr], output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            elif export_recovery_check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPublished:
+                export_recovery_output_check <- StudioExportRecoveryUiPolicy::ReportCheck.Matches
+            export_recovery_record <- journal
+            export_recovery_directory <- directory_c
+            export_recovery_staging <- staging_c
+            export_recovery_output_path <- output_path
+            export_recovery_json_path <- json_path
+            export_recovery_text_path <- text_path
+            export_recovery_refresh_finish(descriptor, "Live journal and retained bytes checked under the current workspace lock. This view is a snapshot; retry rechecks before writing.")
+
+        def export_recovery_open_view() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            export_recovery_return_widget <- accessibility_file_menu_widgets[file_menu_focus.usize()] if file_menu_open and file_menu_focus >= 0 and file_menu_focus < StudioFilePolicy::ROWS
+            export_recovery_return_widget <- accessibility_recovery_open_widget if not file_menu_open
+            export_recovery_restore_file_menu <- file_menu_open
+            export_recovery_return_file_focus <- file_menu_focus
+            export_recovery_entry_focused <- false
+            file_menu_open <- false
+            export_recovery_open <- true
+            export_recovery_focus <- StudioExportRecoveryUiPolicy::Focus.Close
+            export_recovery_refresh()
+            touch()
+
+        def export_recovery_retry_report() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            count: i64 = retained_export_recovery_count()
+            admitted: bool = export_recovery_check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPrepared or export_recovery_check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPublished
+            prepared_retry: bool = export_recovery_check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPrepared
+            if not StudioExportRecoveryUiPolicy::retry_requested(export_recovery_open, StudioExportRecoveryUiPolicy::entry_selected(export_recovery_selected, count), admitted):
+                export_recovery_message <- "Refresh and verify a retained export before retrying."
+                touch()
+                return
+            export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+            export_recovery_output_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+            export_recovery_json_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+            export_recovery_text_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+            if prepared_retry:
+                result: RecoveryRetryResult = retry_retained_export(export_recovery_selected)
+                if not result.tracking_failed:
+                    export_recovery_refresh()
+                else:
+                    export_recovery_check <- StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable
+                    export_recovery_output_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                    export_recovery_json_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                    export_recovery_text_check <- StudioExportRecoveryUiPolicy::ReportCheck.Unknown
+                export_recovery_message <- export_recovery_retry_feedback(result)
+                touch()
+                return
+            descriptor: i32 = begin_storage_transaction()
+            if descriptor < 0:
+                export_recovery_message <- "Storage workspace is busy or unavailable. Retry after refreshing the lock."
+                touch()
+                return
+            mutable directory: darray[u8] = []
+            mutable staging: darray[u8] = []
+            mutable record: StudioExportRecoveryJournal::Record = zeroed
+            mutable output: darray[u8] = []
+            mutable json: darray[u8] = []
+            mutable text: darray[u8] = []
+            if not retained_export_recovery_at(export_recovery_selected, &directory, &staging, &record, &output, &json, &text):
+                _ = export_recovery_retry_finish(descriptor, "The retained recovery record changed. Refresh before retrying.")
+                touch()
+                return
+            mutable directory_c: u8[4096] = zeroed
+            if not recovery_path_copy(&directory_c, directory):
+                _ = export_recovery_retry_finish(descriptor, "Recovery paths exceed the supported length. Refresh before retrying.")
+                touch()
+                return
+            mutable root: cstr = workspace_build_directory()
+            scan: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan(root)
+            if not recovery_owned_directory(root, (&directory_c[0]).cast[cstr], record) or scan is StudioExportRecoveryInventory::Scan.Rejected(reason):
+                _ = export_recovery_retry_finish(descriptor, "Workspace ownership or recovery inventory changed. Refresh; no file was written.")
+                touch()
+                return
+            mutable live: StudioExportRecoveryJournal::Record = record
+            if not StudioExportRecoveryBinding::load((&directory_c[0]).cast[cstr], record, output, json, text, true, true, &live):
+                _ = export_recovery_retry_finish(descriptor, "The current GLB or retained bytes no longer match this export. No report was written.")
+                touch()
+                return
+            mutable report: StudioExportRecoveryCompletion::Report = StudioExportRecoveryCompletion::Report.Json
+            if recovery_report_state((&export_recovery_json_path[0]).cast[cstr], json) == StudioExportRecoveryUiPolicy::ReportCheck.Matches:
+                report <- StudioExportRecoveryCompletion::Report.Text
+            if report == StudioExportRecoveryCompletion::Report.Json and recovery_report_state((&export_recovery_json_path[0]).cast[cstr], json) == StudioExportRecoveryUiPolicy::ReportCheck.Conflicts:
+                report <- StudioExportRecoveryCompletion::Report.Text
+            if report == StudioExportRecoveryCompletion::Report.Text and recovery_report_state((&export_recovery_text_path[0]).cast[cstr], text) == StudioExportRecoveryUiPolicy::ReportCheck.Conflicts:
+                _ = export_recovery_retry_finish(descriptor, "Both report destinations are occupied by different files. They will not be overwritten. Choose another destination through a new export.")
+                touch()
+                return
+            outcome: StudioExportRecoveryCompletion::Outcome = StudioExportRecoveryCompletion::complete((&directory_c[0]).cast[cstr], record, output, json, text, true, true, report)
+            result_message: sview = StudioExportRecoveryCompletion::message(outcome)
+            released: bool = export_recovery_retry_finish(descriptor, result_message)
+            if not released:
+                touch()
+                return
+            export_recovery_refresh()
+            export_recovery_message <- result_message
+            touch()
+
+        def export_recovery_action(focus: StudioExportRecoveryUiPolicy::Focus) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if focus == StudioExportRecoveryUiPolicy::Focus.NoHit
+            export_recovery_focus <- focus
+            if focus == StudioExportRecoveryUiPolicy::Focus.Close:
+                export_recovery_open <- false
+                export_recovery_entry_focused <- export_recovery_return_widget == accessibility_recovery_open_widget
+                file_menu_focus <- export_recovery_return_file_focus if export_recovery_restore_file_menu
+                file_menu_open <- export_recovery_restore_file_menu
+            elif focus == StudioExportRecoveryUiPolicy::Focus.Previous:
+                count: i64 = retained_export_recovery_count()
+                if count > 0:
+                    export_recovery_selected <- StudioExportRecoveryUiPolicy::selection_after(export_recovery_selected, count, false)
+                    export_recovery_refresh()
+            elif focus == StudioExportRecoveryUiPolicy::Focus.Next:
+                count: i64 = retained_export_recovery_count()
+                if count > 0:
+                    export_recovery_selected <- StudioExportRecoveryUiPolicy::selection_after(export_recovery_selected, count, true)
+                    export_recovery_refresh()
+            elif focus == StudioExportRecoveryUiPolicy::Focus.Retry:
+                export_recovery_retry_report()
+            elif focus == StudioExportRecoveryUiPolicy::Focus.OpenOutput:
+                if export_recovery_check == StudioExportRecoveryUiPolicy::RecoveryCheck.VerifiedPublished:
+                    _ = FilePanel::show_in_folder((&export_recovery_output_path[0]).cast[cstr])
+            elif focus == StudioExportRecoveryUiPolicy::Focus.OpenRecovery:
+                if export_recovery_check != StudioExportRecoveryUiPolicy::RecoveryCheck.Unavailable:
+                    _ = FilePanel::show_in_folder((&export_recovery_directory[0]).cast[cstr])
+            elif focus == StudioExportRecoveryUiPolicy::Focus.Refresh:
+                export_recovery_refresh()
+            touch()
+
+        def export_recovery_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            if code == UiCore::Key.Escape:
+                export_recovery_action(StudioExportRecoveryUiPolicy::Focus.Close)
+            elif code == UiCore::Key.Tab:
+                export_recovery_focus <- StudioExportRecoveryUiPolicy::focus_forward(export_recovery_focus) if not StudioShortcuts::shift(modifiers) else StudioExportRecoveryUiPolicy::focus_backward(export_recovery_focus)
+                touch()
+            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                export_recovery_action(StudioExportRecoveryUiPolicy::Focus.Previous)
+            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                export_recovery_action(StudioExportRecoveryUiPolicy::Focus.Next)
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                export_recovery_action(export_recovery_focus)
