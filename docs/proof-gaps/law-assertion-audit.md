@@ -19,6 +19,8 @@ The following files now assert `ensure result`, retaining their preconditions:
 - Job lifecycle: cancellation, stale revision/generation and prior value retention.
 - Legacy session prompt: Cancel default, focus movement and closed-prompt refusal.
 - Accessibility: node bounds, parent/sibling relationships and control mapping.
+- Contact editor: plant/lift semantics and reset/delete/split action admission.
+- Finding browser: filter controls, visible row ordering and final sibling sentinel.
 
 Current Stage1 `812c0547` compiled the report, reset, export review and path
 review law files to objects without a stale override. Compilation checks source
@@ -43,3 +45,9 @@ override was used. Their compilation and replay remain pending a current build.
 
 Accessibility law compilation/replay remains pending the current compiler and
 proof assistant builds. No assertion has been claimed verified from old counts.
+
+A per-function scan also found missing assertions in suggestion and workspace
+root laws; their implementation owners are correcting them. This scan is only
+an audit aid: assertions must cover the intended behavior, not merely exist in
+a body. Finding and contact laws still require current-toolchain compilation
+and replay. The existing assertions with false/equivalence outcomes were kept.
