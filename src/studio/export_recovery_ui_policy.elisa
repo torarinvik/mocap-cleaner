@@ -1,0 +1,78 @@
+# Keyboard and activation intent for the pending export recovery view.
+# Recovery truth and retry eligibility must come from the recovery inventory;
+# this policy only routes user intent.
+module StudioExportRecoveryUiPolicy:
+    public:
+        const module Capacity:
+            const FOCUS_COUNT: i64 = 6
+
+        const enum Focus of i64:
+            Close = 0
+            Previous = 1
+            Next = 2
+            Retry = 3
+            OpenOutput = 4
+            OpenRecovery = 5
+
+        const enum Key of i64:
+            Forward = 0
+            Backward = 1
+            Activate = 2
+            Cancel = 3
+
+        const enum Intent of i64:
+            Ignore = 0
+            Close = 1
+            Previous = 2
+            Next = 3
+            Retry = 4
+            OpenOutput = 5
+            OpenRecovery = 6
+
+        def focus_forward(focus: Focus) -> Focus:
+            return Focus.Previous if focus == Focus.Close
+            return Focus.Next if focus == Focus.Previous
+            return Focus.Retry if focus == Focus.Next
+            return Focus.OpenOutput if focus == Focus.Retry
+            return Focus.OpenRecovery if focus == Focus.OpenOutput
+            Focus.Close
+
+        def focus_backward(focus: Focus) -> Focus:
+            return Focus.OpenRecovery if focus == Focus.Close
+            return Focus.Close if focus == Focus.Previous
+            return Focus.Previous if focus == Focus.Next
+            return Focus.Next if focus == Focus.Retry
+            return Focus.Retry if focus == Focus.OpenOutput
+            Focus.OpenOutput
+
+        def entry_selected(index: i64, count: i64) -> bool:
+            ensure result == (count > 0 and index >= 0 and index < count)
+            count > 0 and index >= 0 and index < count
+
+        def selection_after(index: i64, count: i64, forward: bool) -> i64:
+            requires count > 0 and index >= 0 and index < count
+            ensure result >= 0 and result < count
+            return index + 1 if forward and index + 1 < count
+            return 0 if forward
+            return index - 1 if index > 0
+            count - 1
+
+        def retry_requested(open: bool, selected: bool, recovery_admitted: bool) -> bool:
+            ensure result == (open and selected and recovery_admitted)
+            open and selected and recovery_admitted
+
+        def activate(open: bool, focus: Focus, selected: bool, retry_admitted: bool) -> Intent:
+            return Intent.Ignore if not open
+            return Intent.Close if focus == Focus.Close
+            return Intent.Previous if focus == Focus.Previous and selected
+            return Intent.Next if focus == Focus.Next and selected
+            return Intent.Retry if focus == Focus.Retry and retry_requested(open, selected, retry_admitted)
+            return Intent.OpenOutput if focus == Focus.OpenOutput and selected
+            return Intent.OpenRecovery if focus == Focus.OpenRecovery and selected
+            Intent.Ignore
+
+        def key_intent(open: bool, key: Key, focus: Focus, selected: bool, retry_admitted: bool) -> Intent:
+            return Intent.Ignore if not open
+            return Intent.Close if key == Key.Cancel
+            return Intent.Ignore if key == Key.Forward or key == Key.Backward
+            activate(open, focus, selected, retry_admitted)
