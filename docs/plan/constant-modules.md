@@ -10,14 +10,13 @@ contracts and proof coverage. Keep each maintained repository file at most
 
 The Storage filter values have been moved into public
 `StudioStorageListFilterPolicy::Filter`. Object and Studio builds pass.
-The first repair (`49714c65` in `../elisa-proof-mocap`) normalizes qualified
-nested AST module names in collection and independent replay. Normal compiler
-seeding and prover rebuilding now pass, but focused proofs still fail: fresh
-flat source/laws report 457/485 and 473/501; nested source/laws report 311/485
-and 320/508. Original reviewed expectations were 483/483 and 499/499.
-Lexical relative member resolution still needs repair, and 28 imported cleanup
-obligations remain open even with flat declarations. See G96 in proof gaps.
-Qualify both paths and certificate replay before expanding this migration.
+Repairs `49714c65` and `9ae35eff` in `../elisa-proof-mocap` normalize qualified
+nested AST names and resolve lexical relative member paths. Normal compiler
+seeding and prover rebuilding pass. The actual nested source and laws now
+prove 483/483 and 499/499, preserving the original expectations, with complete
+certificate replay and zero gaps. Flat, relative and absolute-reference probes
+also prove completely. This closes the migration gate; qualify each subsequent
+group and its consumers without weakening existing baselines.
 Do not lower proof baselines or replace real constant modules with plain
 modules to bypass this gate. Record exact compiler/prover provenance and
 certificate replay when qualifying the fix.

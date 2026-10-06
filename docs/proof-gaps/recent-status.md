@@ -412,3 +412,10 @@ spell lexical paths such as `Filter::ALL`, while collection currently matches
 only full paths such as `StudioStorageListFilterPolicy::Filter::ALL`. Lexical
 relative resolution needs repair without admitting ambiguous sibling names or
 weakening independent replay. Original proof expectations remain unchanged.
+
+G96 is resolved by prover `9ae35eff` after a normal provenance-valid rebuild.
+Actual nested Storage filter source and laws prove 483/483 and 499/499, with
+complete independent certificate replay and zero gaps/findings. Saved flat,
+relative nested and absolute-reference probes also prove completely. The
+intermediate 28-obligation regression no longer appears in the final runs.
+No original expectation was relaxed.
