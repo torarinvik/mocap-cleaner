@@ -232,3 +232,11 @@ observed accessibility text-buffer reset. A fresh complete Studio diagnostic
 compile is running in `build/studio-goto-current-candidate.5bdqyL`.
 The normal compiler has not adopted these candidates; reduced objects do not
 establish native Studio or current normal-product acceptance.
+
+Additional compile-only owner/shadowing qualification at `925bcbb2` lives in
+`build/global-array-shadow-qualification.QIHnh4`. Same-named globals in two
+modules with different element widths and a borrowed local array shadow all
+compile to a nonempty positive object (exit 0). A scalar parameter shadowing
+the array name is rejected (exit 1, no nonempty object), rather than silently
+indexing the global. These checks strengthen type/owner evidence; no compiled
+program was executed and they do not replace native behavior acceptance.
