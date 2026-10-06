@@ -18,9 +18,11 @@ scripts/build.sh run -- clean in.glb --preset boxing -o build/out.glb
 ```
 The CLI builds through Elisa-engine's `scripts/elisa_build_run.py` (from
 `../elisa-engine-mocap`, branch `mocap-track`). `elisa.project.json` sets
-`"host": "console"`, so the engine compiles `main()` straight to an executable
-without the SDL3/Wicked application host. Override paths with
-`ELISA_ENGINE_ROOT` and `ELISAC`. The studio window has its own
+`"host": "console"`, so the build omits the SDL3/Wicked application host.
+A local compiler wrapper links the engine's portable `file_path.c` adapter
+and the Elisa runtime for canonical path and source identity checks. Override
+paths with `ELISA_ENGINE_ROOT`, `ELISAC` and, for a separate runtime build,
+`MOCAP_CLI_RUNTIME`. The studio window has its own
 `scripts/build_studio.sh` (elisa-ui AppKit host).
 
 ## Checking
