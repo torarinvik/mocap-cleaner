@@ -124,6 +124,11 @@ recovery integration remain unqualified. These foundations still need recovery i
 qualification; current evidence is in [integration observations](../acceptance/m6-integration-observations-2026-10-06.md)
 and [publication proof gaps](../proof-gaps/export-publication-outcomes.md).
 
+Retry admission now has a contracted policy and complete proof/replay (8/8
+source, 22/22 laws). Integration must establish all six input facts; the policy
+does not supply durable records or exact-byte verification. Evidence is in
+[recovery admission](../acceptance/export-recovery-policy-2026-10-06.md).
+
 - [ ] **Owned recovery record:** give each export an immutable transaction ID
   and keep the GLB identity, exact frozen report bytes, source/animation/stack
   revisions, final paths and stage outcomes together. Preserve multiple pending
