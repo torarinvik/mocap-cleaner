@@ -50,7 +50,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `CliOutputPublisher` | 3 | `src/cli/output_publisher.elisa` |
 | `GlbTracks` | 4 | `src/io/glb_tracks.elisa` |
 | `Hand` | 4 | `src/core/hand.elisa` |
-| `Hinge` | 3 | `src/core/hinge.elisa` |
 | `Knee` | 9 | `src/core/knee.elisa` |
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
 | `Pivot` | 3 | `src/core/pivot.elisa` |
@@ -173,3 +172,8 @@ producer findings. Law replay remains open; source success is not a substitute.
 All source/law consumers use the qualified values. Current prover `d3a17832`
 replays source 103/103; laws replay 147/150 with three gaps and no producer
 findings. The prior 150-obligation law baseline is retained, not weakened.
+
+`Hinge::Angle` groups micro-radian turn constants; `Domain` holds the
+numeric rotation magnitude bound. Consumers use qualified names with unchanged
+values. Existing laws compile with current compiler `720896f4`; replay and
+full rig adapter qualification remain open.
