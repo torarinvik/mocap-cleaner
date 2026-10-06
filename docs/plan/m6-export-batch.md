@@ -48,6 +48,9 @@ paths and unsupported recipe/rig compatibility. Eleven laws and a fresh
 diagnostic object (`build/batch-preflight-compile.IM8D19/laws.o`) cover source
 compilation. Native validators, queue wiring, review UI and independent proof
 replay remain required; supplied booleans alone do not verify filesystem facts.
+`export_batch_preflight_copy` supplies labels and correction guidance for every
+outcome and compiles to `build/batch-preflight-copy.iTT5gC/copy.o` on the fresh
+diagnostic compiler. This copy still needs queue UI wiring and native review.
 
 - [ ] Wrap the existing batch/parallel/report capabilities in a queue UI:
       input list, animation selection, compatible recipe, output naming,
