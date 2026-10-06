@@ -37,3 +37,10 @@ during compilation. Revisions/dirty flags cannot replace exact source tree
 hashes, dependency closure manifests or source/output byte authentication.
 Native export observation, deterministic report behavior and complete M6
 provenance qualification remain unfinished.
+
+Retry session 68321 after the owner's first save-call repair also failed to
+emit an object: backend declines now identify
+`save_session_to_current_path@39` (variable declaration) and `install_session@68`
+(assignment). The current log contains these two declines. The owner is
+continuing the repair; the earlier successful compile does not qualify this
+newer combined source tree. No default runtime product is claimed for it.
