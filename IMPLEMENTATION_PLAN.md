@@ -19,6 +19,15 @@ are outside this roadmap. Additional file formats and platforms require a
 separate demonstrated need; GLB and the current macOS studio are the first
 release target. Rig role mapping is not a promise of general retargeting.
 
+### File size and module refactor after current fixes
+
+- [ ] Inventory all repository files above 600 lines after the current fixes.
+      Split each into cohesive files of at most 600 lines, including proof and
+      documentation files. Use modules and nested modules where appropriate;
+      expose only the public API needed by callers and keep helpers private.
+      Update includes, tooling and proof coverage while preserving behavior.
+      Commit each small refactor separately.
+
 ### Architecture and safety requirements
 
 - Product implementation is Elisa; UI components come from elisa-ui.
@@ -343,8 +352,8 @@ Restore implementation. Current implementation and evidence are recorded in
       Explain unknown dates on older receipts. Distinguish missing, changed,
       expired and conflicting items, offer Refresh after conflict resolution,
       and remove expired metadata without deleting unrelated files.
-- [ ] Persist user exemptions and show a preview of what each saved
-      retention preset makes eligible. Explain the minimum age.
+- [ ] Add management of saved exemptions for missing or changed files, and
+      show a preview of what each saved retention preset makes eligible. Explain the minimum age.
       Preserve required recovery snapshots even under the shortest setting.
       Changing preferences or exemptions must only change the candidate set;
       movement still requires review and confirmation. Keep Studio retention

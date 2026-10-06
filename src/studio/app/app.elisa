@@ -1905,6 +1905,48 @@ module Studio:
             return false if counts.count != StudioStorageOverviewPolicy::CATEGORY_COUNT.usize()
             counts[StudioStorageOverviewPolicy::CATEGORY_ELIGIBLE.usize()] == 0
 
+        def storage_exemption_available() -> bool:
+            return false if not storage_preferences_valid or not storage_exemptions_valid
+            return false if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING or storage_move_review or storage_restore_review
+            return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64() or storage_selected >= storage_visible_statuses.count.i64() or storage_selected >= storage_visible_reasons.count.i64()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            statuses: darray[i64] = storage_visible_statuses
+            reasons: darray[i64] = storage_visible_reasons
+            entry: StudioStorageManifest::Entry = entries[storage_selected]
+            reason: i64 = reasons[storage_selected]
+            return false if entry.state != StudioStorageManifest::REGISTERED or entry.kind == StudioStorageCleanupPolicy::RECOVERY or statuses[storage_selected] != StudioPanels::STORAGE_STATUS_PRESENT
+            return false if reason != StudioStorageCleanupPolicy::PROTECT_NONE and reason != StudioStorageCleanupPolicy::PROTECT_RETENTION and reason != StudioStorageCleanupPolicy::PROTECT_USER_EXEMPTION
+            storage_user_exempt(entry) or StudioStorageExemptionPolicy::may_add(storage_exemptions.count.i64(), true, true, true, false, false, StudioStorageManifest::valid(entry))
+
+        def storage_inspected_exempt() -> bool:
+            return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            storage_user_exempt(entries[storage_selected])
+
+        def toggle_storage_exemption() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if not storage_exemption_available()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            expected: StudioStorageManifest::Entry = entries[storage_selected]
+            refresh_storage_inventory()
+            if not storage_exemption_available():
+                storage_message <- 9 if storage_message != 16 and storage_message != 18
+                touch()
+                return
+            fresh: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            if not storage_identity_matches(expected, fresh[storage_selected]):
+                storage_message <- 9
+                touch()
+                return
+            removing: bool = storage_user_exempt(expected)
+            mutable next: darray[StudioStorageManifest::Entry] = []
+            for saved in storage_exemptions |saved, next, expected, removing|:
+                next.push(saved) if not removing or not storage_identity_matches(saved, expected)
+            next.push(expected) if not removing
+            saved: bool = persist_storage_exemptions(next)
+            refresh_storage_inventory()
+            storage_message <- 20 if saved else 19 if storage_exemptions_valid else 18
+            touch()
+
         def storage_trash_available() -> bool:
             return false if not storage_preferences_valid or not storage_exemptions_valid
             return false if not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome)
@@ -2161,6 +2203,8 @@ module Studio:
                 touch()
             elif action == StudioPanels::STORAGE_DONE:
                 close_storage_screen()
+            elif action == StudioPanels::STORAGE_EXEMPTION:
+                toggle_storage_exemption()
             elif action == StudioPanels::STORAGE_SELECT_ELIGIBLE:
                 select_eligible_storage_rows()
             elif action == StudioPanels::STORAGE_CLEAR_SELECTION:
@@ -3346,7 +3390,7 @@ module Studio:
                 storage_visible_entries, storage_visible_statuses, storage_visible_reasons, storage_cleanup_selection,
                 storage_selected, storage_focus, storage_message,
                 storage_protected_records, storage_unverified_records,
-                storage_restore_available(), storage_restore_review, storage_trash_available(), storage_move_review,
+                storage_restore_available(), storage_restore_review, storage_trash_available(), storage_move_review, storage_exemption_available(), storage_inspected_exempt(),
                 storage_overview_counts, storage_overview_bytes, storage_scan_seconds,
                 StudioStorageSelectionPolicy::retention_days(storage_retention_preset), storage_selection_bytes, storage_selection_removed,
                 storage_batch_state, storage_batch_completed, storage_batch_failed, storage_batch_untouched,
@@ -3836,11 +3880,11 @@ module Studio:
             for action in 0..<StudioPanels::STORAGE_ACTION_COUNT |w, h, storage_restore_review, storage_move_review, restore_ready, trash_ready|:
                 id: usize = StudioStorageAccessibilityPolicy::action_id(action)
                 widget: usize = accessibility_storage_action_widgets[action.usize()]
-                enabled: bool = action == StudioPanels::STORAGE_DONE if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING else StudioStorageAccessibilityPolicy::action_enabled_with_cleanup(action, restore_ready, trash_ready)
+                enabled: bool = action == StudioPanels::STORAGE_DONE if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING else StudioStorageAccessibilityPolicy::action_enabled_with_exemption(action, restore_ready, trash_ready, storage_exemption_available())
                 UiFlat::set_enabled(widget, enabled)
                 accessibility_node(UiCore::AccessibilityRole.Button,
-                    "Cancel cleanup" if action == StudioPanels::STORAGE_DONE and storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING else StudioStorageAccessibilityCopy::retention_value(StudioStorageSelectionPolicy::retention_days(storage_retention_preset)) if action == StudioPanels::STORAGE_RETENTION else StudioStorageAccessibilityCopy::action_name_with_reviews(action, storage_restore_review, storage_move_review),
-                    "Stop cleanup before the next file. Completed receipts remain saved." if action == StudioPanels::STORAGE_DONE and storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING else StudioStorageAccessibilityCopy::action_help_with_cleanup(action, restore_ready, storage_restore_review, trash_ready, storage_move_review),
+                    ("Remove exemption" if storage_inspected_exempt() else "Keep this file") if action == StudioPanels::STORAGE_EXEMPTION else "Cancel cleanup" if action == StudioPanels::STORAGE_DONE and storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING else StudioStorageAccessibilityCopy::retention_value(StudioStorageSelectionPolicy::retention_days(storage_retention_preset)) if action == StudioPanels::STORAGE_RETENTION else StudioStorageAccessibilityCopy::action_name_with_reviews(action, storage_restore_review, storage_move_review),
+                    "Keep this verified file version out of cleanup, or remove its saved exemption. Changing protection never moves files; removing it still requires a fresh Move review." if action == StudioPanels::STORAGE_EXEMPTION else "Stop cleanup before the next file. Completed receipts remain saved." if action == StudioPanels::STORAGE_DONE and storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING else StudioStorageAccessibilityCopy::action_help_with_cleanup(action, restore_ready, storage_restore_review, trash_ready, storage_move_review),
                     StudioPanels::storage_button_box(w, h, action), id,
                     StudioStorageAccessibilityPolicy::DIALOG, none,
                     StudioStorageAccessibilityPolicy::next_sibling(id, visible_count),
