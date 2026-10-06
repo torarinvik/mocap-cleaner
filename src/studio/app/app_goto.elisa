@@ -7,7 +7,6 @@ extend Studio:
         global mutable goto_syncing_text: bool = false
         global mutable goto_previous_focus: usize = UiFlat::NONE
         global mutable goto_mode: StudioTimelineEntryPolicy::Mode = StudioTimelineEntryPolicy::Mode.Frame
-        global mutable goto_rate: i64 = 0
 
         # Validate the complete insertion before changing a draft: dropping
         # unsupported characters could turn a malformed paste into another time.
@@ -72,7 +71,7 @@ extend Studio:
         def goto_stale() -> bool:
             return true if clip == null
             if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds and clip is c:
-                return true if c.rate != goto_rate
+                return true if not StudioSampleClock::ready(c.sample_clock) or StudioSampleClock::count(c.sample_clock) != goto_target.frames
             StudioTimelineGotoDraftPolicy::current(goto_target, take_serial, built,
                 stack_generation, frames()) == false
 
@@ -84,25 +83,28 @@ extend Studio:
 
         def goto_result() -> StudioTimelineGotoPolicy::Result:
             return StudioTimelineGotoPolicy::parse(goto_text(), goto_target.frames) if goto_mode == StudioTimelineEntryPolicy::Mode.Frame
-            parsed: StudioTimelineTimeInput::Result = StudioTimelineTimeInput::parse(goto_text(), goto_rate, goto_target.frames)
-            mutable converted: StudioTimelineGotoPolicy::Status = StudioTimelineGotoPolicy::Status.Invalid
-            converted <- StudioTimelineGotoPolicy::Status.Empty if parsed.status == StudioTimelineTimeInput::Status.Empty
-            converted <- StudioTimelineGotoPolicy::Status.Exact if parsed.status == StudioTimelineTimeInput::Status.Exact
-            converted <- StudioTimelineGotoPolicy::Status.Clamped if parsed.status == StudioTimelineTimeInput::Status.Clamped
-            StudioTimelineGotoPolicy::Result{status: converted, frame: parsed.frame}
+            parsed: StudioTimelineTimeInput::Draft = StudioTimelineTimeInput::parse_millis(goto_text())
+            return StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Empty, frame: -1} if parsed.status == StudioTimelineTimeInput::Status.Empty
+            return StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Invalid, frame: -1} if parsed.status != StudioTimelineTimeInput::Status.Exact or goto_stale()
+            time: i64 = StudioSampleTimePolicy::microseconds(parsed.millis)
+            if clip is c:
+                frame: i64 = StudioSampleClock::frame_at_us(c.sample_clock, time)
+                last: i64 = StudioSampleClock::last_us(c.sample_clock)
+                converted: StudioTimelineGotoPolicy::Status = StudioTimelineGotoPolicy::Status.Clamped if StudioSampleTimePolicy::past_end(time, last) else StudioTimelineGotoPolicy::Status.Exact
+                return StudioTimelineGotoPolicy::Result{status: converted, frame: frame}
+            StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Invalid, frame: -1}
 
         def goto_open_dialog() -> void:
             goto_open_mode(StudioTimelineEntryPolicy::Mode.Frame)
 
         def goto_open_mode(mode: StudioTimelineEntryPolicy::Mode) -> void:
             return if clip == null or frames() < 1 or frames() > StudioTimelineGotoPolicy::MAX_FRAMES
-            if clip is c:
-                goto_rate <- c.rate
-            if mode == StudioTimelineEntryPolicy::Mode.Seconds and (goto_rate < 1 or goto_rate > StudioTimelineTimeInputKernel::Domain::MAX_RATE):
-                status <- "Go to time unavailable: the evaluated clip rate is unsupported."
-                status_file <- null
-                touch()
-                return
+            if mode == StudioTimelineEntryPolicy::Mode.Seconds and clip is c:
+                if not StudioSampleClock::ready(c.sample_clock) or StudioSampleClock::count(c.sample_clock) != frames():
+                    status <- StudioSampleClock::explanation(c.sample_clock)
+                    status_file <- null
+                    touch()
+                    return
             goto_mode <- mode
             goto_target <- goto_target_now()
             typed_len <- 0
