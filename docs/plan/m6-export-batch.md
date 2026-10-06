@@ -143,3 +143,9 @@ Unit-object and member lookup now use explicit `Missing`, `Invalid` and
 and declaration-state laws compile on the current compiler. State-law proof
 checking is ongoing; token traversal bounds and malformed/duplicate declaration
 behavior still require full qualification.
+
+Lower-is-better admission now uses supported metric definitions rather than
+trusting `_after` suffixes. Unsupported quality names are unavailable, and
+quality values must be nonnegative; counts/frame-counts must be whole numbers.
+The typed policy reports 14/14, its expanded laws 25/32. Reader and laws compile;
+seven law obligations, replay and behavioral qualification remain open.
