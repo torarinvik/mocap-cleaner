@@ -155,6 +155,17 @@ horizontal scrolling at small widths. An unavailable comparison explicitly
 states that the candidate is not qualified. The verdict uses the existing
 contracted `Regress::verdict`; native rendered and accessibility qualification
 remain required.
+
+Decimal comparison preparation: `ReportDecimal` admits exact common-scale
+multiplication only when it stays within the regression domain. Four laws
+cover identity scaling, zero, and rejection on both sides of the range.
+This kernel is not connected to parsing yet. Decimal/exponent parsing,
+canonical mantissa/exponent representation, common-scale alignment, floor
+conversion, and faithful HTML formatting remain required. Prover `3de825c7`
+reports 75/77 source-closure obligations and 81/89 law-closure obligations
+proved, with no replay gaps among those proven. Variable division versus
+multiplication bounds and dependent summaries remain unresolved; compiler
+product verification awaits the current compiler seed.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
 
