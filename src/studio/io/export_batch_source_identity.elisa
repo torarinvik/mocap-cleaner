@@ -1,0 +1,80 @@
+# Read-only native source identity snapshot for arbitrary source paths.
+module StudioExportBatchSourceIdentity:
+    private:
+        const PATH_CAPACITY: usize = 4096
+        const ERROR_CAPACITY: usize = 512
+        @link_name("elisa_file_identity_snapshot_fields")
+        extern native_snapshot(candidate: cstr, canonical_path: mutable u8&,
+            path_capacity: i32, device: mutable i64&, inode: mutable i64&,
+            size_bytes: mutable i64&, modified_seconds: mutable i64&,
+            modified_nanoseconds: mutable i64&, error_buffer: mutable u8&,
+            error_capacity: i32) -> i32 can[Blocking.IO]
+
+    public:
+        const enum Outcome of i64:
+            Ready = 0
+            InvalidInput = 1
+            Unavailable = 2
+            NotRegular = 3
+
+        struct Facts:
+            canonical_path: darray[u8]
+            device: i64
+            inode: i64
+            size_bytes: i64
+            modified_seconds: i64
+            modified_nanoseconds: i64
+
+        # The native adapter resolves parent components, then lstat checks the
+        # final component without following it. Failure never returns facts.
+        def capture(candidate: darray[u8]&, facts: mutable Facts&,
+                    error_bytes: mutable darray[u8]&) -> Outcome can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            error_bytes.clear()
+            return Outcome.InvalidInput if candidate.count == 0 or candidate.count >= PATH_CAPACITY
+            for byte in candidate:
+                return Outcome.InvalidInput if byte == 0
+            mutable path: u8[PATH_CAPACITY] = zeroed
+            mutable canonical: u8[PATH_CAPACITY] = zeroed
+            mutable error_buffer: u8[ERROR_CAPACITY] = zeroed
+            for index in 0..<candidate.count |candidate, path|:
+                path[index] <- candidate[index]
+            candidate_ptr: cstr = (&path[0]).cast[cstr] can Unsafe.PointerCast
+            canonical_ptr: mutable u8& = (&canonical[0]).cast[mutable u8&] can Unsafe.PointerCast
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            mutable device: i64 = 0
+            mutable inode: i64 = 0
+            mutable size_bytes: i64 = 0
+            mutable modified_seconds: i64 = 0
+            mutable modified_nanoseconds: i64 = 0
+            code: i32 = native_snapshot(candidate_ptr, canonical_ptr, PATH_CAPACITY.i32(), &device, &inode, &size_bytes, &modified_seconds, &modified_nanoseconds, error_ptr, ERROR_CAPACITY.i32())
+            mutable error_index: usize = 0
+            while error_index < ERROR_CAPACITY and error_buffer[error_index] != 0:
+                error_bytes.push(error_buffer[error_index])
+                error_index <- error_index + 1
+            return Outcome.InvalidInput if code == -1
+            return Outcome.Unavailable if code == -2
+            return Outcome.NotRegular if code == -3
+            return Outcome.Unavailable if code != 0
+            mutable canonical_bytes: darray[u8] = []
+            mutable path_index: usize = 0
+            while path_index < PATH_CAPACITY and canonical[path_index] != 0:
+                canonical_bytes.push(canonical[path_index])
+                path_index <- path_index + 1
+            return Outcome.Unavailable if canonical_bytes.count == 0 or device < 0 or inode < 0 or size_bytes < 0 or modified_nanoseconds < 0 or modified_nanoseconds >= 1000000000
+            facts <- Facts{canonical_path: canonical_bytes, device: device, inode: inode, size_bytes: size_bytes, modified_seconds: modified_seconds, modified_nanoseconds: modified_nanoseconds}
+            Outcome.Ready
+
+        def matches(facts: Facts&, path: darray[u8]&, device: i64, inode: i64,
+                    size_bytes: i64, modified_seconds: i64,
+                    modified_nanoseconds: i64) -> bool:
+            facts.device == device and facts.inode == inode and facts.size_bytes == size_bytes and facts.modified_seconds == modified_seconds and facts.modified_nanoseconds == modified_nanoseconds and StudioExportBatchSourceIdentity::same_bytes(facts.canonical_path, path)
+
+        def admitted(outcome: Outcome) -> bool:
+            ensure result == (outcome == Outcome.Ready)
+            outcome == Outcome.Ready
+
+        def same_bytes(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |left, right|:
+                return false if left[index] != right[index]
+            true

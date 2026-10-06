@@ -1,6 +1,9 @@
 # Exact review binding around the existing in-memory lifecycle queue.
 include "export_batch_queue.elisa"
 include "export_batch_identity.elisa"
+include "app/export_publisher.elisa"
+include "io/export_recovery_bytes.elisa"
+include "io/export_batch_source_identity.elisa"
 
 module StudioExportBatchReviewBinding:
     public:
@@ -8,6 +11,13 @@ module StudioExportBatchReviewBinding:
             private:
                 identity: StudioExportBatchIdentity::Identity
                 issued: bool
+
+        struct PublicationReceipt:
+            private:
+                glb_published_and_exact: bool
+                staging_removed: bool
+                json_published: bool
+                text_published: bool
 
         struct BoundQueue:
             private:
@@ -20,12 +30,14 @@ module StudioExportBatchReviewBinding:
         # Capture the immutable identity at the same boundary as admission.
         # The native adapter must establish every preflight fact from the OS.
         def enqueue(queue: mutable BoundQueue&, preflight: StudioExportBatchPreflightPolicy::Outcome,
-                    identity: StudioExportBatchIdentity::Identity) -> bool:
+                    identity: StudioExportBatchIdentity::Identity) -> bool can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
             requires StudioExportBatchQueue::valid(queue.queue)
             ensure StudioExportBatchQueue::valid(queue.queue)
             ensure queue.identities.count == StudioExportBatchQueue::item_count(queue.queue)
             ensure not result or StudioExportBatchIdentity::valid(identity)
             return false if not StudioExportBatchIdentity::valid(identity)
+            return false if not paths_valid(identity)
+            return false if not source_still_matches(identity)
             return false if not StudioExportBatchQueue::enqueue(&queue.queue, preflight)
             queue.identities.push(identity)
             true
@@ -40,21 +52,63 @@ module StudioExportBatchReviewBinding:
             ensure not result.issued or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
             ReviewToken{identity: queue.identities[index.usize()], issued: explicit_review and StudioExportBatchIdentity::valid(current) and StudioExportBatchIdentity::equal(queue.identities[index.usize()], current) and StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview}
 
-        # The caller invokes the native create-only publisher using the
-        # retained paths and byte arrays before passing its outcomes here.
-        # Booleans are untrusted native obligations, not filesystem proofs.
+        # The only publication entry point invokes the native create-only
+        # publisher. Its receipt cannot be constructed by queue callers.
         def publish_reviewed(queue: mutable BoundQueue&, index: i64,
                              current: StudioExportBatchIdentity::Identity,
-                             token: ReviewToken, explicit_review: bool,
-                             output_absent_at_native_boundary: bool,
-                             json_absent_at_native_boundary: bool,
-                             text_absent_at_native_boundary: bool,
-                             all_outputs_published: bool) -> bool:
+                             token: ReviewToken, explicit_review: bool) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
             requires index >= 0 and index < queue.identities.count.i64()
             ensure StudioExportBatchQueue::valid(queue.queue)
             ensure not result or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Warning or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Passed
             return false if not token.issued or not explicit_review
             return false if not StudioExportBatchIdentity::equal(token.identity, queue.identities[index.usize()])
             return false if not StudioExportBatchIdentity::equal(current, queue.identities[index.usize()])
-            return false if not output_absent_at_native_boundary or not json_absent_at_native_boundary or not text_absent_at_native_boundary
-            StudioExportBatchQueue::publish(&queue.queue, index, true, true, all_outputs_published)
+            return false if not paths_valid(queue.identities[index.usize()])
+            identity: StudioExportBatchIdentity::Identity = queue.identities[index.usize()]
+            return false if not source_still_matches(identity)
+            receipt: PublicationReceipt = publish_exact_create_only(identity)
+            complete: bool = receipt.glb_published_and_exact and receipt.staging_removed and receipt.json_published and receipt.text_published
+            StudioExportBatchQueue::publish(&queue.queue, index, true, true, complete)
+
+    private:
+        def source_still_matches(identity: StudioExportBatchIdentity::Identity&) -> bool can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            mutable facts: StudioExportBatchSourceIdentity::Facts = zeroed
+            mutable error_bytes: darray[u8] = []
+            outcome: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(identity.source_path, &facts, &error_bytes)
+            StudioExportBatchSourceIdentity::admitted(outcome) and StudioExportBatchSourceIdentity::matches(facts, identity.source_path, identity.source_device, identity.source_inode, identity.source_size, identity.source_modified_seconds, identity.source_modified_nanoseconds)
+
+        def paths_valid(identity: StudioExportBatchIdentity::Identity&) -> bool:
+            bytes_as_c_path_valid(identity.source_path) and bytes_as_c_path_valid(identity.staged_path) and bytes_as_c_path_valid(identity.output_path) and bytes_as_c_path_valid(identity.report_json_path) and bytes_as_c_path_valid(identity.report_text_path)
+
+        def bytes_as_c_path_valid(bytes: darray[u8]&) -> bool:
+            return false if bytes.count == 0 or bytes.count > StudioExportBatchIdentity::Limit::MAX_PATH_BYTES
+            for byte in bytes:
+                return false if byte == 0
+            true
+
+        def publish_exact_create_only(identity: StudioExportBatchIdentity::Identity&) -> PublicationReceipt can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            staged: darray[u8] = nul_terminated(identity.staged_path)
+            destination: darray[u8] = nul_terminated(identity.output_path)
+            json_path: darray[u8] = nul_terminated(identity.report_json_path)
+            text_path: darray[u8] = nul_terminated(identity.report_text_path)
+            staged_ptr: cstr = (&staged[0]).cast[cstr] can Unsafe.PointerCast
+            destination_ptr: cstr = (&destination[0]).cast[cstr] can Unsafe.PointerCast
+            json_ptr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
+            text_ptr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
+            return PublicationReceipt{glb_published_and_exact: false, staging_removed: false, json_published: false, text_published: false} if not StudioExportRecoveryBytes::matches(staged_ptr, identity.staged_result_bytes, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            glb: StudioExportPublisher::ExclusiveCommit = StudioExportPublisher::commit_new_with_status(staged_ptr, destination_ptr)
+            glb_exact: bool = StudioPublicationDurabilityPolicy::published(glb.status) and StudioExportRecoveryBytes::matches(destination_ptr, identity.staged_result_bytes, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            return PublicationReceipt{glb_published_and_exact: false, staging_removed: glb.staging_removed, json_published: false, text_published: false} if not glb_exact
+            json_status: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(json_ptr, identity.report_json_bytes)
+            text_status: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(text_ptr, identity.report_text_bytes)
+            json_exact: bool = StudioPublicationDurabilityPolicy::published(json_status) and StudioExportRecoveryBytes::matches(json_ptr, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            text_exact: bool = StudioPublicationDurabilityPolicy::published(text_status) and StudioExportRecoveryBytes::matches(text_ptr, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            PublicationReceipt{glb_published_and_exact: glb_exact, staging_removed: glb.staging_removed, json_published: json_exact, text_published: text_exact}
+
+        def nul_terminated(bytes: darray[u8]&) -> darray[u8]:
+            mutable result: darray[u8] = []
+            for byte in bytes:
+                return [] if byte == 0
+                result.push(byte)
+            result.push(0)
+            result
