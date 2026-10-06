@@ -7,6 +7,8 @@ module StudioTimelineTimeInput:
             MAX_WHOLE_DIGITS: i64 = 8
             MAX_FRACTION_DIGITS: i64 = 3
             MAX_BYTES: i64 = 12
+            MICRO_FRACTION_DIGITS: i64 = 6
+            MICRO_MAX_BYTES: i64 = 15
 
         const enum Status of i64:
             Empty = -2
@@ -18,46 +20,67 @@ module StudioTimelineTimeInput:
             status: Status
             millis: i64
 
+        struct MicroDraft:
+            status: Status
+            micros: i64
+
         struct Result:
             status: Status
             frame: i64
             millis: i64
 
-        # Unsigned seconds with an optional decimal fraction of up to three
-        # digits. Do not discard characters or accept a partially valid prefix.
-        def parse_millis(text: sview) -> Draft:
+    private:
+        # Whole draft validation: no discarded characters or valid-prefix acceptance.
+        def parse_unsigned(text: sview, digits: i64, capacity: i64) -> MicroDraft:
+            requires digits == Input::MAX_FRACTION_DIGITS or digits == Input::MICRO_FRACTION_DIGITS
+            requires capacity == Input::MAX_BYTES or capacity == Input::MICRO_MAX_BYTES
             ensure result.status == Status.Empty or result.status == Status.Invalid or result.status == Status.Exact
-            ensure result.status != Status.Exact or result.millis >= 0 and result.millis <= StudioTimelineTimeInputKernel::Domain::MAX_MILLIS + 1
-            return Draft{status: Status.Empty, millis: -1} if text.len == 0
-            return Draft{status: Status.Invalid, millis: -1} if text.len < 0 or text.len > Input::MAX_BYTES or text.data == null
+            ensure result.status != Status.Exact or result.micros >= 0 and result.micros <= StudioTimelineTimeInputKernel::Domain::MAX_MICROS + 1
+            return MicroDraft{status: Status.Empty, micros: -1} if text.len == 0
+            return MicroDraft{status: Status.Invalid, micros: -1} if text.len < 0 or text.len > capacity or text.data == null
             mutable seconds: i64 = 0
             mutable fraction: i64 = 0
             mutable scale: i64 = 1
             mutable whole_digits: i64 = 0
             mutable fraction_digits: i64 = 0
             mutable decimal: bool = false
-            for i in 0..<text.len.usize() |i, text, seconds, fraction, scale, whole_digits, fraction_digits, decimal|:
+            for i in 0..<text.len.usize() |i, text, digits, seconds, fraction, scale, whole_digits, fraction_digits, decimal|:
                 byte: u8 = text.data[i]
                 if byte == 46:
-                    return Draft{status: Status.Invalid, millis: -1} if decimal
+                    return MicroDraft{status: Status.Invalid, micros: -1} if decimal
                     decimal <- true
                 elif byte >= 48 and byte <= 57:
                     digit: i64 = (byte - 48).i64()
                     if decimal:
-                        return Draft{status: Status.Invalid, millis: -1} if fraction_digits >= Input::MAX_FRACTION_DIGITS
+                        return MicroDraft{status: Status.Invalid, micros: -1} if fraction_digits >= digits
                         fraction <- fraction * 10 + digit
                         scale <- scale * 10
                         fraction_digits <- fraction_digits + 1
                     else:
-                        return Draft{status: Status.Invalid, millis: -1} if whole_digits >= Input::MAX_WHOLE_DIGITS
+                        return MicroDraft{status: Status.Invalid, micros: -1} if whole_digits >= Input::MAX_WHOLE_DIGITS
                         seconds <- StudioTimelineTimeInputKernel::seconds_digit(seconds, digit)
                         whole_digits <- whole_digits + 1
                 else:
-                    return Draft{status: Status.Invalid, millis: -1}
-            return Draft{status: Status.Invalid, millis: -1} if whole_digits + fraction_digits == 0 or decimal and fraction_digits == 0
-            part: i64 = StudioTimelineTimeInputKernel::fraction_millis(fraction, scale) if fraction_digits > 0 else 0
-            millis: i64 = StudioTimelineTimeInputKernel::milliseconds(seconds, part)
-            Draft{status: Status.Exact, millis: millis}
+                    return MicroDraft{status: Status.Invalid, micros: -1}
+            return MicroDraft{status: Status.Invalid, micros: -1} if whole_digits + fraction_digits == 0 or decimal and fraction_digits == 0
+            part: i64 = StudioTimelineTimeInputKernel::fraction_micros(fraction, scale) if fraction_digits > 0 else 0
+            micros: i64 = StudioTimelineTimeInputKernel::microseconds(seconds, part)
+            MicroDraft{status: Status.Exact, micros: micros}
+
+    public:
+        def parse_micros(text: sview) -> MicroDraft:
+            ensure result.status == Status.Empty or result.status == Status.Invalid or result.status == Status.Exact
+            ensure result.status != Status.Exact or result.micros >= 0 and result.micros <= StudioTimelineTimeInputKernel::Domain::MAX_MICROS + 1
+            parse_unsigned(text, Input::MICRO_FRACTION_DIGITS, Input::MICRO_MAX_BYTES)
+
+        # Legacy adapter preserves its three-digit input limit and saturation.
+        def parse_millis(text: sview) -> Draft:
+            ensure result.status == Status.Empty or result.status == Status.Invalid or result.status == Status.Exact
+            ensure result.status != Status.Exact or result.millis >= 0 and result.millis <= StudioTimelineTimeInputKernel::Domain::MAX_MILLIS + 1
+            draft: MicroDraft = parse_unsigned(text, Input::MAX_FRACTION_DIGITS, Input::MAX_BYTES)
+            return Draft{status: draft.status, millis: -1} if draft.status != Status.Exact
+            millis: i64 = StudioTimelineTimeInputKernel::Domain::MAX_MILLIS + 1 if draft.micros > StudioTimelineTimeInputKernel::Domain::MAX_MICROS else draft.micros / 1000
+            Draft{status: draft.status, millis: millis}
 
         # Uniform integer-rate adapter retained for callers with a validated grid.
         def parse(text: sview, rate: i64, count: i64) -> Result:
