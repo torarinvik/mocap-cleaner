@@ -1,0 +1,91 @@
+# Deterministic serializers for the exact output-frame to source-time map.
+# Empty output means the supplied map is invalid or exceeds the report budget.
+include "export_time_map_policy.elisa"
+
+module StudioExportTimeMapReport:
+    public:
+        def valid_map(times: darray[i64]&, source_frames: i64, output_frames: i64) -> bool:
+            ensure not result or source_frames >= 1 and source_frames <= StudioExportTimeMapPolicy::Capacity::MAX_SOURCE_FRAMES
+            ensure not result or output_frames >= 1 and output_frames <= StudioExportTimeMapPolicy::Capacity::MAX_OUTPUT_FRAMES
+            ensure not result or times.count.i64() == output_frames
+            return false if source_frames < 1 or source_frames > StudioExportTimeMapPolicy::Capacity::MAX_SOURCE_FRAMES
+            return false if output_frames < 1 or output_frames > StudioExportTimeMapPolicy::Capacity::MAX_OUTPUT_FRAMES
+            return false if times.count.i64() != output_frames
+            return false if times.count == 0
+            end_time: i64 = (source_frames - 1) * StudioExportTimeMapPolicy::Unit::MILLI_SOURCE_FRAMES
+            previous: mutable i64 = -1
+            seen: mutable bool = false
+            for i in 0..<times.count |i, times, end_time, source_frames, previous, seen|:
+                value: i64 = times[i]
+                return false if not StudioExportTimeMapPolicy::source_time_admitted(value, source_frames)
+                if not seen:
+                    return false if value != 0
+                    seen <- true
+                else:
+                    return false if previous >= value
+                previous <- value
+            return false if previous != end_time
+            true
+
+        def json(times: darray[i64]&, source_frames: i64, output_frames: i64) -> darray[u8]:
+            mutable out: darray[u8] = []
+            return out if not valid_map(times, source_frames, output_frames)
+            return [] if not push_text(&out, json_prefix())
+            for i in 0..<output_frames.usize() |i, out, times|:
+                return [] if i > 0 and not push_byte(&out, 44)
+                return [] if not push_byte(&out, 91)
+                return [] if not push_number(&out, i.i64())
+                return [] if not push_byte(&out, 44)
+                return [] if not push_number(&out, times[i])
+                return [] if not push_byte(&out, 93)
+            return [] if not push_text(&out, json_suffix())
+            return [] if out.count.i64() > report_limit()
+            out
+
+        def text(times: darray[i64]&, source_frames: i64, output_frames: i64) -> darray[u8]:
+            mutable out: darray[u8] = []
+            return out if not valid_map(times, source_frames, output_frames)
+            return [] if not push_text(&out, text_header())
+            for i in 0..<output_frames.usize() |i, out, times|:
+                return [] if not push_number(&out, i.i64())
+                return [] if not push_byte(&out, 44)
+                return [] if not push_number(&out, times[i])
+                return [] if not push_byte(&out, 10)
+            return [] if out.count.i64() > report_limit()
+            out
+
+    private:
+        def report_limit() -> i64:
+            StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+
+        def json_prefix() -> sview:
+            "{\"time_unit\":\"milli_source_frame\",\"units_per_frame\":1000,\"frames\":["
+
+        def json_suffix() -> sview:
+            "]}\n"
+
+        def text_header() -> sview:
+            "output_frame,source_time_milli_frames\n"
+
+        def push_byte(out: mutable darray[u8]&, value: u8) -> bool:
+            return false if not StudioExportTimeMapPolicy::budget_add_admitted(out.count.i64(), 1)
+            out.push(value)
+            true
+
+        def push_text(out: mutable darray[u8]&, value: sview) -> bool:
+            for byte in value |out|:
+                return false if not push_byte(out, byte)
+            true
+
+        def push_number(out: mutable darray[u8]&, value: i64) -> bool:
+            return false if value < 0 or value > StudioExportTimeMapPolicy::Capacity::MAX_SOURCE_TIME
+            rest: mutable i64 = value
+            place: mutable i64 = 1000000000
+            started: mutable bool = false
+            for _ in 0..<10 |out, rest, place, started|:
+                digit: i64 = rest / place % 10
+                if started or digit != 0 or place == 1:
+                    return false if not push_byte(out, (48 + digit).u8())
+                    started <- true
+                place <- place / 10
+            true
