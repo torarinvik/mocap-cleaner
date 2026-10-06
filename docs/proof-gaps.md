@@ -634,8 +634,12 @@ new rows after the prover/replay products are rebuilt from matching sources.
   return, after a branch-local declaration, and after a declaration-only join;
   all 17 obligations and certificates replay. This restores `fade` (103/103),
   `key_weight` (36/36), `offset` (205/205), and their `key_weight` laws
-  (60/60). Gate, retime, and footing still have gaps and remain under
-  investigation; established baselines were not downgraded.
+  (60/60). G89 also included qualified scalar-call resolution by module path
+  and source-validated constant arguments, so same-named functions in other
+  modules no longer block replay. Gate and gate laws now fully replay (167/167
+  and 235/235). Retime improved to 548/560, retime laws to 862/896, and footing
+  to 322/342 (footing laws 411/437); those remaining gaps are still under
+  investigation. No established baseline was downgraded.
 
 ## Issue browser and accessibility policies (2026-10-06)
 
