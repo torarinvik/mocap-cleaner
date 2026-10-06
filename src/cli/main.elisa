@@ -35,6 +35,38 @@ include "../physics/rig_physics.elisa"
 include "../io/report_diff.elisa"
 include "../io/workers.elisa"
 include "../ops/retime_apply.elisa"
+include "output_guard.elisa"
+include "output_publisher.elisa"
+include "worker_directory.elisa"
+
+def output_error(reason: i64) -> sview:
+    return "path could not be verified" if reason == CliOutputGuardPolicy::PATH_UNRESOLVED
+    return "derived files must be inside build/" if reason == CliOutputGuardPolicy::OUTSIDE_BUILD
+    return "destination aliases a source file" if reason == CliOutputGuardPolicy::SOURCE_COLLISION
+    return "destination is a symbolic link" if reason == CliOutputGuardPolicy::SYMBOLIC_LINK
+    return "destination is not a regular file" if reason == CliOutputGuardPolicy::NOT_REGULAR
+    return "destination already exists; choose a new name" if reason == CliOutputGuardPolicy::EXISTS
+    return "destination is reserved for Studio metadata or its namespace could not be verified" if reason == CliOutputGuardPolicy::RESERVED_METADATA
+    "destination was not admitted"
+
+def output_allowed(source: cstr, destination: cstr) -> bool:
+    reason: i64 = CliOutputGuard::file_decision("build".cast[cstr], source, destination)
+    return true if reason == CliOutputGuardPolicy::ALLOW
+    Out::text("error: ")
+    Out::text(output_error(reason))
+    Out::text(": ")
+    Out::c_text(destination)
+    Out::line("")
+    false
+
+def optional_output_allowed(source: cstr, destination: cstr) -> bool:
+    destination[0] == 0 or output_allowed(source, destination)
+
+def optional_outputs_distinct(first: cstr, second: cstr) -> bool:
+    return true if first[0] == 0 or second[0] == 0
+    return true if CliOutputGuard::distinct_destinations(first, second)
+    Out::line("error: output paths overlap or cannot be compared; choose distinct verified names")
+    false
 
 def same(arg: cstr, text: cstr) -> bool:
     mutable i: usize = 0
@@ -90,6 +122,7 @@ def op_name(kind: Ops::Kind) -> sview:
 # parsed once; `clips` gets its animation count and `times` the profile.
 def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, extra: darray[RigOps::RigOp]&, phys: darray[Physics::PhysOp]&, rig: mutable RigOps::Summary&, found: mutable Physics::Findings&, bank: mutable darray[Ops::Cache]&, clips: mutable i64&, times: mutable darray[i64]&, clip_reports: mutable darray[u8]&) -> Report::Row:
     failed: Report::Row = Report::Row{ok: false, tracks: 0, changed: 0, before: 0, after: 0}
+    return failed if not output_allowed(input, output)
     ops: darray[Ops::Operation] = Presets::operations(preset)
     times.clear()
     for slot in 0..<(TIME_OPS + ops.count) |times|:
@@ -128,8 +161,7 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, e
         clip_found: Physics::Findings = Physics::run(&doc, a, phys)
         Physics::add(found, &clip_found)
         if clip_reports.count > 0:
-            clip_reports.push(44)
-            clip_reports.push(10)
+            clip_reports.extend([44u8, 10u8])
         append_clip_report(clip_reports, a.i64(), &animation_name, result, summary, clip_found)
         # Retime runs last, on the finished pose.
         mutable timed: RetimeApply::Report = RetimeApply::empty_report()
@@ -143,20 +175,14 @@ def clean_take(input: cstr, output: cstr, preset: Presets::Preset, only: cstr, e
     for i in 0..<op_times.count |op_times, times|:
         times[TIME_OPS + i] <- op_times[i]
     t4: i64 = s_clock()
-    saved: i32 = catch GlbDocument::save(&doc, output):
-        value: 0
-        error failure: 1
+    saved: bool = output_allowed(input, output) and CliOutputPublisher::publish_glb(&doc, output)
     times[TIME_SAVE] <- s_clock() - t4
-    return Report::Row{ok: saved == 0, tracks: tracks, changed: changed, before: before, after: after}
+    Out::line("error: cleaned GLB could not be published; its destination was not overwritten") if not saved
+    return Report::Row{ok: saved, tracks: tracks, changed: changed, before: before, after: after}
 
 # Column names of a profile (see TIME_*), for the reports.
 def time_names(preset: Presets::Preset) -> darray[sview]:
-    mutable names: darray[sview] = []
-    names.push("load")
-    names.push("tracks")
-    names.push("rig")
-    names.push("physics")
-    names.push("save")
+    mutable names: darray[sview] = ["load", "tracks", "rig", "physics", "save"]
     for op in Presets::operations(preset) |names|:
         names.push(op_name(op.kind))
     return names
@@ -707,6 +733,8 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 return usage()
             k <- k + 2
         return usage() if k != argc
+        if not optional_output_allowed(slots[2].cast[cstr], html) or not optional_output_allowed(slots[3].cast[cstr], html):
+            return 2
         return ReportDiff::run(slots[2].cast[cstr], slots[3].cast[cstr], tol, floor, html)
     if same(command, "clean".cast[cstr]):
         input: cstr = slots[2].cast[cstr]
@@ -763,6 +791,10 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 return usage()
             k <- k + 2
         return usage() if k < argc or preset == Presets::Preset.Unknown or output[0] == 0
+        if not output_allowed(input, output) or not optional_output_allowed(input, report) or not optional_output_allowed(input, save_ops):
+            return 1
+        if not optional_outputs_distinct(output, report) or not optional_outputs_distinct(output, save_ops) or not optional_outputs_distinct(report, save_ops):
+            return 1
         if save_ops[0] != 0 and not OpsFile::save(&extra, save_ops):
             Out::line("error: cannot write ops file")
             return 1
@@ -827,6 +859,26 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
         if inputs.count == 0:
             Out::line("error: no .glb inputs")
             return 1
+        if not CliOutputGuard::directory_allowed("build".cast[cstr], outdir):
+            Out::line("error: batch output must be an existing non-symlink directory inside build/")
+            return 1
+        report_path: darray[u8] = join(outdir, "".cast[cstr], "report.html".cast[cstr])
+        # Admit every final destination before writing any result or part.
+        for index in 0..<inputs.count |inputs, outdir, report_path|:
+            input: cstr = (&inputs[index][0]).cast[cstr]
+            target: darray[u8] = join(outdir, input, "".cast[cstr])
+            target_path: cstr = (&target[0]).cast[cstr]
+            if not optional_outputs_distinct(target_path, (&report_path[0]).cast[cstr]):
+                return 1
+            for source in inputs:
+                source_path: cstr = (&source[0]).cast[cstr]
+                if not output_allowed(source_path, target_path) or not output_allowed(source_path, (&report_path[0]).cast[cstr]):
+                    return 1
+            for previous in 0..<index:
+                previous_input: cstr = (&inputs[previous][0]).cast[cstr]
+                previous_target: darray[u8] = join(outdir, previous_input, "".cast[cstr])
+                if not optional_outputs_distinct(target_path, (&previous_target[0]).cast[cstr]):
+                    return 1
         checks: darray[Physics::PhysOp] = with_detectors(&phys)
         names: darray[sview] = time_names(preset)
         mutable html: darray[u8] = []
@@ -841,8 +893,13 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
         else:
             # Workers clean takes into part files; the parent waits for a free
             # slot before each fork, then replays the parts in input order.
+            worker_directory: darray[u8] = CliWorkerDirectory::create(outdir)
+            if worker_directory.count == 0:
+                Out::line("error: cannot create a private batch worker directory")
+                return 1
+            part_root: cstr = (&worker_directory[0]).cast[cstr]
             mutable running: i64 = 0
-            for i in 0..<inputs.count |i, inputs, outdir, preset, extra, checks, bank, running, jobs, failures|:
+            for i in 0..<inputs.count |i, inputs, outdir, part_root, preset, extra, checks, bank, running, jobs, failures|:
                 if running >= jobs:
                     failures <- failures + 1 if not Workers::wait_any()
                     running <- running - 1
@@ -850,34 +907,38 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 if pid == 0:
                     mutable part_html: darray[u8] = []
                     mutable part_time: darray[u8] = []
-                    out_path: darray[u8] = part_path(outdir, i, "txt")
+                    out_path: darray[u8] = part_path(part_root, i, "txt")
                     ok_redirect: bool = Workers::redirect_stdout((&out_path[0]).cast[cstr])
+                    if not ok_redirect:
+                        Workers::finish(1)
                     input: cstr = (&inputs[i][0]).cast[cstr]
                     ok: bool = take_row(input, outdir, preset, &extra, &checks, &bank, &part_html, &part_time)
-                    html_path: darray[u8] = part_path(outdir, i, "html")
-                    time_path: darray[u8] = part_path(outdir, i, "time")
+                    html_path: darray[u8] = part_path(part_root, i, "html")
+                    time_path: darray[u8] = part_path(part_root, i, "time")
                     saved: bool = Report::save(&part_html, (&html_path[0]).cast[cstr]) and Report::save(&part_time, (&time_path[0]).cast[cstr])
                     Workers::finish(0 if ok and ok_redirect and saved else 1)
                 if pid < 0:
                     Out::line("error: cannot start a worker")
-                    return 1
+                    failures <- failures + 1
+                    break
                 running <- running + 1
             while running > 0 |running, failures|:
                 failures <- failures + 1 if not Workers::wait_any()
                 running <- running - 1
-            for i in 0..<inputs.count |i, outdir, html, profile|:
-                text: darray[u8] = take_part(outdir, i, "txt")
+            for i in 0..<inputs.count |i, part_root, html, profile|:
+                text: darray[u8] = take_part(part_root, i, "txt")
                 for c in text:
                     Out::byte(c)
-                rows: darray[u8] = take_part(outdir, i, "html")
-                for c in rows |html|:
-                    html.push(c)
-                timing: darray[u8] = take_part(outdir, i, "time")
-                for c in timing |profile|:
-                    profile.push(c)
+                rows: darray[u8] = take_part(part_root, i, "html")
+                html.extend(rows)
+                timing: darray[u8] = take_part(part_root, i, "time")
+                profile.extend(timing)
+            if not CliWorkerDirectory::remove(part_root):
+                Out::text("warning: batch worker files remain at ")
+                Out::c_text(part_root)
+                Out::line("")
         Report::finish(&html)
         Report::finish_times(&html, &profile)
-        report_path: darray[u8] = join(outdir, "".cast[cstr], "report.html".cast[cstr])
         if not Report::save(&html, (&report_path[0]).cast[cstr]):
             Out::line("error: cannot write report.html")
             return 1
