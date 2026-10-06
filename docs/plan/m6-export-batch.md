@@ -168,6 +168,11 @@ Export sidecar writes now yield typed GLB-only, GLB-plus-JSON, GLB-plus-text
 or complete outcomes; status text identifies which report was not saved.
 These are in-memory write outcomes, not crash-durability evidence or motion
 quality approval. Policy proof is 14/20 and laws 21/38 on the current default
-prover; compile-only Studio qualification is pending. Durable journaling,
+prover; compile-only Studio build succeeds with Stage1 f292cbe0. Durable journaling,
 owned snapshot retention, create-only missing-sidecar retry and result-dialog
 keyboard/accessibility integration remain required.
+
+The integrated Studio compile subsequently succeeded after the suggestion and
+workspace owners repaired their in-progress diagnostics. This qualifies
+compilation of the report freeze/outcome integration; it does not qualify
+publication failure recovery, source immutability or native interaction.

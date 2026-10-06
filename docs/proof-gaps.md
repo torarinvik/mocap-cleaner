@@ -16,6 +16,8 @@ status descriptions and evidence are preserved in the linked records.
 - [JSON report string decoder qualification](proof-gaps/json-string-decoder.md)
 - [Compiler UI event scope collision](proof-gaps/ui-event-scope.md)
 
+- [Export publication outcome qualification](proof-gaps/export-publication-outcomes.md)
+
 ## Current qualification limits
 
 The complete check is not green. Native storage qualification requires fresh
