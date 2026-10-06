@@ -220,3 +220,13 @@ Grouping/filtering, user exemptions, dedicated review scrolling and
 running-window/fault-injection acceptance remain open.
 A single native filesystem operation still runs on the UI thread; the batch
 returns to the event loop between files.
+
+A native smoke on 2026-10-06 against the rebuilt overview binary confirmed
+that the empty guide no longer displays the stale findings sidebar. The
+published File accessibility button remained present, but its AX press and
+Cmd-O did not change the tree. Pointer fallback failed with CUA
+`noWindowsAvailable` while the process was still running. This does not
+verify File or Storage activation; their running-window acceptance remains
+open. Cmd-Q closed the temporary app, its exit was checked, and its generated
+bundle was removed. The Storage overview layout itself is build-checked,
+not yet verified through native input.
