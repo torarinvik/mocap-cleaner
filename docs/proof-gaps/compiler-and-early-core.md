@@ -171,3 +171,21 @@ branch `mocap-cleaner-proofs`. That work was merged into the sibling
   proof_status.py now reads functions[].proved so file-level findings count as open.
   Known prover-side leftovers: compiler duplicate-alias wording drift (Elisa-compiler),
   census baseline from 09-30 not re-baselined.
+
+## Integrated GLB storage-origin diagnostic (2026-10-06, open)
+
+Compiler `720896f4` emits a fresh standalone GLB adapter object after typed
+slot selection (`build/typed-slot-compile.KaZEXO/tracks.o`), but the integrated
+Studio frontend reports at `glb_tracks.elisa:116` that `cleaned` was invalidated
+by a darray push of `component`. No current integrated object was emitted.
+This discrepancy is not accepted as successful Studio qualification.
+
+A suspected cause is ownerless borrowed-return summary resolution:
+`semantic/view_return_origins.elisa` explicitly unions function names and
+arities across modules; `check_region_storage_stability.elisa` resolves call
+origins against those rows without module ownership. Included functions named
+`read` can therefore share summaries despite different result domains. A
+minimal reproduction must establish the exact collision before changing the
+compiler. Preserve genuine borrow invalidation checks and qualify both valid
+owned copies and invalid borrowed views after the repair. Changing copy syntax
+alone would not establish correctness of this compiler analysis.
