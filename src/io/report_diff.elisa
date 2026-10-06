@@ -244,6 +244,23 @@ module ReportDiff:
             Report::push_text(diagnostics, message)
             Report::push_text(diagnostics, "</li>")
 
+        def metric_problem(errors: mutable i64&, diagnostics: mutable darray[u8]&, message: sview,
+                           pool: darray[u8]&, metric: Metric):
+            errors <- errors + 1
+            Out::line(message)
+            Out::text("Clip: ")
+            print_span(pool, metric.clip_at, metric.clip_len)
+            Out::text("; metric: ")
+            print_span(pool, metric.key_at, metric.key_len)
+            Out::line("")
+            Report::push_text(diagnostics, "<li>")
+            Report::push_text(diagnostics, message)
+            Report::push_text(diagnostics, " Clip: <strong>")
+            push_span(diagnostics, pool, metric.clip_at, metric.clip_len)
+            Report::push_text(diagnostics, "</strong>; metric: <strong>")
+            push_span(diagnostics, pool, metric.key_at, metric.key_len)
+            Report::push_text(diagnostics, "</strong>.</li>")
+
     public:
         # Compare report files; returns the exit code (0 clean, 1 regression,
         # 2 unreadable input).
@@ -279,10 +296,10 @@ module ReportDiff:
                 if lower_better(&pa, m) or flagged:
                     compared <- compared + 1
                     if not flagged and m.flag:
-                        validation_problem(&errors, &diagnostics, "Baseline numeric metric has a Boolean value.")
+                        metric_problem(&errors, &diagnostics, "Baseline numeric metric has a Boolean value.", &pa, m)
                         continue
                     if not flagged and not Regress::metric_available(m.value, m.exact_number):
-                        validation_problem(&errors, &diagnostics, "Baseline metric has unsupported numeric precision or range.")
+                        metric_problem(&errors, &diagnostics, "Baseline metric has unsupported numeric precision or range.", &pa, m)
                         continue
                     at: i64 = find_indexed(&pb, &mb, &candidate_index, &pa, m)
                     mutable bad: bool = at < 0
@@ -291,12 +308,12 @@ module ReportDiff:
                     if at >= 0:
                         other: Metric = mb[at.usize()]
                         if other.flag != m.flag:
-                            validation_problem(&errors, &diagnostics, "Report metric types differ between baseline and candidate.")
+                            metric_problem(&errors, &diagnostics, "Report metric types differ between baseline and candidate.", &pa, m)
                             continue
                         after <- other.value
                         after_exponent <- other.exponent
                         if not flagged and not Regress::metric_available(after, other.exact_number):
-                            validation_problem(&errors, &diagnostics, "Candidate metric has unsupported numeric precision or range.")
+                            metric_problem(&errors, &diagnostics, "Candidate metric has unsupported numeric precision or range.", &pa, m)
                             continue
                         if flagged:
                             bad <- Regress::ok_lost(true, other.value == 1)
@@ -305,7 +322,7 @@ module ReportDiff:
                                 ReportDecimal::Alignment.Exact(before_scaled, after_scaled, floor_scaled, power):
                                     bad <- Regress::metric_regressed(before_scaled, after_scaled, tol, floor_scaled)
                                 ReportDecimal::Alignment.Unavailable:
-                                    validation_problem(&errors, &diagnostics, "Metrics cannot share an exact scale within the supported comparison domain.")
+                                    metric_problem(&errors, &diagnostics, "Metrics cannot share an exact scale within the supported comparison domain.", &pa, m)
                                     continue
                     if bad:
                         regressions <- regressions + 1
