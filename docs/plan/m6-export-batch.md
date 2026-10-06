@@ -89,3 +89,11 @@ and mismatched baseline/candidate types, including numeric values used instead
 of a Boolean `ok` status. This does not replace schema validation or availability
 checks. Current object compilation is recorded separately from executable and
 proof acceptance.
+
+Report extraction now rejects duplicate clip/key pairs instead of letting the
+first match hide a later value. Reusing the parser clears its output buffers;
+failed duplicate admission clears extracted metrics. The module compiled on
+current Stage1 `4c409da6`. This check uses the legacy extracted byte identity;
+Unicode/escape-normalized identities and schema-aware nesting still need the
+reader replacement above. Its pairwise scan also needs an explicit input budget
+or indexed implementation before large batch-report qualification.

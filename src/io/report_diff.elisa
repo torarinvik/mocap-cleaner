@@ -79,6 +79,8 @@ module ReportDiff:
 
         # Parse `text` into metrics; key and clip bytes go into `pool`.
         def parse(text: darray[u8]&, pool: mutable darray[u8]&, out: mutable darray[Metric]&) -> bool:
+            pool.clear()
+            out.clear()
             mutable tokens: darray[GlbJson::Token] = []
             return false if not GlbJson::tokenize(text, 0, text.count, &tokens)
             return false if tokens.count == 0 or tokens[0].kind != GlbJson::KIND_OBJECT
@@ -137,6 +139,15 @@ module ReportDiff:
                         key_at <- -1
                     i <- i + 1
 
+            # A clip/key pair must identify exactly one value. Otherwise the
+            # first-match comparison could silently hide a later regression.
+            for index in 0..<out.count:
+                first: Metric = out[index]
+                for earlier in 0..<index:
+                    second: Metric = out[earlier]
+                    if same_span(pool, first.clip_at, first.clip_len, pool, second.clip_at, second.clip_len) and same_span(pool, first.key_at, first.key_len, pool, second.key_at, second.key_len):
+                        out.clear()
+                        return false
             true
 
         def read_bytes(path: cstr, out: mutable darray[u8]&) -> bool:
@@ -191,10 +202,10 @@ module ReportDiff:
             mutable mb: darray[Metric] = []
             if not parse(&a_text, &pa, &ma):
                 errors <- errors + 1
-                Out::line("Baseline report is empty or has invalid JSON structure.")
+                Out::line("Baseline report is empty, malformed or has duplicate metric identities.")
             if not parse(&b_text, &pb, &mb):
                 errors <- errors + 1
-                Out::line("Candidate report is empty or has invalid JSON structure.")
+                Out::line("Candidate report is empty, malformed or has duplicate metric identities.")
             if errors == 0 and ma.count == 0:
                 errors <- 1
             tol: i64 = tolerance(tol_permille)
