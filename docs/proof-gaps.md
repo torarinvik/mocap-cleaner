@@ -626,16 +626,16 @@ new rows after the prover/replay products are rebuilt from matching sources.
 ## Deterministic call replay across stable conditionals (2026-10-06)
 
 - G89: independent replay previously rejected deterministic helper-call witnesses
-  inside an `if` arm or after an early-return guard, even when neither arm
-  declared or assigned locals. The source-site walker now traverses only
-  conditionals whose branches preserve local bindings, and still refuses
-  loops, matches, blocks, declarations, and assignments at the join. The new
-  regression covers a helper call in a conditional return and after an early
-  return; all 10 obligations and certificates replay. This restores
-  `src/core/fade.elisa` to 103/103 replayed. It reduces `proof/gate_laws.elisa`
-  gaps from 53 to 42 and `proof/retime_laws.elisa` gaps from 83 to 39; those
-  remaining gaps are still under investigation. Established baselines remain
-  unchanged until the remaining reports are fully replayed.
+  inside an `if` arm or after an early-return guard. The source-site walker now
+  searches each arm with a cloned binding state, and crosses a join only when
+  both arms preserve outer bindings. Arm-local declarations are supported;
+  assignments to outer locals and unsupported control flow still fail closed.
+  The regression covers a helper call in a conditional return, after an early
+  return, after a branch-local declaration, and after a declaration-only join;
+  all 17 obligations and certificates replay. This restores `fade` (103/103),
+  `key_weight` (36/36), `offset` (205/205), and their `key_weight` laws
+  (60/60). Gate, retime, and footing still have gaps and remain under
+  investigation; established baselines were not downgraded.
 
 ## Issue browser and accessibility policies (2026-10-06)
 
