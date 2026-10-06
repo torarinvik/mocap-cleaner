@@ -20,3 +20,9 @@ crash behavior. The normal compiler rebuild for `45330579` is still running;
 this source integration has not yet compiled with that rebuilt product.
 Evidence is `build/export-staging-cleanup-laws.json`. No executable tests were
 added or run. Full Studio integration and native fault qualification remain open.
+
+Root subsequently reran the scalar classifier and laws with default prover
+`5776350b` (compiler/frontend `f292cbe0`): source 2/2 and laws 8/8 prove and
+independently replay with zero gaps, findings or semantic errors. These two
+reviewed baseline rows are recorded without claiming native publication
+qualification. Reports are `build/export-staging-cleanup-*-default.json`.
