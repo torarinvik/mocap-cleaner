@@ -30,3 +30,11 @@ foreign same-named enum to contribute variant names. This guard also handles
 an empty local enum shadowing a populated foreign enum. Fresh compiler product
 verification is still pending the live host seed; the patch is not accepted
 as qualification until the reproduction and integrated build succeed.
+
+A smaller derived reproduction, `build/repro/lexical-event-scope.elisa`, declares
+`Ui::Event`, its input/pointer/key hierarchy, exhaustive conversion functions,
+and an independent `Policy::Event`. Current Stage0 compiles this object with
+exit code zero. Stage0 cannot parse the full UI's newer global fixed-array
+syntax, so the full UI comparison is not a usable Stage0 reference. The small
+example confirms intended language behavior; repaired Stage1 and integrated
+Studio compilation remain separate pending gates.
