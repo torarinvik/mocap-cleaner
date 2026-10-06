@@ -135,13 +135,14 @@ candidate prover `4da37c97` reports source 78/78 and laws 165/166, with all 165
 law certificates replayed. The existing unresolved law and baseline are retained.
 
 `PerfCache::Layout` holds the bank stride and `Capacity` holds track/frame
-bounds. Values and contracts are unchanged; source/law/runtime consumers use
-qualified paths. Compilation/replay await the current compiler rebuild and
-stable proof run. The single `NONE` sentinel remains in the existing integer
-index API. A follow-up should represent missing/present slots with an ADT at
-the semantic boundary while preserving explicitly validated integer indices
-where array/native interfaces require them; grouping numeric bounds does not
-complete that API audit.
+bounds. Source/law/runtime consumers use qualified paths. The GLB channel
+consumer now uses `Slot.Unavailable` / `Slot.Available(index)` through
+`select_slot`; invalid dimensions choose full evaluation. The integer `slot`
+API and its sentinel remain for existing boundary consumers and established
+laws. Admission has a scalar contract and three new laws. Current compiler
+`720896f4` emits a fresh GLB adapter object at
+`build/typed-slot-compile.KaZEXO/tracks.o`. Proof replay and cached/full runtime
+qualification remain open; this compile-only result does not close them.
 
 `Codec::Domain` holds decimal field magnitude and serialized operation-kind
 count. These numeric format bounds are not choices; operation variants remain
