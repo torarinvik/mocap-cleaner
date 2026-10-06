@@ -1,44 +1,49 @@
 # Range retiming: the time map from output frames to source time.
-# Source time is kept in milli-frames (UNIT per frame). Each output frame
-# advances source time by a step in permille of a frame: UNIT outside every
+# Source time is kept in milli-frames (TimeScale::UNIT per frame). Each output frame
+# advances source time by a step in permille of a frame: TimeScale::UNIT outside every
 # range, the range's speed inside it, eased in and out with a smoothstep
 # over `blend` frames from each range edge. Steps are always at least
-# MIN_RATE, so the map is strictly increasing; the last output frame lands
+# Rate::MIN_RATE, so the map is strictly increasing; the last output frame lands
 # exactly on the source's last frame.
 include "fade.elisa"
 
 module Retime:
     public:
-        const UNIT: i64 = 1000
-        const MIN_RATE: i64 = 100
-        const MAX_RATE: i64 = 4000
-        const MAX_FRAMES: i64 = 10000000
-        const MAX_BLEND: i64 = 10000
-        const MAX_TIME: i64 = 10000000000
-        const DEFAULT_BLEND: i64 = 4
+        const module TimeScale:
+            UNIT: i64 = 1000
+            FINE: i64 = 1000000
+        const module Rate:
+            MIN_RATE: i64 = 100
+            MAX_RATE: i64 = 4000
+        const module Domain:
+            MAX_FRAMES: i64 = 10000000
+            MAX_BLEND: i64 = 10000
+            MAX_TIME: i64 = 10000000000
+        const module Defaults:
+            DEFAULT_BLEND: i64 = 4
 
         def speed_ok(speed: i64) -> bool:
-            ensure not result or speed >= MIN_RATE
-            ensure not result or speed <= MAX_RATE
-            ensure result or speed < MIN_RATE or speed > MAX_RATE
-            return false if speed < MIN_RATE
-            return false if speed > MAX_RATE
+            ensure not result or speed >= Rate::MIN_RATE
+            ensure not result or speed <= Rate::MAX_RATE
+            ensure result or speed < Rate::MIN_RATE or speed > Rate::MAX_RATE
+            return false if speed < Rate::MIN_RATE
+            return false if speed > Rate::MAX_RATE
             return true
 
         def clamp_speed(speed: i64) -> i64:
-            ensure result >= MIN_RATE
-            ensure result <= MAX_RATE
-            ensure speed < MIN_RATE or speed > MAX_RATE or result == speed
-            return MIN_RATE if speed < MIN_RATE
-            return MAX_RATE if speed > MAX_RATE
+            ensure result >= Rate::MIN_RATE
+            ensure result <= Rate::MAX_RATE
+            ensure speed < Rate::MIN_RATE or speed > Rate::MAX_RATE or result == speed
+            return Rate::MIN_RATE if speed < Rate::MIN_RATE
+            return Rate::MAX_RATE if speed > Rate::MAX_RATE
             return speed
 
         def clamp_blend(blend: i64) -> i64:
             ensure result >= 0
-            ensure result <= MAX_BLEND
-            ensure blend < 0 or blend > MAX_BLEND or result == blend
+            ensure result <= Domain::MAX_BLEND
+            ensure blend < 0 or blend > Domain::MAX_BLEND or result == blend
             return 0 if blend < 0
-            return MAX_BLEND if blend > MAX_BLEND
+            return Domain::MAX_BLEND if blend > Domain::MAX_BLEND
             return blend
 
         # Ranges [a_first, a_last] and [b_first, b_last] share no frame.
@@ -54,7 +59,7 @@ module Retime:
         # A well-formed range inside a clip of `frames` frames.
         def range_ok(first: i64, last: i64, frames: i64) -> bool:
             requires frames >= 0
-            requires frames <= MAX_FRAMES
+            requires frames <= Domain::MAX_FRAMES
             ensure not result or first >= 0
             ensure not result or first < last
             ensure not result or last < frames
@@ -67,7 +72,7 @@ module Retime:
         def inside(time: i64, start: i64, stop: i64) -> bool:
             requires start >= 0
             requires start < stop
-            requires stop <= MAX_TIME
+            requires stop <= Domain::MAX_TIME
             ensure not result or time >= start
             ensure not result or time <= stop
             ensure result or time < start or time > stop
@@ -79,7 +84,7 @@ module Retime:
         def range_distance(time: i64, start: i64, stop: i64) -> i64:
             requires start >= 0
             requires start < stop
-            requires stop <= MAX_TIME
+            requires stop <= Domain::MAX_TIME
             requires time >= start
             requires time <= stop
             ensure result >= 0
@@ -96,20 +101,20 @@ module Retime:
         # No blend gives the full speed on the whole range.
         def linear_weight(distance: i64, blend: i64) -> i64:
             requires distance >= 0
-            requires distance <= MAX_TIME
+            requires distance <= Domain::MAX_TIME
             requires blend >= 0
-            requires blend <= MAX_BLEND
+            requires blend <= Domain::MAX_BLEND
             ensure result >= 0
-            ensure result <= UNIT
+            ensure result <= TimeScale::UNIT
             ensure blend == 0 or distance != 0 or result == 0
-            ensure blend != 0 or result == UNIT
-            ensure distance < blend * UNIT or result == UNIT
-            return UNIT if blend == 0
+            ensure blend != 0 or result == TimeScale::UNIT
+            ensure distance < blend * TimeScale::UNIT or result == TimeScale::UNIT
+            return TimeScale::UNIT if blend == 0
             return 0 if distance == 0
-            return UNIT if distance >= blend * UNIT
+            return TimeScale::UNIT if distance >= blend * TimeScale::UNIT
             weight: i64 = distance / blend
             return 0 if weight < 0
-            return UNIT if weight > UNIT
+            return TimeScale::UNIT if weight > TimeScale::UNIT
             return weight
 
         # Eased weight of the range [start, stop] at `time`: 0 outside,
@@ -117,21 +122,21 @@ module Retime:
         def range_weight(time: i64, start: i64, stop: i64, blend: i64) -> i64:
             requires start >= 0
             requires start < stop
-            requires stop <= MAX_TIME
+            requires stop <= Domain::MAX_TIME
             requires time >= 0
-            requires time <= MAX_TIME
+            requires time <= Domain::MAX_TIME
             requires blend >= 0
-            requires blend <= MAX_BLEND
+            requires blend <= Domain::MAX_BLEND
             ensure result >= 0
-            ensure result <= UNIT
+            ensure result <= TimeScale::UNIT
             ensure time >= start or result == 0
             ensure time <= stop or result == 0
             ensure blend == 0 or time != start or result == 0
             ensure blend == 0 or time != stop or result == 0
-            ensure blend != 0 or time < start or time > stop or result == UNIT
+            ensure blend != 0 or time < start or time > stop or result == TimeScale::UNIT
             return 0 if time < start
             return 0 if time > stop
-            return UNIT if blend == 0
+            return TimeScale::UNIT if blend == 0
             return 0 if time == start
             return 0 if time == stop
             distance: i64 = range_distance(time, start, stop)
@@ -141,77 +146,77 @@ module Retime:
         # Milli-frame time of source frame `frame`.
         def time_of(frame: i64) -> i64:
             requires frame >= 0
-            requires frame <= MAX_FRAMES
+            requires frame <= Domain::MAX_FRAMES
             ensure result >= 0
-            ensure result <= MAX_TIME
+            ensure result <= Domain::MAX_TIME
             return frame * 1000
 
-        # Source step for one output frame: UNIT eased toward `speed`.
+        # Source step for one output frame: TimeScale::UNIT eased toward `speed`.
         def step(speed: i64, weight: i64) -> i64:
-            requires speed >= MIN_RATE
-            requires speed <= MAX_RATE
+            requires speed >= Rate::MIN_RATE
+            requires speed <= Rate::MAX_RATE
             requires weight >= 0
-            requires weight <= UNIT
-            ensure result >= MIN_RATE
-            ensure result <= MAX_RATE
-            ensure weight != 0 or result == UNIT
-            ensure speed != UNIT or result == UNIT
-            ensure weight != UNIT or result == speed
-            ensure speed > UNIT or result <= UNIT
-            ensure speed < UNIT or result >= UNIT
-            ensure speed > UNIT or result >= speed
-            ensure speed < UNIT or result <= speed
-            return UNIT if weight == 0
-            return UNIT if speed == UNIT
-            return speed if weight == UNIT
-            if speed > UNIT:
-                raised: i64 = UNIT + (speed - UNIT) * weight / UNIT
-                return UNIT if raised < UNIT
+            requires weight <= TimeScale::UNIT
+            ensure result >= Rate::MIN_RATE
+            ensure result <= Rate::MAX_RATE
+            ensure weight != 0 or result == TimeScale::UNIT
+            ensure speed != TimeScale::UNIT or result == TimeScale::UNIT
+            ensure weight != TimeScale::UNIT or result == speed
+            ensure speed > TimeScale::UNIT or result <= TimeScale::UNIT
+            ensure speed < TimeScale::UNIT or result >= TimeScale::UNIT
+            ensure speed > TimeScale::UNIT or result >= speed
+            ensure speed < TimeScale::UNIT or result <= speed
+            return TimeScale::UNIT if weight == 0
+            return TimeScale::UNIT if speed == TimeScale::UNIT
+            return speed if weight == TimeScale::UNIT
+            if speed > TimeScale::UNIT:
+                raised: i64 = TimeScale::UNIT + (speed - TimeScale::UNIT) * weight / TimeScale::UNIT
+                return TimeScale::UNIT if raised < TimeScale::UNIT
                 return speed if raised > speed
                 return raised
-            lowered: i64 = UNIT - (UNIT - speed) * weight / UNIT
+            lowered: i64 = TimeScale::UNIT - (TimeScale::UNIT - speed) * weight / TimeScale::UNIT
             return speed if lowered < speed
-            return UNIT if lowered > UNIT
+            return TimeScale::UNIT if lowered > TimeScale::UNIT
             return lowered
 
         # Source step at `time` for one range: eased toward `speed` inside
-        # [start, stop], UNIT outside it and on its edges when blended.
+        # [start, stop], TimeScale::UNIT outside it and on its edges when blended.
         def range_step(time: i64, start: i64, stop: i64, speed: i64, blend: i64) -> i64:
             requires start >= 0
             requires start < stop
-            requires stop <= MAX_TIME
+            requires stop <= Domain::MAX_TIME
             requires time >= 0
-            requires time <= MAX_TIME
+            requires time <= Domain::MAX_TIME
             requires blend >= 0
-            requires blend <= MAX_BLEND
-            requires speed >= MIN_RATE
-            requires speed <= MAX_RATE
-            ensure result >= MIN_RATE
-            ensure result <= MAX_RATE
-            ensure time >= start or result == UNIT
-            ensure time <= stop or result == UNIT
-            ensure speed != UNIT or result == UNIT
-            ensure blend == 0 or time != start or result == UNIT
-            ensure blend == 0 or time != stop or result == UNIT
+            requires blend <= Domain::MAX_BLEND
+            requires speed >= Rate::MIN_RATE
+            requires speed <= Rate::MAX_RATE
+            ensure result >= Rate::MIN_RATE
+            ensure result <= Rate::MAX_RATE
+            ensure time >= start or result == TimeScale::UNIT
+            ensure time <= stop or result == TimeScale::UNIT
+            ensure speed != TimeScale::UNIT or result == TimeScale::UNIT
+            ensure blend == 0 or time != start or result == TimeScale::UNIT
+            ensure blend == 0 or time != stop or result == TimeScale::UNIT
             ensure blend != 0 or time < start or time > stop or result == speed
-            return UNIT if time < start
-            return UNIT if time > stop
-            return UNIT if speed == UNIT
+            return TimeScale::UNIT if time < start
+            return TimeScale::UNIT if time > stop
+            return TimeScale::UNIT if speed == TimeScale::UNIT
             return speed if blend == 0
-            return UNIT if time == start
-            return UNIT if time == stop
+            return TimeScale::UNIT if time == start
+            return TimeScale::UNIT if time == stop
             amount: i64 = range_weight(time, start, stop, blend)
             return step(speed, amount)
 
         # Next output frame's source time.
         def advance(time: i64, delta: i64) -> i64:
             requires time >= 0
-            requires time <= MAX_TIME
-            requires delta >= MIN_RATE
-            requires delta <= MAX_RATE
+            requires time <= Domain::MAX_TIME
+            requires delta >= Rate::MIN_RATE
+            requires delta <= Rate::MAX_RATE
             ensure result > time
             ensure result == time + delta
-            ensure result >= time + MIN_RATE
+            ensure result >= time + Rate::MIN_RATE
             return time + delta
 
         # Clamp to the source's last frame: the final output frame lands on
@@ -230,18 +235,18 @@ module Retime:
         # Source frame below `time` and the fraction past it, in permille.
         def frame_of(time: i64) -> i64:
             requires time >= 0
-            requires time <= MAX_TIME
+            requires time <= Domain::MAX_TIME
             ensure result >= 0
-            ensure result <= MAX_FRAMES
+            ensure result <= Domain::MAX_FRAMES
             ensure result <= time
             ensure time >= 1000 or result == 0
             return time / 1000
 
         def fraction_of(time: i64) -> i64:
             requires time >= 0
-            requires time <= MAX_TIME
+            requires time <= Domain::MAX_TIME
             ensure result >= 0
-            ensure result < UNIT
+            ensure result < TimeScale::UNIT
             return time % 1000
 
         # A range's samples are stretched so the first one past its end lands
@@ -252,7 +257,7 @@ module Retime:
             requires start >= 0
             requires stop > start
             requires reached >= stop
-            requires reached <= MAX_TIME
+            requires reached <= Domain::MAX_TIME
             requires time >= start
             requires time <= reached
             ensure result >= start
@@ -269,29 +274,28 @@ module Retime:
             return moved
 
         # Fraction `done` of `whole`, in millionths.
-        const FINE: i64 = 1000000
 
         def rescale_fraction(done: i64, whole: i64) -> i64:
             requires whole > 0
-            requires whole <= MAX_TIME
+            requires whole <= Domain::MAX_TIME
             requires done >= 0
             requires done <= whole
             ensure result >= 0
-            ensure result <= FINE
-            part: i64 = done * FINE / whole
+            ensure result <= TimeScale::FINE
+            part: i64 = done * TimeScale::FINE / whole
             return 0 if part < 0
-            return FINE if part > FINE
+            return TimeScale::FINE if part > TimeScale::FINE
             return part
 
         # `fine` millionths of `span`.
         def rescale_offset(span: i64, fine: i64) -> i64:
             requires span > 0
-            requires span <= MAX_TIME
+            requires span <= Domain::MAX_TIME
             requires fine >= 0
-            requires fine <= FINE
+            requires fine <= TimeScale::FINE
             ensure result >= 0
             ensure result <= span
-            part: i64 = span * fine / FINE
+            part: i64 = span * fine / TimeScale::FINE
             return 0 if part < 0
             return span if part > span
             return part
@@ -300,13 +304,13 @@ module Retime:
         # `time` is `time` plus k whole frames.
         def shifted(time: i64, frames: i64) -> i64:
             requires time >= 0
-            requires time <= MAX_TIME
+            requires time <= Domain::MAX_TIME
             requires frames >= 0
-            requires frames <= MAX_FRAMES
-            ensure result == time + frames * UNIT
+            requires frames <= Domain::MAX_FRAMES
+            ensure result == time + frames * TimeScale::UNIT
             ensure result >= time
             ensure frames != 0 or result == time
-            return time + frames * UNIT
+            return time + frames * TimeScale::UNIT
 
         # Inverse map between two neighbouring output frames whose source
         # times are `before` < `after`: the output time, in milli-frames past
@@ -314,18 +318,18 @@ module Retime:
         def invert_between(before: i64, after: i64, time: i64) -> i64:
             requires before >= 0
             requires after > before
-            requires after <= MAX_TIME
+            requires after <= Domain::MAX_TIME
             requires time >= before
             requires time <= after
             ensure result >= 0
-            ensure result <= UNIT
+            ensure result <= TimeScale::UNIT
             ensure time != before or result == 0
-            ensure time != after or result == UNIT
+            ensure time != after or result == TimeScale::UNIT
             return 0 if time == before
-            return UNIT if time == after
-            part: i64 = (time - before) * UNIT / (after - before)
+            return TimeScale::UNIT if time == after
+            part: i64 = (time - before) * TimeScale::UNIT / (after - before)
             return 0 if part < 0
-            return UNIT if part > UNIT
+            return TimeScale::UNIT if part > TimeScale::UNIT
             return part
 
         # Forward map between the same two output frames: the source time at
@@ -333,47 +337,47 @@ module Retime:
         def forward_between(before: i64, after: i64, part: i64) -> i64:
             requires before >= 0
             requires after > before
-            requires after <= MAX_TIME
+            requires after <= Domain::MAX_TIME
             requires part >= 0
-            requires part <= UNIT
+            requires part <= TimeScale::UNIT
             ensure result >= before
             ensure result <= after
             ensure part != 0 or result == before
-            ensure part != UNIT or result == after
+            ensure part != TimeScale::UNIT or result == after
             return before if part == 0
-            return after if part == UNIT
-            moved: i64 = before + (after - before) * part / UNIT
+            return after if part == TimeScale::UNIT
+            moved: i64 = before + (after - before) * part / TimeScale::UNIT
             return before if moved < before
             return after if moved > after
             return moved
 
         # Two retimes applied in turn run at the product of their speeds.
         def compose(outer: i64, inner: i64) -> i64:
-            requires outer >= MIN_RATE
-            requires outer <= MAX_RATE
-            requires inner >= MIN_RATE
-            requires inner <= MAX_RATE
-            ensure result >= MIN_RATE
-            ensure result <= MAX_RATE
-            ensure outer != UNIT or result == inner
-            ensure inner != UNIT or result == outer
-            return inner if outer == UNIT
-            return outer if inner == UNIT
-            product: i64 = outer * inner / UNIT
+            requires outer >= Rate::MIN_RATE
+            requires outer <= Rate::MAX_RATE
+            requires inner >= Rate::MIN_RATE
+            requires inner <= Rate::MAX_RATE
+            ensure result >= Rate::MIN_RATE
+            ensure result <= Rate::MAX_RATE
+            ensure outer != TimeScale::UNIT or result == inner
+            ensure inner != TimeScale::UNIT or result == outer
+            return inner if outer == TimeScale::UNIT
+            return outer if inner == TimeScale::UNIT
+            product: i64 = outer * inner / TimeScale::UNIT
             return clamp_speed(product)
 
         # Output frames a source span of `frames` frames takes at a constant
         # `speed` (rounded up so the span's end is reached).
         def span_frames(frames: i64, speed: i64) -> i64:
             requires frames >= 0
-            requires frames <= MAX_FRAMES
-            requires speed >= MIN_RATE
-            requires speed <= MAX_RATE
+            requires frames <= Domain::MAX_FRAMES
+            requires speed >= Rate::MIN_RATE
+            requires speed <= Rate::MAX_RATE
             ensure result >= 0
-            ensure speed != UNIT or result == frames
+            ensure speed != TimeScale::UNIT or result == frames
             ensure frames != 0 or result == 0
-            return frames if speed == UNIT
+            return frames if speed == TimeScale::UNIT
             return 0 if frames == 0
-            whole: i64 = (frames * UNIT + speed - 1) / speed
+            whole: i64 = (frames * TimeScale::UNIT + speed - 1) / speed
             return 0 if whole < 0
             return whole

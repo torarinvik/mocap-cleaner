@@ -42,7 +42,7 @@ module RetimeApply:
         # A range that overlaps one kept earlier in the stack is dropped.
         def ranges_of(ops: darray[RigOps::RigOp]&, frames: i64, out: mutable darray[Range]&):
             out.clear()
-            if frames < 2 or frames > Retime::MAX_FRAMES:
+            if frames < 2 or frames > Retime::Domain::MAX_FRAMES:
                 return
             for op in ops:
                 continue if not op.enabled or op.kind != RigOps::RigKind.Retime
@@ -67,27 +67,27 @@ module RetimeApply:
         def well_formed(first: i64, last: i64, speed: i64, blend: i64) -> bool:
             ensure not result or first >= 0
             ensure not result or first < last
-            ensure not result or last <= Retime::MAX_FRAMES
-            ensure not result or speed >= Retime::MIN_RATE
-            ensure not result or speed <= Retime::MAX_RATE
+            ensure not result or last <= Retime::Domain::MAX_FRAMES
+            ensure not result or speed >= Retime::Rate::MIN_RATE
+            ensure not result or speed <= Retime::Rate::MAX_RATE
             ensure not result or blend >= 0
-            ensure not result or blend <= Retime::MAX_BLEND
-            return false if first < 0 or first >= last or last > Retime::MAX_FRAMES
-            return false if speed < Retime::MIN_RATE or speed > Retime::MAX_RATE
-            return false if blend < 0 or blend > Retime::MAX_BLEND
+            ensure not result or blend <= Retime::Domain::MAX_BLEND
+            return false if first < 0 or first >= last or last > Retime::Domain::MAX_FRAMES
+            return false if speed < Retime::Rate::MIN_RATE or speed > Retime::Rate::MAX_RATE
+            return false if blend < 0 or blend > Retime::Domain::MAX_BLEND
             return true
 
         # One range's step at `t`; UNIT for a range that is not well formed.
         def step_at(t: i64, first: i64, last: i64, speed: i64, blend: i64) -> i64:
             requires t >= 0
-            requires t <= Retime::MAX_TIME
-            ensure result >= Retime::MIN_RATE
-            ensure result <= Retime::MAX_RATE
-            unit: i64 = Retime::UNIT
+            requires t <= Retime::Domain::MAX_TIME
+            ensure result >= Retime::Rate::MIN_RATE
+            ensure result <= Retime::Rate::MAX_RATE
+            unit: i64 = Retime::TimeScale::UNIT
             return unit if not well_formed(first, last, speed, blend)
             # Retime::time_of, spelled out so first < last carries to start < stop.
-            start: i64 = first * Retime::UNIT
-            stop: i64 = last * Retime::UNIT
+            start: i64 = first * Retime::TimeScale::UNIT
+            stop: i64 = last * Retime::TimeScale::UNIT
             s: i64 = Retime::range_step(t, start, stop, speed, blend)
             return s
 
@@ -95,16 +95,16 @@ module RetimeApply:
         # range step of the last range that changes it.
         def range_delta(t: i64, ranges: darray[Range]&) -> i64:
             requires t >= 0
-            requires t <= Retime::MAX_TIME
-            ensure result >= Retime::MIN_RATE
-            ensure result <= Retime::MAX_RATE
-            delta: mutable i64 = Retime::UNIT
+            requires t <= Retime::Domain::MAX_TIME
+            ensure result >= Retime::Rate::MIN_RATE
+            ensure result <= Retime::Rate::MAX_RATE
+            delta: mutable i64 = Retime::TimeScale::UNIT
             for i in 0..<ranges.count:
-                invariant delta >= Retime::MIN_RATE
-                invariant delta <= Retime::MAX_RATE
+                invariant delta >= Retime::Rate::MIN_RATE
+                invariant delta <= Retime::Rate::MAX_RATE
                 r: Range = ranges[i]
                 s: i64 = step_at(t, r.first, r.last, r.speed, r.blend)
-                delta <- s if s != Retime::UNIT
+                delta <- s if s != Retime::TimeScale::UNIT
             return delta
 
         struct Entry:
@@ -137,7 +137,7 @@ module RetimeApply:
             requires start >= 0
             requires start < stop
             requires reached >= stop
-            requires reached <= Retime::MAX_TIME
+            requires reached <= Retime::Domain::MAX_TIME
             for j in entry..<out.count:
                 v: i64 = out[j]
                 if v >= start and v <= reached:
@@ -148,7 +148,7 @@ module RetimeApply:
         # lands exactly on the last source frame.
         def source_times(frames: i64, ranges: darray[Range]&, out: mutable darray[i64]&):
             out.clear()
-            if frames < 1 or frames > Retime::MAX_FRAMES:
+            if frames < 1 or frames > Retime::Domain::MAX_FRAMES:
                 return
             out.push(0)
             end: i64 = Retime::time_of(frames - 1)
@@ -157,7 +157,7 @@ module RetimeApply:
             active: mutable i64 = -1
             while t < end:
                 invariant t >= 0
-                invariant t <= Retime::MAX_TIME
+                invariant t <= Retime::Domain::MAX_TIME
                 found: Entry = entered(t, ranges, active)
                 if found.moved:
                     active <- found.active
@@ -170,8 +170,8 @@ module RetimeApply:
                     last: i64 = r.last
                     if well_formed(first, last, r.speed, r.blend):
                         # Retime::time_of, spelled out (see step_at).
-                        start: i64 = first * Retime::UNIT
-                        stop: i64 = last * Retime::UNIT
+                        start: i64 = first * Retime::TimeScale::UNIT
+                        stop: i64 = last * Retime::TimeScale::UNIT
                         if t >= stop:
                             rescale_tail(out, entry, start, t, stop)
                             t <- stop
@@ -182,13 +182,13 @@ module RetimeApply:
         def identity(times: darray[i64]&, frames: i64) -> bool:
             return false if times.count.i64() != frames
             for k in 0..<times.count:
-                return false if times[k] != k.i64() * Retime::UNIT
+                return false if times[k] != k.i64() * Retime::TimeScale::UNIT
             return true
 
         # Output frame whose source time is nearest source frame `frame`.
         def output_frame_of(times: darray[i64]&, frame: i64) -> i64:
             return 0 if times.count == 0
-            target: i64 = frame * Retime::UNIT
+            target: i64 = frame * Retime::TimeScale::UNIT
             mutable best: usize = 0
             mutable gap: i64 = -1
             for k in 0..<times.count:
@@ -203,7 +203,7 @@ module RetimeApply:
             return 0 if times.count == 0
             k: i64 = 0 if frame < 0 else frame
             t: i64 = times[times.count - 1] if k >= times.count.i64() else times[k.usize()]
-            return (t + Retime::UNIT / 2) / Retime::UNIT
+            return (t + Retime::TimeScale::UNIT / 2) / Retime::TimeScale::UNIT
 
         # Output frames per range: samples whose source time lies inside it.
         def report_of(ranges: darray[Range]&, times: darray[i64]&, frames: i64) -> Report:
@@ -211,7 +211,7 @@ module RetimeApply:
             for r in ranges:
                 mutable n: i64 = 0
                 for t in times:
-                    n <- n + 1 if t >= r.first * Retime::UNIT and t <= r.last * Retime::UNIT
+                    n <- n + 1 if t >= r.first * Retime::TimeScale::UNIT and t <= r.last * Retime::TimeScale::UNIT
                 rep.ranges.push(RangeReport{first: r.first, last: r.last, speed: r.speed, source_frames: r.last - r.first + 1, output_frames: n})
             return move rep
 

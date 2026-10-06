@@ -53,7 +53,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `Knee` | 9 | `src/core/knee.elisa` |
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
 | `Pivot` | 3 | `src/core/pivot.elisa` |
-| `Retime` | 8 | `src/core/retime.elisa` |
 | `RigOps` | 9 | `src/ops/rig_hands.elisa`, `src/ops/rig_legs.elisa`, `src/ops/rig_schema.elisa` |
 | `Roles` | 31 | `src/core/roles.elisa` |
 | `SessionIssueAnnotationPolicy` | 4 | `src/studio/state/session_issue_annotation_policy.elisa` |
@@ -184,3 +183,9 @@ reports source 51/51 and law corpus 269/272, all produced certificates
 replayed without gaps. The three refusals are included `Window::middle`
 obligations at the budget gate. This is comparison evidence, not full runtime
 or corpus qualification; existing proof expectations remain intact.
+
+`Retime` now separates `TimeScale`, `Rate`, `Domain` and `Defaults`. All
+source, law and existing fixture consumers use qualified names; values and
+visibility are preserved. Compiler `720896f4` emits the combined performance
+fixture at `build/retime-domains.epX7Rj/fixture.o`. Proof replay and runtime
+qualification remain open; existing baselines were not changed.
