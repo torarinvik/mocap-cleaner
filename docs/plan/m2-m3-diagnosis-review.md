@@ -192,3 +192,11 @@ all return unavailable when the captured revision is stale, preventing a passing
 label from describing measurements against an older candidate. Qualify stale
 review screens and accessibility announcements; current compilation/replay and
 native evidence are pending.
+
+Initial suggestion generation now explains an unevaluated baseline or failed
+candidate evaluation instead of silently returning. Impact-review preparation
+is deferred until a valid candidate is admitted for opening; blocked or failed
+entry does not reset annotation intent. Qualify injected candidate failure and
+rejected entry against exact stack/history, visible result and impact-review
+snapshots. Successful entry may invalidate annotations for a changed durable
+source identity; failure messages do not claim source changes or proof closure.
