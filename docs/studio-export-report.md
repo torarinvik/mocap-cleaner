@@ -111,3 +111,18 @@ The slot offset/advance policy proves 10/10. Its caller laws prove 21/22 with
 one unresolved upper-bound implication; no claim of complete proof coverage
 is made. Studio object compilation passes. Native report-content qualification
 remains required.
+
+## Review freshness
+
+The export review captures the displayed result generation. If that generation
+changes before confirmation, Studio resets acknowledgement and requires a new
+confirmation of the updated notes. Publication additionally requires the
+current stack to match the evaluated stack that produced the displayed clip;
+selection-only differences are ignored by the existing stack comparison.
+Failed evaluation or unavailable evaluated-stack provenance blocks export.
+Reports use that evaluated stack, preventing newer failed edits from being
+reported as settings for an older GLB.
+
+Compilation of this refinement is pending because Stage1 rejected the current
+external compiler source-tree mismatch. Existing generation-policy proof
+results remain as documented above; native stale-review qualification is open.
