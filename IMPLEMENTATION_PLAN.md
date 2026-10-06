@@ -33,6 +33,7 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 ## Detailed roadmap
 
 - [Acceptance, dependencies and unresolved decisions](docs/plan/acceptance-and-dependencies.md)
+- [Pending current-toolchain policy qualification](docs/acceptance/pending-policy-qualification-2026-10-06.md)
 - [Product goals, user journeys and baseline](docs/plan/product-and-m0.md)
 - [M1: workspace, storage and recovery](docs/plan/m1-workspace.md)
 - [M2–M3: diagnosis, guided cleanup and comparison](docs/plan/m2-m3-diagnosis-review.md)
