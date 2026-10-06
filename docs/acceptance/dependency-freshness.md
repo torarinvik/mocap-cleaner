@@ -126,3 +126,9 @@ and full current-snapshot checks remain pending. Prover `4da37c97`'s separate
 candidate was built cleanly against compiler `45330579`; broad journal search
 and independent replay gaps remain under investigation, so it has not replaced
 the older default prover.
+
+Compiler `720896f4` subsequently closes the separate lexical match-pattern
+payload-arity lookup. Its normal seed and provenance check match this revision.
+The reduced constructor/match reproduction and current existing performance
+fixture emit fresh objects. Recovery UI integration and a stable full check
+still require qualification; the prover default has not been promoted.

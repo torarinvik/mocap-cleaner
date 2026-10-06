@@ -52,3 +52,9 @@ stack 1,094/1,146 producer obligations and rig cache 2,162/3,032, both in
 unsupported state. Logs are `build/exact-cache-integration-proof.log` and
 `build/proof/src_ops_{stack,rig_cache}.elisa.txt`. These partial counts neither
 close integrated correctness nor replace the existing reviewed baselines.
+
+The later shared schema extraction, bulk snapshot copies and performance-cache
+constant grouping compile together in the existing Studio performance fixture
+with current compiler `720896f4` (`build/cache-schema.p5f224`). This is fresh
+object evidence, not a runtime rerun after those edits. The earlier diagnostic
+full check passed its cache/performance tests on the earlier source snapshot.
