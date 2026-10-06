@@ -1,0 +1,94 @@
+include "app_state.elisa"
+include "../timeline_navigation_policy.elisa"
+
+extend Studio:
+    private:
+        def navigation_result_current() -> bool:
+            return false if clip == null or timeline == null
+            count: i64 = frames()
+            return false if count < 1 or count > StudioTimelineNavigationPolicy::Domain::MAX_FRAMES
+            if built_stack is evaluated:
+                current: StackState::Stack = current_stack()
+                return StackState::same(evaluated, current)
+            false
+
+        def navigation_refused(message: sview) -> void:
+            status <- message
+            status_file <- null
+            touch()
+
+        def navigation_admit() -> bool:
+            if gizmo_view >= 0 or slider_drag or selecting or scrubbing or edge_drag.band >= 0:
+                navigation_refused("Finish or cancel the current drag before navigating.")
+                return false
+            if not navigation_result_current():
+                navigation_refused("Timeline navigation unavailable: wait for the current result.")
+                return false
+            true
+
+        # All entry points share this handler. Navigation is review state:
+        # scrubbing pauses playback and leaves the stack/history untouched.
+        def navigate_endpoint(last: bool, selected: bool) -> void:
+            return if not navigation_admit()
+            count: i64 = frames()
+            mutable target: i64 = StudioTimelineNavigationPolicy::endpoint(last, count)
+            if selected:
+                first: i64 = RetimeState::lo(&selection)
+                final: i64 = RetimeState::hi(&selection)
+                if not selection.active or not StudioTimelineNavigationPolicy::selection_valid(first, final, count):
+                    navigation_refused("Select a timeline range before jumping to its start or end.")
+                    return
+                target <- final if last else first
+            scrub_to(target)
+            status <- ("Selection end selected" if last else "Selection start selected") if selected else ("Last frame selected" if last else "First frame selected")
+            status_file <- null
+            touch()
+
+        def navigate_correction(direction: StudioTimelineNavigationPolicy::Direction) -> void:
+            return if not navigation_admit()
+            current: i64 = frame_now()
+            count: i64 = frames()
+            return if current < 0 or current >= count
+            stack: StackState::Stack = current_stack()
+            mutable target: i64 = -1
+            for i in 0..<stack.fix_count |i, stack, target, current, count, direction|:
+                correction: Corrections::Correction = stack.fixes[i]
+                if correction.enabled:
+                    target <- StudioTimelineNavigationPolicy::choose_boundary(current, correction.key, target, count, direction)
+            if target < 0:
+                navigation_refused("No enabled correction key in that direction.")
+                return
+            scrub_to(target)
+            status <- "Correction key selected"
+            status_file <- null
+            touch()
+
+        def contact_boundary_fold(track: darray[bool]&, current: i64, count: i64,
+                                  best: i64, direction: StudioTimelineNavigationPolicy::Direction) -> i64:
+            mutable target: i64 = best
+            for i in 1..<count |i, track, current, count, target, direction|:
+                if track[i.usize()] != track[(i - 1).usize()]:
+                    target <- StudioTimelineNavigationPolicy::choose_boundary(current, i, target, count, direction)
+            target
+
+        def navigate_contact(direction: StudioTimelineNavigationPolicy::Direction) -> void:
+            return if not navigation_admit()
+            current: i64 = frame_now()
+            count: i64 = frames()
+            return if current < 0 or current >= count
+            mutable target: i64 = -1
+            if clip is result:
+                if result.left_contact.count.i64() != count or result.right_contact.count.i64() != count or result.left_hand_contact.count.i64() != count or result.right_hand_contact.count.i64() != count:
+                    navigation_refused("Contact tracks are incomplete; no boundary was selected.")
+                    return
+                target <- contact_boundary_fold(result.left_contact, current, count, target, direction)
+                target <- contact_boundary_fold(result.right_contact, current, count, target, direction)
+                target <- contact_boundary_fold(result.left_hand_contact, current, count, target, direction)
+                target <- contact_boundary_fold(result.right_hand_contact, current, count, target, direction)
+            if target < 0:
+                navigation_refused("No contact-state transition in that direction.")
+                return
+            scrub_to(target)
+            status <- "Contact transition selected; the selected frame begins its new contact state"
+            status_file <- null
+            touch()
