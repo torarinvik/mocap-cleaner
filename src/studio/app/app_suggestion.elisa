@@ -12,6 +12,10 @@ extend Studio:
             right: darray[bool] = c.right_contact if not hands else c.right_hand_contact
             left.count.i64() == c.frames and right.count.i64() == c.frames
 
+        def suggestion_pose_tracks_valid(c: StudioModel::Clip&) -> bool:
+            return false if not suggestion_contacts_valid(c, false) or not suggestion_contacts_valid(c, true)
+            c.left_hand.count.i64() == c.frames and c.right_hand.count.i64() == c.frames and c.left_foot.count.i64() == c.frames and c.right_foot.count.i64() == c.frames
+
         def suggestion_has_kind(s: StackState::Stack&, kind: i64) -> bool:
             for i in 0..<s.count |i, s|:
                 if s.ops[i].kind == kind:
@@ -53,6 +57,7 @@ extend Studio:
         def suggestion_begin() -> void:
             return if suggestion_state == StudioSuggestionPolicy::State.Open
             if clip is c:
+                suggestion_impact_prepare(c)
                 return if contact_preview_active or FootState::active(&foot_press) or contact_draft_target >= 0 or gizmo_drag != null
                 return if storage_screen_open or help_open or replacement_prompt_open or export_review_open or export_warning_detail_open or export_result_open or not suggestion_baseline_ready()
                 base: StackState::Stack = current_stack()
@@ -80,7 +85,7 @@ extend Studio:
                         suggestion_focus <- StudioPanels::SuggestionAction.Cancel
                         suggestion_view <- StudioPanels::SuggestionView.Current
                         suggestion_state <- StudioSuggestionPolicy::State.Open
-                        status <- "cleanup suggestion ready; required preservation checks are unmeasured"
+                        status <- "cleanup candidate ready; review measured preservation and impact timing"
                         touch()
 
         def suggestion_close() -> void:
@@ -128,22 +133,188 @@ extend Studio:
                     status <- "could not rebuild suggestion; previous candidate retained"
                     touch()
 
-        def suggestion_contacts_evidence() -> StudioMetricEvidencePolicy::State:
-            # These dimensions are required by the review policy, but the
-            # current evaluator does not produce measurements for them.
+        def suggestion_unknown_evidence() -> StudioMetricEvidencePolicy::State:
             StudioMetricEvidencePolicy::classify(true, false, 0, 0)
 
-        def suggestion_joint_evidence() -> StudioMetricEvidencePolicy::State:
-            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+        def suggestion_contact_difference(lhs: darray[bool]&, rhs: darray[bool]&, frames: i64) -> i64:
+            return -1 if frames <= 0 or lhs.count.i64() != frames or rhs.count.i64() != frames
+            for frame in 0..<frames |differences: i64 = 0| -> differences:
+                differences <- differences + 1 if lhs[frame.usize()] != rhs[frame.usize()]
+
+        def suggestion_contacts_evidence() -> StudioMetricEvidencePolicy::State:
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    mutable valid: bool = current.frames > 0 and candidate.frames == current.frames and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
+                    left_foot: i64 = suggestion_contact_difference(current.left_contact, candidate.left_contact, current.frames) if valid else -1
+                    right_foot: i64 = suggestion_contact_difference(current.right_contact, candidate.right_contact, current.frames) if valid else -1
+                    left_hand: i64 = suggestion_contact_difference(current.left_hand_contact, candidate.left_hand_contact, current.frames) if valid else -1
+                    right_hand: i64 = suggestion_contact_difference(current.right_hand_contact, candidate.right_hand_contact, current.frames) if valid else -1
+                    valid <- valid and left_foot >= 0 and right_foot >= 0 and left_hand >= 0 and right_hand >= 0
+                    failures: i64 = left_foot + right_foot + left_hand + right_hand
+                    return StudioMetricEvidencePolicy::classify(true, valid, current.frames * 4, failures)
+            suggestion_unknown_evidence()
+
+        def suggestion_track_point(c: StudioModel::Clip&, track: i64, frame: i64) -> Geometry::Vec3:
+            return c.left_hand[frame.usize()] if track == 0
+            return c.right_hand[frame.usize()] if track == 1
+            return c.left_foot[frame.usize()] if track == 2
+            c.right_foot[frame.usize()]
 
         def suggestion_boundary_evidence() -> StudioMetricEvidencePolicy::State:
-            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    tracks_valid: bool = current.frames > 0 and candidate.frames > 0 and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
+                    return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not tracks_valid
+                    mutable failures: i64 = 0
+                    mutable available: bool = true
+                    for track in 0..<4 |track, failures, available, current, candidate|:
+                        for edge in [0, 1] |edge, failures, available, track, current, candidate|:
+                            a_frame: i64 = current.frames - 1 if edge == 1 else 0
+                            b_frame: i64 = candidate.frames - 1 if edge == 1 else 0
+                            a: Geometry::Vec3 = suggestion_track_point(current, track, a_frame)
+                            b: Geometry::Vec3 = suggestion_track_point(candidate, track, b_frame)
+                            if not Geometry::vec3_is_finite(a) or not Geometry::vec3_is_finite(b):
+                                available <- false
+                            else:
+                                delta_um: i64 = (Geometry::vec3_distance(a, b).f64() * 1000000.0 + 0.5).i64()
+                                failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta_um, StudioSuggestionMetricPolicy::BOUNDARY_TOLERANCE_MICROMETERS)
+                    return StudioMetricEvidencePolicy::classify(true, available, 8, failures)
+            suggestion_unknown_evidence()
+
+        def suggestion_joint_evidence() -> StudioMetricEvidencePolicy::State:
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    samples: i64 = current.hinge_angles.count.i64()
+                    valid: bool = current.hinge_angles_valid and candidate.hinge_angles_valid and samples > 0 and candidate.hinge_angles.count.i64() == samples
+                    return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not valid
+                    failures: i64 = for i in 0..<samples |total: i64 = 0| -> total:
+                        a: i64 = current.hinge_angles[i.usize()]
+                        b: i64 = candidate.hinge_angles[i.usize()]
+                        mutable delta: i64 = b - a
+                        delta <- 0 - delta if delta < 0
+                        total <- total + 1 if StudioSuggestionMetricPolicy::exceeds(delta, StudioSuggestionMetricPolicy::ANGLE_TOLERANCE_MILLI_DEGREES)
+                    return StudioMetricEvidencePolicy::classify(true, true, samples, failures)
+            suggestion_unknown_evidence()
 
         def suggestion_velocity_evidence() -> StudioMetricEvidencePolicy::State:
-            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    valid: bool = current.frames >= 2 and current.frames == candidate.frames and current.rate > 0 and candidate.rate == current.rate and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
+                    return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not valid
+                    mutable failures: i64 = 0
+                    mutable available: bool = true
+                    for track in 0..<4 |track, failures, available, current, candidate|:
+                        for frame in 1..<current.frames |frame, track, failures, available, current, candidate|:
+                            p0: Geometry::Vec3 = suggestion_track_point(current, track, frame - 1)
+                            p1: Geometry::Vec3 = suggestion_track_point(current, track, frame)
+                            q0: Geometry::Vec3 = suggestion_track_point(candidate, track, frame - 1)
+                            q1: Geometry::Vec3 = suggestion_track_point(candidate, track, frame)
+                            if not Geometry::vec3_is_finite(p0) or not Geometry::vec3_is_finite(p1) or not Geometry::vec3_is_finite(q0) or not Geometry::vec3_is_finite(q1):
+                                available <- false
+                            else:
+                                current_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(p1, p0), current.rate.f32())
+                                candidate_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(q1, q0), candidate.rate.f32())
+                                delta: i64 = (Geometry::vec3_distance(current_velocity, candidate_velocity).f64() * 1000000.0 + 0.5).i64()
+                                mutable checked_delta: i64 = delta
+                                checked_delta <- 0 - delta if delta < 0
+                                failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(checked_delta, StudioSuggestionMetricPolicy::VELOCITY_TOLERANCE_MICROMETERS_PER_SECOND)
+                    return StudioMetricEvidencePolicy::classify(true, available, 4 * (current.frames - 1), failures)
+            suggestion_unknown_evidence()
+
+        def suggestion_impact_source_matches(c: StudioModel::Clip&) -> bool:
+            c.source_fingerprint.first == suggestion_impact_source_first and c.source_fingerprint.second == suggestion_impact_source_second
+
+        def suggestion_impact_prepare(c: StudioModel::Clip&) -> void:
+            if not suggestion_impact_source_matches(c):
+                suggestion_impact_source_first <- c.source_fingerprint.first
+                suggestion_impact_source_second <- c.source_fingerprint.second
+                suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed
+                suggestion_impact_annotation_count <- 0
+
+        def suggestion_impact_has_frame(frame: i64) -> bool:
+            for i in 0..<suggestion_impact_annotation_count |i, frame|:
+                if suggestion_impact_annotations[i].source_frame == frame:
+                    return true
+            false
+
+        def suggestion_impact_mark_playhead() -> void:
+            if clip is c and timeline is t:
+                return if suggestion_stale()
+                suggestion_impact_prepare(c)
+                source_frame: i64 = StudioModel::source_frame(c, t.frame)
+                can_mark: bool = StudioImpactAnnotationPolicy::may_mark(
+                    suggestion_impact_review_state, suggestion_impact_source_matches(c),
+                    StudioImpactAnnotationPolicy::source_frame_valid(source_frame, c.source_frames),
+                    suggestion_impact_annotation_count)
+                if can_mark and not suggestion_impact_has_frame(source_frame):
+                    suggestion_impact_annotations[suggestion_impact_annotation_count.usize()] <- StudioImpactAnnotationPolicy::Annotation{
+                        source_first: c.source_fingerprint.first,
+                        source_second: c.source_fingerprint.second,
+                        source_frame: source_frame}
+                    suggestion_impact_annotation_count <- suggestion_impact_annotation_count + 1
+                if can_mark:
+                    suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.EventsMarked
+                    StudioText::begin()
+                    StudioText::put("Source impact marked at frame ")
+                    StudioText::put_i(source_frame)
+                    status <- StudioText::view()
+                    touch()
+
+        def suggestion_impact_confirm_none() -> void:
+            if clip is c:
+                suggestion_impact_prepare(c)
+                allowed: bool = StudioImpactAnnotationPolicy::may_confirm_no_events(
+                    suggestion_impact_review_state, suggestion_impact_source_matches(c),
+                    suggestion_impact_annotation_count)
+                if allowed:
+                    suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+                    status <- "reviewed source: no impact events"
+                    touch()
+
+        def suggestion_impact_clear() -> void:
+            if clip is c:
+                suggestion_impact_prepare(c)
+                suggestion_impact_annotation_count <- 0
+                suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed
+                status <- "source impact review cleared"
+                touch()
 
         def suggestion_impact_evidence() -> StudioMetricEvidencePolicy::State:
-            StudioMetricEvidencePolicy::classify(true, false, 0, 0)
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    same_source: bool = suggestion_impact_source_matches(current) and suggestion_impact_source_matches(candidate)
+                    count: i64 = suggestion_impact_annotation_count
+                    if not same_source:
+                        return suggestion_unknown_evidence()
+                    if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed:
+                        return StudioMetricEvidencePolicy::State.Inapplicable if count == 0 else suggestion_unknown_evidence()
+                    return suggestion_unknown_evidence() if suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.EventsMarked or count <= 0
+                    mutable failures: i64 = 0
+                    mutable valid: bool = true
+                    for index in 0..<count |index, failures, valid, current, candidate|:
+                        annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index]
+                        valid <- false if not StudioImpactAnnotationPolicy::source_matches(annotation, current.source_fingerprint.first, current.source_fingerprint.second)
+                        valid <- false if not StudioImpactAnnotationPolicy::source_frame_valid(annotation.source_frame, current.source_frames)
+                        if valid:
+                            current_output: i64 = StudioModel::output_frame(current, annotation.source_frame)
+                            candidate_output: i64 = StudioModel::output_frame(candidate, annotation.source_frame)
+                            valid <- false if current_output < 0 or candidate_output < 0
+                            failures <- failures + 1 if current_output >= 0 and candidate_output >= 0 and not StudioImpactAnnotationPolicy::mapping_preserved(current_output, candidate_output)
+                    StudioMetricEvidencePolicy::classify(true, valid, count, failures)
+            suggestion_unknown_evidence()
+
+        def suggestion_impact_status() -> sview:
+            return "NOT REVIEWED" if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.Unreviewed
+            return "REVIEWED: NO EVENTS" if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+            return "EVENTS PRESERVED" if suggestion_impact_evidence() == StudioMetricEvidencePolicy::State.Pass
+            return "TIMING CHANGED" if suggestion_impact_evidence() == StudioMetricEvidencePolicy::State.Fail
+            "EVENT MAPPING UNKNOWN"
+
+        def suggestion_evidence_label(state: StudioMetricEvidencePolicy::State) -> sview:
+            return "PASS" if state == StudioMetricEvidencePolicy::State.Pass
+            return "FAIL" if state == StudioMetricEvidencePolicy::State.Fail
+            return "NOT MEASURED" if state == StudioMetricEvidencePolicy::State.Unknown
+            "NOT APPLICABLE"
 
         def suggestion_evidence_admits() -> bool:
             StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_impact_evidence())
@@ -166,7 +337,15 @@ extend Studio:
                 return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_foot_lock or suggestion_lock_available(false))
             if action == StudioPanels::SuggestionAction.ToggleHands:
                 return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_hand_lock or suggestion_lock_available(true))
-            action == StudioPanels::SuggestionAction.Apply and suggestion_apply_enabled()
+            return action == StudioPanels::SuggestionAction.Apply and suggestion_apply_enabled() if action == StudioPanels::SuggestionAction.Apply
+            if action == StudioPanels::SuggestionAction.MarkImpact:
+                if clip is c and timeline is t:
+                    frame: i64 = StudioModel::source_frame(c, t.frame)
+                    return not suggestion_stale() and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and StudioImpactAnnotationPolicy::source_frame_valid(frame, c.source_frames) and suggestion_impact_annotation_count < StudioImpactAnnotationPolicy::MAX_ANNOTATIONS
+                return false
+            if action == StudioPanels::SuggestionAction.ConfirmNoImpacts:
+                return suggestion_impact_annotation_count == 0 and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+            action == StudioPanels::SuggestionAction.ClearImpactReview and (suggestion_impact_annotation_count > 0 or suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed)
 
         def suggestion_lock_available(hands: bool) -> bool:
             if clip is c:
@@ -182,7 +361,10 @@ extend Studio:
                 StudioPanels::SuggestionAction.Back,
                 StudioPanels::SuggestionAction.ToggleFeet,
                 StudioPanels::SuggestionAction.ToggleHands,
-                StudioPanels::SuggestionAction.Apply]
+                StudioPanels::SuggestionAction.Apply,
+                StudioPanels::SuggestionAction.MarkImpact,
+                StudioPanels::SuggestionAction.ConfirmNoImpacts,
+                StudioPanels::SuggestionAction.ClearImpactReview]
             mutable current: i64 = 0
             for i in 0..<actions.count |i, actions|:
                 current <- i if actions[i] == suggestion_focus
@@ -216,6 +398,12 @@ extend Studio:
                 suggestion_toggle_lock(false)
             elif action == StudioPanels::SuggestionAction.ToggleHands:
                 suggestion_toggle_lock(true)
+            elif action == StudioPanels::SuggestionAction.MarkImpact:
+                suggestion_impact_mark_playhead()
+            elif action == StudioPanels::SuggestionAction.ConfirmNoImpacts:
+                suggestion_impact_confirm_none()
+            elif action == StudioPanels::SuggestionAction.ClearImpactReview:
+                suggestion_impact_clear()
             elif action == StudioPanels::SuggestionAction.Apply:
                 return if not suggestion_apply_enabled() or suggestion_candidate == null
                 apply: StudioSuggestionPolicy::Decision = StudioSuggestionPolicy::apply_decision(

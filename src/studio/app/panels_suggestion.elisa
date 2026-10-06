@@ -18,6 +18,9 @@ extend StudioPanels:
             Back = 5
             ShowCurrent = 6
             ShowSuggested = 7
+            MarkImpact = 8
+            ConfirmNoImpacts = 9
+            ClearImpactReview = 10
 
         def suggestion_dialog_box(w: f32, h: f32) -> Box:
             sidebar_box(w, h)
@@ -38,8 +41,20 @@ extend StudioPanels:
 
         def suggestion_toggle_box(w: f32, h: f32, action: SuggestionAction) -> Box:
             d: Box = suggestion_dialog_box(w, h)
-            y: f32 = d.y + 380.0 if action == SuggestionAction.ToggleFeet else d.y + 418.0
+            y: f32 = d.y + 466.0 if action == SuggestionAction.ToggleFeet else d.y + 504.0
             box(d.x + 12.0, y, d.w - 24.0, 30.0)
+
+        def suggestion_impact_button_box(w: f32, h: f32, action: SuggestionAction) -> Box:
+            d: Box = suggestion_dialog_box(w, h)
+            mutable x: f32 = d.x + 12.0
+            x <- d.x + 106.0 if action == SuggestionAction.ConfirmNoImpacts
+            x <- d.x + 200.0 if action == SuggestionAction.ClearImpactReview
+            box(x, d.y + 364.0, 88.0, 26.0)
+
+        def suggestion_impact_button_label(action: SuggestionAction, reviewed: bool) -> sview:
+            return "Mark playhead" if action == SuggestionAction.MarkImpact
+            return "Review none" if action == SuggestionAction.ConfirmNoImpacts
+            "Clear review"
 
         def suggestion_pose_box(w: f32, h: f32, action: SuggestionAction) -> Box:
             d: Box = suggestion_dialog_box(w, h)
@@ -54,6 +69,9 @@ extend StudioPanels:
             return SuggestionAction.ToggleHands if adjustment == SuggestionAdjustment.Adjusting and (hand_available or hand_locked) and inside(suggestion_toggle_box(w, h, SuggestionAction.ToggleHands), px, py)
             return SuggestionAction.ShowCurrent if inside(suggestion_pose_box(w, h, SuggestionAction.ShowCurrent), px, py)
             return SuggestionAction.ShowSuggested if inside(suggestion_pose_box(w, h, SuggestionAction.ShowSuggested), px, py)
+            return SuggestionAction.MarkImpact if inside(suggestion_impact_button_box(w, h, SuggestionAction.MarkImpact), px, py)
+            return SuggestionAction.ConfirmNoImpacts if inside(suggestion_impact_button_box(w, h, SuggestionAction.ConfirmNoImpacts), px, py)
+            return SuggestionAction.ClearImpactReview if inside(suggestion_impact_button_box(w, h, SuggestionAction.ClearImpactReview), px, py)
             return SuggestionAction.Cancel if inside(suggestion_button_box(w, h, SuggestionAction.Cancel), px, py)
             return SuggestionAction.Back if adjustment == SuggestionAdjustment.Adjusting and inside(suggestion_button_box(w, h, SuggestionAction.Back), px, py)
             return SuggestionAction.Adjust if adjustment == SuggestionAdjustment.Review and inside(suggestion_button_box(w, h, SuggestionAction.Adjust), px, py)
@@ -77,6 +95,10 @@ extend StudioPanels:
                                     candidate_changed: bool, show_candidate: bool, foot_available: bool, hand_available: bool,
                                     feet: bool, hands: bool, apply_enabled: bool,
                                     focus: SuggestionAction,
+                                    contact_status: sview, joint_status: sview,
+                                    boundary_status: sview, velocity_status: sview,
+                                    impact_status: sview,
+                                    impact_reviewed: bool, no_impacts_reviewed: bool,
                                     current: StudioModel::Clip&,
                                     candidate: StudioModel::Clip&) -> void:
             return if not opened
@@ -97,12 +119,40 @@ extend StudioPanels:
             suggestion_metric_row(d, 2, "Foot sink", current.sink_after, candidate.sink_after, "µm")
             suggestion_metric_row(d, 3, "Hand slide", current.hand_slide_after, candidate.hand_slide_after, "µm")
             suggestion_metric_row(d, 4, "Balance impossible", current.impossible_frames, candidate.impossible_frames, "frames")
-            StudioDraw::text(d.x + 12.0, d.y + 280.0, 9.0, "Not measured: joints, boundaries, velocity, impacts.", StudioDraw::color(245, 175, 95))
-            StudioDraw::text(d.x + 12.0, d.y + 302.0, 9.0, "Apply needs measured passing checks.", StudioDraw::color(245, 175, 95))
-            StudioDraw::text(d.x + 12.0, d.y + 324.0, 10.0, "Candidate matches current stack; no new step to apply.", StudioDraw::muted()) if not candidate_changed
-            StudioDraw::text(d.x + 12.0, d.y + 346.0, 10.0, "Preview stale; cancel and rebuild from current result.", StudioDraw::color(245, 175, 95)) if stale
+            StudioText::begin()
+            StudioText::put("Contact timing: ")
+            StudioText::put(contact_status)
+            StudioDraw::text(d.x + 12.0, d.y + 280.0, 9.0, StudioText::view(), StudioDraw::ink())
+            StudioText::begin()
+            StudioText::put("Knee / elbow pose: ")
+            StudioText::put(joint_status)
+            StudioDraw::text(d.x + 12.0, d.y + 296.0, 9.0, StudioText::view(), StudioDraw::ink())
+            StudioText::begin()
+            StudioText::put("Boundary pose: ")
+            StudioText::put(boundary_status)
+            StudioDraw::text(d.x + 12.0, d.y + 312.0, 9.0, StudioText::view(), StudioDraw::ink())
+            StudioText::begin()
+            StudioText::put("End-effector velocity: ")
+            StudioText::put(velocity_status)
+            StudioDraw::text(d.x + 12.0, d.y + 328.0, 9.0, StudioText::view(), StudioDraw::ink())
+            StudioText::begin()
+            StudioText::put("Source impact timing: ")
+            StudioText::put(impact_status)
+            StudioDraw::text(d.x + 12.0, d.y + 344.0, 9.0, StudioText::view(), StudioDraw::color(245, 175, 95))
+            for action in [SuggestionAction.MarkImpact, SuggestionAction.ConfirmNoImpacts, SuggestionAction.ClearImpactReview] |action, w, h, impact_reviewed, no_impacts_reviewed|:
+                impact_box: Box = suggestion_impact_button_box(w, h, action)
+                mutable enabled: bool = true
+                enabled <- not no_impacts_reviewed if action == SuggestionAction.MarkImpact
+                enabled <- not impact_reviewed if action == SuggestionAction.ConfirmNoImpacts
+                enabled <- impact_reviewed if action == SuggestionAction.ClearImpactReview
+                StudioDraw::rect(impact_box.x, impact_box.y, impact_box.w, impact_box.h, StudioDraw::panel())
+                StudioDraw::text(impact_box.x + 4.0, impact_box.y + 8.0, 8.0,
+                    suggestion_impact_button_label(action, impact_reviewed), StudioDraw::ink() if enabled else StudioDraw::muted())
+            StudioDraw::text(d.x + 12.0, d.y + 398.0, 9.0, "Apply needs passing measures and a reviewed impact list.", StudioDraw::color(245, 175, 95))
+            StudioDraw::text(d.x + 12.0, d.y + 414.0, 9.0, "Candidate matches current stack; no new step to apply.", StudioDraw::muted()) if not candidate_changed
+            StudioDraw::text(d.x + 12.0, d.y + 430.0, 9.0, "Preview stale; cancel and rebuild from current result.", StudioDraw::color(245, 175, 95)) if stale
             if adjustment == SuggestionAdjustment.Adjusting:
-                StudioDraw::bold(d.x + 12.0, d.y + 362.0, 11.0, "Adjust contact locks", StudioDraw::ink())
+                StudioDraw::bold(d.x + 12.0, d.y + 448.0, 11.0, "Adjust contact locks", StudioDraw::ink())
                 feet_box: Box = suggestion_toggle_box(w, h, SuggestionAction.ToggleFeet)
                 StudioDraw::rect(feet_box.x, feet_box.y, feet_box.w, feet_box.h, StudioDraw::panel())
                 StudioDraw::rect(feet_box.x + 9.0, feet_box.y + 7.0, 16.0, 16.0, StudioDraw::color(44, 49, 60))
@@ -113,9 +163,9 @@ extend StudioPanels:
                 StudioDraw::rect(hands_box.x + 9.0, hands_box.y + 7.0, 16.0, 16.0, StudioDraw::color(44, 49, 60))
                 StudioDraw::rect(hands_box.x + 12.0, hands_box.y + 10.0, 10.0, 10.0, StudioDraw::accent()) if hands
                 StudioDraw::text(hands_box.x + 34.0, hands_box.y + 7.0, 11.0, "Hand lock · validated contact tracks", StudioDraw::ink() if hand_available else StudioDraw::muted())
-                if d.h >= 530.0:
-                    StudioDraw::text(d.x + 12.0, d.y + 456.0, 9.0, "Hand lock unavailable: missing roles or tracks.", StudioDraw::muted()) if not hand_available
-                    StudioDraw::text(d.x + 12.0, d.y + 475.0, 9.0, "Foot lock unavailable: missing roles or tracks.", StudioDraw::muted()) if not foot_available
+                if d.h >= 640.0:
+                    StudioDraw::text(d.x + 12.0, d.y + 542.0, 9.0, "Hand lock unavailable: missing roles or tracks.", StudioDraw::muted()) if not hand_available
+                    StudioDraw::text(d.x + 12.0, d.y + 560.0, 9.0, "Foot lock unavailable: missing roles or tracks.", StudioDraw::muted()) if not foot_available
             StudioDraw::text(d.x + 12.0, d.y + d.h - 62.0, 9.0, "Tab/←→ focus · Enter · Space play · Esc cancel", StudioDraw::muted()) if not (adjustment == SuggestionAdjustment.Adjusting and d.h < 530.0)
             for action in 0..<3 |action, w, h, adjustment, apply_enabled|:
                 mutable actual: SuggestionAction = SuggestionAction.Cancel if action == 0 else (SuggestionAction.Adjust if action == 1 else SuggestionAction.Apply)
@@ -141,3 +191,5 @@ extend StudioPanels:
                 suggestion_focus_outline(suggestion_toggle_box(w, h, SuggestionAction.ToggleFeet))
             elif focus == SuggestionAction.ToggleHands and adjustment == SuggestionAdjustment.Adjusting:
                 suggestion_focus_outline(suggestion_toggle_box(w, h, SuggestionAction.ToggleHands))
+            elif focus == SuggestionAction.MarkImpact or focus == SuggestionAction.ConfirmNoImpacts or focus == SuggestionAction.ClearImpactReview:
+                suggestion_focus_outline(suggestion_impact_button_box(w, h, focus))

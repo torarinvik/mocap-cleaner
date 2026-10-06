@@ -8,6 +8,7 @@
 # preview). Stage1 keeps darrays alive only when the owning struct is moved
 # into the global, so nothing here is mutated in place.
 include "../state/clip_state.elisa"
+include "../state/suggestion_tracks.elisa"
 include "../state/foot_state.elisa"
 include "../state/history_state.elisa"
 include "../state/timeline_state.elisa"
@@ -72,6 +73,8 @@ module StudioModel:
             # Joint tracks interleaved (frame * 4 + joint), kept so the next
             # edit recomputes only its frame window (StudioPerf).
             points: mutable darray[Geometry::Vec3]
+            hinge_angles: mutable darray[i64]
+            hinge_angles_valid: bool
             # Stage costs of the build that made this clip, in microseconds
             # (process CPU clock): clean (evaluate), tracks + detectors +
             # balance (detect); poses evaluated and ops rerun.
@@ -249,6 +252,7 @@ module StudioModel:
             rig: PoseOverride::Rig = StudioClip::rig(cleaned, nodes, slot)
             bones: darray[i64] = [StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_HAND), StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_HAND), StudioClip::slot_of_role(cleaned, slot, Roles::LEFT_FOOT), StudioClip::slot_of_role(cleaned, slot, Roles::RIGHT_FOOT)]
             tracks: StudioPerf::Tracks = StudioPerf::joint_tracks(rig, cleaned, anim, frames, nodes, slot, bones, prev_points, win)
+            hinge_tracks: StudioSuggestionTracks::HingeAngles = StudioSuggestionTracks::hinges(cleaned, anim, frames, nodes, slot)
             lh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 0, frames)
             rh: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 1, frames)
             lf: darray[Geometry::Vec3] = StudioPerf::joint(&tracks, 2, frames)
@@ -272,7 +276,7 @@ module StudioModel:
             balance_of(&cleaned, anim, frames, &bal)
             t2: i64 = clock()
             src: GlbDocument::Document = GlbDocument::copy(&m.pristine)
-            c: Clip = Clip{source: src, source_fingerprint: m.source_fingerprint, cleaned: cleaned, anim: anim, frames: frames, rate: fps, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, left_hand_contact: lhc, right_hand_contact: rhc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, source_impossible_frames: m.source_impossible_frames, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, feet: s.feet, hands: s.hands, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, hand_slide_before: foot.hand_before, hand_slide_after: foot.hand_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side, times: times, source_frames: source_frames, retimed: rt.applied}
+            c: Clip = Clip{source: src, source_fingerprint: m.source_fingerprint, cleaned: cleaned, anim: anim, frames: frames, rate: fps, nodes: nodes, slot: slot, problems: problems, source_problems: source_problems, peaks: peaks, left_hand: lh, right_hand: rh, left_foot: lf, right_foot: rf, left_contact: lc, right_contact: rc, left_hand_contact: lhc, right_hand_contact: rhc, ground: ground, com: bal.com, balance: bal.states, support: bal.support, balance_ground: bal.ground, impossible_frames: bal.impossible, source_impossible_frames: m.source_impossible_frames, threshold: threshold, changed: result.changed, spikes_before: before, spikes_after: after, points: tracks.points, evaluate_us: t1 - t0, detect_us: t2 - t1, poses: tracks.evaluated, ops_run: ops_run, hinge_angles: move hinge_tracks.values, hinge_angles_valid: hinge_tracks.valid, feet: s.feet, hands: s.hands, slide_before: foot.slide_before, slide_after: foot.slide_after, sink_before: foot.sink_before, sink_after: foot.sink_after, hand_slide_before: foot.hand_before, hand_slide_after: foot.hand_after, foot_slide: fs, worst_frame: worst.frame, worst_slide: worst.value, worst_side: worst_side, times: times, source_frames: source_frames, retimed: rt.applied}
             return move c
 
         def copy_ints(v: darray[i64]&) -> darray[i64]:
