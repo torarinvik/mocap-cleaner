@@ -622,3 +622,17 @@ new rows after the prover/replay products are rebuilt from matching sources.
   regression fixture verifies the source-level totals, per-attempt certificates,
   and fully proved status together. The previously unknown age report is now
   fully proved; no timestamp bound or requirement was weakened.
+
+## Deterministic call replay across stable conditionals (2026-10-06)
+
+- G89: independent replay previously rejected deterministic helper-call witnesses
+  inside an `if` arm or after an early-return guard, even when neither arm
+  declared or assigned locals. The source-site walker now traverses only
+  conditionals whose branches preserve local bindings, and still refuses
+  loops, matches, blocks, declarations, and assignments at the join. The new
+  regression covers a helper call in a conditional return and after an early
+  return; all 10 obligations and certificates replay. This restores
+  `src/core/fade.elisa` to 103/103 replayed. It reduces `proof/gate_laws.elisa`
+  gaps from 53 to 42 and `proof/retime_laws.elisa` gaps from 83 to 39; those
+  remaining gaps are still under investigation. Established baselines remain
+  unchanged until the remaining reports are fully replayed.
