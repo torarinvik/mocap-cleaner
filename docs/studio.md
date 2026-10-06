@@ -65,7 +65,7 @@ Timeline navigation handlers use **Home/End** for the first/last output frame,
 **Shift-Home/End** for the inclusive selection start/end, **Cmd-Up/Down** for
 the previous/next contact-state transition across feet and hands, and
 **Cmd-PageUp/PageDown** for the previous/next enabled local correction key.
-Playback pause for these handlers still needs explicit integration. A contact transition selects the first frame of
+The handlers explicitly pause playback. A contact transition selects the first frame of
 the new state. Missing boundaries explain why the playhead did not move;
 incomplete tracks, pending result evaluation and active drags refuse navigation.
 These new handlers await integrated compilation and native shortcut review;
@@ -75,7 +75,8 @@ equivalent pointer/accessibility controls remain planned.
 up to three decimal places (for example `2.125` or `.5`). The dialog shares
 Apply/Cancel, stale-target checks and mode-specific accessibility labels. Its
 new time integration awaits full compilation and native input qualification;
-the committed-text callback and navigation pause behavior still need fixes.
+committed-text insertion and navigation pause behavior are implemented but need
+native qualification. Unsupported insertions retain the prior complete draft.
 The displayed clip rate is estimated from key count and duration, while playback
 currently uses a fixed 120 fps clock. Consistency across rates and nonuniform
 key times remains an explicit acceptance gap.

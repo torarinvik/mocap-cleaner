@@ -181,9 +181,13 @@ The frame/time dialog is now wired to Cmd-G / Cmd-Shift-G, shared Apply/Cancel
 validation, decimal keyboard drafts, retained text-field changes and mode-specific
 visual/accessibility labels. It captures the clip rate as well as the existing
 take/document/stack/frame-count target, refusing a changed rate. Integrated
-qualification remains open. The committed-text callback still needs its matching
-decimal/capacity update, and endpoint/boundary navigation must explicitly pause
-playback because the generic scrub transition preserves playing state.
+qualification remains open. The committed-text callback now validates the whole
+insertion's characters and combined capacity before changing the draft, accepts
+decimal seconds, and refuses unsupported content without dropping characters.
+Endpoint/boundary navigation explicitly pauses playback without changing the
+stack/history; active contact presses also refuse navigation. Qualify native
+committed-text/paste routing, exact refused-draft preservation and playing-state
+transitions in the integrated window.
 
 - [ ] Qualify time conversion against the timeline clock and evaluated sample
       times. The current playback kernels use a fixed 120 fps while the displayed
