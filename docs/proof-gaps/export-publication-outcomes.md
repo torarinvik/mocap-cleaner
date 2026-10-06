@@ -155,3 +155,9 @@ and 11 gaps; no law baseline is added. Evidence:
 `build/export-recovery-inventory-laws.json`, `build/export-recovery-inventory-build.log`.
 Native failure injection, durable reservation persistence and export/recovery
 UI integration remain required before the capacity gate is operational.
+
+The journal source/law proof batch is now terminal with exit 139 and no usable
+JSON reports. Its cause is under investigation in the prover checkout; this is
+not evidence that journal contracts or round-trip laws are proved. The prior
+"checking is running" observation is superseded. Compilation remains separate
+evidence, and no journal/stage proof baseline has been added.
