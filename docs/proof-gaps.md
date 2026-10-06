@@ -18,6 +18,7 @@ status descriptions and evidence are preserved in the linked records.
 
 - [Export publication outcome qualification](proof-gaps/export-publication-outcomes.md)
 - [Scoped constant call summary replay](proof-gaps/summary-call-constant-rebind.md)
+- [Export report-stage Boolean branch replay](proof-gaps/report-stage-boolean-replay.md)
 
 ## Current qualification limits
 
