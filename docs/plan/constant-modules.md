@@ -35,7 +35,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **72 owners, 698 ungrouped constants**.
+Remaining source inventory: **71 owners, 696 ungrouped constants**.
 File-level export publisher limits, outside this module-owner inventory, now
 use private `StudioExportPublisher::Capacity` (path and staging buffer sizes).
 Numeric capacities remain a const module; typed validation outcomes use an enum.
@@ -51,7 +51,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `GlbTracks` | 4 | `src/io/glb_tracks.elisa` |
 | `Hand` | 4 | `src/core/hand.elisa` |
 | `Hinge` | 3 | `src/core/hinge.elisa` |
-| `KeyWeight` | 2 | `src/core/key_weight.elisa` |
 | `Knee` | 9 | `src/core/knee.elisa` |
 | `PerfCache` | 4 | `src/core/perf_cache.elisa` |
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
@@ -132,3 +131,10 @@ regression behavior are unchanged. Current compilation/replay remain pending.
 These ABI offsets are platform-specific numeric facts, not alternatives for an
 enum. The current folder reader remains Darwin-specific; cross-platform batch
 work must use a qualified host directory service rather than assuming this ABI.
+
+`KeyWeight::Domain` groups the full permille weight and bounded frame domain.
+Correction and law consumers use qualified values; numeric behavior is unchanged.
+These numeric limits remain a const module rather than an enum.
+Current compiler `4c409da6` accepts the weight source. Prover `d3a17832` proves
+and replays source 36/36 and laws 60/60, with zero gaps. Correction executable
+qualification must be rerun after this consumer change.
