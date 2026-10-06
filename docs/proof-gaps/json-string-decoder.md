@@ -13,3 +13,11 @@ index bounds, missing loop invariants, and a control-flow analysis budget limit.
 That observation preceded adding the explicit `hex4` input-bound contract.
 Loop summaries, decoder round-trip laws, malformed-input qualification, and
 native comparison evidence remain required. No proof baseline was weakened.
+
+Follow-up adds cursor invariants, an explicit short-hex rejection contract,
+bounded hexadecimal output, and `proof/json_string_laws.elisa` assertions for
+short hexadecimal inputs and empty content. Hexadecimal decoding uses four
+explicit nibble reads. Current standalone compilation succeeds. The law closure
+remains unsupported: 47/59 obligations producer-proven, with dependent decoder
+summaries, index bounds, and control-flow budget failures. The laws are intended
+requirements rather than accepted proof evidence.
