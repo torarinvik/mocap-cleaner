@@ -1,0 +1,76 @@
+# Scalar arithmetic boundary for Storage totals. All arguments are plain
+# integers so the safety and display facts can be established independently
+# of the mutable UI adapter.
+module StudioStorageTotalsKernel:
+    public:
+        # Kept equal to StudioStorageManifest::MAX_ENTRIES and
+        # StudioStorageReceiptPolicy::MAX_ITEM_BYTES; runtime tests pin this.
+        const MAX_ITEMS: i64 = 256
+        const MAX_ITEM_BYTES: i64 = 1000000000000000
+        const MAX_TOTAL_BYTES: i64 = 256000000000000000
+
+        const UNIT_BYTES: i64 = 0
+        const UNIT_KIB: i64 = 1
+        const UNIT_MIB: i64 = 2
+        const UNIT_GIB: i64 = 3
+        const UNIT_TIB: i64 = 4
+
+        def add_allowed(count: i64, total: i64, size_bytes: i64) -> bool:
+            ensure result implies (count >= 0 and count < MAX_ITEMS and total >= 0 and total <= MAX_TOTAL_BYTES and size_bytes >= 0 and size_bytes <= MAX_ITEM_BYTES and total <= MAX_TOTAL_BYTES - size_bytes)
+            ensure (count >= 0 and count < MAX_ITEMS and total >= 0 and total <= MAX_TOTAL_BYTES and size_bytes >= 0 and size_bytes <= MAX_ITEM_BYTES and total <= MAX_TOTAL_BYTES - size_bytes) implies result
+            return false if count < 0 or count >= MAX_ITEMS
+            return false if total < 0 or total > MAX_TOTAL_BYTES
+            return false if size_bytes < 0 or size_bytes > MAX_ITEM_BYTES
+            total <= MAX_TOTAL_BYTES - size_bytes
+
+        def next_total(total: i64, size_bytes: i64) -> i64:
+            requires total >= 0 and total <= MAX_TOTAL_BYTES
+            requires size_bytes >= 0 and size_bytes <= MAX_ITEM_BYTES
+            requires total <= MAX_TOTAL_BYTES - size_bytes
+            ensure result == total + size_bytes
+            total + size_bytes
+
+        def next_count(count: i64) -> i64:
+            requires count >= 0 and count < MAX_ITEMS
+            ensure result == count + 1
+            count + 1
+
+        # IEC display unit selected by thresholds, without a symbolic loop.
+        def display_unit(bytes: i64) -> i64:
+            requires bytes >= 0 and bytes <= MAX_TOTAL_BYTES
+            ensure result >= UNIT_BYTES and result <= UNIT_TIB
+            ensure bytes >= 1099511627776 implies result == UNIT_TIB
+            ensure (bytes >= 1073741824 and bytes < 1099511627776) implies result == UNIT_GIB
+            ensure (bytes >= 1048576 and bytes < 1073741824) implies result == UNIT_MIB
+            ensure (bytes >= 1024 and bytes < 1048576) implies result == UNIT_KIB
+            ensure bytes < 1024 implies result == UNIT_BYTES
+            if bytes >= 1099511627776:
+                return UNIT_TIB
+            if bytes >= 1073741824:
+                return UNIT_GIB
+            if bytes >= 1048576:
+                return UNIT_MIB
+            if bytes >= 1024:
+                return UNIT_KIB
+            UNIT_BYTES
+
+        def nonnegative_quotient(value: i64, divisor: i64) -> i64:
+            requires value >= 0 and divisor > 0
+            ensure result >= 0 and result <= value
+            ensure result == value / divisor
+            value / divisor
+
+        def display_divisor(unit: i64) -> i64:
+            requires unit >= UNIT_BYTES and unit <= UNIT_TIB
+            ensure result >= 1 and result <= 1099511627776
+            1099511627776 if unit >= UNIT_TIB else 1073741824 if unit >= UNIT_GIB else 1048576 if unit >= UNIT_MIB else 1024 if unit >= UNIT_KIB else 1
+
+        # Whole units are truncated, keeping exact bytes in the total while
+        # the display carries a compact IEC magnitude and unit.
+        def display_magnitude(bytes: i64, unit: i64) -> i64:
+            requires bytes >= 0 and bytes <= MAX_TOTAL_BYTES
+            requires unit >= UNIT_BYTES and unit <= UNIT_TIB
+            ensure result >= 0
+            ensure result <= bytes
+            divisor: i64 = display_divisor(unit)
+            nonnegative_quotient(bytes, divisor)

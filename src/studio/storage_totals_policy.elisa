@@ -1,25 +1,26 @@
 # Bounded, UI-neutral byte totals for the persisted Studio storage inventory.
 # This reports the recorded artifact sizes; moving a file to Trash does not
 # establish that disk space has been reclaimed.
+include "storage_totals_kernel.elisa"
 
 module StudioStorageTotalsPolicy:
     public:
-        const MAX_ITEMS: i64 = 256
-        const MAX_ITEM_BYTES: i64 = 1000000000000000
-        const MAX_TOTAL_BYTES: i64 = MAX_ITEMS * MAX_ITEM_BYTES
+        const MAX_ITEMS: i64 = StudioStorageTotalsKernel::MAX_ITEMS
+        const MAX_ITEM_BYTES: i64 = StudioStorageTotalsKernel::MAX_ITEM_BYTES
+        const MAX_TOTAL_BYTES: i64 = StudioStorageTotalsKernel::MAX_TOTAL_BYTES
 
-        const UNIT_BYTES: i64 = 0
-        const UNIT_KIB: i64 = 1
-        const UNIT_MIB: i64 = 2
-        const UNIT_GIB: i64 = 3
-        const UNIT_TIB: i64 = 4
+        const UNIT_BYTES: i64 = StudioStorageTotalsKernel::UNIT_BYTES
+        const UNIT_KIB: i64 = StudioStorageTotalsKernel::UNIT_KIB
+        const UNIT_MIB: i64 = StudioStorageTotalsKernel::UNIT_MIB
+        const UNIT_GIB: i64 = StudioStorageTotalsKernel::UNIT_GIB
+        const UNIT_TIB: i64 = StudioStorageTotalsKernel::UNIT_TIB
 
         struct Totals:
             item_count: mutable i64
             bytes: mutable i64
 
         struct DisplayAmount:
-            tenths: i64
+            magnitude: i64
             unit: i64
 
         def valid(totals: Totals) -> bool:
@@ -29,29 +30,19 @@ module StudioStorageTotalsPolicy:
         # Accept one manifest-supported item. Bounds are checked before adding,
         # and the manifest limits prove the sum fits in signed i64 exactly.
         def add(totals: mutable Totals&, size_bytes: i64) -> bool:
-            ensure result implies (valid(totals) and size_bytes >= 0 and size_bytes <= MAX_ITEM_BYTES)
             return false if not valid(totals)
-            return false if size_bytes < 0 or size_bytes > MAX_ITEM_BYTES
-            return false if totals.item_count >= MAX_ITEMS
-            return false if totals.bytes > MAX_TOTAL_BYTES - size_bytes
-            totals.bytes <- totals.bytes + size_bytes
-            totals.item_count <- totals.item_count + 1
+            return false if not StudioStorageTotalsKernel::add_allowed(totals.item_count, totals.bytes, size_bytes)
+            totals.bytes <- StudioStorageTotalsKernel::next_total(totals.bytes, size_bytes)
+            totals.item_count <- StudioStorageTotalsKernel::next_count(totals.item_count)
             true
 
-        # IEC units; tenths are rounded to nearest, with ties rounded up.
-        # Splitting quotient and remainder keeps intermediate products bounded.
+        # IEC units with a whole-unit magnitude; the accumulated byte count
+        # remains exact and is never replaced by the rounded display value.
         def display_amount(bytes: i64) -> DisplayAmount:
             requires bytes >= 0 and bytes <= MAX_TOTAL_BYTES
             ensure result.unit >= UNIT_BYTES and result.unit <= UNIT_TIB
-            ensure result.tenths >= 0
-            mutable divisor: i64 = 1
-            mutable unit: i64 = UNIT_BYTES
-            while unit < UNIT_TIB and bytes >= divisor * 1024:
-                divisor <- divisor * 1024
-                unit <- unit + 1
-            whole: i64 = bytes / divisor
-            remainder: i64 = bytes % divisor
+            ensure result.magnitude >= 0
             DisplayAmount{
-                tenths: whole * 10 + (remainder * 10 + divisor / 2) / divisor,
-                unit: unit
+                magnitude: StudioStorageTotalsKernel::display_magnitude(bytes, StudioStorageTotalsKernel::display_unit(bytes)),
+                unit: StudioStorageTotalsKernel::display_unit(bytes)
             }

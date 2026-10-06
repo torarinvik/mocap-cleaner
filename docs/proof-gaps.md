@@ -598,10 +598,12 @@ new rows after the prover/replay products are rebuilt from matching sources.
 
 ## Storage totals model (2026-10-06)
 
-- G88: the totals prototype's mutable aggregate postconditions and display
-  loop are not established by the current prover. Its focused runtime test
-  passes, including rejection of an inconsistent count/byte state that would
-  exceed the total bound. The prototype is not wired into Studio and is not
-  claimed as proved. Extract scalar accumulation and display kernels before
-  UI integration, then resolve any remaining prover limitation in the proof
-  workspace. Source and law reports are retained under `build/proof/`.
+- G88: the mutable `Totals` adapter and `DisplayAmount` aggregate remain
+  runtime-tested but are not claimed as proved; the prover does not establish
+  their aggregate mutation/return contracts. The extracted scalar arithmetic
+  kernel now proves its supported-size gate, exact total/count increments,
+  display unit selection, whole-unit IEC magnitude and signed-i64 capacity
+  (57/57 focused obligations with certificate replay). The focused adapter test also
+  pins its 256-item and 10^15-byte limits to the manifest/receipt schema and
+  covers invalid negative sizes. Keep the proof claim at the scalar kernel
+  boundary until aggregate record mutation and construction are modeled.
