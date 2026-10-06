@@ -1,0 +1,249 @@
+# Versioned, deterministic text representation of successful Trash moves.
+# Paths are hex encoded so tabs/newlines in a valid filesystem path cannot
+# change record boundaries. Filesystem actions remain in the engine adapter.
+include "../storage_cleanup_policy.elisa"
+include "../storage_receipt_policy.elisa"
+
+module StudioStorageReceipts:
+    public:
+        const VERSION: i64 = 1
+        const MAX_RECEIPTS: i64 = 256
+        const MAX_PATH_BYTES: usize = 4095
+        const MAX_IDENTITY_VALUE: i64 = StudioStorageReceiptPolicy::MAX_IDENTITY_VALUE
+        const MAX_LINE_BYTES: usize = 16512
+        const MAX_MODIFIED_NANOSECONDS: i64 = StudioStorageReceiptPolicy::MAX_MODIFIED_NANOSECONDS
+
+        struct Receipt:
+            kind: i64
+            device: i64
+            inode: i64
+            size_bytes: i64
+            modified_seconds: i64
+            modified_nanoseconds: i64
+            original_path: darray[u8]
+            trashed_path: darray[u8]
+
+        def continuation(byte: u8) -> bool:
+            byte >= 128 and byte <= 191
+
+        # The engine receipt bridge accepts and returns UTF-8 C paths. Reject
+        # malformed sequences before a manifest path reaches UI or restore.
+        def utf8_valid(path: darray[u8]&) -> bool:
+            mutable index: usize = 0
+            while index < path.count:
+                first: u8 = path[index]
+                if first <= 127:
+                    index <- index + 1
+                elif first >= 194 and first <= 223:
+                    return false if index + 1 >= path.count or not continuation(path[index + 1])
+                    index <- index + 2
+                elif first == 224:
+                    return false if index + 2 >= path.count or path[index + 1] < 160 or path[index + 1] > 191 or not continuation(path[index + 2])
+                    index <- index + 3
+                elif first >= 225 and first <= 236 or first >= 238 and first <= 239:
+                    return false if index + 2 >= path.count or not continuation(path[index + 1]) or not continuation(path[index + 2])
+                    index <- index + 3
+                elif first == 237:
+                    return false if index + 2 >= path.count or path[index + 1] < 128 or path[index + 1] > 159 or not continuation(path[index + 2])
+                    index <- index + 3
+                elif first == 240:
+                    return false if index + 3 >= path.count or path[index + 1] < 144 or path[index + 1] > 191 or not continuation(path[index + 2]) or not continuation(path[index + 3])
+                    index <- index + 4
+                elif first >= 241 and first <= 243:
+                    return false if index + 3 >= path.count or not continuation(path[index + 1]) or not continuation(path[index + 2]) or not continuation(path[index + 3])
+                    index <- index + 4
+                elif first == 244:
+                    return false if index + 3 >= path.count or path[index + 1] < 128 or path[index + 1] > 143 or not continuation(path[index + 2]) or not continuation(path[index + 3])
+                    index <- index + 4
+                else:
+                    return false
+            true
+
+        def path_valid(path: darray[u8]&) -> bool:
+            return false if path.count == 0 or path.count > MAX_PATH_BYTES
+            for byte in path:
+                return false if byte == 0
+            utf8_valid(path)
+
+        def valid(receipt: Receipt) -> bool:
+            return false if not StudioStorageReceiptPolicy::scalar_valid(receipt.kind, receipt.device, receipt.inode, receipt.size_bytes, receipt.modified_seconds, receipt.modified_nanoseconds)
+            return false if not path_valid(receipt.original_path)
+            path_valid(receipt.trashed_path)
+
+        def same_path(a: darray[u8]&, b: darray[u8]&) -> bool:
+            return false if a.count != b.count
+            for index in 0..<a.count |a, b|:
+                return false if a[index] != b[index]
+            true
+
+        def push_text(out: mutable darray[u8]&, text: sview) -> void:
+            for byte in text:
+                out.push(byte)
+
+        def push_number(out: mutable darray[u8]&, number: i64) -> void:
+            # Most-significant decimal digit first. The units digit is always
+            # emitted, including for zero.
+            if number < 0:
+                out.push(45)
+            rest: i64 = number if number >= 0 else 0 - number
+            place: mutable i64 = 1000000000000000000
+            started: mutable bool = false
+            for index in 0..<19:
+                if place > 0:
+                    digit: i64 = (rest / place) % 10
+                    if started or digit != 0 or place == 1:
+                        out.push((48 + digit).u8())
+                        started <- true
+                    place <- place / 10
+
+        def push_hex(out: mutable darray[u8]&, bytes: darray[u8]&) -> void:
+            hex: sview = "0123456789abcdef"
+            for byte in bytes:
+                out.push(hex[(byte / 16).usize()])
+                out.push(hex[(byte % 16).usize()])
+
+        def append_record(out: mutable darray[u8]&, receipt: Receipt) -> void:
+            push_number(out, receipt.kind)
+            out.push(9)
+            push_number(out, receipt.device)
+            out.push(9)
+            push_number(out, receipt.inode)
+            out.push(9)
+            push_number(out, receipt.size_bytes)
+            out.push(9)
+            push_number(out, receipt.modified_seconds)
+            out.push(9)
+            push_number(out, receipt.modified_nanoseconds)
+            out.push(9)
+            push_hex(out, receipt.original_path)
+            out.push(9)
+            push_hex(out, receipt.trashed_path)
+            out.push(10)
+
+        # Encode atomically with respect to `out`: invalid and duplicate
+        # receipts leave the caller's existing bytes unchanged.
+        def encode(receipts: darray[Receipt]&, out: mutable darray[u8]&) -> bool:
+            return false if receipts.count.i64() > MAX_RECEIPTS
+            for index in 0..<receipts.count |receipts|:
+                return false if not valid(receipts[index])
+                for earlier in 0..<index |earlier, index, receipts|:
+                    return false if same_path(receipts[earlier].original_path, receipts[index].original_path)
+            mutable next: darray[u8] = []
+            push_text(&next, "mocap-studio trash receipts 1")
+            next.push(10)
+            for receipt in receipts |next|:
+                append_record(&next, receipt)
+            out.clear()
+            for byte in next:
+                out.push(byte)
+            true
+
+        def hex_value(byte: u8) -> i64:
+            return byte.i64() - 48 if byte >= 48 and byte <= 57
+            return byte.i64() - 87 if byte >= 97 and byte <= 102
+            return byte.i64() - 55 if byte >= 65 and byte <= 70
+            -1
+
+        def parse_number(line: darray[u8]&, first: usize, last: usize, out: mutable i64&) -> bool:
+            return false if first >= last or last - first > 20
+            negative: bool = line[first] == 45
+            start: usize = first + 1 if negative else first
+            return false if start >= last
+            mutable value: i64 = 0
+            for index in start..<last |line, value|:
+                digit: i64 = line[index].i64() - 48
+                return false if digit < 0 or digit > 9
+                return false if value > MAX_IDENTITY_VALUE / 10
+                return false if value == MAX_IDENTITY_VALUE / 10 and digit > MAX_IDENTITY_VALUE % 10
+                value <- value * 10 + digit
+            out <- 0 - value if negative else value
+            true
+
+        def parse_hex(line: darray[u8]&, first: usize, last: usize, out: mutable darray[u8]&) -> bool:
+            return false if first >= last or last - first > MAX_PATH_BYTES * 2 or (last - first) % 2 != 0
+            out.clear()
+            mutable index: usize = first
+            while index < last:
+                high: i64 = hex_value(line[index])
+                low: i64 = hex_value(line[index + 1])
+                return false if high < 0 or low < 0
+                byte: u8 = (high * 16 + low).u8()
+                return false if byte == 0
+                out.push(byte)
+                index <- index + 2
+            out.count > 0
+
+        def parse_record(line: darray[u8]&, receipt: mutable Receipt&) -> bool:
+            return false if line.count > MAX_LINE_BYTES
+            mutable starts: darray[usize] = []
+            mutable ends: darray[usize] = []
+            mutable index: usize = 0
+            for field in 0..<8:
+                first: usize = index
+                while index < line.count and line[index] != 9:
+                    index <- index + 1
+                starts.push(first)
+                ends.push(index)
+                if field < 7:
+                    return false if index >= line.count
+                    index <- index + 1
+                else:
+                    return false if index != line.count
+            mutable numbers: darray[i64] = []
+            for field in 0..<6 |line, starts, ends, numbers|:
+                mutable value: i64 = 0
+                return false if not parse_number(line, starts[field], ends[field], &value)
+                numbers.push(value)
+            mutable original: darray[u8] = []
+            mutable trashed: darray[u8] = []
+            return false if not parse_hex(line, starts[6], ends[6], &original)
+            return false if not parse_hex(line, starts[7], ends[7], &trashed)
+            return false if not path_valid(original) or not path_valid(trashed)
+            return false if not StudioStorageReceiptPolicy::scalar_valid(numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5])
+            receipt <- Receipt{kind: numbers[0], device: numbers[1], inode: numbers[2], size_bytes: numbers[3], modified_seconds: numbers[4], modified_nanoseconds: numbers[5], original_path: original, trashed_path: trashed}
+            true
+
+        def header_matches(line: darray[u8]&) -> bool:
+            expected: sview = "mocap-studio trash receipts 1"
+            mutable expected_length: usize = 0
+            for byte in expected:
+                expected_length <- expected_length + 1
+            return false if line.count != expected_length
+            for index in 0..<line.count |line, expected|:
+                return false if line[index] != expected[index]
+            true
+
+        # Decode into a temporary collection; malformed versions, records,
+        # duplicate original paths, and oversized manifests leave `out`
+        # unchanged.
+        def decode(text: darray[u8]&, out: mutable darray[Receipt]&) -> bool:
+            return false if text.count > MAX_RECEIPTS.usize() * MAX_LINE_BYTES + 64
+            mutable line: darray[u8] = []
+            mutable parsed: darray[Receipt] = []
+            mutable index: usize = 0
+            mutable saw_header: bool = false
+            while index <= text.count:
+                if index < text.count and text[index] != 10:
+                    line.push(text[index])
+                    index <- index + 1
+                    continue
+                index <- index + 1
+                if not saw_header:
+                    return false if not header_matches(&line)
+                    saw_header <- true
+                elif line.count > 0:
+                    return false if parsed.count.i64() >= MAX_RECEIPTS
+                    mutable receipt: Receipt = zeroed
+                    return false if not parse_record(&line, &receipt)
+                    for previous in parsed:
+                        return false if same_path(previous.original_path, receipt.original_path)
+                    parsed.push(receipt)
+                elif index <= text.count:
+                    return false
+                line.clear()
+                return false if index > text.count + 1
+            return false if not saw_header
+            out.clear()
+            for receipt in parsed:
+                out.push(receipt)
+            true

@@ -21,6 +21,15 @@ requires the original destination to be absent and the Trash item to match
 the receipt. The adapter does not enumerate the Studio inventory or persist
 receipts for the caller.
 
+`src/studio/io/storage_receipts.elisa` now defines the version 1 receipt
+manifest codec. It bounds the record count and identity fields, hex-encodes
+paths so control characters cannot split records, validates decoded UTF-8,
+rejects duplicate original paths, and leaves the caller's output unchanged on
+malformed input. The scalar receipt bounds live in
+`src/studio/storage_receipt_policy.elisa` with 18/18 obligations proved. This
+is the serialization foundation only: Studio does not yet enumerate owned
+artifacts, publish the manifest atomically, or expose Trash/Restore controls.
+
 `protection_reason` returns a stable numeric reason for the first applicable
 protection rule, including unmanaged files, paths outside `build/`, symlinks,
 source takes, open or session-referenced files, invalid facts, and items still
