@@ -7,10 +7,13 @@ journal is strictly decoded from disk and compared with the expected record's
 binding and `Prepared` stages.
 
 Before rename it requires both expected stages to be `Prepared`, strictly
-reloads the journal and checks the same binding and recovery directory, checks
-all captured sidecar and output snapshot bytes through the binding loader,
-compares staging bytes again with the captured GLB, and requires the final
-destination spelling to equal the journal destination byte for byte. It never
+reloads the journal and checks the same binding and recovery directory through
+`RecoveryBinding::load_prepared`, checks captured sidecar and output-snapshot
+bytes, compares staging bytes again with the captured GLB, and requires the
+final destination spelling to equal the journal destination byte for byte. It
+does not read the destination before publication, since it may not exist or may
+contain an older export. The ordinary `RecoveryBinding::load` remains the
+post-publication check that also compares final destination bytes. Neither path
 infers directory ownership or lock state.
 
 The result distinguishes preflight rejection, native `NotPublished`, and
