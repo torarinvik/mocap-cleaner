@@ -100,6 +100,18 @@ destination are retained. Modal pointer, keyboard and accessibility dispatch
 handle this inspector before the Storage actions behind it. Native screen,
 minimum-window and accessibility-focus acceptance remains open.
 
+## Inventory and displayed rows
+
+Refresh retains a complete aligned snapshot of entries, statuses and protection
+reasons separately from displayed rows. Selection reconciliation, pending batch
+freshness and reviewed Move/Restore checks use that complete snapshot. The same
+eligibility gate applies to inventory and displayed rows. This prepares list
+filtering without allowing hidden rows to escape cleanup safety checks; the
+filter controls and hidden-selection feedback are still pending.
+
+The inventory separation builds with `STUDIO_SKIP_CHECKS=1`; this evidence
+does not qualify native filter interaction or filesystem race behavior.
+
 ## Hard links and allocation: next native boundary
 
 Current totals are logical file sizes. A fresh native measurement must provide
