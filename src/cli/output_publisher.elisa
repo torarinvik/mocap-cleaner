@@ -1,0 +1,113 @@
+# CLI GLB output publication. The staged bytes are written through the
+# descriptor returned by mkstemp, reloaded and compared with the source
+# document, then linked to the destination. POSIX link is atomic and fails if
+# the destination already exists, so a race cannot truncate or replace it.
+#
+# The temporary name is private by mkstemp convention and kept beside the
+# destination. After fclose, this module has no portable descriptor-based
+# hard-link API to bind the name to the validated inode. A process with write
+# access to the containing directory could replace that temporary name in the
+# validation-to-link interval. A crash can also leave the temporary name (or
+# both hard links after publication). The destination itself is still created
+# with no-overwrite semantics.
+include "../../../elisa-engine-mocap/src/assets/glb_document.elisa"
+
+module CliOutputPublisher:
+    public:
+        # Returns true only after the destination was atomically created. The
+        # destination must not already exist. A successful link is the commit
+        # point; failure to remove the extra temporary hard link afterward
+        # does not undo publication.
+        def publish_glb(doc: GlbDocument::Document&, destination: cstr) -> bool:
+            mutable destination_length: usize = 0
+            while destination_length < CLI_OUTPUT_PATH_CAPACITY and destination[destination_length] != 0:
+                destination_length <- destination_length + 1
+            return false if destination_length == 0 or destination_length >= CLI_OUTPUT_PATH_CAPACITY
+
+            mutable temporary: u8[CLI_OUTPUT_TEMP_CAPACITY] = zeroed
+            for index in 0..<destination_length |destination, temporary|:
+                temporary[index] <- destination[index]
+            suffix: cstr = ".mocap-cleaner-XXXXXX"
+            mutable suffix_length: usize = 0
+            while suffix[suffix_length] != 0:
+                return false if destination_length + suffix_length + 1 >= CLI_OUTPUT_TEMP_CAPACITY
+                temporary[destination_length + suffix_length] <- suffix[suffix_length]
+                suffix_length <- suffix_length + 1
+            temporary[destination_length + suffix_length] <- 0
+
+            descriptor: i32 = cli_output_mkstemp(&temporary[0])
+            return false if descriptor < 0
+            file: mutable heap void&? = cli_output_fdopen(descriptor, "wb".cast[u8&])
+            if file == null:
+                _ = cli_output_close(descriptor)
+                _ = cli_output_unlink(&temporary[0])
+                return false
+            handle: mutable heap void& = file
+
+            expected_bytes: usize = GlbDocument::byte_count(doc)
+            mutable buffer: u8[CLI_OUTPUT_CHUNK] = zeroed
+            mutable offset: usize = 0
+            mutable write_failed: bool = false
+            while offset < expected_bytes:
+                remaining: usize = expected_bytes - offset
+                chunk: usize = CLI_OUTPUT_CHUNK if remaining > CLI_OUTPUT_CHUNK else remaining
+                for index in 0..<chunk |buffer, doc|:
+                    buffer[index] <- GlbDocument::byte_at(doc, offset + index)
+                wrote: usize = cli_output_fwrite(&buffer[0], 1, chunk, handle)
+                if wrote != chunk:
+                    write_failed <- true
+                    break
+                offset <- offset + chunk
+
+            flushed: i32 = cli_output_fflush(handle)
+            file_descriptor: i32 = cli_output_fileno(handle)
+            mutable synced: i32 = -1
+            if file_descriptor >= 0:
+                synced <- cli_output_fsync(file_descriptor)
+            closed: i32 = cli_output_fclose(handle)
+            if write_failed or offset != expected_bytes or flushed != 0 or synced != 0 or closed != 0:
+                _ = cli_output_unlink(&temporary[0])
+                return false
+
+            temporary_path: cstr = (&temporary[0]).cast[cstr] can Unsafe.PointerCast
+            if not validate_staged(doc, temporary_path):
+                _ = cli_output_unlink(&temporary[0])
+                return false
+
+            if cli_output_link(&temporary[0], destination.cast[u8&]) != 0:
+                _ = cli_output_unlink(&temporary[0])
+                return false
+            _ = cli_output_unlink(&temporary[0])
+            true
+
+    private:
+        const CLI_OUTPUT_PATH_CAPACITY: usize = 4096
+        const CLI_OUTPUT_TEMP_CAPACITY: usize = 4144
+        const CLI_OUTPUT_CHUNK: usize = 4096
+
+        @link_name("mkstemp")
+        extern cli_output_mkstemp(path_template: u8&) -> i32 can[Blocking.IO]
+        @link_name("fdopen")
+        extern cli_output_fdopen(descriptor: i32, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+        @link_name("close")
+        extern cli_output_close(descriptor: i32) -> i32 can[Blocking.IO]
+        @link_name("fwrite")
+        extern cli_output_fwrite(bytes: u8&, size: usize, count: usize, file: mutable heap void&) -> usize can[Blocking.IO]
+        @link_name("fflush")
+        extern cli_output_fflush(file: mutable heap void&) -> i32 can[Blocking.IO]
+        @link_name("fileno")
+        extern cli_output_fileno(file: mutable heap void&) -> i32 can[Blocking.IO]
+        @link_name("fsync")
+        extern cli_output_fsync(descriptor: i32) -> i32 can[Blocking.IO]
+        @link_name("fclose")
+        extern cli_output_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
+        @link_name("link")
+        extern cli_output_link(source: u8&, destination: u8&) -> i32 can[Blocking.IO]
+        @link_name("unlink")
+        extern cli_output_unlink(path: u8&) -> i32 can[Blocking.IO]
+
+        def validate_staged(doc: GlbDocument::Document&, path: cstr) -> bool:
+            staged: GlbDocument::Document = catch GlbDocument::load(path):
+                value: value
+                error failure: return false
+            GlbDocument::first_difference(doc, staged) == -1
