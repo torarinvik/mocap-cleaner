@@ -1,0 +1,56 @@
+# Bounded strict reader for Storage retention preferences. Publication is
+# handled by the app through the existing atomic publisher.
+include "storage_preferences_codec.elisa"
+
+@link_name("fopen")
+extern storage_preferences_fopen(path: u8&, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+@link_name("fgetc")
+extern storage_preferences_fgetc(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("ferror")
+extern storage_preferences_ferror(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("fclose")
+extern storage_preferences_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
+
+module StudioStoragePreferencesFile:
+    public:
+        const LOAD_OK: i64 = 0
+        const LOAD_OPEN_FAILED: i64 = 1
+        const LOAD_READ_FAILED: i64 = 2
+        const LOAD_TOO_LARGE: i64 = 3
+        const LOAD_CLOSE_FAILED: i64 = 4
+        const LOAD_INVALID_FORMAT: i64 = 5
+
+        # Output changes only after successful read, close, and strict decode.
+        def load_status(path: cstr, out: mutable i64&) -> i64 can[Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable bytes: darray[u8] = []
+            mutable file: mutable heap void&? = null
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                file <- storage_preferences_fopen(path.cast[u8&], "rb".cast[u8&])
+                if file is opened:
+                    mutable read_status: i64 = LOAD_OK
+                    mutable reading: bool = true
+                    while reading:
+                        byte: i32 = storage_preferences_fgetc(opened)
+                        if byte < 0:
+                            reading <- false
+                            read_status <- LOAD_READ_FAILED if storage_preferences_ferror(opened) != 0
+                        else:
+                            if bytes.count >= StudioStoragePreferencesCodec::MAX_FILE_BYTES:
+                                read_status <- LOAD_TOO_LARGE
+                                reading <- false
+                            else:
+                                bytes.push(byte.u8())
+                    closed: i32 = storage_preferences_fclose(opened)
+                    return LOAD_READ_FAILED if read_status == LOAD_READ_FAILED
+                    return LOAD_TOO_LARGE if read_status == LOAD_TOO_LARGE
+                    return LOAD_CLOSE_FAILED if closed != 0
+                else:
+                    return LOAD_OPEN_FAILED
+            mutable decoded: i64 = StudioStoragePreferencesPolicy::INVALID
+            return LOAD_INVALID_FORMAT if bytes.count != StudioStoragePreferencesCodec::FILE_BYTES
+            return LOAD_INVALID_FORMAT if not StudioStoragePreferencesCodec::decode(bytes, decoded)
+            out <- decoded
+            LOAD_OK
+
+        def load(path: cstr, out: mutable i64&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release]:
+            load_status(path, out) == LOAD_OK
