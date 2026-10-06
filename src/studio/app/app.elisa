@@ -97,12 +97,14 @@ module Studio:
         global mutable storage_manifest_state: i64 = 0
         global mutable storage_entries: darray[StudioStorageManifest::Entry] = zeroed
         global mutable storage_visible_entries: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_visible_statuses: darray[i64] = zeroed
         global mutable storage_tracking_failed: bool = false
         global mutable storage_screen_open: bool = false
         global mutable storage_focus: i64 = -1
         global mutable storage_selected: i64 = 0
         global mutable storage_message: i64 = 0
         global mutable storage_protected_records: i64 = 0
+        global mutable storage_unverified_records: i64 = 0
         const REPLACE_TAKE: i64 = 1
         const REPLACE_SESSION: i64 = 2
         const REPLACE_CLOSE: i64 = 3
@@ -1484,10 +1486,18 @@ module Studio:
             storage_entries <- updated
             true
 
-        # The inventory view only names records whose canonical original path
-        # is below the verified build directory. A malformed or hand-edited
-        # manifest can therefore never expose a source-take path in the UI.
+        def storage_identity_matches(expected: StudioStorageManifest::Entry,
+                                     current: StudioStorageManifest::Entry) -> bool:
+            expected.device == current.device and expected.inode == current.inode and expected.size_bytes == current.size_bytes and expected.modified_seconds == current.modified_seconds and expected.modified_nanoseconds == current.modified_nanoseconds and StudioStorageManifest::same_path(expected.original_path, current.original_path)
+
+        # The inventory view names only records below verified build/. Each
+        # refresh checks live filesystem identity and reconciles interrupted
+        # Trash moves before displaying an entry as verified.
         def refresh_storage_inventory() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            storage_visible_entries <- []
+            storage_visible_statuses <- []
+            storage_protected_records <- 0
+            storage_unverified_records <- 0
             storage_manifest_state <- 0
             if not storage_manifest_ready():
                 storage_message <- 1
@@ -1500,19 +1510,72 @@ module Studio:
                         mutable active_source: darray[u8] = []
                         if FilePanel::resolve_path(path) is source_path:
                             active_source <- path_bytes(source_path)
+                        mutable updated: darray[StudioStorageManifest::Entry] = []
                         mutable visible: darray[StudioStorageManifest::Entry] = []
+                        mutable statuses: darray[i64] = []
                         mutable protected: i64 = 0
-                        for entry in storage_entries |entry, root_bytes, active_source, visible, protected|:
+                        mutable unverified: i64 = 0
+                        mutable manifest_changed: bool = false
+                        for entry in storage_entries |entry, root_bytes, active_source, updated, visible, statuses, protected, unverified, manifest_changed|:
                             is_active_source: bool = active_source.count > 0 and StudioStorageManifest::same_path(entry.original_path, active_source)
-                            if StudioExportPolicy::inside_build(root_bytes, entry.original_path) and not is_active_source:
-                                visible.push(entry)
-                            else:
+                            if not StudioExportPolicy::inside_build(root_bytes, entry.original_path) or is_active_source:
+                                updated.push(entry)
                                 protected <- protected + 1
+                            else:
+                                mutable current: StudioStorageManifest::Entry = zeroed
+                                mutable io_message: darray[u8] = []
+                                current_exists: bool = StudioFileTrash::snapshot_path("build", entry.original_path, entry.kind, &current, &io_message)
+                                if current_exists and storage_identity_matches(entry, current):
+                                    if entry.state == StudioStorageManifest::IN_TRASH:
+                                        restored: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+                                            state: StudioStorageManifest::REGISTERED,
+                                            kind: entry.kind, device: entry.device,
+                                            inode: entry.inode, size_bytes: entry.size_bytes,
+                                            modified_seconds: entry.modified_seconds,
+                                            modified_nanoseconds: entry.modified_nanoseconds,
+                                            original_path: entry.original_path, trashed_path: []}
+                                        updated.push(restored)
+                                        visible.push(restored)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_PRESENT)
+                                        manifest_changed <- true
+                                    else:
+                                        updated.push(entry)
+                                        visible.push(entry)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_PRESENT)
+                                elif current_exists:
+                                    updated.push(entry)
+                                    visible.push(entry)
+                                    statuses.push(StudioPanels::STORAGE_STATUS_CHANGED)
+                                    unverified <- unverified + 1
+                                else:
+                                    mutable recovered: StudioStorageManifest::Entry = zeroed
+                                    if StudioFileTrash::reconcile("build", entry, &recovered, &io_message):
+                                        updated.push(recovered)
+                                        visible.push(recovered)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_IN_TRASH)
+                                        manifest_changed <- true
+                                    else:
+                                        updated.push(entry)
+                                        visible.push(entry)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_UNVERIFIED)
+                                        unverified <- unverified + 1
+                        mutable manifest_ok: bool = true
+                        if manifest_changed:
+                            manifest_ok <- persist_storage_manifest(updated)
+                            if manifest_ok:
+                                storage_entries <- updated
+                            else:
+                                for index in 0..<statuses.count |statuses, unverified|:
+                                    if statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH:
+                                        statuses[index] <- StudioPanels::STORAGE_STATUS_UNVERIFIED
+                                        unverified <- unverified + 1
                         storage_visible_entries <- visible
+                        storage_visible_statuses <- statuses
                         storage_protected_records <- protected
+                        storage_unverified_records <- unverified
                         storage_selected <- 0 if visible.count == 0
                         storage_selected <- visible.count.i64() - 1 if storage_selected >= visible.count.i64()
-                        storage_message <- 3
+                        storage_message <- 5 if not manifest_ok else 4 if unverified > 0 else 3
                         return
             storage_message <- 2
 
@@ -2663,8 +2726,9 @@ module Studio:
                 file_menu_open and not storage_screen_open, clip != null,
                 file_menu_focus, file_menu_hover)
             StudioPanels::storage_panel(w, h, storage_screen_open,
-                storage_visible_entries, storage_selected, storage_focus,
-                storage_message, storage_protected_records)
+                storage_visible_entries, storage_visible_statuses,
+                storage_selected, storage_focus, storage_message,
+                storage_protected_records, storage_unverified_records)
             StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open

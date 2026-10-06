@@ -1023,6 +1023,10 @@ module StudioPanels:
         const STORAGE_REFRESH: i64 = 0
         const STORAGE_DONE: i64 = 1
         const STORAGE_ACTION_COUNT: i64 = 2
+        const STORAGE_STATUS_PRESENT: i64 = 0
+        const STORAGE_STATUS_IN_TRASH: i64 = 1
+        const STORAGE_STATUS_CHANGED: i64 = 2
+        const STORAGE_STATUS_UNVERIFIED: i64 = 3
         const STORAGE_ROW_HEIGHT: f32 = 32.0
         const STORAGE_VISIBLE_ROWS: i64 = 6
 
@@ -1084,14 +1088,17 @@ module StudioPanels:
             return "Quality report" if kind == StudioStorageCleanupPolicy::GENERATED_REPORT
             "Unknown type"
 
-        def storage_entry_status(entry: StudioStorageManifest::Entry) -> sview:
-            return "Trash recovery" if entry.state == StudioStorageManifest::IN_TRASH
-            "Tracked record"
+        def storage_entry_status(status: i64) -> sview:
+            return "Verified in build" if status == STORAGE_STATUS_PRESENT
+            return "Verified in Trash" if status == STORAGE_STATUS_IN_TRASH
+            return "Changed identity" if status == STORAGE_STATUS_CHANGED
+            "Could not verify"
 
         def storage_panel(w: f32, h: f32, opened: bool,
                           entries: darray[StudioStorageManifest::Entry]&,
+                          statuses: darray[i64]&,
                           selected: i64, focus: i64, message: i64,
-                          protected_records: i64) -> void:
+                          protected_records: i64, unverified_records: i64) -> void:
             return if not opened
             d: Box = storage_dialog_box(w, h)
             StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
@@ -1118,10 +1125,11 @@ module StudioPanels:
             StudioDraw::text(d.x + 24.0, d.y + 106.0, 12.0, StudioText::view(), StudioDraw::accent())
             StudioDraw::bold(d.x + 24.0, d.y + 142.0, 11.0, "STUDIO-MANAGED INVENTORY", StudioDraw::muted())
             first: i64 = storage_first_visible(entries.count.i64(), selected)
-            for visible_row in 0..<storage_visible_count(w, h, entries.count.i64(), selected) |visible_row, first, entries, selected, d|:
+            for visible_row in 0..<storage_visible_count(w, h, entries.count.i64(), selected) |visible_row, first, entries, statuses, selected, d|:
                 index: i64 = first + visible_row
                 row: Box = storage_row_box(w, h, visible_row)
                 entry: StudioStorageManifest::Entry = entries[index]
+                row_status: i64 = statuses[index] if index < statuses.count else STORAGE_STATUS_UNVERIFIED
                 StudioDraw::rect(row.x, row.y, row.w, row.h,
                     StudioDraw::color(47, 55, 70) if index == selected else StudioDraw::panel())
                 StudioDraw::text(row.x + 10.0, row.y + 8.0, 12.0,
@@ -1129,26 +1137,35 @@ module StudioPanels:
                 StudioDraw::text(row.x + row.w - 265.0, row.y + 8.0, 11.0,
                     storage_kind_label(entry.kind), StudioDraw::muted())
                 StudioDraw::text(row.x + row.w - 130.0, row.y + 8.0, 11.0,
-                    storage_entry_status(entry), StudioDraw::accent() if entry.state == StudioStorageManifest::IN_TRASH else StudioDraw::muted())
+                    storage_entry_status(row_status),
+                    StudioDraw::accent() if row_status == STORAGE_STATUS_IN_TRASH else StudioDraw::severity_color(2) if row_status == STORAGE_STATUS_CHANGED or row_status == STORAGE_STATUS_UNVERIFIED else StudioDraw::muted())
             if entries.count == 0:
                 StudioDraw::text(d.x + 30.0, d.y + 198.0, 12.0,
                     "No Studio-managed files are registered yet.", StudioDraw::muted())
             StudioDraw::text(d.x + 24.0, d.y + 410.0, 11.0,
-                "Inventory records are not a live file check. Cleanup stays unavailable until safety checks pass.", StudioDraw::muted())
+                "Refresh checks file identities. Cleanup requires additional safety checks.", StudioDraw::muted())
             if message == 1:
                 StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
                     "The inventory could not be read. No cleanup action is available.", StudioDraw::color(240, 170, 110))
+            elif message == 5:
+                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                    "Recovery changes could not be saved. Refresh to retry before taking action.", StudioDraw::color(240, 170, 110))
             elif message == 2:
                 StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
                     "The build folder could not be verified. No inventory paths are shown.", StudioDraw::color(240, 170, 110))
+            elif unverified_records > 0:
+                StudioText::begin()
+                StudioText::put_i(unverified_records)
+                StudioText::put(" item(s) are protected: file identity changed or could not be checked.")
+                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
             elif protected_records > 0:
                 StudioText::begin()
                 StudioText::put_i(protected_records)
-                StudioText::put(" record(s) were hidden because they are outside build/.")
+                StudioText::put(" record(s) are hidden outside build/ or match the active take.")
                 StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
             elif message == 3:
                 StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
-                    "Inventory refreshed.", StudioDraw::color(150, 210, 160))
+                    "Inventory refreshed; all visible file identities are verified.", StudioDraw::color(150, 210, 160))
             StudioDraw::text(d.x + 24.0, d.y + 456.0, 10.0,
                 "Up / Down selects   Tab moves to a button   Enter activates   Esc closes", StudioDraw::muted())
             for action in 0..<STORAGE_ACTION_COUNT |action, w, h, focus|:
