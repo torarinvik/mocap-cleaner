@@ -51,7 +51,7 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_build_key.py ELISAC")
     compiler_root = ROOT.parent / "Elisa-compiler"
-    digest = hashlib.sha256(b"mocap-cleaner-test-build-v2\0")
+    digest = hashlib.sha256(b"mocap-cleaner-test-build-v3\0")
     digest.update(f"{platform.system()}:{platform.machine()}:{sys.version}\0".encode())
     digest.update((sys.argv[1] + "\0-emit exe").encode())
     tool_env = {
@@ -65,7 +65,10 @@ def main():
     for name in sorted(tool_env & os.environ.keys()):
         digest.update(f"{name}={os.environ[name]}\0".encode())
 
-    for repo in (ROOT, ROOT.parent / "elisa-engine-mocap", ROOT.parent / "elisa-ui"):
+    # Compiler source changes invalidate cached executables even when the product
+    # has not been rebuilt yet. The next compile then reaches the wrapper
+    # provenance gate instead of accepting cached results from a stale product.
+    for repo in (ROOT, compiler_root, ROOT.parent / "elisa-engine-mocap", ROOT.parent / "elisa-ui"):
         add_repo(digest, repo)
 
     for name in ("ELISAC", "ELISA_STAGE1_BIN", "ELISA_RUNTIME_OBJ", "ELISA_CLANG", "ELISA_AR", "LLVM_CONFIG"):
@@ -94,6 +97,7 @@ def main():
     add_file(digest, llvm_config)
     add_file(digest, llvm_ar)
 
+    add_file(digest, compiler_root / "build" / "compiler-build-manifest.json")
     add_file(digest, ROOT / "build" / "generated" / "studio_icon_paths.elisa")
     print(digest.hexdigest())
 
