@@ -1,0 +1,202 @@
+include "panels_geometry.elisa"
+include "../export_batch_panel_policy.elisa"
+
+# Rendering and hit geometry for the durable export batch sheet. The caller
+# supplies display snapshots; queue identities and review tokens stay private
+# inside StudioExportBatchReviewBinding.
+extend StudioPanels:
+    public:
+        const enum ExportBatchAction of i64:
+            None = 0
+            Enqueue = 1
+            Run = 2
+            Pause = 3
+            Cancel = 4
+            Retry = 5
+            Reopen = 6
+            Review = 7
+            Publish = 8
+            Acknowledge = 9
+            Refresh = 10
+            Close = 11
+            Previous = 12
+            Next = 13
+
+        const enum ExportBatchFocus of i64:
+            Enqueue = 0
+            Run = 1
+            Pause = 2
+            Cancel = 3
+            Retry = 4
+            Reopen = 5
+            Review = 6
+            Publish = 7
+            Acknowledge = 8
+            Refresh = 9
+            Close = 10
+            Previous = 11
+            Next = 12
+
+        struct ExportBatchRow:
+            label: sview
+            state: StudioExportBatchQueuePolicy::ItemState
+            attempt: i64
+            warning_count: i64
+            approved: bool
+            receipt: StudioExportBatchReviewBinding::PublicationReceipt
+
+        struct ExportBatchControls:
+            enqueue: bool
+            run: bool
+            pause: bool
+            cancel: bool
+            retry: bool
+            reopen: bool
+            review: bool
+            publish: bool
+            acknowledge: bool
+            refresh: bool
+
+    private:
+        const module BatchLayout:
+            WIDTH: f32 = 960.0
+            HEIGHT: f32 = 640.0
+            HEADER: f32 = 60.0
+            ROW_TOP: f32 = 144.0
+            ROW_HEIGHT: f32 = 48.0
+            ROW_VISIBLE: i64 = 7
+            ACTION_X: f32 = 22.0
+            ACTION_Y: f32 = 530.0
+            ACTION_W: f32 = 110.0
+            ACTION_H: f32 = 34.0
+            ACTION_GAP: f32 = 8.0
+            SECOND_ROW_Y: f32 = 574.0
+            INSET: f32 = 22.0
+
+    public:
+        def export_batch_bounds(w: f32, h: f32) -> Box:
+            box((w - BatchLayout::WIDTH) / 2.0, (h - BatchLayout::HEIGHT) / 2.0, BatchLayout::WIDTH, BatchLayout::HEIGHT)
+
+        def export_batch_row_hit(w: f32, h: f32, x: f32, y: f32,
+                visible_count: i64, first_row: i64) -> i64:
+            requires visible_count >= 0 and visible_count <= BatchLayout::ROW_VISIBLE
+            requires first_row >= 0
+            ensure result >= -1
+            ensure result < 0 or result < first_row + visible_count
+            d: Box = export_batch_bounds(w, h)
+            return -1 if not inside(box(d.x + BatchLayout::INSET, d.y + BatchLayout::ROW_TOP,
+                d.w - 2.0 * BatchLayout::INSET, BatchLayout::ROW_HEIGHT * BatchLayout::ROW_VISIBLE.as_f32()), x, y)
+            offset: i64 = ((y - d.y - BatchLayout::ROW_TOP) / BatchLayout::ROW_HEIGHT).i64()
+            StudioExportBatchPanelPolicy::visible_row(first_row, visible_count, offset)
+
+        def export_batch_action_bounds(w: f32, h: f32, focus: ExportBatchFocus) -> Box:
+            d: Box = export_batch_bounds(w, h)
+            slot: i64 = focus.i64()
+            row: i64 = 0 if slot <= ExportBatchFocus::Reopen.i64() else 1
+            column: i64 = slot if row == 0 else slot - ExportBatchFocus::Review.i64()
+            box(d.x + BatchLayout::ACTION_X + column.as_f32() * (BatchLayout::ACTION_W + BatchLayout::ACTION_GAP),
+                d.y + (BatchLayout::ACTION_Y if row == 0 else BatchLayout::SECOND_ROW_Y), BatchLayout::ACTION_W, BatchLayout::ACTION_H)
+
+        def export_batch_action_hit(w: f32, h: f32, x: f32, y: f32) -> ExportBatchAction:
+            return ExportBatchAction.Enqueue if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Enqueue), x, y)
+            return ExportBatchAction.Run if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Run), x, y)
+            return ExportBatchAction.Pause if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Pause), x, y)
+            return ExportBatchAction.Cancel if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Cancel), x, y)
+            return ExportBatchAction.Retry if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Retry), x, y)
+            return ExportBatchAction.Reopen if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Reopen), x, y)
+            return ExportBatchAction.Review if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Review), x, y)
+            return ExportBatchAction.Publish if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Publish), x, y)
+            return ExportBatchAction.Acknowledge if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Acknowledge), x, y)
+            return ExportBatchAction.Refresh if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Refresh), x, y)
+            return ExportBatchAction.Close if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Close), x, y)
+            return ExportBatchAction.Previous if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Previous), x, y)
+            return ExportBatchAction.Next if inside(export_batch_action_bounds(w, h, ExportBatchFocus::Next), x, y)
+            ExportBatchAction.None
+
+        def export_batch_panel(w: f32, h: f32, rows: darray[ExportBatchRow]&, first_row: i64,
+                selected: i64, focus: ExportBatchFocus, controls: ExportBatchControls,
+                message: sview) -> void:
+            requires first_row >= 0 and selected >= -1
+            d: Box = export_batch_bounds(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, UiCore::Color{r: 0, g: 0, b: 0, a: 150})
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + BatchLayout::INSET, d.y + 20.0, 19.0, "Prepared exports", StudioDraw::ink())
+            StudioDraw::text(d.x + BatchLayout::INSET, d.y + 48.0, 11.0,
+                "Queue reviewed take exports, inspect warning reports, and preserve recoverable outputs.", StudioDraw::muted())
+            StudioDraw::text(d.x + BatchLayout::INSET, d.y + 78.0, 12.0, message, StudioDraw::color(232, 190, 116)) if message.len > 0
+            for visible in 0..<BatchLayout::ROW_VISIBLE |visible, rows, first_row, selected, d|:
+                index: i64 = first_row + visible
+                y: f32 = d.y + BatchLayout::ROW_TOP + visible.as_f32() * BatchLayout::ROW_HEIGHT
+                bg: UiCore::Color = StudioDraw::color(52, 60, 75) if index == selected else StudioDraw::color(31, 36, 47)
+                StudioDraw::rect(d.x + BatchLayout::INSET, y, d.w - 2.0 * BatchLayout::INSET, BatchLayout::ROW_HEIGHT - 3.0, bg) if index < rows.count.i64()
+                if index < rows.count.i64():
+                    row: ExportBatchRow = rows[index.usize()]
+                    StudioDraw::text(d.x + BatchLayout::INSET + 10.0, y + 8.0, 12.0, row.label, StudioDraw::ink())
+                    StudioDraw::text(d.x + 360.0, y + 8.0, 11.0, StudioExportBatchPanelPolicy::row_state(row.state, row.approved), state_color(row.state))
+                    StudioText::begin()
+                    StudioText::put("Attempt ")
+                    StudioText::put_i(row.attempt)
+                    StudioText::put("   Warnings ")
+                    StudioText::put_i(row.warning_count)
+                    StudioText::put("   ")
+                    StudioText::put(receipt_summary(row.receipt))
+                    StudioDraw::text(d.x + BatchLayout::INSET + 10.0, y + 28.0, 9.0, StudioText::view(), StudioDraw::muted())
+            for control in [ExportBatchFocus::Enqueue, ExportBatchFocus::Run, ExportBatchFocus::Pause,
+                            ExportBatchFocus::Cancel, ExportBatchFocus::Retry, ExportBatchFocus::Reopen,
+                            ExportBatchFocus::Review, ExportBatchFocus::Publish, ExportBatchFocus::Acknowledge,
+                            ExportBatchFocus::Refresh, ExportBatchFocus::Close, ExportBatchFocus::Previous,
+                            ExportBatchFocus::Next] |control, w, h, focus, controls|:
+                b: Box = export_batch_action_bounds(w, h, control)
+                enabled: bool = action_enabled(control, controls)
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(65, 78, 102) if focus == control else StudioDraw::color(39, 45, 57))
+                StudioDraw::segment(b.x, b.y, b.x + b.w, b.y, 1.0, StudioDraw::accent()) if focus == control
+                StudioDraw::text(b.x + 10.0, b.y + 11.0, 10.0, action_label(control), StudioDraw::ink() if enabled else StudioDraw::color(95, 99, 108))
+            StudioDraw::text(d.x + BatchLayout::INSET, d.y + d.h - 14.0, 9.0,
+                "Tab / arrows move   Enter activates   Esc closes   Recovery snapshots remain until cleanup is qualified.", StudioDraw::muted())
+
+        def receipt_summary(receipt: StudioExportBatchReviewBinding::PublicationReceipt) -> sview:
+            return "All GLB and report bytes verified" if StudioExportBatchReviewBinding::outputs_verified(receipt)
+            return "Publication durability unknown; inspect destinations" if receipt.glb == StudioExportBatchReviewBinding::ArtifactStage.PublishedDurabilityUnknown or receipt.json == StudioExportBatchReviewBinding::ArtifactStage.PublishedDurabilityUnknown or receipt.text == StudioExportBatchReviewBinding::ArtifactStage.PublishedDurabilityUnknown
+            return "Conflicting or unavailable destination; existing files preserved" if receipt.glb == StudioExportBatchReviewBinding::ArtifactStage.ConflictingOrUnavailable or receipt.json == StudioExportBatchReviewBinding::ArtifactStage.ConflictingOrUnavailable or receipt.text == StudioExportBatchReviewBinding::ArtifactStage.ConflictingOrUnavailable
+            return "GLB verified; one or more report files still need publication" if receipt.glb_bytes_verified and not (receipt.json_bytes_verified and receipt.text_bytes_verified)
+            return "Reports verified; GLB publication is incomplete" if not receipt.glb_bytes_verified and receipt.json_bytes_verified and receipt.text_bytes_verified
+            return "Partial publication; inspect each destination before retrying" if receipt.glb_bytes_verified or receipt.json_bytes_verified or receipt.text_bytes_verified
+            return "Staging output retained" if receipt.staging == StudioExportBatchReviewBinding::StagingDisposition.StillPresent
+            return "Staging cleanup uncertain; recovery retained" if receipt.staging == StudioExportBatchReviewBinding::StagingDisposition.Unknown
+            return "Staging removed after publication" if receipt.staging == StudioExportBatchReviewBinding::StagingDisposition.Removed
+            "Recovery snapshots retained"
+
+        def state_color(state: StudioExportBatchQueuePolicy::ItemState) -> UiCore::Color:
+            return StudioDraw::color(128, 205, 154) if state == StudioExportBatchQueuePolicy::ItemState.Passed
+            return StudioDraw::color(245, 180, 94) if state == StudioExportBatchQueuePolicy::ItemState.Warning or state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+            return StudioDraw::color(244, 145, 118) if state == StudioExportBatchQueuePolicy::ItemState.Failed or state == StudioExportBatchQueuePolicy::ItemState.Recoverable
+            StudioDraw::ink()
+
+        def action_enabled(control: ExportBatchFocus, controls: ExportBatchControls) -> bool:
+            return controls.enqueue if control == ExportBatchFocus::Enqueue
+            return controls.run if control == ExportBatchFocus::Run
+            return controls.pause if control == ExportBatchFocus::Pause
+            return controls.cancel if control == ExportBatchFocus::Cancel
+            return controls.retry if control == ExportBatchFocus::Retry
+            return controls.reopen if control == ExportBatchFocus::Reopen
+            return controls.review if control == ExportBatchFocus::Review
+            return controls.publish if control == ExportBatchFocus::Publish
+            return controls.acknowledge if control == ExportBatchFocus::Acknowledge
+            return controls.refresh if control == ExportBatchFocus::Refresh
+            true
+
+        def action_label(control: ExportBatchFocus) -> sview:
+            return "Add reviewed export" if control == ExportBatchFocus::Enqueue
+            return "Run queue" if control == ExportBatchFocus::Run
+            return "Pause" if control == ExportBatchFocus::Pause
+            return "Cancel" if control == ExportBatchFocus::Cancel
+            return "Retry item" if control == ExportBatchFocus::Retry
+            return "Reopen batch" if control == ExportBatchFocus::Reopen
+            return "Review warnings" if control == ExportBatchFocus::Review
+            return "Publish" if control == ExportBatchFocus::Publish
+            return "Acknowledge" if control == ExportBatchFocus::Acknowledge
+            return "Refresh" if control == ExportBatchFocus::Refresh
+            return "Close" if control == ExportBatchFocus::Close
+            return "Previous" if control == ExportBatchFocus::Previous
+            "Next"

@@ -1,0 +1,108 @@
+include "export_batch_queue_policy.elisa"
+include "export_batch_review_binding.elisa"
+
+# Immutable display projections. Review tokens, claims and identities remain
+# in the binding and never cross the panel projection boundary.
+module StudioExportBatchPanelPolicy:
+    public:
+        const enum Action of i64:
+            None = 0
+            Enqueue = 1
+            Run = 2
+            Pause = 3
+            Cancel = 4
+            Retry = 5
+            Reopen = 6
+            Review = 7
+            Publish = 8
+            Acknowledge = 9
+            Refresh = 10
+            Close = 11
+            Previous = 12
+            Next = 13
+
+        const enum Focus of i64:
+            Enqueue = 0
+            Run = 1
+            Pause = 2
+            Cancel = 3
+            Retry = 4
+            Reopen = 5
+            Review = 6
+            Publish = 7
+            Acknowledge = 8
+            Refresh = 9
+            Close = 10
+            Previous = 11
+            Next = 12
+
+        struct Row:
+            label: sview
+            state: StudioExportBatchQueuePolicy::ItemState
+            attempt: i64
+            warning_count: i64
+            approved: bool
+            receipt: StudioExportBatchReviewBinding::PublicationReceipt
+
+        struct Controls:
+            enqueue: bool
+            run: bool
+            pause: bool
+            cancel: bool
+            retry: bool
+            reopen: bool
+            review: bool
+            publish: bool
+            acknowledge: bool
+            refresh: bool
+
+        # Converts a row offset in the clipped viewport into a queue index.
+        # Negative or off-page rows have no hit target.
+        def visible_row(first_row: i64, visible_count: i64, offset: i64) -> i64:
+            requires first_row >= 0 and visible_count >= 0 and visible_count <= 7
+            ensure result >= -1
+            ensure result == -1 or result >= first_row and result < first_row + visible_count
+            return -1 if offset < 0 or offset >= visible_count
+            first_row + offset
+
+        def row_state(state: StudioExportBatchQueuePolicy::ItemState,
+                approved: bool) -> sview:
+            return "Queued · waiting to run" if state == StudioExportBatchQueuePolicy::ItemState.Queued
+            return "Running · staging result" if state == StudioExportBatchQueuePolicy::ItemState.Running
+            return "Passed · all outputs verified" if state == StudioExportBatchQueuePolicy::ItemState.Passed
+            return "Warning · reviewed" if state == StudioExportBatchQueuePolicy::ItemState.Warning and approved
+            return "Warning · explicit review required" if state == StudioExportBatchQueuePolicy::ItemState.Warning
+            return "Failed · inspect before retry" if state == StudioExportBatchQueuePolicy::ItemState.Failed
+            return "Cancelled · output retained" if state == StudioExportBatchQueuePolicy::ItemState.Cancelled
+            return "Staged · ready to publish" if state == StudioExportBatchQueuePolicy::ItemState.Staged
+            return "Warning report · approved for this capture" if state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview and approved
+            return "Warning report · review before publish" if state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+            "Recoverable · facts need inspection"
+
+        def action_enabled(control: Focus, controls: Controls) -> bool:
+            return controls.enqueue if control == Focus.Enqueue
+            return controls.run if control == Focus.Run
+            return controls.pause if control == Focus.Pause
+            return controls.cancel if control == Focus.Cancel
+            return controls.retry if control == Focus.Retry
+            return controls.reopen if control == Focus.Reopen
+            return controls.review if control == Focus.Review
+            return controls.publish if control == Focus.Publish
+            return controls.acknowledge if control == Focus.Acknowledge
+            return controls.refresh if control == Focus.Refresh
+            true
+
+        def action_label(control: Focus) -> sview:
+            return "Add reviewed" if control == Focus.Enqueue
+            return "Run queue" if control == Focus.Run
+            return "Pause" if control == Focus.Pause
+            return "Cancel" if control == Focus.Cancel
+            return "Retry item" if control == Focus.Retry
+            return "Reopen batch" if control == Focus.Reopen
+            return "Review warnings" if control == Focus.Review
+            return "Publish" if control == Focus.Publish
+            return "Acknowledge" if control == Focus.Acknowledge
+            return "Refresh" if control == Focus.Refresh
+            return "Close" if control == Focus.Close
+            return "Previous" if control == Focus.Previous
+            "Next"
