@@ -1,0 +1,193 @@
+# Track-level cleanup tools over fixed-point channels. Each tool loops over
+# frames and delegates the per-frame decision to a proved kernel.
+include "../core/stability.elisa"
+include "../core/fade.elisa"
+include "../core/order.elisa"
+include "../core/span.elisa"
+include "../core/gate.elisa"
+include "../core/seam.elisa"
+include "../core/smooth.elisa"
+include "../core/lock.elisa"
+include "../core/footing.elisa"
+include "../core/window.elisa"
+include "../core/slide.elisa"
+include "../detect/contact.elisa"
+include "../detect/spike.elisa"
+
+module Track:
+    public:
+        const LIMIT: i64 = 1000000000
+        # The kernels' bounds under names of their own: a negated qualified
+        # constant (`-Lock::LIMIT`) is ambiguous to the prover here, since six
+        # included modules each define a LIMIT. A wrong value here fails the
+        # kernels' preconditions, so the prover keeps them in step.
+    private:
+        const SMOOTH_LIMIT: i64 = 1000000000000   # Smooth::LIMIT
+        const LOCK_LIMIT: i64 = 1000000000        # Lock::LIMIT
+        const FOOT_LIMIT: i64 = 1000000000        # Footing::LIMIT
+        const WRING_HALF: i64 = 500000000         # Stability::LIMIT / 2
+        const STABLE_LIMIT: i64 = 1000000000      # Stability::LIMIT
+
+        # Order::clamp under a name of its own: Span::clamp is also included,
+        # and with two `clamp`s in scope the prover does not apply
+        # Order::clamp's ensures at the call. Same body and contract.
+        def bounded(value: i64, lo: i64, hi: i64) -> i64:
+            requires lo <= hi
+            ensure result >= lo
+            ensure result <= hi
+            ensure value < lo or value > hi or result == value
+            return lo if value < lo
+            return hi if value > hi
+            return value
+
+        # bounded(v, -k, k), with k passed positive: a negated constant
+        # argument is a mixed-sign constant the prover will not compare.
+        def bound_to(v: i64, k: i64) -> i64:
+            requires k >= 0
+            ensure result >= -k
+            ensure result <= k
+            ensure v < -k or v > k or result == v
+            return -k if v < -k
+            return k if v > k
+            return v
+
+        # bound_to at each kernel bound. Called inside loops, where a
+        # constant argument's `k >= 0` is not re-proved per call.
+        def lock_value(v: i64) -> i64:
+            ensure result >= -LOCK_LIMIT
+            ensure result <= LOCK_LIMIT
+            return bound_to(v, LOCK_LIMIT)
+
+        def foot_value(v: i64) -> i64:
+            ensure result >= -FOOT_LIMIT
+            ensure result <= FOOT_LIMIT
+            return bound_to(v, FOOT_LIMIT)
+
+        def wring_value(v: i64) -> i64:
+            ensure result >= -WRING_HALF
+            ensure result <= WRING_HALF
+            return bound_to(v, WRING_HALF)
+
+        # Fade weight that matches Fade::weight / eased_weight at runtime for
+        # every edge, frame and length: in the kernel domain it calls the
+        # kernel, otherwise it repeats the kernel body (G76). `eased` picks
+        # the smoothstep variant.
+        def fade_at(frame: i64, last: i64, edge: i64, looping: bool, eased: bool) -> i64:
+            ensure result >= 0
+            ensure result <= Fade::FULL
+            return Fade::FULL if looping or frame < 0 or frame > last
+            if last < Fade::MAX_FRAMES and edge >= 1 and edge <= Fade::MAX_EDGE:
+                if eased:
+                    return Fade::eased_weight(frame, last, edge, looping)
+                return Fade::weight(frame, last, edge, looping)
+            rest: i64 = last - frame
+            distance: i64 = frame if frame <= rest else rest
+            return Fade::FULL if distance >= edge
+            return 0 if distance == 0
+            linear: i64 = distance * Fade::FULL / edge
+            return Fade::FULL if linear > Fade::FULL or linear < 0
+            return Fade::ease(linear) if eased
+            return linear
+
+        # Gate::apply for any channel values: the kernel inside its +-LIMIT
+        # domain, the identical arithmetic outside it (G76).
+    public:
+        def blend(source: i64, fixed: i64, w: i64) -> i64:
+            requires w >= 0
+            requires w <= Fade::FULL
+            ensure w != 0 or result == source
+            return source if source == fixed
+            return source if w == 0
+            return fixed if w == Fade::FULL
+            if source >= -LIMIT and source <= LIMIT and fixed >= -LIMIT and fixed <= LIMIT:
+                return Gate::apply(source, fixed, w)
+            return source + (fixed - source) * w / Fade::FULL
+
+        # Fade the filtered buffer back toward the source at clip edges. The
+        # filter passes only assign existing slots, so `fixed` has the
+        # source's length and the `fixed.count` guard never fires (G76).
+    private:
+        def faded(values: darray[i64]&, fixed: darray[i64]&, edge: i64, looping: bool, eased: bool) -> darray[i64]:
+            out: mutable darray[i64] = []
+            last: i64 = values.count.i64() - 1
+            for i in 0..<values.count:
+                source: i64 = values[i]
+                target: mutable i64 = source
+                if i < fixed.count:
+                    target <- fixed[i]
+                w: i64 = fade_at(i.i64(), last, edge, looping, eased)
+                out.push(blend(source, target, w))
+            return out
+
+        # Element `k`, or 0 off the track. Every caller passes an in-range
+        # frame, so this is the plain read; the check is what lets the prover
+        # see the bound without a model of the caller's arithmetic.
+        def item(values: darray[i64]&, k: i64) -> i64:
+            return 0 if k < 0
+            index: usize = k.usize()
+            return 0 if index >= values.count
+            return values[index]
+
+        # Flag `k`, false off the end (the callers' own `k < flags.count` test).
+        def flag(flags: darray[bool]&, k: i64) -> bool:
+            return false if k < 0
+            index: usize = k.usize()
+            return false if index >= flags.count
+            return flags[index]
+
+        # Store `v` at `k`; callers only write existing slots.
+        def put(values: mutable darray[i64]&, k: i64, v: i64) -> void:
+            return if k < 0
+            index: usize = k.usize()
+            return if index >= values.count
+            values[index] <- v
+
+        # Span::clamp for any count (its body beyond MAX_FRAMES).
+        def clamped(frame: i64, count: i64) -> i64:
+            requires count >= 1
+            ensure result >= 0
+            ensure result < count
+            return Span::clamp(frame, count) if count <= Span::MAX_FRAMES
+            return 0 if frame < 0
+            return count - 1 if frame >= count
+            return frame
+
+        # Span::wrap for any count and frame (its body outside the kernel
+        # domain; a frame so large the shift would overflow reads slot 0).
+        def wrapped(frame: i64, count: i64) -> i64:
+            requires count >= 1
+            if count <= Span::MAX_FRAMES and frame > -Span::MAX_FRAMES and frame < 2 * Span::MAX_FRAMES:
+                return Span::wrap(frame, count)
+            return 0 if frame > 9000000000000000000 or frame < -9000000000000000000
+            return (frame + Span::MAX_FRAMES) % count
+
+        # Odd-reflection sample: off-clip frames mirror through the end value,
+        # so symmetric filters keep the end frames exactly.
+    public:
+        def odd_sample(values: darray[i64]&, frame: i64) -> i64:
+            count: i64 = values.count.i64()
+            return 0 if count <= 0
+            return item(values, frame) if frame >= 0 and frame < count
+            return item(values, clamped(frame, count)) if count > Window::MAX_FRAMES
+            # The last two tests are implied by the first two once count <= MAX_FRAMES.
+            return item(values, clamped(frame, count)) if frame <= -count or frame >= 2 * count - 1 or frame <= -Window::MAX_FRAMES or frame >= 2 * Window::MAX_FRAMES
+            at: i64 = Window::mirror(frame, count)
+            end: mutable i64 = item(values, count - 1)
+            if frame < 0:
+                end <- item(values, 0)
+            return reflected(end, item(values, at))
+
+        # Window::reflect within +-LIMIT, the mirrored value itself outside it.
+    private:
+        def reflected(end: i64, mirrored: i64) -> i64:
+            return mirrored if end < -LIMIT or end > LIMIT or mirrored < -LIMIT or mirrored > LIMIT
+            return Window::reflect(end, mirrored, LIMIT)
+
+    public:
+        def sample(values: darray[i64]&, frame: i64, looping: bool) -> i64:
+            count: i64 = values.count.i64()
+            return 0 if count <= 0
+            if looping:
+                return item(values, wrapped(frame, count))
+            return item(values, clamped(frame, count))
+

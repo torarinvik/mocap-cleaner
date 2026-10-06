@@ -1,0 +1,203 @@
+include "track_support.elisa"
+
+extend Track:
+    public:
+        # One median-of-3 pass from `src` into `dst` (same length). Without
+        # looping, interior frames (both neighbours on the track, the
+        # Slide::inner test) read their neighbours directly and the ends go
+        # through `sample`, so the result equals the padded form everywhere.
+        # Looping keeps `sample` on every frame: Span::wrap offsets in-range
+        # frames by MAX_FRAMES % count.
+    private:
+        def despike_pass(src: darray[i64]&, dst: mutable darray[i64]&, looping: bool) -> void:
+            count: i64 = src.count.i64()
+            for f in 0..<count |f, src, dst, count, looping|:
+                if not looping and f >= 1 and f + 1 < count:
+                    a: i64 = item(src, f - 1)
+                    b: i64 = item(src, f)
+                    c: i64 = item(src, f + 1)
+                    put(dst, f, Order::median3(a, b, c))
+                else:
+                    before: i64 = sample(src, f - 1, looping)
+                    now: i64 = item(src, f)
+                    after: i64 = sample(src, f + 1, looping)
+                    put(dst, f, Order::median3(before, now, after))
+
+        # Running median-of-3 de-spike, repeated `passes` times, then faded to
+        # the source at clip edges (unless looping). Two buffers are reused
+        # for every pass (Slide::flip picks the one a pass writes).
+    public:
+        def despike(values: darray[i64]&, passes: i64, edge: i64, looping: bool) -> darray[i64]:
+            count: i64 = values.count.i64()
+            first: mutable darray[i64] = []
+            second: mutable darray[i64] = []
+            for v in values |first, second|:
+                first.push(v)
+                second.push(v)
+            return first if count < 3
+            side: mutable i64 = 1
+            round: mutable i64 = 0
+            while round < passes:
+                invariant side >= 0
+                invariant side <= 1
+                if side == 1:
+                    despike_pass(&first, &second, looping)
+                else:
+                    despike_pass(&second, &first, looping)
+                side <- Slide::flip(side)
+                round <- round + 1
+            return faded(values, &first, edge, looping, false) if side == 1
+            return faded(values, &second, edge, looping, false)
+
+        # First slot of a sorted window whose value is above `v` (`above`
+        # true) or at least `v` (`above` false): a binary search through the
+        # proved Slide::probe / right_of / left_of.
+    private:
+        def sorted_slot(window: darray[i64]&, v: i64, above: bool) -> i64:
+            lo: mutable i64 = 0
+            hi: mutable i64 = window.count.i64()
+            return hi if hi > Slide::SEARCH_MAX
+            while lo < hi:
+                invariant lo >= 0
+                invariant hi <= Slide::SEARCH_MAX
+                at: i64 = Slide::probe(lo, hi)
+                x: i64 = item(window, at)
+                if x < v or (above and x == v):
+                    lo <- Slide::right_of(lo, hi)
+                else:
+                    hi <- Slide::left_of(lo, hi)
+            return lo
+
+        # Insert `v` into a sorted window, shifting the larger values up.
+        def sorted_insert(window: mutable darray[i64]&, v: i64) -> void:
+            at: i64 = sorted_slot(window, v, true)
+            window.push(v)
+            last: i64 = window.count.i64() - 1
+            for k in 0..<(last - at) |k, at, last, window|:
+                j: i64 = last - k
+                moved: i64 = item(window, j - 1)
+                put(window, j, moved)
+            put(window, at, v)
+
+        # Remove one copy of `v` from a sorted window that holds it.
+        def sorted_remove(window: mutable darray[i64]&, v: i64) -> void:
+            at: i64 = sorted_slot(window, v, false)
+            n: i64 = window.count.i64()
+            return if at >= n
+            for j in at..<(n - 1) |j, n, window|:
+                moved: i64 = item(window, j + 1)
+                put(window, j, moved)
+            window.pop()
+
+        # Window::middle for any size (its body outside the kernel domain).
+        def middle_of(size: i64) -> i64:
+            return Window::middle(size) if size >= 1 and size <= 2 * Window::MAX_RADIUS + 1
+            return (size - 1) / 2
+
+        # Wide running median over 2*radius+1 frames (odd-reflected at clip
+        # ends), faded to the source at clip edges. Removes long jitter runs
+        # that a median-of-3 cannot. The window stays sorted as it slides:
+        # each frame removes the frame that leaves (Slide::outgoing) and
+        # inserts the one that enters (Slide::incoming), O(log w) to find each
+        # slot instead of re-sorting 2r+1 values per frame. The fade is
+        # Fade::eased_weight (`fade_at` in its domain) and the blend Gate::apply
+        # (`blend` within +-LIMIT).
+    public:
+        def median(values: darray[i64]&, radius: i64, edge: i64) -> darray[i64]:
+            count: i64 = values.count.i64()
+            out: mutable darray[i64] = []
+            for v in values |out|:
+                out.push(v)
+            return out if count < 3 or radius < 1 or radius > Window::MAX_RADIUS or radius > Slide::REACH_MAX or count >= Window::MAX_FRAMES or count >= Slide::SPAN_MAX
+            window: mutable darray[i64] = []
+            for d in 0..<(2 * radius + 1) |d, values, window, radius|:
+                sorted_insert(&window, odd_sample(values, d - radius))
+            for f in 0..<count |f, values, out, window, count, radius, edge|:
+                if f >= 1:
+                    sorted_remove(&window, odd_sample(values, Slide::outgoing(f, radius)))
+                    sorted_insert(&window, odd_sample(values, Slide::incoming(f, radius)))
+                m: i64 = middle_of(window.count.i64())
+                w: i64 = fade_at(f, count - 1, edge, false, true)
+                put(&out, f, blend(item(values, f), item(window, m), w))
+            return out
+
+        # Smooth::binomial for any values (its body outside +-Smooth::LIMIT).
+    private:
+        def binomial(a: i64, b: i64, c: i64) -> i64:
+            if a >= -Smooth::LIMIT and a <= Smooth::LIMIT and b >= -Smooth::LIMIT and b <= Smooth::LIMIT and c >= -Smooth::LIMIT and c <= Smooth::LIMIT:
+                return Smooth::binomial(a, b, c)
+            return b if a == b and b == c
+            return (a + 2 * b + c) / 4
+
+        # One 1-2-1 pass from `src` into `dst` (same length); without looping,
+        # interior frames read their neighbours directly and the ends are
+        # padded as before (looping keeps `sample`, as in despike_pass).
+        def smooth_pass(src: darray[i64]&, dst: mutable darray[i64]&, looping: bool) -> void:
+            count: i64 = src.count.i64()
+            for f in 0..<count |f, src, dst, count, looping|:
+                if not looping and f >= 1 and f + 1 < count:
+                    a: i64 = item(src, f - 1)
+                    b: i64 = item(src, f)
+                    c: i64 = item(src, f + 1)
+                    put(dst, f, binomial(a, b, c))
+                else:
+                    before: mutable i64 = 0
+                    after: mutable i64 = 0
+                    if looping:
+                        before <- sample(src, f - 1, true)
+                        after <- sample(src, f + 1, true)
+                    else:
+                        before <- odd_sample(src, f - 1)
+                        after <- odd_sample(src, f + 1)
+                    now: i64 = item(src, f)
+                    put(dst, f, binomial(before, now, after))
+
+        # Repeated 1-2-1 smoothing, faded to the source at clip edges; two
+        # buffers are reused for every pass.
+    public:
+        def smooth(values: darray[i64]&, passes: i64, edge: i64, looping: bool) -> darray[i64]:
+            count: i64 = values.count.i64()
+            first: mutable darray[i64] = []
+            second: mutable darray[i64] = []
+            for v in values |first, second|:
+                first.push(Order::clamp(v, -SMOOTH_LIMIT, SMOOTH_LIMIT))
+                second.push(0)
+            return first if count < 3
+            side: mutable i64 = 1
+            round: mutable i64 = 0
+            while round < passes:
+                invariant side >= 0
+                invariant side <= 1
+                if side == 1:
+                    smooth_pass(&first, &second, looping)
+                else:
+                    smooth_pass(&second, &first, looping)
+                side <- Slide::flip(side)
+                round <- round + 1
+            return faded(values, &first, edge, looping, true) if side == 1
+            return faded(values, &second, edge, looping, true)
+
+        # Spike::is_spike for any values (its body outside +-Spike::LIMIT).
+    private:
+        def spiked(prev: i64, now: i64, next: i64, threshold: i64) -> bool:
+            if threshold >= 0 and prev >= -Spike::LIMIT and prev <= Spike::LIMIT and now >= -Spike::LIMIT and now <= Spike::LIMIT and next >= -Spike::LIMIT and next <= Spike::LIMIT:
+                return Spike::is_spike(prev, now, next, threshold)
+            out: i64 = now - prev
+            back: i64 = next - now
+            return false if out == 0 or back == 0
+            return false if (out > 0) == (back > 0)
+            bend: i64 = prev - 2 * now + next
+            size: mutable i64 = bend
+            if bend < 0:
+                size <- -bend
+            return size > threshold
+
+        # Count spikes in a track (the de-spike detector).
+    public:
+        def spike_count(values: darray[i64]&, threshold: i64, looping: bool) -> i64:
+            total: mutable i64 = 0
+            count: i64 = values.count.i64()
+            for f in 0..<count |f, values, total, threshold, looping|:
+                total <- total + 1 if spiked(sample(values, f - 1, looping), item(values, f), sample(values, f + 1, looping), threshold)
+            return total
+

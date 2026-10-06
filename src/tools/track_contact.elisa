@@ -1,0 +1,115 @@
+include "track_support.elisa"
+
+extend Track:
+    public:
+        # Contact::step for any thresholds (its body when enter > leave).
+    private:
+        def stepped(planted: bool, height: i64, speed: i64, enter: i64, leave: i64, max_speed: i64) -> bool:
+            return Contact::step(planted, height, speed, enter, leave, max_speed) if enter <= leave
+            return false if speed > max_speed
+            return height <= leave if planted
+            return height <= enter
+
+        # Contact flags from heights and speeds with hysteresis.
+    public:
+        def contacts(heights: darray[i64]&, speeds: darray[i64]&, enter: i64, leave: i64, max_speed: i64) -> darray[bool]:
+            flags: mutable darray[bool] = []
+            planted: mutable bool = false
+            for i in 0..<heights.count |i, heights, speeds, flags, planted, enter, leave, max_speed|:
+                speed: i64 = get speeds[i] else 0
+                planted <- stepped(planted, heights[i], speed, enter, leave, max_speed)
+                flags.push(planted)
+            return flags
+
+        # Pin planted frames of a height track to the floor.
+        def pin(heights: darray[i64]&, flags: darray[bool]&, floor: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for i in 0..<heights.count |i, heights, flags, out, floor|:
+                planted: bool = get flags[i] else false
+                out.push(Contact::pinned_height(planted, heights[i], floor))
+            return out
+
+        # Seam::pull for any clip length (its body beyond MAX_FRAMES).
+    private:
+        def pulled(frame: i64, last: i64, window: i64) -> i64:
+            requires last >= 1
+            requires window >= 1
+            requires window <= last
+            requires frame >= 0
+            requires frame <= last
+            ensure result >= 0
+            ensure result <= Fade::FULL
+            return Seam::pull(frame, last, window) if last < Seam::MAX_FRAMES
+            start: i64 = last - window
+            return 0 if frame <= start
+            return Fade::FULL if frame == last
+            into: i64 = frame - start
+            w: i64 = into * Fade::FULL / window
+            # 0 < into < window here, so w is already in [0, FULL].
+            return Fade::FULL if w > Fade::FULL
+            return 0 if w < 0
+            return w
+
+        # Close a loop seam: pull the last `window` frames toward a linear
+        # continuation into frame 0 (Gate::apply through `blend`).
+    public:
+        def close_seam(values: darray[i64]&, window: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for v in values |out|:
+                out.push(v)
+            last: i64 = values.count.i64() - 1
+            return out if last < 1 or window < 1 or window > last
+            target_end: i64 = item(values, 0)
+            count: i64 = last + 1
+            for f in 0..<count |f, values, out, last, window, target_end|:
+                # Always true (f < count = last + 1, and the guard above);
+                # restated because the loop body does not carry the guard.
+                if f >= 0 and f <= last and window >= 1 and window <= last:
+                    w: i64 = pulled(f, last, window)
+                    source: i64 = item(values, f)
+                    put(&out, f, blend(source, target_end, w))
+            return out
+
+        # Sum of the clamped channel values (wring_guard's numerator).
+    private:
+        def wring_total(values: darray[i64]&) -> i64:
+            total: mutable i64 = 0
+            for v in values |total|:
+                total <- total + wring_value(v)
+            return total
+
+        # The guard pose: the mean of the channel clamped to half the
+        # stability range, clamped again into that range.
+        def wring_guard(values: darray[i64]&) -> i64:
+            ensure result >= -WRING_HALF
+            ensure result <= WRING_HALF
+            n: i64 = values.count.i64()
+            # n is 0 here, so this is 0 (a literal 0 does not establish a
+            # negative lower bound for the prover; a clamped name does).
+            return wring_value(n) if values.count == 0
+            total: i64 = wring_total(values)
+            mean: i64 = total / n
+            return wring_value(mean)
+
+        # One frame of limit_wring, the value clamped like the guard.
+        def wring_one(v: i64, about: i64, bound: i64) -> i64:
+            requires bound >= 0
+            requires bound <= Stability::LIMIT
+            value: i64 = wring_value(v)
+            # Never taken: value is a wring_value and `about` the wring_guard,
+            # both within WRING_HALF = STABLE_LIMIT / 2. Written in
+            # limit_wring's own terms, which the prover matches directly.
+            return value if value < -STABLE_LIMIT / 2 or value > STABLE_LIMIT / 2 or about < -STABLE_LIMIT / 2 or about > STABLE_LIMIT / 2
+            return Stability::limit_wring(value, about, bound)
+
+        # Knee/elbow stability: soft-limit a channel about its mean (the guard pose).
+    public:
+        def limit_wring(values: darray[i64]&, limit: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            return out if values.count == 0
+            about: i64 = wring_guard(values)
+            bound: i64 = Order::clamp(limit, 0, Stability::LIMIT)
+            for v in values |out, about, bound|:
+                out.push(wring_one(v, about, bound))
+            return out
+

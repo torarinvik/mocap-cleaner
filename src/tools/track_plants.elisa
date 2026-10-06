@@ -1,0 +1,223 @@
+include "track_support.elisa"
+
+extend Track:
+    public:
+        # Last frame of the planted run that starts at `start`.
+    private:
+        def run_end(flags: darray[bool]&, start: i64, count: i64) -> i64:
+            requires start >= 0
+            requires start < count
+            ensure result >= start
+            ensure result < count
+            finish: mutable i64 = start
+            while finish + 1 < count:
+                invariant finish >= start
+                invariant finish < count
+                break if not flag(flags, finish + 1)
+                finish <- finish + 1
+            return finish
+
+        # First planted frame after `f`, or `count` when none is.
+        def next_plant(flags: darray[bool]&, f: i64, count: i64) -> i64:
+            requires f < count
+            ensure result > f
+            ensure result <= count
+            next: mutable i64 = f + 1
+            while next < count:
+                invariant next > f
+                invariant next <= count
+                break if flag(flags, next)
+                next <- next + 1
+            return next
+
+        # Foot-slide lock: hold each planted run of a foot channel at its value
+        # on the plant frame, ramping in and out over `blend` frames.
+    public:
+        def lock(values: darray[i64]&, flags: darray[bool]&, blend: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for v in values |out|:
+                out.push(v)
+            count: i64 = values.count.i64()
+            return out if count == 0 or count > Fade::MAX_FRAMES or blend < 1 or blend > Fade::MAX_EDGE
+            start: mutable i64 = 0
+            while start < count:
+                invariant start >= 0
+                invariant count <= Fade::MAX_FRAMES
+                invariant blend >= 1
+                invariant blend <= Fade::MAX_EDGE
+                if not flag(flags, start):
+                    start <- start + 1
+                    continue
+                finish: i64 = run_end(flags, start, count)
+                held: i64 = item(values, start)
+                # Never taken (run_end ensures start <= finish < count); the
+                # prover does not tie `finish` to those ensures, so say it.
+                break if finish < start or finish >= count
+                lock_run(values, &out, start, finish, blend)
+                start <- finish + 1
+            return out
+
+        # Hold one planted run start..finish at its plant value (lock's inner
+        # loop, in a body of its own to stay within the fact budget).
+    private:
+        def lock_run(values: darray[i64]&, out: mutable darray[i64]&, start: i64, finish: i64, ramp: i64) -> void:
+            requires ramp >= 1
+            requires ramp <= Fade::MAX_EDGE
+            requires start >= 0
+            requires start <= finish
+            requires finish < Fade::MAX_FRAMES
+            held: i64 = item(values, start)
+            anchor: i64 = lock_value(held)
+            stop: i64 = finish + 1
+            for f in start..<stop |f, start, finish, values, out, anchor, ramp|:
+                into: i64 = f - start
+                left: i64 = finish - f
+                # Always true (lock passes start <= f <= finish < count <=
+                # MAX_FRAMES and anchor is a lock_value); restated for the body.
+                if into >= 0 and into <= Fade::MAX_FRAMES and left >= 0 and left <= Fade::MAX_FRAMES and ramp >= 1 and ramp <= Fade::MAX_EDGE and anchor >= -LOCK_LIMIT and anchor <= LOCK_LIMIT:
+                    put(out, f, lock_frame(item(values, f), anchor, into, left, ramp))
+
+        # One frame of `lock`: Lock::locked on the clamped value.
+        def lock_frame(raw: i64, anchor: i64, into: i64, left: i64, ramp: i64) -> i64:
+            requires anchor >= -LOCK_LIMIT
+            requires anchor <= LOCK_LIMIT
+            requires into >= 0
+            requires into <= Fade::MAX_FRAMES
+            requires left >= 0
+            requires left <= Fade::MAX_FRAMES
+            requires ramp >= 1
+            requires ramp <= Fade::MAX_EDGE
+            v: i64 = lock_value(raw)
+            return Lock::locked(v, anchor, into, left, ramp)
+
+        # Spread planted corrections into the swing: a planted frame keeps its
+        # own offset in full; a swing frame gets the offset of the run before
+        # it and of the run after it, each eased out over at least `blend` frames
+        # and slowly enough to move at most `step` per frame (Footing::span), so the catch-up happens in the air.
+        def carried(offsets: darray[i64]&, flags: darray[bool]&, blend: i64, step: i64) -> darray[i64]:
+            valid: bool = blend >= 1 and blend <= Fade::MAX_EDGE
+            blends: mutable darray[i64] = []
+            for v in offsets |blends, valid, blend|:
+                blends.push(blend if valid else 0)
+            if not valid:
+                for k in 0..<blends.count |k, blends|:
+                    blends[k] <- 0
+                return blends
+            return carried_blends(offsets, flags, &blends, step)
+
+        # One side of a swing frame's carried offset: the plant's offset
+        # eased out over `distance` frames at the plant's blend.
+        def carried_side(offset: i64, distance: i64, blend: i64, step: i64) -> i64:
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            reach: i64 = bounded(distance, 1, Fade::MAX_FRAMES)
+            return side_eased(offset, reach, blend, step)
+
+        # carried_side split one clamp per function: the prover keeps the
+        # ensures of one call result per body, not of three.
+        def side_eased(offset: i64, reach: i64, ramp: i64, step: i64) -> i64:
+            requires reach >= 1
+            requires reach <= Fade::MAX_FRAMES
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            ease: i64 = bounded(ramp, 1, Fade::MAX_EDGE)
+            return side_held(offset, reach, ease, step)
+
+        def side_held(offset: i64, reach: i64, ease: i64, step: i64) -> i64:
+            requires reach >= 1
+            requires reach <= Fade::MAX_FRAMES
+            requires ease >= 1
+            requires ease <= Fade::MAX_EDGE
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            held: i64 = foot_value(offset)
+            return carry_over(held, reach, ease, step)
+
+        def carry_over(held: i64, reach: i64, ease: i64, step: i64) -> i64:
+            requires held >= -FOOT_LIMIT
+            requires held <= FOOT_LIMIT
+            requires reach >= 1
+            requires reach <= Fade::MAX_FRAMES
+            requires ease >= 1
+            requires ease <= Fade::MAX_EDGE
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            width: i64 = Footing::span(held, step, ease)
+            return Footing::carry(held, reach, width)
+
+        # The carried offset of one swing frame `g` between the plant at
+        # `prev` (-1: none) and the one at `next` (`count`: none). A missing
+        # plant contributes offset 0 at distance MAX_EDGE with blend 1.
+        def carried_at(offsets: darray[i64]&, blends: darray[i64]&, g: i64, prev: i64, next: i64, count: i64, step: i64) -> i64:
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            first: mutable i64 = carried_side(0, Fade::MAX_EDGE, 1, step)
+            if prev >= 0:
+                before: i64 = item(offsets, prev)
+                release: i64 = item(blends, prev)
+                first <- carried_side(before, g - prev, release, step)
+            second: mutable i64 = carried_side(0, Fade::MAX_EDGE, 1, step)
+            if next < count:
+                after: i64 = item(offsets, next)
+                approach: i64 = item(blends, next)
+                second <- carried_side(after, next - g, approach, step)
+            return first + second
+
+        # Carry with a blend per frame: a free stretch eases out over the
+        # blend of the plant it leaves and in over the blend of the plant it
+        # reaches (the adaptive release of a straight leg).
+    public:
+        def carried_blends(offsets: darray[i64]&, flags: darray[bool]&, blends: darray[i64]&, step: i64) -> darray[i64]:
+            out: mutable darray[i64] = []
+            for v in offsets |out|:
+                out.push(0)
+            count: i64 = offsets.count.i64()
+            return out if count == 0 or count > Fade::MAX_FRAMES or blends.count.i64() < count or flags.count.i64() < count or step < 1 or step > Footing::LIMIT
+            for f in 0..<count |f, offsets, flags, out|:
+                if flag(flags, f):
+                    planted: i64 = item(offsets, f)
+                    put(&out, f, foot_value(planted))
+            prev: mutable i64 = -1
+            f: mutable i64 = 0
+            while f < count:
+                invariant f >= 0
+                invariant step >= 1
+                invariant step <= Footing::LIMIT
+                if flag(flags, f):
+                    prev <- f
+                    f <- f + 1
+                    continue
+                next: i64 = next_plant(flags, f, count)
+                carry_gap(offsets, blends, &out, f, next, prev, count, step)
+                # Never taken (next_plant ensures next > f); the call above
+                # drops that fact, the loop invariant needs it.
+                break if next <= f
+                f <- next
+            return out
+
+        # Fill the free frames f..<next of carried_blends (its inner loop,
+        # in a body of its own to stay within the prover's fact budget).
+    private:
+        def carry_gap(offsets: darray[i64]&, blends: darray[i64]&, out: mutable darray[i64]&, f: i64, next: i64, prev: i64, count: i64, step: i64) -> void:
+            requires step >= 1
+            requires step <= Footing::LIMIT
+            for g in f..<next |g, f, next, prev, count, offsets, out, blends, step|:
+                put(out, g, carried_at(offsets, blends, g, prev, next, count, step))
+
+        # Offset that holds each planted frame at its run's first value.
+    public:
+        def hold_offsets(values: darray[i64]&, flags: darray[bool]&) -> darray[i64]:
+            out: mutable darray[i64] = []
+            anchor: mutable i64 = 0
+            count: i64 = values.count.i64()
+            for k in 0..<count |k, values, flags, out, anchor|:
+                planted: bool = flag(flags, k)
+                raw: i64 = item(values, k)
+                if planted and (k == 0 or not flag(flags, k - 1)):
+                    anchor <- lock_value(raw)
+                v: i64 = lock_value(raw)
+                if planted:
+                    out.push(anchor - v)
+                else:
+                    out.push(0)
+            return out

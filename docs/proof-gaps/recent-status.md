@@ -328,3 +328,14 @@ reset was corrected and its focused rerun passed. All four CLI scenarios
 passed. Strict native Storage verification still stopped at stale stage1
 provenance, and the proof gate retained existing regressions and missing
 reviewed baselines. No green full-check claim is made at this head.
+
+## G94: module extraction proof comparison (2026-10-06)
+
+Track was extracted into support, filter, contact and plant modules, preserving
+function bodies and contracts while making implementation helpers private.
+The composition root and the original file were both checked with the same
+current prover: each reports unsupported, 926 proven and 17 unproven.
+This matches the pre-extraction result but still exceeds the stored 15-open
+baseline. The old baseline remains unchanged; extraction is not a proof fix.
+The CLI build and the existing track-tools test pass. New module baselines
+record their reviewed current results, including existing unresolved goals.
