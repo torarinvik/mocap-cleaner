@@ -35,7 +35,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **74 owners, 703 ungrouped constants**.
+Remaining source inventory: **73 owners, 701 ungrouped constants**.
 File-level export publisher limits, outside this module-owner inventory, now
 use private `StudioExportPublisher::Capacity` (path and staging buffer sizes).
 Numeric capacities remain a const module; typed validation outcomes use an enum.
@@ -57,7 +57,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `PerfCache` | 4 | `src/core/perf_cache.elisa` |
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
 | `Pivot` | 3 | `src/core/pivot.elisa` |
-| `Regress` | 2 | `src/core/regress.elisa` |
 | `Retime` | 8 | `src/core/retime.elisa` |
 | `RigOps` | 9 | `src/ops/rig_hands.elisa`, `src/ops/rig_legs.elisa`, `src/ops/rig_schema.elisa` |
 | `Roles` | 31 | `src/core/roles.elisa` |
@@ -125,3 +124,7 @@ provenance-valid Stage1 product after the external compiler source edit.
 count. These numeric format bounds are not choices; operation variants remain
 the responsibility of the operation schema. Their values are unchanged.
 Compilation and proof replay await current toolchain products.
+
+`Regress::Domain` groups the bounded metric magnitude and maximum permille
+tolerance. All law consumers use the qualified names; numeric values and
+regression behavior are unchanged. Current compilation/replay remain pending.
