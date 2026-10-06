@@ -55,7 +55,7 @@ module StudioModel:
             right_hand_contact: mutable darray[bool]
             ground: mutable f32
             # Balance (Phase 4) of the cleaned clip, per frame: the centre of
-            # mass, StudioOverlay state, and SUPPORT_CORNERS support points
+            # mass, StudioOverlay state, and Support::CORNERS support points
             # (ankle and toe of each planted foot; NaN when absent).
             com: mutable darray[Geometry::Vec3]
             balance: mutable darray[i64]
@@ -388,14 +388,15 @@ module StudioModel:
             return StackState::RIGHT if step_slide(rf, rc, k) > step_slide(lf, lc, k)
             return StackState::LEFT
 
-        const SUPPORT_CORNERS: i64 = 4
+        const module Support:
+            CORNERS: i64 = 4
 
         def vec(p: MotionQuat::V) -> Geometry::Vec3:
             Geometry::Vec3{x: p.x.f32(), y: p.y.f32(), z: p.z.f32()}
 
         # The Phase 4 balance detector (Physics::balance_frames, the same one
         # `--op balance` reports) over the cleaned document, per frame.
-        # Always fills `frames` entries (SUPPORT_CORNERS per frame for the
+        # Always fills `frames` entries (Support::CORNERS per frame for the
         # support), so the overlay can index by frame.
         def balance_of(doc: GlbDocument::Document&, anim: usize, frames: i64, out: mutable Balanced&) -> void:
             nan: f32 = 0.0 / 0.0
@@ -439,9 +440,9 @@ module StudioModel:
         def support_at(c: Clip&, frame: i64) -> darray[Geometry::Vec3]:
             mutable out: darray[Geometry::Vec3] = []
             return out if frame < 0 or frame >= c.frames
-            base: i64 = frame * SUPPORT_CORNERS
-            return out if (base + SUPPORT_CORNERS).usize() > c.support.count
-            for k in 0..<SUPPORT_CORNERS |k, out, c, base|:
+            base: i64 = frame * Support::CORNERS
+            return out if (base + Support::CORNERS).usize() > c.support.count
+            for k in 0..<Support::CORNERS |k, out, c, base|:
                 out.push(c.support[(base + k).usize()])
             return out
 
@@ -479,10 +480,11 @@ module StudioModel:
             return held.path == GlbDocument::TargetPath.Translation
 
         # Frames each side of the key a gizmo correction fades over.
-        const FIX_REACH: i64 = 12
+        const module Correction:
+            REACH: i64 = 12
 
         # The correction that moves rig slot `bone` to model transform `goal`
-        # at `frame`, faded over FIX_REACH frames each side.
+        # at `frame`, faded over Correction::REACH frames each side.
         def correction_for(c: Clip&, r: PoseOverride::Rig&, bone: i64, frame: i64, goal: Geometry::Transform) -> Corrections::Correction:
             models: darray[Geometry::Transform] = models(c, r, frame, false)
             b: usize = bone.usize()
@@ -490,8 +492,8 @@ module StudioModel:
             current: Geometry::Transform = Geometry::transform_apply_inverse(models[parent.usize()], models[b]) if parent >= 0 else models[b]
             wanted: Geometry::Transform = Geometry::transform_apply_inverse(models[parent.usize()], goal) if parent >= 0 else goal
             last: i64 = c.frames - 1 if c.frames > 0 else 0
-            first: i64 = frame - FIX_REACH if frame > FIX_REACH else 0
-            end: i64 = frame + FIX_REACH if frame + FIX_REACH < last else last
+            first: i64 = frame - Correction::REACH if frame > Correction::REACH else 0
+            end: i64 = frame + Correction::REACH if frame + Correction::REACH < last else last
             return Corrections::keyed(c.nodes[b], frame, first, end, current, wanted)
 
         # Default stack: the boxing preset.
@@ -514,23 +516,24 @@ module StudioModel:
             last: i64 = frames - 1 if frames > 0 else 0
             return Ops::smooth_path(0, last, -1, 2) if k == 1
             return Ops::median(0, last, -1, 2) if k == 2
-            return Ops::limit_wring(0, last, -1, WRING_DEFAULT) if k == 3
+            return Ops::limit_wring(0, last, -1, Wring::DEFAULT) if k == 3
             return Ops::seam(8) if k == 4
             return Ops::despike(0, last, -1, 2)
 
         # Limit wring's strength is a fixed-point limit, not a pass count, so
-        # it nudges in steps of WRING_STEP within [0, SCALE]; every other kind
+        # it nudges in steps of Wring::STEP within [0, SCALE]; every other kind
         # goes through StackState::nudge_strength.
-        const WRING_DEFAULT: i64 = 200000
-        const WRING_STEP: i64 = 20000
-        const WRING_MAX: i64 = 1000000
+        const module Wring:
+            DEFAULT: i64 = 200000
+            STEP: i64 = 20000
+            MAXIMUM: i64 = 1000000
 
         def nudge(s: mutable StackState::Stack&, at: i64, delta: i64) -> bool:
             return false if not StackState::valid(s, at)
             mutable op: Ops::Operation = s.ops[at]
             if op.kind == Ops::Kind.LimitWring:
-                v: i64 = op.strength + delta * WRING_STEP
-                op.strength <- 0 if v < 0 else (WRING_MAX if v > WRING_MAX else v)
+                v: i64 = op.strength + delta * Wring::STEP
+                op.strength <- 0 if v < 0 else (Wring::MAXIMUM if v > Wring::MAXIMUM else v)
                 s.ops[at] <- op
                 return true
             return StackState::nudge_strength(s, at, delta)

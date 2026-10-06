@@ -65,7 +65,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioIssueAnnotation` | 3 | `src/studio/issue_annotation.elisa` |
 | `StudioIssueBrowserPolicy` | 17 | `src/studio/issue_browser_policy.elisa` |
 | `StudioLegacyPrompt` | 6 | `src/studio/legacy_session_prompt.elisa` |
-| `StudioModel` | 5 | `src/studio/app/model.elisa` |
 | `StudioOverlay` | 7 | `src/studio/overlay_policy.elisa` |
 | `StudioPanels` | 47 | `src/studio/app/panels_geometry.elisa` |
 | `StudioReplacement` | 8 | `src/studio/replacement.elisa` |
@@ -284,4 +283,11 @@ object. The inherited pose consumer validates the ancestor index before
 indexing the public binding arrays. The existing fixture was updated for the
 API and was not executed. Current proof replay and integrated/native character
 qualification remain open. Four unused StudioModel track constants were removed;
-its remaining numeric groups are still in the inventory above.
+its remaining numeric values now live in purpose-specific `Support`, `Correction`
+and `Wring` const modules, preserving their public visibility and values. Existing
+capture/correction fixture consumers use the qualified names; they were not run.
+
+The character consumer emitted a fresh 2,572,928-byte O0 object before the model
+constant grouping. The two explicit negative/end ancestor boundary laws also
+compile with retained symbols in a fresh 39,320-byte law object. These are
+compile-only evidence, not proof replay or native character acceptance.
