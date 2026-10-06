@@ -2,6 +2,7 @@
 # each toggled and scoped to a frame span and a bone mask.
 include "../tools/track.elisa"
 include "../core/stack_cache.elisa"
+include "../core/cache_identity_policy.elisa"
 
 # Process CPU clock (microseconds on macOS and Linux) for per-op profiling.
 @link_name("clock")
@@ -131,9 +132,13 @@ module Ops:
             results: mutable darray[i64]
             frames: mutable i64
             evaluations: mutable i64
+            source_snapshot: mutable darray[i64]
+            operations: mutable darray[Operation]
+            bone: mutable i64
+            looping: mutable bool
 
         def new_cache() -> Cache:
-            return Cache{keys: [], results: [], frames: 0, evaluations: 0}
+            return Cache{keys: [], results: [], frames: 0, evaluations: 0, source_snapshot: [], operations: [], bone: 0, looping: false}
 
         def kind_code(kind: Ops::Kind) -> i64:
             match kind:
@@ -191,17 +196,23 @@ module Ops:
             if count >= StackCache::MAX_OPS:
                 cache.keys.clear()
                 cache.results.clear()
+                cache.source_snapshot.clear()
+                cache.operations.clear()
                 cache.evaluations <- cache.evaluations + count
                 return evaluate(ops, bone, source, looping)
             key: mutable i64 = source_key(source, looping)
             keys: mutable darray[i64] = []
             prefix: mutable i64 = 0
             cached: i64 = cache.keys.count.i64()
-            for i in 0..<ops.count |i, ops, bone, key, keys, prefix, cache, cached|:
+            exact_input: bool = source_matches(cache, source, bone, looping)
+            storage_valid: mutable bool = cache.frames == source.count.i64() and cache.operations.count.i64() >= cached
+            storage_valid <- storage_valid and cache.results.count.i64() / source.count.i64() >= cached if source.count > 0
+            for i in 0..<ops.count |i, ops, bone, key, keys, prefix, cache, cached, exact_input, storage_valid|:
                 key <- StackCache::op_key(key, params_key(ops[i], bone), ops[i].enabled)
                 keys.push(key)
                 index: i64 = i.i64()
-                same: bool = index < cached and cache.keys[i] == key
+                exact_operation: bool = i < cache.operations.count and operation_matches(cache.operations[i], ops[i])
+                same: bool = CacheIdentityPolicy::reuse_admitted(index < cached and cache.keys[i] == key, exact_input, exact_operation, storage_valid)
                 prefix <- StackCache::scan(prefix, index, same)
             frames: i64 = source.count.i64()
             reuse: i64 = StackCache::reusable(cached, prefix, count)
@@ -232,5 +243,24 @@ module Ops:
             cache.keys.clear()
             for k in keys |cache|:
                 cache.keys.push(k)
+            cache.source_snapshot <- copy(source)
+            cache.operations.clear()
+            cache.operations.extend(ops)
+            cache.bone <- bone
+            cache.looping <- looping
             cache.evaluations <- cache.evaluations + evaluated
             return current
+
+    private:
+        # Hash equality is only an accelerator. Compare the actual input and
+        # effective operation parameters before admitting any cached result.
+        def source_matches(cache: Cache&, source: darray[i64]&, bone: i64, looping: bool) -> bool:
+            return false if cache.bone != bone or cache.looping != looping or cache.source_snapshot.count != source.count
+            for index in 0..<source.count:
+                return false if cache.source_snapshot[index] != source[index]
+            true
+
+        def operation_matches(before: Operation, after: Operation) -> bool:
+            return true if not before.enabled and not after.enabled
+            before.enabled == after.enabled and before.kind == after.kind and before.first == after.first and before.last == after.last and before.bones == after.bones and before.strength == after.strength and before.edge == after.edge
+

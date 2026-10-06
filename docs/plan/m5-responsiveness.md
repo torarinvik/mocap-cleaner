@@ -33,6 +33,11 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
       boundaries and compare against uncached output. Declare which fields must
       match exactly and which use a justified floating-point tolerance; cover
       operations, corrections, contacts, retime and cache boundaries.
+      Hash equality must never establish cache identity alone. Qualify the
+      channel cache's exact source/effective-operation admission and add equivalent
+      exact or revision-bound identity to rig prefix/final caches. Include collisions,
+      source replacement with equal lengths, bone/loop changes, disabled edits,
+      malformed retained storage and threshold changes in cache/full comparisons.
 - [ ] Replace or safely extend the current fixed capacities after an ownership
       prototype. Until then display capacity before an action fails, preserve
       the draft and offer recovery; never truncate edits silently. Distinguish the 10,000,000-frame editing
@@ -51,4 +56,3 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
 **Exit:** responsiveness targets measured on the corpus; cancellation and
 stale-result scenarios pass; cached and full output agree; capacity pressure
 never silently loses edits. No representation rewrite without a measured need.
-
