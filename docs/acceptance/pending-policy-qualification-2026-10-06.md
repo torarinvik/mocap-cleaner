@@ -7,6 +7,7 @@ Existing baselines must not be weakened to admit the edits.
 | Slice | Authoritative source/laws | Required remaining evidence |
 | --- | --- | --- |
 | Recovery action availability | `export_recovery_ui_policy`, matching UI laws | Policy/law replay, full Studio object, disabled pointer/key/AX dispatch |
+| Frame dialog keyboard focus | `timeline_goto_focus`, matching focus laws, `app/app_goto`, `app/panels_goto` | Current producer/replay; complete Studio compilation and native Tab/Shift-Tab/Enter/Space, visible focus, pointer field focus and accessibility interaction |
 | Contact endpoint editing | `contact_frame_policy`, matching frame laws | No-op and generation refusal replay; exact history/preview preservation |
 | Contact endpoint accessibility | `accessibility`, matching accessibility laws | Tree replay, full Studio compile, focus and draft/error announcements |
 | Contact pose preview | `contact_preview_policy`, matching preview laws and app integration | Current replay; exact take/document/stack/frame binding; cancel and commit clear transient poses; faithful candidate rendering; measured large-clip evaluation latency and UI responsiveness |
@@ -39,3 +40,12 @@ Its eventual result is comparison evidence only. Qualification requires a
 coherent source snapshot, verified toolchain manifests and a fresh authorized
 check after the live run reaches a terminal state. Compiler diagnostic products
 with temporary instrumentation must be identified separately from adoption.
+
+On 2026-10-07 the frame-dialog focus policy compiled with normal compiler
+`bb1f4095`. The law-only object had no retained function symbols, so it is
+syntax/type evidence only. The dynamic compile-only reproduction
+`build/repro/goto_focus_codegen.elisa` emitted `_main` into fresh object
+`build/goto-focus-codegen.kTfAr3/focus.o` (exit 0); it was not executed.
+The first direct panel compile failed because standalone context omitted
+elisa-ui imports; it does not qualify the dialog. Full Studio compilation,
+current proof replay and native keyboard/accessibility acceptance remain open.
