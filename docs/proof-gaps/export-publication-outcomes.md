@@ -73,3 +73,9 @@ The caller must supply an owned directory from creation and retain evidence on
 partial failure. This does not establish durable prepared journals, total disk
 reservation, exact final-output verification or integration with export; those
 remain required before admitting publication through the prepared-record gate.
+
+The bounded byte adapter also compares a loaded file against expected bytes,
+requiring equal lengths and equality at every byte. Failed or oversize reads
+return false; residue fingerprints are not involved. It compiles with f292cbe0.
+Quantified byte-comparison proof, native race qualification and retry integration
+remain open; this observation alone does not authorize publication or cleanup.

@@ -3,6 +3,19 @@ include "../export_recovery_budget_policy.elisa"
 # Read exact staged bytes, not a decoded/reserialized GLB or a residue digest.
 module StudioExportRecoveryBytes:
     public:
+        # A failed/oversize read is never a match. This checks every byte and
+        # length; it does not use the Studio's non-cryptographic fingerprints.
+        # The caller must separately establish file ownership and guard native
+        # replacement races before acting on the observation.
+        def matches(path: cstr, expected: darray[u8]&, limit: i64) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return false if not StudioExportRecoveryBudgetPolicy::append_admitted(0, expected.count.i64(), limit)
+            mutable actual: darray[u8] = []
+            return false if not read(path, limit, &actual)
+            return false if actual.count != expected.count
+            for index in 0..<actual.count:
+                return false if actual[index] != expected[index]
+            true
+
         # Caller supplies a private staged path. Native reads do not prove that
         # another process cannot mutate the file during the read.
         def read(path: cstr, limit: i64, out: mutable darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
