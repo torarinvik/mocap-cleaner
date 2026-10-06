@@ -17,6 +17,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Compiler UI event scope collision](proof-gaps/ui-event-scope.md)
 
 - [Export publication outcome qualification](proof-gaps/export-publication-outcomes.md)
+- [Scoped constant call summary replay](proof-gaps/summary-call-constant-rebind.md)
 
 ## Current qualification limits
 
