@@ -69,3 +69,11 @@ to sealed hierarchies. Compiler commit `5e3fcc65` excludes those rows from
 hierarchy owner lookup. A fresh seed is running; qualification remains open.
 The derived payload-bearing minimal reproduction is
 `build/repro/lexical-event-payload-scope.elisa`.
+
+Fresh compiler `5e3fcc65` compiles the payload-bearing minimal reproduction.
+Full UI plus policy now declines only `StudioSuggestionPolicy.event_valid`;
+nine prior UI lowering failures are gone. Its const `Event` was omitted from
+plain-enum registration because the foreign UI hierarchy shares its bare name.
+Compiler commit `2e1c1e51` restricts hierarchy suppression to non-const enums.
+A new seed is running; combined compilation remains required. Logs for the
+qualified preceding product end in `-owner.log`.

@@ -31,3 +31,14 @@ postdates the executable compiler used here and requires a fresh rebuild and
 qualification. Another host seed is currently holding the global seed lock;
 do not accept its manifest as evidence of this repair without checking which
 source snapshot it compiled.
+
+## Terminal proof gate
+
+Session 70887 is terminal with exit code 1. All 78 existing executable tests
+and the four CLI workflows returned zero earlier in this run, but the proof
+gate failed with regressions and missing reviewed baselines. This run selected
+prover `3de825c7` and began with compiler `4c409da6`; source edits and compiler
+rebuilds occurred during the run. It is diagnostic evidence and cannot qualify
+the current snapshot. Keep the proof contracts and baseline review requirements;
+do not convert these failures into acceptance by weakening the baseline.
+Full output: `build/report-reader-current-check.log`.
