@@ -51,7 +51,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `GlbTracks` | 4 | `src/io/glb_tracks.elisa` |
 | `Knee` | 9 | `src/core/knee.elisa` |
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
-| `Pivot` | 3 | `src/core/pivot.elisa` |
 | `RigOps` | 9 | `src/ops/rig_hands.elisa`, `src/ops/rig_legs.elisa`, `src/ops/rig_schema.elisa` |
 | `Roles` | 31 | `src/core/roles.elisa` |
 | `SessionIssueAnnotationPolicy` | 4 | `src/studio/state/session_issue_annotation_policy.elisa` |
@@ -197,3 +196,11 @@ compiler and proof qualification remain pending.
 Compile-only qualification with current compiler `1f136742` emitted
 `build/hand-role-compile.NGRICE/hands.o` from the existing hands fixture.
 The fixture was not executed; proof replay and rig integration remain open.
+
+`Pivot::Point` represents Heel/Ball with preserved codes 0/1; `Domain`
+holds the numeric magnitude bound. The rig uses typed retained choices and
+`choose_point`, which has an equivalence contract with the existing integer
+kernel. Existing scalar laws retain that kernel and explicit enum conversions;
+a new law covers typed equivalence. Compile qualification is pending because
+the compiler source changed and its provenance guard rejected the prior binary.
+No stale-product override was used; proof expectations remain unchanged.
