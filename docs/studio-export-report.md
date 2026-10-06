@@ -137,3 +137,15 @@ the earlier 4/4 source and 8/8 law counts are historical and do not qualify thes
 stronger obligations. The existing publisher test compiled to an object with
 current Stage1 `812c0547`, without a stale override. It was not executed in this
 focused step. Updated proof assistant replay and native acceptance remain open.
+
+## Current compiler follow-up
+
+The full Studio entry point compiled to `build/studio_current_review.o` using
+Stage1 `812c0547` with its normal provenance gate and no stale override. This
+covers the typed export validation integration and preceding export UI changes.
+The compile also included concurrent suggestion state work; it is an object
+compile, not a linked application, native interaction check or full test run.
+
+Export result focus laws now assert their returned Boolean with `ensure result`,
+covering both wrap directions and adjacent order. Previous proof counts remain
+historical until the updated proof assistant verifies these stronger laws.
