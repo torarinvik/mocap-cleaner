@@ -50,3 +50,19 @@ selectable by the user.
 
 Compilation and focused proof results are recorded after qualification; this
 document does not assert runtime fault-injection or VoiceOver results.
+
+## Recovery action availability (2026-10-06)
+
+The panel and native accessibility controls now use the same
+`StudioExportRecoveryUiPolicy::action_enabled` decision. Previous and Next
+require at least two records. Retry and folder actions require a retained
+record and their existing verification conditions; NoHit is always disabled.
+Close and Refresh remain available for an empty inventory.
+
+The common action dispatcher applies this decision before side effects, so
+mouse and keyboard activation obey the same disabled state as accessibility.
+Retry still performs its transaction and fresh validation before writing.
+New navigation, empty-inventory and NoHit laws accompany the policy. The
+conflict law's contradictory postcondition was corrected to assert its actual
+claim that conflicts disable retry. These edits await current compiler and
+certificate-replay qualification; no native interaction result is claimed.
