@@ -82,3 +82,37 @@ byte comparison, native locking and app transaction wiring remain runtime
 boundaries; the new version adapter is not claimed as wholly proved. The
 Studio build passed with check skipping enabled; runtime concurrent-writer
 and Restore scenarios remain to be verified.
+
+## Recorded original path inspector (2026-10-06)
+
+Choose an inventory row and use **Inspect full path**, or press Enter while
+row navigation has focus. The read-only inspector snapshots the complete
+recorded original path into owned storage. Previous/Next and arrow keys page
+through long UTF-8 paths; Tab moves among enabled buttons, and Done or Escape
+returns to the same Storage selection and review. Opening it never confirms
+Move/Restore or changes cleanup selection. It is unavailable during a running
+batch. Protected and identity-unverified rows remain inspectable: the label
+explicitly describes a recorded location, not a newly verified filesystem fact.
+
+The existing export path pager supplies page/focus policy and exact path lines.
+Storage has a separate immutable snapshot/context; export acknowledgement and
+destination are retained. Modal pointer, keyboard and accessibility dispatch
+handle this inspector before the Storage actions behind it. Native screen,
+minimum-window and accessibility-focus acceptance remains open.
+
+## Hard links and allocation: next native boundary
+
+Current totals are logical file sizes. A fresh native measurement must provide
+verified dev/inode/size/mtime, link count and allocated blocks from one regular,
+non-symlink `lstat`. Receipt measurement must locate only the exact recorded
+Trash receipt. Keep dynamic link/allocation facts in inventory sidecars, not
+persistent review identity: link count can change without size or mtime.
+Unknown measurement must remain distinct from zero. Validate overflow when
+converting `st_blocks` to bytes.
+
+Expose link counts and allocated bytes reported, with explicit unknown states.
+A single hard link is necessary but insufficient to claim physical space can
+be recovered on APFS: clones and snapshots may retain shared extents. Keep
+recoverable-space estimates unknown until exclusive extent/snapshot ownership
+is established. Add integer classification and bounded-total contracts/laws;
+native filesystem truth remains separately qualified evidence.

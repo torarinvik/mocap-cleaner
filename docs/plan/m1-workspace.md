@@ -104,8 +104,9 @@ Restore implementation. Current implementation and evidence are recorded in
       symlink replacement, future timestamps and unavailable clock/filesystem
       facts; unknown evidence must never permit a move.
 - [ ] Add grouping, sorting, search and type/eligibility filters. Show each
-      row's kind, modified age, exact size and build-relative location; keep
-      full paths inspectable at the minimum window size. Support bounded
+      row's kind, modified age, exact size and build-relative location. Qualify
+      the implemented recorded-original-path inspector at the minimum window
+      size with native pointer, keyboard and accessibility inputs. Support bounded
       rendering and scrolling through large inventories and review sets.
 - [ ] Add an explicit scanning state and keep the screen responsive during
       slow scans and filesystem operations. Distinguish first use, empty,
