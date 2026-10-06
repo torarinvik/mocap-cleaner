@@ -1,0 +1,149 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def clear_contact_preview_candidate() -> void:
+            contact_preview_candidate <- null
+            contact_preview_candidate_first <- -1
+            contact_preview_candidate_last <- -1
+            contact_preview_candidate_take <- -1
+            contact_preview_candidate_document <- -1
+            contact_preview_candidate_stack <- -1
+            contact_preview_candidate_frame <- -1
+
+        def advance_contact_preview_request() -> void:
+            if contact_preview_request_generation == StudioContactPreviewPolicy::Generation::MAX:
+                contact_preview_request_generation <- StudioContactPreviewPolicy::next_generation(contact_preview_request_generation)
+                contact_preview_evaluated_generation <- 0
+            else:
+                contact_preview_request_generation <- StudioContactPreviewPolicy::next_generation(contact_preview_request_generation)
+
+        # Rebuild an isolated copy of the exact release stack, at most four
+        # times per second. A candidate is display-only and tied to all source
+        # generations; the current evaluated result remains the fallback.
+        def evaluate_contact_preview_candidate(now_us: i64) -> void:
+            if timeline is playing_timeline and playing_timeline.playing:
+                clear_contact_preview_candidate()
+                contact_preview_paused_for_playback <- true
+                status <- "Pause playback to evaluate the proposed contact pose; current result remains visible."
+                status_file <- null
+                touch()
+                return
+            decision: StudioContactPreviewPolicy::Evaluation = StudioContactPreviewPolicy::evaluation(
+                contact_preview_active, contact_preview_request_generation,
+                contact_preview_evaluated_generation, now_us,
+                contact_preview_last_evaluation_us)
+            if decision == StudioContactPreviewPolicy::Evaluation.ClockInvalid or decision == StudioContactPreviewPolicy::Evaluation.ClockReversed:
+                clear_contact_preview_candidate()
+                status <- "Contact pose preview paused because its monotonic clock is invalid; current result remains visible."
+                status_file <- null
+                touch()
+                return
+            return if decision != StudioContactPreviewPolicy::Evaluation.Evaluate
+            contact_preview_last_evaluation_us <- now_us
+            contact_preview_evaluated_generation <- contact_preview_request_generation
+            clear_contact_preview_candidate()
+            if clip is current:
+                evaluate_contact_preview_for_clip(current)
+            else:
+                status <- "Contact pose preview unavailable; current result remains visible."
+                status_file <- null
+                touch()
+
+        def evaluate_contact_preview_for_clip(current: StudioModel::Clip&) -> void:
+            if memo == null:
+                status <- "Contact pose preview unavailable; current result remains visible."
+                status_file <- null
+                touch()
+                return
+            mutable p: FootState::Press = foot_press
+            mutable proposed: StackState::Stack = current_stack()
+            live: StackState::Stack = current_stack()
+            release_frame: i64 = contact_preview_first if p.part == StudioFoot::ContactPart::FIRST else contact_preview_last
+            if not FootState::release(&proposed, &p, release_frame, current.frames) or StackState::same(proposed, live):
+                status <- "Proposed contact range leaves the current result unchanged."
+                status_file <- null
+                touch()
+                return
+            candidate_take: i64 = take_serial
+            candidate_document: i64 = built
+            candidate_stack: i64 = stack_generation
+            candidate_frame: i64 = frame_now()
+            if memo is loaded_memo:
+                mutable m: StudioModel::Memo = loaded_memo
+                memo <- null
+                points: darray[Geometry::Vec3] = current.points
+                problems: darray[i64] = current.problems
+                peaks: darray[i64] = current.peaks
+                window: StudioPerf::Window = StudioPerf::full(current.frames)
+                result: StudioModel::Clip? = StudioModel::build_with(&m, proposed,
+                    points, problems, peaks, window, rig_source_revision)
+                memo <- move m
+                if result is candidate:
+                    if take_serial == candidate_take and built == candidate_document and stack_generation == candidate_stack and frame_now() == candidate_frame:
+                        contact_preview_candidate <- move candidate
+                        contact_preview_candidate_first <- contact_preview_first
+                        contact_preview_candidate_last <- contact_preview_last
+                        contact_preview_candidate_take <- candidate_take
+                        contact_preview_candidate_document <- candidate_document
+                        contact_preview_candidate_stack <- candidate_stack
+                        contact_preview_candidate_frame <- candidate_frame
+                        status <- "Evaluated proposed contact pose; release applies this range, Escape cancels."
+                        status_file <- null
+                else:
+                    status <- "Contact pose preview failed; current result remains visible. Release still uses normal validation."
+                    status_file <- null
+                touch()
+
+        def contact_preview_candidate_current() -> bool:
+            if clip is c:
+                return false if not contact_preview_active or contact_preview_candidate == null
+                StudioContactPreviewPolicy::candidate_current(true,
+                    contact_preview_candidate_first, contact_preview_candidate_last,
+                    contact_preview_first, contact_preview_last,
+                    contact_preview_candidate_take, take_serial,
+                    contact_preview_candidate_document, built,
+                    contact_preview_candidate_stack, stack_generation,
+                    contact_preview_candidate_frame, frame_now())
+            false
+
+        def contact_preview_drag_current() -> bool:
+            take_serial >= 0 and take_serial == contact_preview_drag_take and built >= 0 and built == contact_preview_drag_document and stack_generation >= 0 and stack_generation == contact_preview_drag_stack
+
+        def update_contact_preview() -> void:
+            if not contact_preview_active:
+                clear_contact_preview_candidate() if contact_preview_candidate != null
+                return
+            if timeline is playing_timeline and playing_timeline.playing:
+                clear_contact_preview_candidate()
+                if not contact_preview_paused_for_playback:
+                    status <- "Pause playback to evaluate the proposed contact pose; current result remains visible."
+                    status_file <- null
+                    touch()
+                contact_preview_paused_for_playback <- true
+                return
+            if contact_preview_paused_for_playback:
+                contact_preview_paused_for_playback <- false
+                advance_contact_preview_request() if contact_preview_request_generation <= contact_preview_evaluated_generation
+            if not contact_preview_drag_current():
+                contact_preview_active <- false
+                foot_press <- FootState::idle()
+                clear_contact_preview_candidate()
+                status <- "Contact preview cancelled because the take or edit history changed. Reopen the interval to continue."
+                status_file <- null
+                touch()
+                return
+            if contact_preview_candidate is candidate:
+                if contact_preview_candidate_take != take_serial or contact_preview_candidate_document != built or contact_preview_candidate_stack != stack_generation:
+                    contact_preview_active <- false
+                    foot_press <- FootState::idle()
+                    clear_contact_preview_candidate()
+                    status <- "Contact preview cancelled because its source changed. Reopen the interval to continue."
+                    status_file <- null
+                    touch()
+                    return
+                if contact_preview_candidate_frame != frame_now():
+                    clear_contact_preview_candidate()
+                    advance_contact_preview_request()
+            if contact_preview_request_generation > contact_preview_evaluated_generation:
+                evaluate_contact_preview_candidate((UiAppKitCanvas::monotonic_time() * 1000000.0).i64())

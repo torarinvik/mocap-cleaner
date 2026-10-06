@@ -1,4 +1,4 @@
-include "app_state.elisa"
+include "app_contact_preview.elisa"
 
 extend Studio:
     private:
@@ -13,13 +13,25 @@ extend Studio:
                 fl <- c.left_hand_contact if row == StackState::LEFT_HAND
                 fl <- c.right_hand_contact if row == StackState::RIGHT_HAND
                 foot_press <- FootState::press(fl, row, (x - st.x).i64(), st.w.i64())
+                contact_preview_drag_take <- take_serial
+                contact_preview_drag_document <- built
+                contact_preview_drag_stack <- stack_generation
                 contact_preview_active <- false
+                clear_contact_preview_candidate()
                 return true
             false
 
         def contact_preview_to(x: f32) -> void:
             p: FootState::Press = foot_press
             return if not FootState::active(&p) or (p.part != StudioFoot::ContactPart::FIRST and p.part != StudioFoot::ContactPart::LAST)
+            if not contact_preview_drag_current():
+                contact_preview_active <- false
+                foot_press <- FootState::idle()
+                clear_contact_preview_candidate()
+                status <- "Contact preview cancelled because the take or edit history changed."
+                status_file <- null
+                touch()
+                return
             delta_x: i64 = (x - down_x).i64()
             if not StudioContactEditor::is_drag(delta_x):
                 if contact_preview_active:
@@ -31,22 +43,40 @@ extend Studio:
             frame: i64 = StudioPanels::timeline_frame(tb, x, frames())
             plan: StudioContactDragPolicy::Preview = StudioContactDragPolicy::preview(p.first, p.last, frames(), p.part, frame)
             if plan.valid and (not contact_preview_active or plan.first != contact_preview_first or plan.last != contact_preview_last):
+                changed: bool = not contact_preview_active or plan.first != contact_preview_first or plan.last != contact_preview_last
                 contact_preview_active <- true
+                clear_contact_preview_candidate() if changed
                 contact_preview_first <- plan.first
                 contact_preview_last <- plan.last
+                advance_contact_preview_request() if changed
                 StudioText::begin()
                 StudioText::put("Preview contact frames ")
                 StudioText::put_i(plan.first + 1)
                 StudioText::put("–")
                 StudioText::put_i(plan.last + 1)
-                StudioText::put("; release to apply, Escape cancels")
+                StudioText::put("; result updates at most every 250 ms; release applies, Escape cancels")
                 status <- StudioText::view()
                 touch()
 
         def contact_up(x: f32) -> void:
             p: FootState::Press = foot_press
+            if FootState::active(&p) and not contact_preview_drag_current():
+                foot_press <- FootState::idle()
+                contact_preview_active <- false
+                clear_contact_preview_candidate()
+                contact_preview_drag_take <- -1
+                contact_preview_drag_document <- -1
+                contact_preview_drag_stack <- -1
+                status <- "Contact edit cancelled because the take or edit history changed during the drag."
+                status_file <- null
+                touch()
+                return
             foot_press <- FootState::idle()
             contact_preview_active <- false
+            clear_contact_preview_candidate()
+            contact_preview_drag_take <- -1
+            contact_preview_drag_document <- -1
+            contact_preview_drag_stack <- -1
             delta_x: i64 = (x - down_x).i64()
             if not StudioContactEditor::is_drag(delta_x):
                 contact_selected_side <- p.side

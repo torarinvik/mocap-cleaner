@@ -1,0 +1,42 @@
+# Admission and freshness for transient contact-range pose candidates.
+# Candidates are visual estimates only; they never enter history or export.
+module StudioContactPreviewPolicy:
+    public:
+        const module Cadence:
+            MIN_EVALUATION_MICROSECONDS: i64 = 250000
+        const module Generation:
+            MAX: i64 = 9223372036854775807
+
+        const enum Evaluation of i64:
+            Inactive = 0
+            Unchanged = 1
+            ClockInvalid = 2
+            ClockReversed = 3
+            Throttled = 4
+            Evaluate = 5
+
+        def next_generation(current: i64) -> i64:
+            requires current >= 0
+            ensure current == Generation::MAX implies result == 1
+            ensure current < Generation::MAX implies result == current + 1
+            return 1 if current == Generation::MAX
+            current + 1
+
+        def evaluation(active: bool, request_generation: i64, evaluated_generation: i64, now_us: i64, last_evaluation_us: i64) -> Evaluation:
+            requires request_generation >= 0 and evaluated_generation >= 0
+            ensure active or result == Evaluation.Inactive
+            ensure not active or request_generation > evaluated_generation or result == Evaluation.Unchanged
+            ensure not active or request_generation <= evaluated_generation or now_us >= 0 or result == Evaluation.ClockInvalid
+            ensure not active or request_generation <= evaluated_generation or now_us < 0 or last_evaluation_us < 0 or now_us >= last_evaluation_us or result == Evaluation.ClockReversed
+            ensure not active or request_generation <= evaluated_generation or now_us < 0 or last_evaluation_us < 0 or now_us < last_evaluation_us or now_us - last_evaluation_us >= Cadence::MIN_EVALUATION_MICROSECONDS or result == Evaluation.Throttled
+            ensure not active or request_generation <= evaluated_generation or now_us < 0 or last_evaluation_us >= 0 and (now_us < last_evaluation_us or now_us - last_evaluation_us < Cadence::MIN_EVALUATION_MICROSECONDS) or result == Evaluation.Evaluate
+            return Evaluation.Inactive if not active
+            return Evaluation.Unchanged if request_generation <= evaluated_generation
+            return Evaluation.ClockInvalid if now_us < 0
+            return Evaluation.ClockReversed if last_evaluation_us >= 0 and now_us < last_evaluation_us
+            return Evaluation.Throttled if last_evaluation_us >= 0 and now_us - last_evaluation_us < Cadence::MIN_EVALUATION_MICROSECONDS
+            Evaluation.Evaluate
+
+        def candidate_current(candidate_valid: bool, candidate_first: i64, candidate_last: i64, requested_first: i64, requested_last: i64, candidate_take: i64, current_take: i64, candidate_document: i64, current_document: i64, candidate_stack: i64, current_stack: i64, candidate_frame: i64, current_frame: i64) -> bool:
+            ensure result == (candidate_valid and candidate_first == requested_first and candidate_last == requested_last and candidate_take >= 0 and candidate_take == current_take and candidate_document >= 0 and candidate_document == current_document and candidate_stack >= 0 and candidate_stack == current_stack and candidate_frame >= 0 and candidate_frame == current_frame)
+            candidate_valid and candidate_first == requested_first and candidate_last == requested_last and candidate_take >= 0 and candidate_take == current_take and candidate_document >= 0 and candidate_document == current_document and candidate_stack >= 0 and candidate_stack == current_stack and candidate_frame >= 0 and candidate_frame == current_frame
