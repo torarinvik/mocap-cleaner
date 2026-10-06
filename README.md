@@ -49,3 +49,12 @@ and report are the same as `--jobs 1`; 6 boxing takes: ~10.5 s serial,
 When a take cannot be loaded or has no usable animations, `clean` reports the
 import problem and exits unsuccessfully without publishing an output GLB.
 Run `scripts/test_cli_import.sh` for the malformed-input regression check.
+
+### Report and worker output publication
+
+Report, saved-operation and worker part-file writers use exclusive creation.
+They reject an existing destination, including a symlink created after the
+initial path check. Report success requires every byte and file close to
+succeed. A failed write can leave a partial newly created artifact; it reports
+failure and does not overwrite another file. These libc IO adapters remain
+runtime boundaries, not fully proved publication or crash-durability code.

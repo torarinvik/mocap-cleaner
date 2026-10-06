@@ -52,15 +52,20 @@ module Workers:
             can Blocking.IO:
                 w_exit(code)
 
-        # Send this process's stdout to `path` (created or truncated).
+        # Send stdout to a newly created path; never truncate an existing file.
         def redirect_stdout(path: cstr) -> bool:
             mutable ok: bool = false
             flush_all()
-            can Blocking.IO, Memory.Allocate:
-                file: mutable heap void&? = w_fopen(path.cast[u8&], "wb".cast[u8&])
+            can Blocking.IO, Memory.Allocate, Memory.Release:
+                file: mutable heap void&? = w_fopen(path.cast[u8&], "wbx".cast[u8&])
                 if file != null:
                     handle: mutable heap void& = file
-                    ok <- w_dup2(w_fileno(handle), 1) >= 0
+                    descriptor: i32 = w_fileno(handle)
+                    # If stdout was closed, fopen can occupy descriptor 1.
+                    # Closing this FILE would close the redirected stream.
+                    duplicated: bool = descriptor >= 0 and descriptor != 1 and w_dup2(descriptor, 1) >= 0
+                    closed: i32 = w_fclose(handle)
+                    ok <- duplicated and closed == 0
             return ok
 
         # Bytes of the file at `path` (empty when it cannot be read).

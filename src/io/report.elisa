@@ -168,14 +168,19 @@ module Report:
                 out.push(c)
             push_text(out, "</table>")
 
+        # Exclusive creation rejects existing files and symlinks even when
+        # they appear after a caller's destination review. A failed write may
+        # leave a partial newly created artifact; false never means saved.
         def save(out: darray[u8]&, path: cstr) -> bool:
             mutable ok: bool = false
             can Blocking.IO, Memory.Allocate, Memory.Release:
-                file: mutable heap void&? = r_fopen(path.cast[u8&], "wb".cast[u8&])
+                file: mutable heap void&? = r_fopen(path.cast[u8&], "wbx".cast[u8&])
                 if file != null:
                     handle: mutable heap void& = file
-                    for c in out:
-                        _ = r_fputc(c.i32(), handle)
-                    _ = r_fclose(handle)
-                    ok <- true
+                    mutable complete: bool = true
+                    for c in out |complete|:
+                        if complete:
+                            complete <- r_fputc(c.i32(), handle) >= 0
+                    closed: i32 = r_fclose(handle)
+                    ok <- complete and closed == 0
             return ok
