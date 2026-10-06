@@ -145,6 +145,12 @@ failures show an unverified age. Refresh keeps the selected artifact only when
 its full identity still matches; it clears selection if that artifact changed
 or disappeared.
 
+Present files explain their cleanup protection. The current 30-day policy
+retains recent files, and invalid/future ages never qualify. Reports created
+in this Studio session stay protected, as do recovery points until their
+recovery references can be verified. File type and symbolic-link checks run
+at each Refresh. These reasons are also included in accessible row help.
+
 Use Up/Down to choose a row and Tab to move among Refresh, Done and Restore.
 Restore is available only for a valid, durably recorded, verified Trash
 receipt. The first activation opens a review; **Confirm restore** performs a
