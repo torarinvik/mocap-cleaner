@@ -444,9 +444,14 @@ baselines remain unchanged.
 
 The witness records the exact type expression and only admits a short member
 when whole-tree counts establish a unique enum owner and member spelling;
-aliases and overloaded value operators remain refused. Caller contract rows
-still need scope-aware enum path qualification. Do not normalize a short
-member name to a guessed enum owner.
+aliases and overloaded value operators remain refused. Prover `0706f67c`
+adds caller contract-row qualification from the exact function declaration
+path, requiring one enum and one member in that lexical declaration scope.
+The focused validation laws improve to 11/14 with 11 certificates replayed
+and zero replay gaps; `ready_is_success` now closes. Three `not (...)` return
+ensures remain open at the `non-comparison-goal` gate. The focused build used
+Stage1 `4c409da6`; duplicate-type and parameter-shadow refusal guards added
+after that build still need requalification against the current compiler.
 
 ## G98: composed summary replay (2026-10-06)
 
