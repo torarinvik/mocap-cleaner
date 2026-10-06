@@ -159,8 +159,8 @@ remain required.
 Decimal comparison preparation: `ReportDecimal` admits exact common-scale
 multiplication only when it stays within the regression domain. Four laws
 cover identity scaling, zero, and rejection on both sides of the range.
-The integer reader now uses its digit admission and append contracts to
-reject coefficients outside the domain before multiplication. Matching laws
+The reader uses digit admission and append contracts to reject coefficients
+outside the domain before multiplication. Matching laws
 cover first digits, the exact maximum coefficient, overflow rejection and
 admitted bounds; their replay remains pending. Decimal/exponent parsing,
 canonical mantissa/exponent representation, common-scale alignment, floor
@@ -194,3 +194,12 @@ all 204 replayed, but three ADT wrapper guarantees are reported disproved and
 other invariants/summaries remain unresolved. Investigate these findings before
 acceptance; do not remove the requested guarantees to obtain a green result.
 Log: `build/report-number-invariant-laws.log`.
+
+
+Exact decimal integration is connected: metric records retain canonical
+coefficient/exponent values, comparisons align both operands and the absolute
+floor, and console/HTML output preserves the exponent. Scale overflow produces
+an unavailable comparison, never a clamped or rounded verdict. Report diff
+compiles on clean current Stage1 `f292cbe0`. Native end-to-end execution, boundary
+cases, common-scale proof replay and rendered HTML qualification remain open.
+The former integer-only clamping helper has been removed.
