@@ -2,6 +2,30 @@
 
 [Proof gap index](../proof-gaps.md)
 
+## Current global container lowering gap
+
+Compiler `04b384ec` declines direct mutation of a mutable global darray,
+including byte-array `extend` and record-array `push`. The same record push
+through a borrowed `mutable darray[Recovery]&` compiles. This is a receiver
+binding gap, not evidence that recovery records need a different domain model.
+
+Root reproduced the decline with `build/repro/recovery-retained-struct.elisa`
+and a named-local variant; both return process zero but emit no object.
+`build/repro/recovery-record-local-array.elisa` compiles to a fresh object.
+Logs are under `build/retention-{compile,local,borrow}.*`. The recovery owner
+also reduced the byte-array case in `build/repro_global_byte_extend.elisa`.
+These are compile-only reproductions; no new executable test was run.
+
+`darray_type_behind` in `codegen_type_sizes.elisa` consults only local type
+bindings, and `darray_address_of` in `codegen_abi_facts.elisa` consults only
+local slots. Ordinary global reads use the mutable-global table instead.
+A repair must also choose an arena whose lifetime supports the global backing
+storage: adding address lookup while growing in a function's temporary arena
+would admit a use-after-free. Preserve local shadowing and module ownership.
+The copying-to-local workaround must pass region-escape checks and have its
+arena lifetime inspected before qualification. Native recovery acceptance and
+the full Studio compile remain open.
+
 # elisa-proof gaps found by the mocap cleaner
 
 Historically, fixes were developed in the `../elisa-proof-mocap` worktree on
@@ -87,4 +111,3 @@ branch `mocap-cleaner-proofs`. That work was merged into the sibling
   proof_status.py now reads functions[].proved so file-level findings count as open.
   Known prover-side leftovers: compiler duplicate-alias wording drift (Elisa-compiler),
   census baseline from 09-30 not re-baselined.
-
