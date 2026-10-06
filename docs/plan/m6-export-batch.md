@@ -163,3 +163,11 @@ bytes. Compile-only integration currently stops on unrelated in-progress
 suggestion mutability and workspace native-effect diagnostics; these owners
 are repairing them. Publication-stage durability, snapshot-bound retry and
 semantic/crash qualification remain open.
+
+Export sidecar writes now yield typed GLB-only, GLB-plus-JSON, GLB-plus-text
+or complete outcomes; status text identifies which report was not saved.
+These are in-memory write outcomes, not crash-durability evidence or motion
+quality approval. Policy proof is 14/20 and laws 21/38 on the current default
+prover; compile-only Studio qualification is pending. Durable journaling,
+owned snapshot retention, create-only missing-sidecar retry and result-dialog
+keyboard/accessibility integration remain required.
