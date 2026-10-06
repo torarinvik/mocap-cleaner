@@ -1,0 +1,60 @@
+# Exact review binding around the existing in-memory lifecycle queue.
+include "export_batch_queue.elisa"
+include "export_batch_identity.elisa"
+
+module StudioExportBatchReviewBinding:
+    public:
+        struct ReviewToken:
+            private:
+                identity: StudioExportBatchIdentity::Identity
+                issued: bool
+
+        struct BoundQueue:
+            private:
+                queue: StudioExportBatchQueue::Queue
+                identities: mutable darray[StudioExportBatchIdentity::Identity]
+
+        def create(worker_limit: i64) -> BoundQueue:
+            BoundQueue{queue: StudioExportBatchQueue::create(worker_limit), identities: []}
+
+        # Capture the immutable identity at the same boundary as admission.
+        # The native adapter must establish every preflight fact from the OS.
+        def enqueue(queue: mutable BoundQueue&, preflight: StudioExportBatchPreflightPolicy::Outcome,
+                    identity: StudioExportBatchIdentity::Identity) -> bool:
+            requires StudioExportBatchQueue::valid(queue.queue)
+            ensure StudioExportBatchQueue::valid(queue.queue)
+            ensure queue.identities.count == StudioExportBatchQueue::item_count(queue.queue)
+            ensure not result or StudioExportBatchIdentity::valid(identity)
+            return false if not StudioExportBatchIdentity::valid(identity)
+            return false if not StudioExportBatchQueue::enqueue(&queue.queue, preflight)
+            queue.identities.push(identity)
+            true
+
+        # Review is explicit and only issues a token for the exact current
+        # source/result/recipe/output snapshot retained at enqueue.
+        def issue_review(queue: BoundQueue&, index: i64, explicit_review: bool,
+                         current: StudioExportBatchIdentity::Identity) -> ReviewToken:
+            requires index >= 0 and index < queue.identities.count.i64()
+            ensure result.issued implies explicit_review
+            ensure result.issued implies StudioExportBatchIdentity::equal(result.identity, current)
+            ensure not result.issued or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+            ReviewToken{identity: queue.identities[index.usize()], issued: explicit_review and StudioExportBatchIdentity::valid(current) and StudioExportBatchIdentity::equal(queue.identities[index.usize()], current) and StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview}
+
+        # The caller invokes the native create-only publisher using the
+        # retained paths and byte arrays before passing its outcomes here.
+        # Booleans are untrusted native obligations, not filesystem proofs.
+        def publish_reviewed(queue: mutable BoundQueue&, index: i64,
+                             current: StudioExportBatchIdentity::Identity,
+                             token: ReviewToken, explicit_review: bool,
+                             output_absent_at_native_boundary: bool,
+                             json_absent_at_native_boundary: bool,
+                             text_absent_at_native_boundary: bool,
+                             all_outputs_published: bool) -> bool:
+            requires index >= 0 and index < queue.identities.count.i64()
+            ensure StudioExportBatchQueue::valid(queue.queue)
+            ensure not result or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Warning or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Passed
+            return false if not token.issued or not explicit_review
+            return false if not StudioExportBatchIdentity::equal(token.identity, queue.identities[index.usize()])
+            return false if not StudioExportBatchIdentity::equal(current, queue.identities[index.usize()])
+            return false if not output_absent_at_native_boundary or not json_absent_at_native_boundary or not text_absent_at_native_boundary
+            StudioExportBatchQueue::publish(&queue.queue, index, true, true, all_outputs_published)
