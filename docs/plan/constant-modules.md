@@ -110,7 +110,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioView` | 3 | `src/studio/view.elisa` |
 | `Timeline` | 9 | `src/studio/timeline.elisa` |
 | `Track` | 6 | `src/tools/track_support.elisa` |
-| `WorkerWaitPolicy` | 4 | `src/io/worker_wait_policy.elisa` |
 
 Export-result actions migrated to `StudioExportResult::Action`; policy/laws
 retain 7/7 and 16/16 proved results. Existing test compilation is pending a
@@ -123,6 +122,12 @@ values. Current compiler qualification is pending the constructor-owner seed;
 focused proof evidence is recorded separately without lowering the baseline.
 `StudioSourceFingerprint::Residue` already groups both residue moduli and has
 been removed from the remaining inventory.
+
+`WorkerWaitPolicy::Action` represents Retry, Reaped and Failed as a closed enum;
+`Posix::EINTR` keeps the platform errno fact separate. Values and wait behavior
+are unchanged. Current independent replay has two unresolved law gaps; retain
+the existing complete law baseline until they are resolved. Normal compilation
+awaits the current compiler seed.
 
 `Codec::Domain` holds decimal field magnitude and serialized operation-kind
 count. These numeric format bounds are not choices; operation variants remain
