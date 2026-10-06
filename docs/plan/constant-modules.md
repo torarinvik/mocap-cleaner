@@ -16,13 +16,10 @@ records the repair and qualification evidence.
 
 ## Remaining groups (2026-10-06)
 
-The source inventory below has one additional proof owner: `KneeLaws` in
-`proof/knee_laws.elisa` has two public aliases (`BOUND`, `HALF`), which must
-move into a geometry group with all law references updated. Outside declared
-modules, `test/studio_shortcuts.elisa` has six file-scope event constants;
-group these in an actual `const module` too, preserving their values and
-existing test assertions. Other audited proof/test owners have one constant
-each. No Elisa fixture files were found under `scripts/`.
+The extra proof/test groups have been migrated: `KneeLaws::Domain` holds
+its public geometry aliases, and the shortcut fixture uses `KeyEvent` for
+its six event codes. Other audited proof/test owners have one constant each.
+No Elisa fixture files were found under `scripts/`.
 
 Counts describe ungrouped module-scope declarations; extension files are
 counted under their owning module. Single-constant modules need not be

@@ -70,3 +70,16 @@ including simultaneous failure. Tracking failure cannot imply that reports
 were saved. These are presentation corrections; publication ordering and
 retry behavior are unchanged. Running-window failure-path qualification is
 still required.
+
+## Captured report inputs
+
+Report generation no longer reopens the renamed-away staging path. It receives
+the decoded output fingerprint captured before preparation; reload/document
+equivalence validates that document before GLB publication. This fingerprint
+is not a cryptographic hash of the written bytes. Stack settings and animation
+name are captured before publication rather than read again afterward.
+
+A result-generation gate rejects changed results after modal confirmation and
+before publication. Its scalar contract proves; one focused law remains
+unresolved with the current prover. Full frozen report-byte recovery, exact
+source-byte hashes and native failure-path qualification remain open.
