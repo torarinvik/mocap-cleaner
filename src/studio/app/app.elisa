@@ -21,6 +21,7 @@ include "../storage_totals_kernel.elisa"
 include "../io/storage_clock.elisa"
 include "../storage_accessibility_policy.elisa"
 include "../io/storage_manifest_file.elisa"
+include "../io/storage_preferences_file.elisa"
 include "scene.elisa"
 include "character.elisa"
 include "panels.elisa"
@@ -50,6 +51,7 @@ module Studio:
         const EXPORT_PATH: cstr = "build/studio_export.glb"
         const SESSION_PATH: cstr = "build/studio_session.txt"
         const STORAGE_MANIFEST_PATH: cstr = "build/studio_storage_manifest.txt"
+        const STORAGE_PREFERENCES_PATH: cstr = "build/studio_storage_preferences.txt"
         const PATH_CAPACITY: usize = 4096
 
         global mutable path: cstr = ""
@@ -128,6 +130,7 @@ module Studio:
         global mutable storage_batch_failed: i64 = 0
         global mutable storage_batch_untouched: i64 = 0
         global mutable storage_batch_cancel: bool = false
+        global mutable storage_preferences_valid: bool = false
         global mutable storage_retention_preset: i64 = StudioStorageSelectionPolicy::RETENTION_PRESET_DEFAULT
         global mutable storage_restore_entry: StudioStorageManifest::Entry = zeroed
         global mutable storage_move_outcome: i64 = StudioStorageMovePolicy::OUTCOME_NOT_STARTED
@@ -1497,6 +1500,32 @@ module Studio:
             storage_manifest_state <- 1
             true
 
+        # Re-read on every inventory refresh so externally changed settings
+        # invalidate reviewed candidates. Missing is first use; invalid existing
+        # settings are never replaced with a more permissive default.
+        def load_storage_preferences() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            storage_preferences_valid <- false
+            facts: i64 = FilePanel::path_facts(STORAGE_PREFERENCES_PATH)
+            return false if facts < 0
+            return false if export_reason(STORAGE_PREFERENCES_PATH, true) != StudioExportPolicy::ALLOW
+            mutable loaded: i64 = StudioStoragePreferencesPolicy::DEFAULT_PRESET
+            if facts != 0:
+                return false if (facts & FilePanel::PATH_SYMLINK) != 0 or (facts & FilePanel::PATH_REGULAR) == 0
+                return false if not StudioStoragePreferencesFile::load(STORAGE_PREFERENCES_PATH, &loaded)
+            storage_retention_preset <- loaded
+            storage_preferences_valid <- true
+            true
+
+        def save_storage_retention(preset: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not load_storage_preferences()
+            verified: bool = export_reason(STORAGE_PREFERENCES_PATH, true) == StudioExportPolicy::ALLOW
+            return false if not StudioStoragePreferencesPolicy::may_publish(storage_preferences_valid, verified, preset)
+            mutable bytes: darray[u8] = []
+            return false if not StudioStoragePreferencesCodec::encode(preset, &bytes)
+            return false if not StudioExportPublisher::write_sidecar(STORAGE_PREFERENCES_PATH, bytes)
+            storage_retention_preset <- preset
+            true
+
         def persist_storage_manifest(entries: darray[StudioStorageManifest::Entry]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             mutable bytes: darray[u8] = []
             return false if not StudioStorageManifest::encode(entries, &bytes)
@@ -1562,12 +1591,13 @@ module Studio:
         # Convert fresh filesystem evidence into the cleanup policy's stable
         # protection reasons. Unknown age or file facts never qualify an item.
         def storage_cleanup_reason(entry: StudioStorageManifest::Entry, row_status: i64) -> i64 can Unsafe.PointerCast:
+            return StudioStorageCleanupPolicy::PROTECT_INVALID_FACTS if not storage_preferences_valid
             return StudioStorageCleanupPolicy::PROTECT_IDENTITY_CHANGED if row_status == StudioPanels::STORAGE_STATUS_CHANGED
             return StudioStorageCleanupPolicy::PROTECT_IDENTITY_UNVERIFIED if row_status != StudioPanels::STORAGE_STATUS_PRESENT
             return StudioStorageCleanupPolicy::PROTECT_INVALID_FACTS if not StudioStorageManifest::valid(entry)
             if storage_path_is_source(entry.original_path):
                 return StudioStorageCleanupPolicy::PROTECT_SOURCE_TAKE
-            if storage_path_matches(entry.original_path, session_path) or storage_path_matches(entry.original_path, export_path) or storage_path_matches(entry.original_path, STORAGE_MANIFEST_PATH):
+            if storage_path_matches(entry.original_path, session_path) or storage_path_matches(entry.original_path, export_path) or storage_path_matches(entry.original_path, STORAGE_MANIFEST_PATH) or storage_path_matches(entry.original_path, STORAGE_PREFERENCES_PATH):
                 return StudioStorageCleanupPolicy::PROTECT_OPEN_DOCUMENT
             for referenced in storage_current_reports |referenced, entry|:
                 if storage_identity_matches(referenced, entry):
@@ -1601,6 +1631,7 @@ module Studio:
             false
 
         def storage_row_eligible(index: i64) -> bool:
+            return false if not storage_preferences_valid
             return false if storage_manifest_state != 1 or storage_message == 1 or storage_message == 2 or storage_message == 5
             return false if index < 0 or index >= storage_visible_entries.count.i64() or index >= storage_visible_reasons.count.i64()
             entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
@@ -1658,6 +1689,7 @@ module Studio:
             storage_cleanup_selection <- []
             storage_selection_bytes <- 0
             storage_selection_removed <- previous_cleanup_selection.count.i64()
+            preferences_ok: bool = load_storage_preferences()
             storage_scan_seconds <- StudioStorageClock::unix_seconds()
             mutable previous_selection: StudioStorageManifest::Entry? = null
             if storage_selected >= 0 and storage_selected < storage_visible_entries.count.i64():
@@ -1768,7 +1800,7 @@ module Studio:
                             for index in 0..<visible.count |visible, previous|:
                                 if storage_identity_matches(previous, visible[index]):
                                     storage_selected <- index.i64()
-                        storage_message <- 5 if not manifest_ok else 4 if unverified > 0 else 3
+                        storage_message <- 5 if not manifest_ok else 16 if not preferences_ok else 4 if unverified > 0 else 3
                         set_storage_cleanup_selection(previous_cleanup_selection)
                         if manifest_ok:
                             had_verified_receipt: bool = storage_retained_receipt != null
@@ -1825,6 +1857,7 @@ module Studio:
                 true, false)
 
         def storage_trash_available() -> bool:
+            return false if not storage_preferences_valid
             return false if not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome)
             return false if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
             storage_cleanup_selection.count > 0 and storage_cleanup_selection.count.i64() <= StudioStorageBatchPolicy::MAX_ITEMS
@@ -2089,8 +2122,10 @@ module Studio:
                 storage_move_review <- false
                 touch()
             elif action == StudioPanels::STORAGE_RETENTION:
-                storage_retention_preset <- (storage_retention_preset + 1) % StudioStorageSelectionPolicy::RETENTION_PRESET_COUNT
+                next_preset: i64 = (storage_retention_preset + 1) % StudioStorageSelectionPolicy::RETENTION_PRESET_COUNT
+                saved: bool = save_storage_retention(next_preset)
                 refresh_storage_inventory()
+                storage_message <- 17 if not saved and storage_preferences_valid
                 touch()
             elif action == StudioPanels::STORAGE_TRASH and storage_trash_available():
                 if storage_move_review:
