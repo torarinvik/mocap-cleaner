@@ -258,6 +258,16 @@ semantic diagnostics (`build/export-report-create-only-laws.log`); those open
 contracts remain unchanged. Native conflict/race/IO qualification is still
 required. No executable tests were added or run for this slice.
 
+## Native source filename labels
+
+Studio report basename scanning now uses POSIX slash semantics and preserves
+backslash filename bytes. The formatter retains its existing JSON escaping.
+Pure source-label laws cover slash, backslash and arbitrary non-slash bytes:
+eight obligations, seven proven/replayed, zero replay gaps, one open general
+non-slash finding and zero semantic diagnostics. Evidence:
+`build/export-source-label-laws.log`. Native filename qualification and the
+combined Studio build remain open; no executable tests were added.
+
 ## Report preparation now blocks unsafe publication
 
 Studio previously allowed GLB publication when staged identity or report
