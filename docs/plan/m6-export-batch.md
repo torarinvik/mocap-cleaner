@@ -41,6 +41,14 @@ semantics has its own implementation, review fields and quality validation.
 
 ### 11.2 Studio batch and repeatability (P1)
 
+The batch preflight policy now defines exact admission from captured read-only
+validation facts, with typed reasons for source/animation availability, paths
+outside build, source collisions, duplicate destinations, occupied GLB/report
+paths and unsupported recipe/rig compatibility. Eleven laws and a fresh
+diagnostic object (`build/batch-preflight-compile.IM8D19/laws.o`) cover source
+compilation. Native validators, queue wiring, review UI and independent proof
+replay remain required; supplied booleans alone do not verify filesystem facts.
+
 - [ ] Wrap the existing batch/parallel/report capabilities in a queue UI:
       input list, animation selection, compatible recipe, output naming,
       collision policy, worker limit, progress, cancel and retry failures. Define
