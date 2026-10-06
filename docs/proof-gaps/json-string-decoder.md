@@ -25,8 +25,12 @@ requirements rather than accepted proof evidence.
 Raw UTF-8 decoding is now isolated in a private `raw_sequence` helper with
 an explicit successful cursor-bound contract. Public decoding retains the
 same input and output behavior. Standalone object and full CLI compilation
-succeed with current compiler `4c409da6`; focused source proof requalification
-is running. This refactor does not establish decoder qualification by itself.
+succeed with compiler `4c409da6`. The focused source run completed with
+published prover `d3a17832`: 50/62 obligations producer-proven, 47 certificates
+replayed, three replay gaps, and 12 unproven obligations. Index bounds,
+dependent summaries, and the control-flow budget remain unresolved. This run
+uses the source snapshot before subsequent surrogate-kernel extraction;
+it does not qualify the current decoder or establish refactor acceptance.
 
 Surrogate-pair arithmetic is now a separate contracted `JsonScalar` kernel,
 with related limits in its `Domain` constant module and an additional range
