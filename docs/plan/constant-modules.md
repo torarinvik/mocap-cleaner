@@ -54,7 +54,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `RigOps` | 9 | `src/ops/rig_hands.elisa`, `src/ops/rig_legs.elisa`, `src/ops/rig_schema.elisa` |
 | `Roles` | 31 | `src/core/roles.elisa` |
 | `SessionState` | 20 | `src/studio/state/session_state.elisa` |
-| `StackPolicy` | 2 | `src/studio/stack_policy.elisa` |
 | `StackState` | 8 | `src/studio/state/stack_state.elisa` |
 | `Studio` | 11 | `src/studio/app/app_state.elisa` |
 | `StudioAccessibility` | 46 | `src/studio/accessibility.elisa` |
@@ -269,3 +268,11 @@ schema are unchanged. Normal `bb1f4095` compiled the policy and law sources
 `studio_session_annotations` fixture under `build/annotation-bound-compile.*`.
 The fixture was not executed; current proof/replay and full Studio acceptance
 remain required.
+
+`StackPolicy::Limit` groups the editable operation/frame domain bounds. All
+source, law and existing fixture references use the qualified paths; values
+remain 16 operations and 10,000,000 frames. Normal `bb1f4095` emitted a fresh
+object for the existing `studio_duplicate_operation` fixture in
+`build/stack-limit-compile.*`; source/law compilation also completed. These
+objects were not executed. Current proof/replay and full Studio qualification
+remain open.
