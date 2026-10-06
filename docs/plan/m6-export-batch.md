@@ -144,7 +144,10 @@ escape normalization and proof coverage of traversal remain open.
 digit conversion for the pending decoder. Its six laws assert scalar rejection
 and conversion results. The current published prover establishes all 19 source
 and 31 composed obligations, but replays only 18/19 and 27/31 respectively.
-The decoder is not yet connected to report identity extraction.
+The decoder is connected to keys and clip identities. It rejects malformed
+escapes, unpaired surrogates, and invalid raw UTF-8 throughout the report.
+Complete decoder contracts, round-trip laws, replay, and behavioral
+qualification remain open; see `docs/proof-gaps/json-string-decoder.md`.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
 

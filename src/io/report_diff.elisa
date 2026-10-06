@@ -9,6 +9,7 @@ include "../core/regress.elisa"
 include "../core/report_budget.elisa"
 include "../../../elisa-engine-mocap/src/assets/glb_json.elisa"
 include "report.elisa"
+include "json_string.elisa"
 include "console.elisa"
 
 @link_name("fgetc")
@@ -36,7 +37,7 @@ module ReportDiff:
             mutable count: i64 = 0
             mutable at: usize = object + 1
             for member in 0..<tokens[object].size:
-                count <- count + 1 if GlbJson::text_is(text, tokens[at], key)
+                count <- count + 1 if decoded_key_is(text, tokens[at], key)
                 at <- tokens[at + 1].after
             count
 
@@ -96,13 +97,21 @@ module ReportDiff:
 
         def copy_string(text: darray[u8]&, token: GlbJson::Token, pool: mutable darray[u8]&) -> i64:
             start: i64 = pool.count.i64()
-            mutable at: usize = token.start
-            while at < token.stop:
-                at <- at + 1 if text[at] == 92
-                if at < token.stop:
-                    pool.push(text[at])
-                    at <- at + 1
+            return -1 if not JsonString::decode(text, token.start, token.stop, pool)
             pool.count.i64() - start
+
+        def decoded_key_is(text: darray[u8]&, token: GlbJson::Token, key: sview) -> bool:
+            mutable decoded: darray[u8] = []
+            return false if not JsonString::decode(text, token.start, token.stop, &decoded)
+            is_text(&decoded, 0, decoded.count.i64(), key)
+
+        def decoded_member(text: darray[u8]&, tokens: darray[GlbJson::Token]&, object: usize, key: sview) -> i64:
+            return -1 if tokens[object].kind != GlbJson::KIND_OBJECT
+            mutable at: usize = object + 1
+            for member in 0..<tokens[object].size:
+                return (at + 1).i64() if decoded_key_is(text, tokens[at], key)
+                at <- tokens[at + 1].after
+            -1
 
         # Read only direct scalar members of the report or a clip object.
         # Nested timing and metadata objects cannot change metric ownership.
@@ -145,10 +154,17 @@ module ReportDiff:
             return false if not GlbJson::tokenize(text, 0, text.count, &tokens)
             return false if tokens.count == 0 or tokens[0].kind != GlbJson::KIND_OBJECT
             return false if member_count(text, &tokens, 0, "clips") > 1
+            # Validate every string, including skipped metadata, before admitting
+            # the report. Invalid escapes must not hide a recognized field.
+            mutable decoded: darray[u8] = []
+            for token in tokens:
+                if token.kind == GlbJson::KIND_STRING:
+                    decoded.clear()
+                    return false if not JsonString::decode(text, token.start, token.stop, &decoded)
             Report::push_text(pool, "total")
             mutable identities: darray[Identity] = [Identity{at: 0, len: 5}]
             object_metrics(text, &tokens, 0, 0, 5, pool, out)
-            clips: i64 = GlbJson::member(text, &tokens, 0, "clips")
+            clips: i64 = decoded_member(text, &tokens, 0, "clips")
             if clips >= 0:
                 if GlbJson::kind_of(&tokens, clips) != GlbJson::KIND_ARRAY:
                     out.clear()
@@ -161,7 +177,7 @@ module ReportDiff:
                     if not ReportBudget::unique_identity(member_count(text, &tokens, clip, "name")):
                         out.clear()
                         return false
-                    name: i64 = GlbJson::member(text, &tokens, clip.i64(), "name")
+                    name: i64 = decoded_member(text, &tokens, clip, "name")
                     if GlbJson::kind_of(&tokens, clip.i64()) != GlbJson::KIND_OBJECT or GlbJson::kind_of(&tokens, name) != GlbJson::KIND_STRING:
                         out.clear()
                         return false

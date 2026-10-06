@@ -11,6 +11,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Regression summary composition and replay](proof-gaps/regression-composition.md)
 - [Nested const enum source witness gap](proof-gaps/nested-enum-producer.md)
 - [Law assertion coverage audit](proof-gaps/law-assertion-audit.md)
+- [JSON report string decoder qualification](proof-gaps/json-string-decoder.md)
 
 ## Current qualification limits
 

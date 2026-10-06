@@ -1,0 +1,94 @@
+include "../core/json_scalar.elisa"
+
+# Decode a token's string content to UTF-8. Callers discard output on failure.
+module JsonString:
+    public:
+        def hex4(text: darray[u8]&, at: usize, stop: usize) -> i64:
+            requires stop <= text.count
+            ensure result >= -1 and result <= 65535
+            return -1 if at > stop or stop - at < 4
+            mutable value: i64 = 0
+            for index in 0..<4:
+                digit: i64 = JsonScalar::hex(text[at + index].i64())
+                return -1 if digit < 0
+                value <- value * 16 + digit
+            value
+
+        def append_scalar(out: mutable darray[u8]&, value: i64):
+            requires JsonScalar::valid(value)
+            if value < 128:
+                out.push(value.u8())
+            elif value < 2048:
+                out.extend([(192 + value / 64).u8(), (128 + value % 64).u8()])
+            elif value < 65536:
+                out.extend([(224 + value / 4096).u8(), (128 + value / 64 % 64).u8(), (128 + value % 64).u8()])
+            else:
+                out.extend([(240 + value / 262144).u8(), (128 + value / 4096 % 64).u8(), (128 + value / 64 % 64).u8(), (128 + value % 64).u8()])
+
+        def decode(text: darray[u8]&, start: usize, stop: usize, out: mutable darray[u8]&) -> bool:
+            return false if start > stop or stop > text.count
+            mutable at: usize = start
+            while at < stop:
+                byte: u8 = text[at]
+                at <- at + 1
+                if byte != 92:
+                    return false if byte < 32 or byte == 34
+                    if byte < 128:
+                        out.push(byte)
+                    else:
+                        mutable following: usize = 0
+                        mutable scalar: i64 = 0
+                        mutable minimum: i64 = 0
+                        if byte >= 194 and byte <= 223:
+                            following <- 1
+                            scalar <- byte.i64() - 192
+                            minimum <- 128
+                        elif byte >= 224 and byte <= 239:
+                            following <- 2
+                            scalar <- byte.i64() - 224
+                            minimum <- 2048
+                        elif byte >= 240 and byte <= 244:
+                            following <- 3
+                            scalar <- byte.i64() - 240
+                            minimum <- 65536
+                        else:
+                            return false
+                        return false if stop - at < following
+                        for index in 0..<following:
+                            next: u8 = text[at + index]
+                            return false if next < 128 or next > 191
+                            scalar <- scalar * 64 + next.i64() - 128
+                        return false if scalar < minimum or not JsonScalar::valid(scalar)
+                        append_scalar(out, scalar)
+                        at <- at + following
+                else:
+                    return false if at >= stop
+                    escape: u8 = text[at]
+                    at <- at + 1
+                    if escape == 34 or escape == 92 or escape == 47:
+                        out.push(escape)
+                    elif escape == 98:
+                        out.push(8)
+                    elif escape == 102:
+                        out.push(12)
+                    elif escape == 110:
+                        out.push(10)
+                    elif escape == 114:
+                        out.push(13)
+                    elif escape == 116:
+                        out.push(9)
+                    elif escape == 117:
+                        mutable scalar: i64 = hex4(text, at, stop)
+                        return false if scalar < 0
+                        at <- at + 4
+                        if scalar >= 55296 and scalar <= 56319:
+                            return false if stop - at < 6 or text[at] != 92 or text[at + 1] != 117
+                            low: i64 = hex4(text, at + 2, stop)
+                            return false if low < 56320 or low > 57343
+                            scalar <- 65536 + (scalar - 55296) * 1024 + low - 56320
+                            at <- at + 6
+                        return false if not JsonScalar::valid(scalar)
+                        append_scalar(out, scalar)
+                    else:
+                        return false
+            true
