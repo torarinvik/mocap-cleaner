@@ -27,7 +27,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **80 owners, 733 ungrouped constants**.
+Remaining source inventory: **79 owners, 729 ungrouped constants**.
 
 | Module | Ungrouped constants | Declaration files |
 | --- | ---: | --- |
@@ -67,7 +67,6 @@ Remaining source inventory: **80 owners, 733 ungrouped constants**.
 | `StudioExportPathReview` | 5 | `src/studio/export_path_review.elisa` |
 | `StudioExportPolicy` | 7 | `src/studio/export_policy.elisa` |
 | `StudioExportReview` | 13 | `src/studio/export_review.elisa` |
-| `StudioExportValidation` | 4 | `src/studio/export_validation.elisa` |
 | `StudioFilePolicy` | 9 | `src/studio/file_policy.elisa` |
 | `StudioIssueAnnotation` | 3 | `src/studio/issue_annotation.elisa` |
 | `StudioIssueBrowserPolicy` | 17 | `src/studio/issue_browser_policy.elisa` |

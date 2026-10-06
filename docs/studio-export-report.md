@@ -126,3 +126,8 @@ reported as settings for an older GLB.
 Compilation of this refinement is pending because Stage1 rejected the current
 external compiler source-tree mismatch. Existing generation-policy proof
 results remain as documented above; native stale-review qualification is open.
+
+Unknown export-validation codes now report unavailable status rather than
+claiming successful validation. Validation results use an actual `Result`
+const module; focused policy/law results remain 4/4 and 8/8. Compilation of
+this refinement is pending Stage1 provenance renewal.
