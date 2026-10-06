@@ -74,12 +74,19 @@ still required.
 ## Captured report inputs
 
 Report generation no longer reopens the renamed-away staging path. It receives
-the decoded output fingerprint captured before preparation; reload/document
-equivalence validates that document before GLB publication. This fingerprint
-is not a cryptographic hash of the written bytes. Stack settings and animation
+the output fingerprint captured by loading the validated staging file before
+publication. The bounded residues cover the serialized GLB bytes, not the
+edited in-memory document's retained source bytes. They are non-cryptographic. Stack settings and animation
 name are captured before publication rather than read again afterward.
 
 A result-generation gate rejects changed results after modal confirmation and
 before publication. Its scalar contract proves; one focused law remains
 unresolved with the current prover. Full frozen report-byte recovery, exact
 source-byte hashes and native failure-path qualification remain open.
+
+The source basename is bounded independently of the destination path and
+stored in a report-local buffer. Export names of different lengths therefore
+cannot change source indexing, and long basenames are not truncated to a
+128-byte UI text slot. Both paths are refused when they exceed the existing
+4096-byte adapter boundary. Native Unicode/path-boundary qualification remains
+required.

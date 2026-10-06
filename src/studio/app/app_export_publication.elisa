@@ -29,13 +29,13 @@ extend Studio:
                     say_file("Export cancelled: displayed result changed; review it before exporting.", destination)
                     touch()
                     return false
-                # Freeze report inputs before publication. Reload validation
-                # establishes document equivalence for this decoded fingerprint.
+                # Freeze settings before publication; fingerprint serialized
+                # staging bytes while their private path still exists.
                 report_stack: StackState::Stack = current_stack()
                 report_animation: sview = anim_name
-                output_identity: StudioSourceFingerprint::Fingerprint? = StudioModel::fingerprint(&c.cleaned)
                 mutable prepare_error: i64 = StudioExportValidation::WRITE_FAILED
                 if StudioExportPublisher::prepare(c.cleaned, destination, &prepare_error) is temporary:
+                    output_identity: StudioSourceFingerprint::Fingerprint? = export_staged_identity(temporary)
                     # Recheck after writing and validating the temporary so a
                     # destination that changed during export cannot be silently
                     # replaced. Publication is a single same-directory rename.
@@ -94,6 +94,12 @@ extend Studio:
                     say_file(StudioExportValidation::message(prepare_error), destination)
                 touch()
             false
+
+        def export_staged_identity(temporary: cstr) -> StudioSourceFingerprint::Fingerprint?:
+            staged: GlbDocument::Document = catch GlbDocument::load(temporary):
+                value: value
+                error failure: return null
+            StudioModel::fingerprint(&staged)
 
         def report_integer(value: i64) -> sview can Unsafe.PointerCast:
             StudioText::begin()
@@ -157,18 +163,24 @@ extend Studio:
         # snapshot (tool versions and detailed retime provenance) are omitted.
         def write_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, destination: cstr, output_fp: StudioSourceFingerprint::Fingerprint) -> bool can Unsafe.PointerCast:
             # The temporary path no longer exists after atomic publication.
-            # Use the captured decoded-document identity; it is not a byte hash.
-            mutable name_start: usize = 0
+            # Use the captured staging-byte residue; it is not cryptographic.
             mutable path_end: usize = 0
             while path_end < 4096 and destination[path_end] != 0:
-                if destination[path_end] == 47 or destination[path_end] == 92:
-                    name_start <- path_end + 1
                 path_end <- path_end + 1
-            return false if path_end == 0 or path_end >= 4096 or name_start >= path_end
-            StudioText::begin()
-            for index in name_start..<path_end |index, path|:
-                StudioText::byte(path[index])
-            source_name: sview = StudioText::view()
+            return false if path_end == 0 or path_end >= 4096
+            # Source and destination lengths are independent. Never index a
+            # source path using offsets measured from the export destination.
+            mutable source_end: usize = 0
+            mutable source_start: usize = 0
+            while source_end < 4096 and path[source_end] != 0:
+                if path[source_end] == 47 or path[source_end] == 92:
+                    source_start <- source_end + 1
+                source_end <- source_end + 1
+            return false if source_end == 0 or source_end >= 4096 or source_start >= source_end
+            mutable source_label: u8[4096] = zeroed
+            for index in source_start..<source_end |index, path, source_label, source_start|:
+                source_label[index - source_start] <- path[index]
+            source_name: sview = UiText::fixed_bytes_view_range[4096](source_label, 0, source_end - source_start)
             mutable settings: darray[StudioExportReport::Setting] = []
             settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "enabled"}) if active_stack.feet
             settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "disabled"}) if not active_stack.feet
