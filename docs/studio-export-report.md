@@ -149,3 +149,13 @@ compile, not a linked application, native interaction check or full test run.
 Export result focus laws now assert their returned Boolean with `ensure result`,
 covering both wrap directions and adjacent order. Previous proof counts remain
 historical until the updated proof assistant verifies these stronger laws.
+
+## Law assertion audit
+
+The export publication policy, report arithmetic/schema and duplicate-operation
+law files previously returned their intended predicates without asserting them.
+Their Boolean laws now carry `ensure result` after their preconditions. A
+producer count for the earlier bodies does not prove those predicates; retained
+baselines must be requalified with the stronger obligations and certificate
+replay. Report laws compile with current Stage1 `812c0547`; proof replay remains
+pending the updated prover build. No baseline was weakened.
