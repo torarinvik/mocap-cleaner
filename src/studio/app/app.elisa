@@ -19,6 +19,7 @@ include "../storage_batch_policy.elisa"
 include "../storage_identity_policy.elisa"
 include "../storage_totals_kernel.elisa"
 include "../storage_overview_policy.elisa"
+include "../storage_registration_policy.elisa"
 include "../io/storage_clock.elisa"
 include "../storage_accessibility_policy.elisa"
 include "../io/storage_manifest_file.elisa"
@@ -1401,7 +1402,11 @@ module Studio:
                 ok <- SessionState::save_session_with_annotations(current_stack(), session_identity(c), records, session_path)
             if ok:
                 HistoryState::mark_saved(&history)
-                say_file("session saved to", session_path)
+                mutable tracked: bool = false
+                can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+                    tracked <- register_storage_artifact(session_path, StudioStorageRegistrationPolicy::receipt_kind(StudioStorageRegistrationPolicy::ARTIFACT_SESSION))
+                say_file("session saved to", session_path) if tracked
+                say_file("Session saved; Storage registration could not be saved. Recovery file remains protected", session_path) if not tracked
                 FilePanel::note_recent(session_path)
             else:
                 mutable failure: sview = "session save failed; check path, permissions or disk space"
@@ -1592,6 +1597,9 @@ module Studio:
             mutable entry: StudioStorageManifest::Entry = zeroed
             mutable message: darray[u8] = []
             return false if not StudioFileTrash::snapshot("build", path, kind, &entry, &message)
+            # Native snapshot verifies canonical root, regular type and identity.
+            artifact: i64 = StudioStorageRegistrationPolicy::ARTIFACT_SESSION if kind == StudioStorageCleanupPolicy::RECOVERY else StudioStorageRegistrationPolicy::ARTIFACT_EXPORT_REPORT if kind == StudioStorageCleanupPolicy::GENERATED_REPORT else -1
+            return false if not StudioStorageRegistrationPolicy::may_register(artifact, true, true, true, StudioStorageManifest::valid(entry), true, false)
             mutable updated: darray[StudioStorageManifest::Entry] = []
             for previous in storage_entries:
                 updated.push(previous)

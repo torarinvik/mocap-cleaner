@@ -256,14 +256,29 @@ accessibility semantic test passes; native interaction acceptance remains
 open. Missing or changed saved entries still need a dedicated management view.
 
 The overview and accessible inventory summary include the last scan value
-or an explicit unavailable state, including empty inventories. The first
-implementation labels Unix seconds explicitly; human-readable formatting
-is being improved. This records scan time, not artifact creation or Trash
+or an explicit unavailable state, including empty inventories. Visible and accessible copy share a formatter for an explicit UTC date and
+time; unsupported timestamps use the unavailable message. Calendar laws
+have one certificate replay gap and are not recorded as fully verified. This records scan time, not artifact creation or Trash
 move time.
 
 Artifact registration now reuses the canonical export-path admission guard
 before capturing or inserting identity metadata. This rejects source aliases,
 unsafe paths and nonregular files even when a creation caller requests
-registration. Fresh native snapshot checks remain required. Saved-session
-registration and a distinct completed-output kind are still pending; completed
+registration. Fresh native snapshot checks remain required. Successfully saved sessions are now registered as protected recovery
+material after fresh admission and identity checks. Registration failure
+is reported separately from successful save. Creation/dependency metadata,
+crash durability and a distinct completed-output kind remain pending; completed
 GLB outputs must not be mislabeled as temporary exports.
+
+Session writes now check canonical destination admission before serialization
+and publication. Outside-build paths, source identities/aliases, symlinks and
+unverified or nonregular destinations stop the save with a specific message.
+Replacement workflows retain the current document when this guard fails.
+This reuses the export admission kernel; native session-save path acceptance
+and filesystem race/fault qualification remain open.
+
+The registration policy is not yet fully proved: its focused report is
+90/93 source obligations and 96/115 law obligations, with zero certificate
+replay gaps. No clean baseline was added. The unresolved contracts remain
+in place while prover support is investigated. This is implementation
+progress, not completion of storage metadata or durability acceptance.
