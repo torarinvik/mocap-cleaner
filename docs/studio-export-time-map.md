@@ -16,8 +16,9 @@ output count in `1..100,000,000`, and an array whose count exactly equals the
 output count. It checks that the map starts at zero, ends at the final source
 frame, contains only in-range values and is strictly increasing. A mismatch or
 invalid map returns an empty byte array. Each report is independently limited
-to the existing 1 MiB report budget. Every byte append is admitted against the
-remaining budget before it is stored. Output remains private until the
+to the existing 1 MiB report budget. Text spans are admitted against the
+remaining budget before bulk extension; individual numeric and delimiter bytes
+are admitted before storage. Output remains private until the
 complete report is returned, so budget failure cannot expose a partial result.
 
 The callable entry points are:
