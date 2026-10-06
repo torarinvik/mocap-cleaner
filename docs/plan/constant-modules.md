@@ -61,7 +61,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `SessionIssueAnnotationPolicy` | 4 | `src/studio/state/session_issue_annotation_policy.elisa` |
 | `SessionState` | 20 | `src/studio/state/session_state.elisa` |
 | `Slide` | 3 | `src/core/slide.elisa` |
-| `StackCache` | 3 | `src/core/stack_cache.elisa` |
 | `StackPolicy` | 2 | `src/studio/stack_policy.elisa` |
 | `StackState` | 8 | `src/studio/state/stack_state.elisa` |
 | `Studio` | 11 | `src/studio/app/app_state.elisa` |
@@ -128,6 +127,13 @@ been removed from the remaining inventory.
 are unchanged. Current independent replay has two unresolved law gaps; retain
 the existing complete law baseline until they are resolved. Normal compiler
 `3c72f59f` emits a fresh policy object; native adapter qualification remains open.
+
+`StackCache::Capacity` holds the operation bound; `Fingerprint` holds the seed
+and modulus. These numeric parameters are distinct from semantic operation
+choices, which retain their typed representation. All cache/law consumers use
+qualified names. Compiler `3c72f59f` accepts the existing performance fixture;
+candidate prover `4da37c97` reports source 78/78 and laws 165/166, with all 165
+law certificates replayed. The existing unresolved law and baseline are retained.
 
 `Codec::Domain` holds decimal field magnitude and serialized operation-kind
 count. These numeric format bounds are not choices; operation variants remain
