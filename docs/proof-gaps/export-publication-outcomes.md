@@ -198,3 +198,23 @@ No executable tests were added.
 Same-session captured bytes are required: persisted sizes are not authenticated
 restart identities. Ownership, lock facts, native race safeguards, sidecar
 completion, Studio integration and restart recovery remain open.
+
+## Create-only report completion adapter
+
+`StudioExportRecoveryCompletion::complete` rechecks captured-byte binding before
+each report operation. It recognizes an exact existing report, otherwise uses
+atomic create-only publication. An existing conflicting or unreadable file is
+never overwritten. It leaves GLB bytes untouched and records observed report
+stages monotonically. Durable report stages advance only after directory-synced
+publication when the journal already records GLB durability. Recognizing an
+existing report alone does not advance durability.
+
+Published outcomes retain their publication status even if the later journal
+update fails; a separate journal-saved flag exposes that failure. Existing-match
+outcomes also expose journal persistence separately. Historical completion
+stages do not authenticate other current sidecars. Caller-owned lock/IO facts
+remain trusted, and Studio/restart integration and native fault qualification
+are unfinished. Candidate faabd1f7 emitted the object without diagnostics
+(`build/export-recovery-completion-build.log`). Report-stage laws were added;
+their direct prover run is still pending in session 3607. No closure baseline
+or native acceptance claim follows from compilation.

@@ -1,0 +1,61 @@
+include "export_recovery_binding.elisa"
+
+module StudioExportRecoveryCompletion:
+    public:
+        const enum Report of i64:
+            Json = 0
+            Text = 1
+
+        const enum Failure of i64:
+            InvalidReport = 0
+            BindingUnavailable = 1
+            NotPublished = 2
+
+        enum Outcome:
+            Rejected(reason: StudioExportRecoveryCompletion::Failure)
+            ExistingMatching(journal_saved: bool)
+            Published(status: StudioPublicationDurabilityPolicy::Result, journal_saved: bool)
+
+        # Caller supplies captured bytes and native ownership/transaction facts.
+        # An unreadable/conflicting existing destination cannot be overwritten:
+        # create-only publication refuses it. No GLB write occurs here.
+        def complete(directory: cstr, expected: StudioExportRecoveryJournal::Record&,
+                     output: darray[u8]&, json: darray[u8]&, text: darray[u8]&,
+                     owned: bool, locked: bool, report: Report) -> Outcome can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return Outcome.Rejected(Failure.InvalidReport) if report != Report.Json and report != Report.Text
+            mutable journal: StudioExportRecoveryJournal::Record = expected
+            return Outcome.Rejected(Failure.BindingUnavailable) if not StudioExportRecoveryBinding::load(directory, expected, output, json, text, owned, locked, &journal)
+            mutable destination: u8[4096] = zeroed
+            if report == Report.Json:
+                for index in 0..<expected.json_destination.count |destination, expected, index|:
+                    destination[index] <- expected.json_destination[index]
+                return publish(directory, &journal, (&destination[0]).cast[cstr], json, true)
+            for index in 0..<expected.text_destination.count |destination, expected, index|:
+                destination[index] <- expected.text_destination[index]
+            publish(directory, &journal, (&destination[0]).cast[cstr], text, false)
+
+    private:
+        def publish(directory: cstr, journal: mutable StudioExportRecoveryJournal::Record&,
+                    destination: cstr, bytes: darray[u8]&, json: bool) -> Outcome:
+            matched: bool = StudioExportRecoveryBytes::matches(destination, bytes, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            if matched:
+                advance_observed(journal, json)
+                saved: bool = StudioPublicationDurabilityPolicy::published(StudioExportRecoveryStore::update_journal(directory, journal))
+                return Outcome.ExistingMatching(saved)
+            status: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(destination, bytes)
+            return Outcome.Rejected(Failure.NotPublished) if not StudioPublicationDurabilityPolicy::published(status)
+            advance_observed(journal, json)
+            # Reading a matching GLB does not prove its crash durability. Extend
+            # durable stages only when GLB durability was already recorded.
+            if status == StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced and journal.durable != StudioExportRecoveryStagePolicy::Stage.Prepared:
+                journal.durable <- StudioExportRecoveryStagePolicy::with_report(journal.durable.i64(), json).cast[StudioExportRecoveryStagePolicy::Stage]
+            saved: bool = StudioPublicationDurabilityPolicy::published(StudioExportRecoveryStore::update_journal(directory, journal))
+            # Publication remains visible even when the later journal update
+            # fails. The retained record permits another conservative attempt.
+            Outcome.Published(status, saved)
+
+        def advance_observed(journal: mutable StudioExportRecoveryJournal::Record&, json: bool):
+            mutable observed: i64 = journal.observed.i64()
+            if observed == 0:
+                observed <- 1
+            journal.observed <- StudioExportRecoveryStagePolicy::with_report(observed, json).cast[StudioExportRecoveryStagePolicy::Stage]
