@@ -138,3 +138,20 @@ The explicit-branch stage proof batch ended with exit 1 and empty source/law
 JSON files; the shell's final JSON-reader failed because no report was available.
 The underlying prover failure cause is not established. This terminal run
 provides no proof acceptance evidence; source contracts remain unchanged.
+
+The recovery inventory adapter now scans the selected canonical build root and
+counts every recovery-namespace directory and regular child, including unknown
+journals and leftover staging. It rejects symlinks, nested/nonregular children,
+unverifiable identities, incomplete scans, oversized paths and exceeded limits.
+Unknown records are accounted for without acquiring cleanup authority. Typed
+failure messages identify permissions, path, identity and capacity problems.
+Caller must hold the workspace transaction lock; unrelated-process races remain
+unqualified. The adapter and its laws compile with normal f292cbe0.
+
+The scalar totals policy independently replays 21/21 (including 16 imported
+capacity/budget obligations). Laws produce 39 certificates, with 28 replayed
+and 11 gaps; no law baseline is added. Evidence:
+`build/export-recovery-inventory-source.json`,
+`build/export-recovery-inventory-laws.json`, `build/export-recovery-inventory-build.log`.
+Native failure injection, durable reservation persistence and export/recovery
+UI integration remain required before the capacity gate is operational.

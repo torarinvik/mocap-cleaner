@@ -1,0 +1,92 @@
+include "../../io/folder_checked.elisa"
+include "file_trash.elisa"
+include "../export_recovery_capacity_policy.elisa"
+include "../export_recovery_inventory_policy.elisa"
+include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
+
+# Accounting is observational, not cleanup authority. Unknown or incomplete
+# records stay charged to usage. Caller holds the workspace transaction lock.
+module StudioExportRecoveryInventory:
+    public:
+        const enum Failure of i64:
+            RootScanFailed = 0
+            PathTooLong = 1
+            RecordNotDirectory = 2
+            RecordScanFailed = 3
+            FileIdentityFailed = 4
+            CapacityExceeded = 5
+
+        enum Scan:
+            Verified(records: i64, bytes: i64)
+            Rejected(reason: Failure)
+
+        def message(reason: Failure) -> sview:
+            return "Recovery inventory unavailable: build/ could not be read. Check workspace permissions." if reason == Failure.RootScanFailed
+            return "Recovery path exceeds the supported length. Choose a shorter workspace path." if reason == Failure.PathTooLong
+            return "Recovery inventory includes a non-directory or symbolic link. The item was preserved." if reason == Failure.RecordNotDirectory
+            return "Recovery inventory incomplete: a record could not be read or has too many entries." if reason == Failure.RecordScanFailed
+            return "Recovery file identity could not be verified. The item was preserved." if reason == Failure.FileIdentityFailed
+            return "Recovery storage reached its record or byte limit. Resolve pending exports before retrying." if reason == Failure.CapacityExceeded
+            "Recovery inventory could not be verified. Existing files were preserved."
+
+        # Input is the selected canonical build directory. The scan counts
+        # every namespace directory, even one lacking a valid journal, and
+        # every regular child, including leftover staging. Nested directories,
+        # symlinks, missing identities or incomplete scans fail closed.
+        def scan(build_root: cstr) -> Scan can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            mutable root: darray[u8] = []
+            mutable root_length: usize = 0
+            while root_length < 4096 and build_root[root_length] != 0:
+                root.push(build_root[root_length])
+                root_length <- root_length + 1
+            return Scan.Rejected(Failure.PathTooLong) if root_length == 0 or root_length >= 4096
+            mutable names: darray[darray[u8]] = []
+            return Scan.Rejected(Failure.RootScanFailed) if not Folder::entries_checked(build_root, FolderScanPolicy::Capacity::NAMES, &names)
+            mutable records: i64 = 0
+            mutable total: i64 = 0
+            for name in names |root, name, records, total, build_root|:
+                continue if not recovery_namespace(name)
+                return Scan.Rejected(Failure.CapacityExceeded) if records >= StudioExportRecoveryCapacityPolicy::Capacity::RECORDS
+                mutable directory: darray[u8] = []
+                directory.extend(root)
+                directory.push(47)
+                directory.extend(name)
+                mutable directory_buffer: u8[4096] = zeroed
+                return Scan.Rejected(Failure.PathTooLong) if not copy_path(directory, &directory_buffer)
+                directory_path: cstr = (&directory_buffer[0]).cast[cstr]
+                facts: i64 = FilePanel::path_facts(directory_path)
+                return Scan.Rejected(Failure.RecordNotDirectory) if facts < 0 or (facts & FilePanel::PATH_DIRECTORY) == 0 or (facts & FilePanel::PATH_SYMLINK) != 0
+                mutable children: darray[darray[u8]] = []
+                return Scan.Rejected(Failure.RecordScanFailed) if not Folder::entries_checked(directory_path, FolderScanPolicy::Capacity::NAMES, &children)
+                records <- records + 1
+                for child in children |directory, child, build_root, total|:
+                    mutable candidate: darray[u8] = []
+                    candidate.extend(directory)
+                    candidate.push(47)
+                    candidate.extend(child)
+                    mutable candidate_buffer: u8[4096] = zeroed
+                    return Scan.Rejected(Failure.PathTooLong) if not copy_path(candidate, &candidate_buffer)
+                    candidate_facts: i64 = FilePanel::path_facts((&candidate_buffer[0]).cast[cstr])
+                    return Scan.Rejected(Failure.FileIdentityFailed) if candidate_facts < 0 or (candidate_facts & FilePanel::PATH_REGULAR) == 0 or (candidate_facts & FilePanel::PATH_SYMLINK) != 0
+                    mutable current: StudioStorageManifest::Entry = zeroed
+                    mutable message: darray[u8] = []
+                    return Scan.Rejected(Failure.FileIdentityFailed) if not StudioFileTrash::snapshot_path(build_root, candidate, StudioStorageReceiptPolicy::RECOVERY, &current, &message)
+                    return Scan.Rejected(Failure.CapacityExceeded) if not StudioExportRecoveryInventoryPolicy::add_admitted(total, current.size_bytes)
+                    total <- StudioExportRecoveryInventoryPolicy::next_total(total, current.size_bytes)
+            Scan.Verified(records, total)
+
+    private:
+        def recovery_namespace(name: darray[u8]&) -> bool:
+            prefix: sview = ".mocap-export-recovery-"
+            return false if name.count < prefix.len.usize()
+            for index in 0..<prefix.len.usize():
+                return false if name[index] != prefix[index]
+            true
+
+        def copy_path(path: darray[u8]&, out: mutable u8[4096]&) -> bool:
+            return false if path.count == 0 or path.count >= 4096
+            for index in 0..<path.count |path, out, index|:
+                return false if path[index] == 0
+                out[index] <- path[index]
+            out[path.count] <- 0
+            true
