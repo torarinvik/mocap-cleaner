@@ -101,6 +101,20 @@ module StudioExportPublisher:
             return StudioPublicationDurabilityPolicy::Result.NotPublished if export_rename(temporary.cast[u8&], destination.cast[u8&]) != 0
             StudioPublicationDurabilityPolicy::outcome(true, sync_parent(destination))
 
+        struct ExclusiveCommit:
+            status: StudioPublicationDurabilityPolicy::Result
+            staging_removed: bool
+
+        # New output publication cannot replace a destination created after
+        # preflight. A successful link remains published if staging cleanup
+        # fails; callers retain the owned temporary path for later resolution.
+        def commit_new_with_status(temporary: cstr, destination: cstr) -> ExclusiveCommit:
+            if export_link(temporary.cast[u8&], destination.cast[u8&]) != 0:
+                return ExclusiveCommit{status: StudioPublicationDurabilityPolicy::Result.NotPublished, staging_removed: false}
+            removed: bool = export_unlink(temporary.cast[u8&]) == 0
+            status: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::outcome(true, sync_parent(destination))
+            ExclusiveCommit{status: status, staging_removed: removed}
+
         # Removes an uncommitted temporary; harmless after a successful rename.
         def discard(temporary: cstr) -> void:
             _ = export_unlink(temporary.cast[u8&])

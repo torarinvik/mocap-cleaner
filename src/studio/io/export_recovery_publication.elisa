@@ -19,7 +19,8 @@ module StudioExportRecoveryPublication:
             Rejected(reason: StudioExportRecoveryPublication::Failure)
             NotPublished
             Published(status: StudioPublicationDurabilityPolicy::Result,
-                      journal_status: StudioPublicationDurabilityPolicy::Result)
+                      journal_status: StudioPublicationDurabilityPolicy::Result,
+                      staging_removed: bool)
 
         # This cannot authenticate ownership or a lock: callers must provide
         # those native facts. The journal and every retained file are reread
@@ -27,7 +28,7 @@ module StudioExportRecoveryPublication:
         def commit(directory: cstr, staging: cstr, destination: cstr,
                    expected: StudioExportRecoveryJournal::Record&,
                    output: darray[u8]&, json: darray[u8]&, text: darray[u8]&,
-                   owned: bool, locked: bool) -> Outcome can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+                   owned: bool, locked: bool, replace_confirmed: bool) -> Outcome can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
             return Outcome.Rejected(Failure.OwnershipUnavailable) if not owned
             return Outcome.Rejected(Failure.WorkspaceBusy) if not locked
             return Outcome.Rejected(Failure.InvalidPreparedRecord) if not StudioExportRecoveryJournal::valid(expected)
@@ -37,13 +38,21 @@ module StudioExportRecoveryPublication:
             return Outcome.Rejected(Failure.BindingChanged) if journal.observed != StudioExportRecoveryStagePolicy::Stage.Prepared or journal.durable != StudioExportRecoveryStagePolicy::Stage.Prepared
             return Outcome.Rejected(Failure.DestinationChanged) if not exact_path(destination, expected.destination)
             return Outcome.Rejected(Failure.StagingChanged) if not StudioExportRecoveryBytes::matches(staging, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
-            status: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::commit_with_status(staging, destination)
+            mutable status: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
+            mutable staging_removed: bool = false
+            if replace_confirmed:
+                status <- StudioExportPublisher::commit_with_status(staging, destination)
+                staging_removed <- StudioPublicationDurabilityPolicy::published(status)
+            else:
+                exclusive: StudioExportPublisher::ExclusiveCommit = StudioExportPublisher::commit_new_with_status(staging, destination)
+                status <- exclusive.status
+                staging_removed <- exclusive.staging_removed
             return Outcome.NotPublished if not StudioPublicationDurabilityPolicy::published(status)
             journal.observed <- StudioExportRecoveryStagePolicy::Stage.GlbPublished
             if status == StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced:
                 journal.durable <- StudioExportRecoveryStagePolicy::Stage.GlbPublished
             journal_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::update_journal(directory, journal)
-            Outcome.Published(status, journal_status)
+            Outcome.Published(status, journal_status, staging_removed)
 
     private:
         def exact_path(path: cstr, expected: darray[u8]&) -> bool:
