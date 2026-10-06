@@ -42,3 +42,13 @@ Compiler `3c72f59f` emits a fresh object without diagnostics in
 comparison, snapshot lifetime, cache/full equivalence or added memory pressure.
 The shared admission policy/laws remain the proved scalar kernel; integrated
 proof and runtime qualification are separate and unfinished.
+
+## Integrated compile and proof observations
+
+The existing `test/studio_perf.elisa` fixture compiles to a fresh object with
+compiler `3c72f59f` in `build/cache-fixture-compile.jkAG46`; it was not executed.
+The broad evaluator proof route with candidate `4da37c97` processes channel
+stack 1,094/1,146 producer obligations and rig cache 2,162/3,032, both in
+unsupported state. Logs are `build/exact-cache-integration-proof.log` and
+`build/proof/src_ops_{stack,rig_cache}.elisa.txt`. These partial counts neither
+close integrated correctness nor replace the existing reviewed baselines.
