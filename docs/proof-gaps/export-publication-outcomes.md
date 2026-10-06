@@ -327,6 +327,21 @@ Logs: `build/report-stage-clean-source.log`,
 closure. The older default does not satisfy them. This closes the pure report
 stage helper, not the broader journal stage module, native IO or recovery UI.
 
+## Confined correction bit formatting
+
+Export code now calls `put_f32_bits`; the pointer representation helper is
+private to report formatting. The pure unsigned-bit-pattern-to-i64 conversion
+preserves the full value and establishes the range 0..4,294,967,295. Clean
+3ac99624 verification proves/replays 16/16 source obligations with zero findings,
+diagnostics or replay gaps; the reviewed text policy baseline increases from
+13 to 16. Expanded laws remain open: 40 obligations, 37 proven/replayed, three
+findings and zero replay gaps/semantic diagnostics. Logs:
+`build/report-bits-integer-source.log`, `build/report-bits-integer-laws.log`.
+Normal f292cbe0 emitted the isolated formatting object without diagnostics
+(`build/report-float-bits-build.log`). Native binary32 reinterpretation and
+integrated report behavior still require qualification. No executable tests
+were added or run for this slice.
+
 ## Report preparation now blocks unsafe publication
 
 Studio previously allowed GLB publication when staged identity or report
