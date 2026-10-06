@@ -51,3 +51,14 @@ root laws; their implementation owners are correcting them. This scan is only
 an audit aid: assertions must cover the intended behavior, not merely exist in
 a body. Finding and contact laws still require current-toolchain compilation
 and replay. The existing assertions with false/equivalence outcomes were kept.
+
+## Compilation follow-up on current Stage1
+
+Stage1 `4c409da6` compiled job, legacy session and regression laws, plus the
+full Studio entry point. Standalone accessibility law compilation initially
+failed because `StudioAccessibility::NO_NODE` references UiCore's node capacity
+without the law file including UiCore. The law now explicitly includes the
+same UI core as its existing executable fixture; object compilation succeeds.
+This expands the dependency closure and must be reflected in proof qualification
+rather than hiding missing definitions or weakening assertions. Updated replay
+and native interaction checks remain open.

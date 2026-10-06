@@ -20,3 +20,12 @@ rerun affected verification after dependency changes. A clean working tree,
 zero behind count or successful object compilation alone does not establish
 native behavior, source compatibility across the whole product or proof replay.
 Keep historical comparison builds explicitly separate from acceptance evidence.
+
+## Follow-up
+
+The compiler advanced to `4c409da6`; its rebuilt Stage1 reports current provenance
+and compiled Studio, report diff and focused law objects. The engine merge
+completed as `01f5aec7` on `mocap-track` (20 ahead / 0 behind fetched upstream),
+retaining the workspace host and adopting the upstream lifetime-safe PNG API.
+These builds do not yet qualify the linked Studio or engine regression suite.
+The proof assistant rebuild remains in progress.
