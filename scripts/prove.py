@@ -45,7 +45,7 @@ CACHE = os.path.join(OUT, "cache")
 DURATIONS = os.path.join(CACHE, "durations.json")
 KEEP = re.compile(r"verification state|obligations:|proven:|failed:|unproven:")
 # Bump when the key layout or the cached line format changes.
-KEY_VERSION = b"prove-cache-v6"
+KEY_VERSION = b"prove-cache-v7"
 # The prover is run as `PROVER <absolute file>`; part of the key so a change
 # here cannot reuse results produced by another invocation.
 INVOCATION = b"argv:PROVER,ABSFILE"
@@ -213,7 +213,19 @@ def main():
         durations = json.load(open(DURATIONS))
     except (OSError, ValueError):
         durations = {}
+    prover_hash = file_hash(prover)
     revision, how = semantic_revision(prover)
+
+    def prover_unchanged():
+        try:
+            return file_hash(prover) == prover_hash
+        except OSError:
+            return False
+
+    if not prover_unchanged():
+        print("prove: prover changed while identifying its revision; retry with a stable binary",
+              file=sys.stderr)
+        sys.exit(1)
     todo, hits = [], []
     for f in files:
         out = os.path.join(OUT, f.replace("/", "_") + ".txt")
@@ -246,8 +258,12 @@ def main():
         timed_out = False
         expected_key = os.path.basename(cached)[:-4]
         source_changed = digest(f, revision) != expected_key
+        prover_changed = not prover_unchanged()
         try:
-            if source_changed:
+            if prover_changed:
+                run = subprocess.CompletedProcess([prover, os.path.abspath(f)], 125,
+                    stdout="", stderr="prover binary changed while queued; fresh verification required")
+            elif source_changed:
                 run = subprocess.CompletedProcess([prover, os.path.abspath(f)], 125,
                     stdout="", stderr="source/include snapshot changed while queued; fresh verification required")
             else:
@@ -262,11 +278,15 @@ def main():
             source_changed = True
             run = subprocess.CompletedProcess(run.args, 125, stdout="",
                 stderr="source/include snapshot changed during verification; result discarded")
+        if not prover_changed and not prover_unchanged():
+            prover_changed = True
+            run = subprocess.CompletedProcess(run.args, 125, stdout="",
+                stderr="prover binary changed during verification; result discarded")
         line = summary(run.stdout)
         # The current CLI returns 0 for complete source verification and 1
         # for a completed report with unresolved obligations. Other exits are
         # invocation/internal failures, even if a report marker was printed.
-        invalid = timed_out or source_changed or not complete_report(run.stdout) or run.returncode not in (0, 1)
+        invalid = timed_out or source_changed or prover_changed or not complete_report(run.stdout) or run.returncode not in (0, 1)
         if invalid:
             line = ""
         if old is not None and line != old:
@@ -309,6 +329,10 @@ def main():
     os.replace(tmp, DURATIONS)
     print(f"prove: {len(hits)} cached, {len(todo)} processed, {len(sample)} rechecked; "
           f"key: {how} {revision[:24]}", file=sys.stderr)
+    if not prover_unchanged():
+        print("prove: prover binary changed during the run; repeat verification with a stable binary",
+              file=sys.stderr)
+        sys.exit(1)
     if mismatches:
         print("prove: CACHE MISMATCH - cached results differ from a fresh run:", file=sys.stderr)
         for f, old, line in mismatches:
