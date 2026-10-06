@@ -124,6 +124,16 @@ schema-aware traversal remain required to bound comparison work.
 the published checker proves the source (4/4), but the laws have 11/14
 certificates replayed despite 14 producer-proven obligations. Qualification
 remains open until those three composition gaps replay.
+
+The reader now extracts direct root scalars and direct scalars of named
+objects in the root `clips` array using engine token subtree boundaries.
+Names are located before extracting values, so field order does not change
+ownership. Nested metadata and timing arrays are excluded. Non-array `clips`,
+unnamed clip entries, and empty names are rejected. The CLI compiles with
+compiler `4c409da6`. This is partial structural implementation: duplicate
+container/name fields, clip identity normalization (including Unicode JSON
+escapes), fractional/exponent numbers, indexed lookup, and traversal proof
+coverage still need implementation and qualification.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
 

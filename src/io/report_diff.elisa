@@ -1,7 +1,7 @@
 # Report diff: compare two JSON reports per clip and metric (Phase 6).
-# The reader is a flat scanner: every "key": number|true|false pair is a
-# metric of the current clip; a "name": "..." string switches the clip (so a
-# "clips" array of named objects works); a flat report is the clip "total".
+# Direct root scalar members belong to "total". Direct members of named
+# objects in the root "clips" array belong to that clip. Nested metadata and
+# timing values are skipped using the engine JSON token subtree boundaries.
 # Lower-is-better metrics: keys ending in _after or _after_um, plus
 # unbalanced_frames and unbalanced_runs. "ok" turning false regresses, and so
 # does a metric or clip missing from b. The verdict is Regress::verdict.
@@ -81,7 +81,49 @@ module ReportDiff:
         def is_space(c: u8) -> bool:
             return c == 32 or c == 10 or c == 13 or c == 9
 
-        # Parse `text` into metrics; key and clip bytes go into `pool`.
+        def copy_string(text: darray[u8]&, token: GlbJson::Token, pool: mutable darray[u8]&) -> i64:
+            start: i64 = pool.count.i64()
+            mutable at: usize = token.start
+            while at < token.stop:
+                at <- at + 1 if text[at] == 92
+                if at < token.stop:
+                    pool.push(text[at])
+                    at <- at + 1
+            pool.count.i64() - start
+
+        # Read only direct scalar members of the report or a clip object.
+        # Nested timing and metadata objects cannot change metric ownership.
+        def object_metrics(text: darray[u8]&, tokens: darray[GlbJson::Token]&, object: usize, clip_at: i64, clip_len: i64, pool: mutable darray[u8]&, out: mutable darray[Metric]&):
+            mutable at: usize = object + 1
+            for member in 0..<tokens[object].size:
+                key: GlbJson::Token = tokens[at]
+                value_token: GlbJson::Token = tokens[at + 1]
+                if value_token.kind == GlbJson::KIND_PRIMITIVE:
+                    key_at: i64 = pool.count.i64()
+                    key_len: i64 = copy_string(text, key, pool)
+                    mutable value: i64 = 0
+                    mutable flag: bool = false
+                    mutable exact_integer: bool = true
+                    if GlbJson::text_is(text, value_token, "true") or GlbJson::text_is(text, value_token, "false"):
+                        flag <- true
+                        value <- 1 if GlbJson::text_is(text, value_token, "true") else 0
+                    else:
+                        mutable digit: usize = value_token.start
+                        negative: bool = text[digit] == 45
+                        digit <- digit + 1 if negative
+                        while digit < value_token.stop:
+                            c: u8 = text[digit]
+                            if c < 48 or c > 57 or value >= 100000000000:
+                                exact_integer <- false
+                            elif exact_integer:
+                                value <- value * 10 + (c - 48).i64()
+                            digit <- digit + 1
+                        value <- -value if negative
+                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: value, flag: flag, exact_integer: exact_integer})
+                at <- value_token.after
+
+        # Root scalars belong to `total`; only direct `clips` elements may
+        # introduce clip identities. Name order within an object is irrelevant.
         def parse(text: darray[u8]&, pool: mutable darray[u8]&, out: mutable darray[Metric]&) -> bool:
             pool.clear()
             out.clear()
@@ -89,71 +131,32 @@ module ReportDiff:
             mutable tokens: darray[GlbJson::Token] = []
             return false if not GlbJson::tokenize(text, 0, text.count, &tokens)
             return false if tokens.count == 0 or tokens[0].kind != GlbJson::KIND_OBJECT
-            mutable clip_at: i64 = pool.count.i64()
-            for c in "total":
-                pool.push(c)
-            mutable clip_len: i64 = 5
-            mutable i: usize = 0
-            mutable key_at: i64 = -1
-            mutable key_len: i64 = 0
-            while i < text.count:
-                c: u8 = text[i]
-                if c == 34:
-                    start: i64 = pool.count.i64()
-                    i <- i + 1
-                    while i < text.count and text[i] != 34:
-                        if text[i] == 92:
-                            i <- i + 1
-                        if i < text.count:
-                            pool.push(text[i])
-                            i <- i + 1
-                    i <- i + 1
-                    len: i64 = pool.count.i64() - start
-                    mutable j: usize = i
-                    while j < text.count and is_space(text[j]):
-                        j <- j + 1
-                    if j < text.count and text[j] == 58:
-                        key_at <- start
-                        key_len <- len
-                        i <- j + 1
-                    else:
-                        if key_at >= 0 and is_text(pool, key_at, key_len, "name"):
-                            clip_at <- start
-                            clip_len <- len
-                        key_at <- -1
-                elif key_at >= 0 and (c == 45 or (c >= 48 and c <= 57)):
-                    mutable negative: bool = c == 45
-                    if negative:
-                        i <- i + 1
-                    mutable value: i64 = 0
-                    mutable exact_integer: bool = true
-                    while i < text.count and text[i] >= 48 and text[i] <= 57:
-                        if value < 100000000000:
-                            value <- value * 10 + (text[i] - 48).i64()
-                        else:
-                            exact_integer <- false
-                        i <- i + 1
-                    exact_integer <- false if i < text.count and (text[i] == 46 or text[i] == 101 or text[i] == 69)
-                    while i < text.count and (text[i] == 46 or text[i] == 101 or text[i] == 69 or text[i] == 43 or (text[i] >= 48 and text[i] <= 57)):
-                        i <- i + 1
-                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: -value if negative else value, flag: false, exact_integer: exact_integer})
-                    key_at <- -1
-                elif key_at >= 0 and (c == 116 or c == 102):
-                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: 1 if c == 116 else 0, flag: true, exact_integer: true})
-                    while i < text.count and text[i] >= 97 and text[i] <= 122:
-                        i <- i + 1
-                    key_at <- -1
-                else:
-                    if c == 123 or c == 91:
-                        key_at <- -1
-                    i <- i + 1
+            Report::push_text(pool, "total")
+            object_metrics(text, &tokens, 0, 0, 5, pool, out)
+            clips: i64 = GlbJson::member(text, &tokens, 0, "clips")
+            if clips >= 0:
+                if GlbJson::kind_of(&tokens, clips) != GlbJson::KIND_ARRAY:
+                    out.clear()
+                    return false
+                mutable clip: usize = clips.usize() + 1
+                for index in 0..<tokens[clips.usize()].size:
+                    name: i64 = GlbJson::member(text, &tokens, clip.i64(), "name")
+                    if GlbJson::kind_of(&tokens, clip.i64()) != GlbJson::KIND_OBJECT or GlbJson::kind_of(&tokens, name) != GlbJson::KIND_STRING:
+                        out.clear()
+                        return false
+                    clip_at: i64 = pool.count.i64()
+                    clip_len: i64 = copy_string(text, tokens[name.usize()], pool)
+                    if clip_len == 0:
+                        out.clear()
+                        return false
+                    object_metrics(text, &tokens, clip, clip_at, clip_len, pool, out)
+                    clip <- tokens[clip].after
 
             # A clip/key pair must identify exactly one value. Otherwise the
             # first-match comparison could silently hide a later regression.
             for index in 0..<out.count:
                 first: Metric = out[index]
-                # Timing-stage entries legitimately repeat `us` in separate
-                # objects. Only comparison identities use this legacy scope.
+                # Only quality and pass-status keys participate in comparison.
                 continue if not lower_better(pool, first) and not is_text(pool, first.key_at, first.key_len, "ok")
                 for earlier in 0..<index:
                     second: Metric = out[earlier]
