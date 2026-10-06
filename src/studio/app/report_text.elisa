@@ -9,6 +9,7 @@ module StudioReportText:
         global mutable slot: i64 = 0
         global mutable start: usize = 0
         global mutable length: usize = 0
+        global mutable snapshot_overflowed: bool = false
 
         # Keep the accumulator negative so i64 minimum never needs negation.
         def negative_digits(value: i64) -> void:
@@ -24,6 +25,15 @@ module StudioReportText:
             u32_ref((&value).cast[u32&])
 
     public:
+        # Every view belongs to this synchronous report preparation. An
+        # oversized field invalidates the complete snapshot, not just its view.
+        def begin_snapshot() -> void:
+            snapshot_overflowed <- false
+            slot <- 0
+
+        def snapshot_complete() -> bool:
+            not snapshot_overflowed
+
         def put_f32_bits(value: f32) -> void can Unsafe.PointerCast:
             put_i(StudioReportTextPolicy::bits_integer(float_bits(value)))
 
@@ -33,7 +43,9 @@ module StudioReportText:
             length <- 0
 
         def byte(value: u8) -> void:
-            return if length >= StudioReportTextPolicy::Buffer::WIDTH.usize()
+            if not StudioReportTextPolicy::byte_admitted(length.i64()):
+                snapshot_overflowed <- true
+                return
             buffer[start + length] <- value
             length <- length + 1
 
