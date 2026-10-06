@@ -118,3 +118,10 @@ Invalid input now distinguishes the clip's exact frame limit from crossing the
 opposite endpoint, reports that endpoint in displayed 1-based frames, and keeps
 the draft editable. Qualify stale drafts after undo/redo, session application,
 and take replacement, plus both inversion messages at the minimum window size.
+
+First/Last contact endpoint fields now have native accessibility action nodes,
+with edit instructions and current interval context. Both route through the
+existing draft editor and are disabled without an authored interval. Tree laws
+cover parentage and endpoint traversal; the existing action-order expectation
+now includes the endpoint controls. Compile/replay and VoiceOver interaction
+remain pending, including focus after activation and draft/error announcements.
