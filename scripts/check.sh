@@ -9,6 +9,9 @@ mkdir -p build/test
 rm -rf build/folder-test && mkdir -p build/folder-test/sub.glb
 touch build/folder-test/a.glb build/folder-test/b.glb build/folder-test/C.GLB build/folder-test/.hidden.glb build/folder-test/c.txt
 status=0
+if [ "$(uname -s)" = Darwin ]; then
+    bash scripts/check_storage_io.sh || status=1
+fi
 # CHECK_JOBS bounds compiler and independent test concurrency.
 check_jobs=${CHECK_JOBS:-4}
 case $check_jobs in
