@@ -178,3 +178,20 @@ and lock qualification, persisted reservations and Studio integration remain
 open. Source/animation/stack provenance and exact report binding still require
 their separate acceptance checks. Evidence:
 `build/export-recovery-prepare-adapter-build.log`.
+
+## Captured-byte recovery binding
+
+`StudioExportRecoveryBinding::load` verifies an owned, locked same-session
+record against captured immutable output/JSON/text bytes. It strictly decodes
+the stored journal, checks the full export binding and exact directory spelling
+against workspace plus transaction, compares each stored snapshot byte and the
+published GLB byte, and only then returns the journal. Failure preserves the
+caller's journal. Stored stages do not establish current sidecar integrity.
+
+The isolated faabd1f7 compiler emitted `build/export-recovery-binding.o` without
+diagnostics. The focused pure admission policy and laws run reported two files
+proved (`build/export-recovery-binding-proof.log`); no broader native proof or
+independent replay closure is claimed here. No executable tests were added.
+Same-session captured bytes are required: persisted sizes are not authenticated
+restart identities. Ownership, lock facts, native race safeguards, sidecar
+completion, Studio integration and restart recovery remain open.

@@ -1,0 +1,59 @@
+include "export_recovery_store.elisa"
+include "../export_recovery_binding_policy.elisa"
+
+# Same-session verification against immutable bytes captured before GLB
+# publication. A decoded journal's sizes are not an integrity digest.
+module StudioExportRecoveryBinding:
+    public:
+        # Caller retains the captured bytes and establishes owned-directory and
+        # workspace transaction facts. No restart authentication is claimed.
+        # Native replacement races still require the caller's IO safeguards.
+        # Failure leaves the caller's previous journal untouched.
+        def load(directory: cstr, expected: StudioExportRecoveryJournal::Record&,
+                 output: darray[u8]&, json: darray[u8]&, text: darray[u8]&,
+                 owned: bool, locked: bool,
+                 out: mutable StudioExportRecoveryJournal::Record&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return false if not owned or not locked
+            return false if not StudioExportRecoveryJournal::valid(expected)
+            return false if output.count.i64() != expected.output_bytes or json.count.i64() != expected.json_bytes or text.count.i64() != expected.text_bytes
+            return false if not directory_matches(directory, expected)
+            mutable journal: StudioExportRecoveryJournal::Record = expected
+            if StudioExportRecoveryStore::record_path(directory, StudioExportRecoveryStore::Record.Journal) is path:
+                mutable bytes: darray[u8] = []
+                read: bool = StudioExportRecoveryBytes::read(path, StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES, &bytes)
+                StudioExportRecoveryStore::release_path(path)
+                return false if not read or not StudioExportRecoveryJournal::decode(bytes, &journal)
+            else:
+                return false
+            return false if not StudioExportRecoveryJournal::same_binding(&journal, expected)
+            return false if not record_matches(directory, StudioExportRecoveryStore::Record.OutputSnapshot, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            mutable destination: u8[4096] = zeroed
+            for index in 0..<expected.destination.count |destination, expected, index|:
+                destination[index] <- expected.destination[index]
+            return false if not StudioExportRecoveryBytes::matches((&destination[0]).cast[cstr], output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            return false if not record_matches(directory, StudioExportRecoveryStore::Record.JsonReport, json, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            return false if not record_matches(directory, StudioExportRecoveryStore::Record.TextReport, text, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            return false if not StudioExportRecoveryBindingPolicy::admitted(owned, locked, true, true, true, true, true, true)
+            out <- journal
+            true
+
+    private:
+        def directory_matches(directory: cstr, expected: StudioExportRecoveryJournal::Record&) -> bool:
+            mutable length: usize = 0
+            while length < 4096 and directory[length] != 0:
+                length <- length + 1
+            return false if length >= 4096 or length != expected.workspace.count + 1 + expected.transaction.count
+            for index in 0..<expected.workspace.count:
+                return false if directory[index] != expected.workspace[index]
+            return false if directory[expected.workspace.count] != 47
+            for index in 0..<expected.transaction.count:
+                return false if directory[expected.workspace.count + 1 + index] != expected.transaction[index]
+            true
+
+        def record_matches(directory: cstr, record: StudioExportRecoveryStore::Record,
+                           expected: darray[u8]&, limit: i64) -> bool:
+            if StudioExportRecoveryStore::record_path(directory, record) is path:
+                matched: bool = StudioExportRecoveryBytes::matches(path, expected, limit)
+                StudioExportRecoveryStore::release_path(path)
+                return matched
+            false
