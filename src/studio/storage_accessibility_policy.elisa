@@ -1,0 +1,98 @@
+# Stable semantic identity, hierarchy, and action policy for Storage & Recovery.
+# The app supplies geometry and file names when publishing these nodes.
+module StudioStorageAccessibilityPolicy:
+    public:
+        const NO_NODE: usize = 256
+        const WORKSPACE: usize = 240
+        const DIALOG: usize = 160
+        const INVENTORY: usize = 161
+        const ROW_FIRST: usize = 162
+        const ROW_COUNT: i64 = 6
+        const PROTECTED: usize = 168
+        const REFRESH: usize = 169
+        const DONE: usize = 170
+        const RESTORE: usize = 171
+        const ANNOUNCEMENT: usize = 172
+
+        # These action numbers match StudioPanels storage actions.
+        const ACTION_REFRESH: i64 = 0
+        const ACTION_DONE: i64 = 1
+        const ACTION_RESTORE: i64 = 2
+
+        # These message codes match app.elisa's storage_message transitions.
+        const MESSAGE_MANIFEST_FAILED: i64 = 1
+        const MESSAGE_BUILD_UNVERIFIED: i64 = 2
+        const MESSAGE_REFRESHED: i64 = 3
+        const MESSAGE_ITEMS_UNVERIFIED: i64 = 4
+        const MESSAGE_RECEIPT_SAVE_FAILED: i64 = 5
+        const MESSAGE_RESTORED: i64 = 6
+        const MESSAGE_RESTORE_FAILED: i64 = 7
+        const MESSAGE_RESTORED_SAVE_FAILED: i64 = 8
+        const MESSAGE_RECEIPT_CHANGED: i64 = 9
+
+        # Rows are bounded to the six visible rows in panels.elisa.
+        def row_id(index: usize) -> usize:
+            requires index < ROW_COUNT.usize()
+            ROW_FIRST + index
+
+        def row_index(id: usize) -> i64:
+            return (id - ROW_FIRST).i64() if id >= ROW_FIRST and id < ROW_FIRST + ROW_COUNT.usize()
+            -1
+
+        def is_row(id: usize) -> bool:
+            id >= ROW_FIRST and id < ROW_FIRST + ROW_COUNT.usize()
+
+        def is_node(id: usize) -> bool:
+            id == DIALOG or id == INVENTORY or is_row(id) or id == PROTECTED or id == REFRESH or id == DONE or id == RESTORE or id == ANNOUNCEMENT
+
+        # Modal root belongs to the existing Studio workspace. Inventory rows
+        # are children of a list; the reason, actions, and live result are
+        # ordered siblings beneath the dialog.
+        def parent(id: usize) -> usize:
+            return WORKSPACE if id == DIALOG
+            return DIALOG if id == INVENTORY or id == PROTECTED or id == REFRESH or id == DONE or id == RESTORE or id == ANNOUNCEMENT
+            return INVENTORY if is_row(id)
+            NO_NODE
+
+        def first_child(id: usize, visible_count: i64) -> usize:
+            requires visible_count >= 0
+            requires visible_count <= ROW_COUNT
+            return INVENTORY if id == DIALOG
+            return ROW_FIRST if id == INVENTORY and visible_count > 0
+            NO_NODE
+
+        def next_sibling(id: usize, visible_count: i64) -> usize:
+            requires visible_count >= 0
+            requires visible_count <= ROW_COUNT
+            row: i64 = row_index(id)
+            return id + 1 if row >= 0 and row + 1 < visible_count
+            return PROTECTED if id == INVENTORY or row >= 0 and row + 1 >= visible_count
+            return REFRESH if id == PROTECTED
+            return DONE if id == REFRESH
+            return RESTORE if id == DONE
+            return ANNOUNCEMENT if id == RESTORE
+            NO_NODE
+
+        def action_for_node(id: usize) -> i64:
+            return ACTION_REFRESH if id == REFRESH
+            return ACTION_DONE if id == DONE
+            return ACTION_RESTORE if id == RESTORE
+            -1
+
+        # Refresh and Done are always available while this modal is open.
+        # Restore uses the app's existing fully verified receipt predicate.
+        def action_enabled(action: i64, restore_available: bool) -> bool:
+            return true if action == ACTION_REFRESH or action == ACTION_DONE
+            return restore_available if action == ACTION_RESTORE
+            false
+
+        def row_selected(index: i64, selected: i64) -> bool:
+            index >= 0 and index == selected and index < ROW_COUNT
+
+        # Changed identities and failed checks must be announced as protected
+        # records; only verified Trash receipts can enable Restore.
+        def status_protected(status: i64) -> bool:
+            status == 2 or status == 3
+
+        def result_is_alert(message: i64) -> bool:
+            message == MESSAGE_MANIFEST_FAILED or message == MESSAGE_BUILD_UNVERIFIED or message == MESSAGE_RECEIPT_SAVE_FAILED or message == MESSAGE_RESTORE_FAILED or message == MESSAGE_RESTORED_SAVE_FAILED or message == MESSAGE_RECEIPT_CHANGED
