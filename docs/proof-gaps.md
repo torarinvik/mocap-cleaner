@@ -657,3 +657,25 @@ new rows after the prover/replay products are rebuilt from matching sources.
   sidebar, and workspace helpers. Current source and law reports are fully
   proved: issue browser 255/255, issue laws 311/311, accessibility 290/290, and
   accessibility laws 334/334; all certificates replay.
+
+## Storage preference file reader (2026-10-06)
+
+- `src/studio/io/storage_preferences_codec.elisa` is a pure, exact-length
+  codec for `mocap-storage-preferences-v1\nretention-preset=<0..3>\n`.
+  Its source report proves 128/128 obligations with all certificates replayed.
+  The focused codec laws prove 130/130 obligations; they pin the exact record
+  length and its fit within the reader limit. The strict reader accepts at most
+  128 bytes and changes its output only after a successful close and decode.
+- G91: a separate law connecting `header_matches` to the same exact byte
+  predicate did not replay its final goal (132/133 goals replayed); the
+  duplicated-predicate version was removed. The source contract itself still
+  directly proves the header implementation 128/128, but the independent law
+  connection is not claimed until proof replay can establish it.
+- The libc-backed `src/studio/io/storage_preferences_file.elisa` remains a
+  runtime adapter. Its direct proof report has 129/133 obligations and four
+  unsupported findings: the prover cannot form propositions for the nullable
+  `FILE*` branch and `ferror` call in the IO effect region, and cannot encode a
+  resource summary through the final adapter call. It is not claimed as
+  proved. The runtime path distinguishes open, read (`ferror`), size, close,
+  and format failures through `load_status`; the bool `load` entrypoint reports
+  success only after all checks pass.
