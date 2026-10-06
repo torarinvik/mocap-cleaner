@@ -1,3 +1,5 @@
+include "../core/report_unit_policy.elisa"
+
 # Declared metric units are independent of numeric spelling and schema names.
 extend ReportDiff:
     private:
@@ -26,11 +28,24 @@ extend ReportDiff:
             return -2 if found >= 0 and tokens[found.usize()].kind != GlbJson::KIND_STRING
             found
 
-        def recognized_unit(value: darray[u8]&) -> bool:
-            return true if is_text(value, 0, value.count.i64(), "count")
-            return true if is_text(value, 0, value.count.i64(), "frame-count")
-            return true if is_text(value, 0, value.count.i64(), "micrometre")
-            is_text(value, 0, value.count.i64(), "microradian")
+        def declared_dimension(value: darray[u8]&) -> ReportUnitPolicy::Dimension:
+            return ReportUnitPolicy::Dimension.Count if is_text(value, 0, value.count.i64(), "count")
+            return ReportUnitPolicy::Dimension.Frames if is_text(value, 0, value.count.i64(), "frame-count")
+            return ReportUnitPolicy::Dimension.Distance if is_text(value, 0, value.count.i64(), "micrometre")
+            return ReportUnitPolicy::Dimension.Angle if is_text(value, 0, value.count.i64(), "microradian")
+            ReportUnitPolicy::Dimension.Unknown
+
+        def expected_dimension(pool: darray[u8]&, metric: Metric) -> ReportUnitPolicy::Dimension:
+            return ReportUnitPolicy::Dimension.Count if is_text(pool, metric.key_at, metric.key_len, "spikes_after")
+            return ReportUnitPolicy::Dimension.Count if is_text(pool, metric.key_at, metric.key_len, "pole_after")
+            return ReportUnitPolicy::Dimension.Count if is_text(pool, metric.key_at, metric.key_len, "pelvis_after")
+            return ReportUnitPolicy::Dimension.Count if is_text(pool, metric.key_at, metric.key_len, "unbalanced_runs")
+            return ReportUnitPolicy::Dimension.Frames if is_text(pool, metric.key_at, metric.key_len, "momentum_after")
+            return ReportUnitPolicy::Dimension.Frames if is_text(pool, metric.key_at, metric.key_len, "unbalanced_frames")
+            return ReportUnitPolicy::Dimension.Distance if is_text(pool, metric.key_at, metric.key_len, "slide_after_um")
+            return ReportUnitPolicy::Dimension.Distance if is_text(pool, metric.key_at, metric.key_len, "hand_slide_after_um")
+            return ReportUnitPolicy::Dimension.Distance if is_text(pool, metric.key_at, metric.key_len, "ballistic_after_um")
+            ReportUnitPolicy::Dimension.Unknown
 
         def declared_unit_status(left: darray[u8]&, left_tokens: darray[GlbJson::Token]&, left_object: i64,
                                  right: darray[u8]&, right_tokens: darray[GlbJson::Token]&, right_object: i64,
@@ -48,5 +63,9 @@ extend ReportDiff:
             return ReportCompatibility::Status.Invalid if not JsonString::decode(right, right_token.start, right_token.stop, &right_unit)
             return ReportCompatibility::Status.Invalid if left_unit.count == 0 or right_unit.count == 0
             equal: bool = compare_span(&left_unit, 0, left_unit.count.i64(), &right_unit, 0, right_unit.count.i64()) == 0
-            recognized: bool = recognized_unit(&left_unit)
+            expected: ReportUnitPolicy::Dimension = expected_dimension(pool, metric)
+            declared: ReportUnitPolicy::Dimension = declared_dimension(&left_unit)
+            if expected != ReportUnitPolicy::Dimension.Unknown and declared != ReportUnitPolicy::Dimension.Unknown:
+                return ReportCompatibility::Status.Incompatible if not ReportUnitPolicy::admitted(expected, declared)
+            recognized: bool = ReportUnitPolicy::admitted(expected, declared)
             ReportCompatibility::declaration_status(true, true, true, recognized, equal)
