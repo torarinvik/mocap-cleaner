@@ -227,3 +227,9 @@ and Ignored alternatives. The filter's integer interface receives an explicit
 conversion; discriminants remain 0/1, covered by two encoding laws. `Capacity`
 owns the annotation bound. Existing fixture consumers were migrated without
 execution. Current compile, replay and session/filter qualification remain open.
+
+`StudioIssueBrowserPolicy` now separates navigation `Action` as a const enum,
+`Capacity` limits and `Accessibility` node identifiers. Previous/Next/Worst
+retain codes 0/1/2 at existing integer routing boundaries, with an encoding law.
+Source, laws and existing fixtures use the scoped facts; current compile and
+replay qualification remain open.
