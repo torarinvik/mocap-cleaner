@@ -148,6 +148,13 @@ The decoder is connected to keys and clip identities. It rejects malformed
 escapes, unpaired surrogates, and invalid raw UTF-8 throughout the report.
 Complete decoder contracts, round-trip laws, replay, and behavioral
 qualification remain open; see `docs/proof-gaps/json-string-decoder.md`.
+
+Comparison HTML presentation is now a separate module with a leading verdict,
+validation-error counts, comparison parameters, semantic column headers, and
+horizontal scrolling at small widths. An unavailable comparison explicitly
+states that the candidate is not qualified. The verdict uses the existing
+contracted `Regress::verdict`; native rendered and accessibility qualification
+remain required.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
 
