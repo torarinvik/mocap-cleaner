@@ -53,3 +53,11 @@ semantic passes, it descended into `Decl.Module` without entering/restoring
 `table.current_module`. Compiler commit `88ffc005` adds that lexical context.
 A fresh seed is running (session 81586); the fix remains unqualified until the
 same minimal and full reproductions compile with the new product.
+
+Fresh `88ffc005` product is current and its checkout is clean. The minimal
+lexical-event reproduction now compiles successfully. Full UI plus suggestion
+policy passes semantic checking, but backend lowering declines ten UI event
+functions and writes no partial artifact. UI alone still compiles. Thus the
+semantic scope fix is verified on both reproductions; a separate backend enum
+scope defect remains. Logs: `build/repro/ui-events-and-policy-context.log`,
+`lexical-event-scope-context.log`, and `ui-events-only-context.log`.
