@@ -40,6 +40,24 @@ module CliOutputGuard:
                 cli_output_release(root_path)
             result
 
+        # Returns true only when canonical identity comparison proves the
+        # paths differ. Native comparison failure is conservatively a collision.
+        # Non-macOS uses ASCII case folding and has the same documented Unicode
+        # normalization limitation as its reserved-metadata fallback.
+        def distinct_destinations(first: cstr, second: cstr) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            mutable distinct: bool = false
+            static if ELISA_TARGET_OS_MACOS:
+                distinct <- cli_output_namespace_match(first, second) == 0
+            static else:
+                if cli_output_resolve(first) is first_path:
+                    if cli_output_resolve(second) is second_path:
+                        first_bytes: darray[u8] = copy_path(first_path)
+                        second_bytes: darray[u8] = copy_path(second_path)
+                        distinct <- first_bytes.count > 0 and second_bytes.count > 0 and not CliOutputGuardPolicy::ascii_equal(first_bytes, second_bytes)
+                        cli_output_release(second_path)
+                    cli_output_release(first_path)
+            distinct
+
         # Batch output directories already exist and must resolve strictly
         # below the canonical build root as a nonsymlink directory.
         def directory_allowed(build_root: cstr,
