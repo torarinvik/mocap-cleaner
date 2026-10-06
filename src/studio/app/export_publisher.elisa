@@ -15,6 +15,8 @@ extern export_open(path: u8&, flags: i32) -> i32 can[Blocking.IO]
 extern export_fsync(descriptor: i32) -> i32 can[Blocking.IO]
 @link_name("unlink")
 extern export_unlink(path: u8&) -> i32 can[Blocking.IO]
+@link_name("link")
+extern export_link(source: u8&, destination: u8&) -> i32 can[Blocking.IO]
 @link_name("rename")
 extern export_rename(source: u8&, destination: u8&) -> i32 can[Blocking.IO]
 @link_name("strdup")
@@ -109,6 +111,15 @@ module StudioExportPublisher:
             StudioPublicationDurabilityPolicy::published(write_sidecar_with_status(path, bytes))
 
         def write_sidecar_with_status(path: cstr, bytes: darray[u8]&) -> StudioPublicationDurabilityPolicy::Result:
+            write_sidecar_mode(path, bytes, true)
+
+        # Recovery uses atomic create-only publication. Existing sidecars are
+        # never replaced, including when a file appears after preflight.
+        def write_new_sidecar_with_status(path: cstr, bytes: darray[u8]&) -> StudioPublicationDurabilityPolicy::Result:
+            write_sidecar_mode(path, bytes, false)
+
+    private:
+        def write_sidecar_mode(path: cstr, bytes: darray[u8]&, replace_existing: bool) -> StudioPublicationDurabilityPolicy::Result:
             mutable length: usize = 0
             while length < Capacity::PATH and path[length] != 0:
                 length <- length + 1
@@ -142,9 +153,17 @@ module StudioExportPublisher:
             if wrote != bytes.count or flushed != 0 or synced != 0 or closed != 0:
                 _ = export_unlink(&temporary[0])
                 return StudioPublicationDurabilityPolicy::Result.NotPublished
-            if export_rename(&temporary[0], path.cast[u8&]) != 0:
+            mutable committed: bool = false
+            if replace_existing:
+                committed <- export_rename(&temporary[0], path.cast[u8&]) == 0
+            else:
+                committed <- export_link(&temporary[0], path.cast[u8&]) == 0
+            if not committed:
                 _ = export_unlink(&temporary[0])
                 return StudioPublicationDurabilityPolicy::Result.NotPublished
+            # A failed unlink can leave an owned staging hard link; publication
+            # has already succeeded. Recovery inventory must account for it.
+            _ = export_unlink(&temporary[0]) if not replace_existing
             StudioPublicationDurabilityPolicy::outcome(true, sync_parent(path))
 
     private:
