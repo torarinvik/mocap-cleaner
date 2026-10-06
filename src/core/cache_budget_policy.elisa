@@ -1,0 +1,109 @@
+# Per-cache logical memory admission. Callers include retained value arrays and
+# exact identity snapshots in their requested totals. This is not a process or
+# aggregate-bank RAM estimate; capacity refusal must select full evaluation.
+module CacheBudgetPolicy:
+    public:
+        const module Limit:
+            MAX_LOGICAL_ENTRIES: i64 = 4000000
+            MAX_LOGICAL_BYTES: i64 = 67108864
+
+        const module LogicalSize:
+            CHANNEL_VALUE_BYTES: i64 = 8
+            OPERATION_RECORD_BYTES: i64 = 64
+
+        const enum Decision of i64:
+            ADMIT = 0
+            FALLBACK_INVALID = 1
+            FALLBACK_CAPACITY = 2
+
+        const enum Execution of i64:
+            REUSE_CACHE = 0
+            EVALUATE_FULL = 1
+
+        struct ChannelRequest:
+            decision: Decision
+            logical_entries: i64
+            logical_bytes: i64
+
+        # Return -1 when a checked sum is invalid or exceeds its budget. Both
+        # operands are bounded before subtraction and addition, avoiding i64
+        # overflow even when callers present hostile counts.
+        def bounded_sum(left: i64, right: i64, limit: i64) -> i64:
+            requires limit >= 0
+            ensure result == -1 or result >= 0
+            ensure left >= 0 and right >= 0 and left <= limit and right <= limit and left <= limit - right implies result == left + right
+            return -1 if left < 0 or right < 0 or left > limit or right > limit
+            return -1 if left > limit - right
+            left + right
+
+        # Estimate a logical byte count without ever forming an overflowing
+        # product. A negative sentinel means invalid or above-limit input.
+        def bounded_product(count: i64, bytes_per_entry: i64, limit: i64) -> i64:
+            requires limit >= 0
+            ensure result == -1 or result >= 0
+            return -1 if count < 0 or bytes_per_entry < 0 or bytes_per_entry > limit
+            return 0 if bytes_per_entry == 0
+            return -1 if count > limit / bytes_per_entry
+            count * bytes_per_entry
+
+        # Counts describe the complete proposed contents of one cache instance,
+        # including its stored inputs/operations if the caller retains them.
+        def decide(entries: i64, logical_bytes: i64) -> Decision:
+            ensure entries < 0 or logical_bytes < 0 implies result == Decision.FALLBACK_INVALID
+            ensure entries >= 0 and logical_bytes >= 0 and entries <= Limit::MAX_LOGICAL_ENTRIES and logical_bytes <= Limit::MAX_LOGICAL_BYTES implies result == Decision.ADMIT
+            ensure entries >= 0 and logical_bytes >= 0 and (entries > Limit::MAX_LOGICAL_ENTRIES or logical_bytes > Limit::MAX_LOGICAL_BYTES) implies result == Decision.FALLBACK_CAPACITY
+            return Decision.FALLBACK_INVALID if entries < 0 or logical_bytes < 0
+            return Decision.FALLBACK_CAPACITY if entries > Limit::MAX_LOGICAL_ENTRIES or logical_bytes > Limit::MAX_LOGICAL_BYTES
+            Decision.ADMIT
+
+        # A refused cache request evaluates the complete operation chain. It
+        # never means “use an empty cached preview” or discard the last result.
+        def execution(decision: Decision) -> Execution:
+            requires decision == Decision.ADMIT or decision == Decision.FALLBACK_INVALID or decision == Decision.FALLBACK_CAPACITY
+            ensure decision == Decision.ADMIT implies result == Execution.REUSE_CACHE
+            ensure decision == Decision.FALLBACK_INVALID or decision == Decision.FALLBACK_CAPACITY implies result == Execution.EVALUATE_FULL
+            return Execution.REUSE_CACHE if decision == Decision.ADMIT
+            Execution.EVALUATE_FULL
+
+        def channel_capacity_request() -> ChannelRequest:
+            ChannelRequest{decision: Decision.FALLBACK_CAPACITY,
+                logical_entries: Limit::MAX_LOGICAL_ENTRIES + 1,
+                logical_bytes: 0}
+
+        def channel_byte_capacity_request(entries: i64) -> ChannelRequest:
+            ChannelRequest{decision: Decision.FALLBACK_CAPACITY,
+                logical_entries: entries,
+                logical_bytes: Limit::MAX_LOGICAL_BYTES + 1}
+
+        # Ops::Cache retains the result for each operation, one source copy,
+        # one key and one operation record per step. Estimates include 8-byte
+        # channel values and a conservative 64-byte logical operation record.
+        # Allocator metadata, spare capacity, the other caches in a bank and
+        # transient full-evaluation memory remain outside this per-cache cap.
+        def channel_request(frames: i64, op_count: i64) -> ChannelRequest:
+            requires frames >= 0 and op_count >= 0
+            result_entries: i64 = bounded_product(frames, op_count, Limit::MAX_LOGICAL_ENTRIES)
+            return channel_capacity_request() if result_entries < 0
+            entries: mutable i64 = bounded_sum(result_entries, frames, Limit::MAX_LOGICAL_ENTRIES)
+            return channel_capacity_request() if entries < 0
+            entries <- bounded_sum(entries, op_count, Limit::MAX_LOGICAL_ENTRIES)
+            return channel_capacity_request() if entries < 0
+            entries <- bounded_sum(entries, op_count, Limit::MAX_LOGICAL_ENTRIES)
+            return channel_capacity_request() if entries < 0
+            value_entries: mutable i64 = bounded_sum(result_entries, frames,
+                Limit::MAX_LOGICAL_BYTES / LogicalSize::CHANNEL_VALUE_BYTES)
+            return channel_byte_capacity_request(entries) if value_entries < 0
+            value_entries <- bounded_sum(value_entries, op_count,
+                Limit::MAX_LOGICAL_BYTES / LogicalSize::CHANNEL_VALUE_BYTES)
+            return channel_byte_capacity_request(entries) if value_entries < 0
+            channel_bytes: i64 = bounded_product(value_entries,
+                LogicalSize::CHANNEL_VALUE_BYTES, Limit::MAX_LOGICAL_BYTES)
+            return channel_byte_capacity_request(entries) if channel_bytes < 0
+            operation_bytes: i64 = bounded_product(op_count,
+                LogicalSize::OPERATION_RECORD_BYTES, Limit::MAX_LOGICAL_BYTES)
+            return channel_byte_capacity_request(entries) if operation_bytes < 0
+            logical_bytes: i64 = bounded_sum(channel_bytes, operation_bytes,
+                Limit::MAX_LOGICAL_BYTES)
+            return channel_byte_capacity_request(entries) if logical_bytes < 0
+            ChannelRequest{decision: Decision.ADMIT,
+                logical_entries: entries, logical_bytes: logical_bytes}
