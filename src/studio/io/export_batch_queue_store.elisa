@@ -21,6 +21,13 @@ extern batch_close(descriptor: i32) -> i32 can[Blocking.IO]
 extern batch_file_read(build_directory: cstr, lock_descriptor: i32,
     device: i64, inode: i64, directory_name: cstr, file_name: cstr,
     bytes: mutable u8&, capacity: u64) -> i64 can[Blocking.IO]
+@link_name("elisa_storage_batch_directory_create")
+extern batch_directory_create(build_directory: cstr, lock_descriptor: i32,
+    device: i64, inode: i64, directory_name: mutable u8&, name_capacity: i32) -> i32 can[Blocking.IO]
+@link_name("elisa_storage_batch_file_write_new")
+extern batch_file_write_new(build_directory: cstr, lock_descriptor: i32,
+    device: i64, inode: i64, directory_name: cstr, file_name: cstr,
+    bytes: u8&, byte_count: u64) -> i32 can[Blocking.IO]
 @link_name("elisa_storage_batch_file_replace")
 extern batch_file_replace(build_directory: cstr, lock_descriptor: i32,
     device: i64, inode: i64, directory_name: cstr, file_name: cstr,
@@ -126,7 +133,9 @@ module StudioExportBatchQueueStore:
             facts: i64 = FilePanel::path_facts((&path[0]).cast[cstr])
             facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
 
-        def create_item[@r](build_directory: cstr, lock_descriptor: i32,
+        def create_item[@r](build_directory: cstr,
+                build_identity: StudioExportBatchRootIdentity::Facts&,
+                lock_descriptor: i32,
                 identity: StudioExportBatchIdentity::Identity&,
                 record: StudioExportBatchJournal::Record&,
                 out_directory: mutable darray[u8]& @r) -> CreateResult can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
@@ -147,34 +156,34 @@ module StudioExportBatchQueueStore:
             return CreateResult.JournalWriteFailed if not StudioExportBatchJournal::encode(record, &journal)
             requested: i64 = StudioExportBatchRecoveryCapacityPolicy::requested_bytes(record.output_bytes, record.json_bytes, record.text_bytes, record.recipe_bytes, journal.count.i64())
             return CreateResult.CapacityExceeded if not StudioExportBatchRecoveryCapacityPolicy::reservation_admitted(true, records, retained, requested)
-            match StudioExportRecoveryStore::create(build_directory):
-                StudioExportRecoveryStore::Creation.Rejected(reason):
-                    return CreateResult.DirectoryCreationFailed
-                StudioExportRecoveryStore::Creation.Created(directory):
-                    output: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.OutputSnapshot, identity.staged_result_bytes)
-                    json: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.JsonReport, identity.report_json_bytes)
-                    text: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.TextReport, identity.report_text_bytes)
-                    recipe: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.RecipeSnapshot, identity.recipe_bytes)
-                    if not StudioPublicationDurabilityPolicy::published(output) or not StudioPublicationDurabilityPolicy::published(json) or not StudioPublicationDurabilityPolicy::published(text) or not StudioPublicationDurabilityPolicy::published(recipe):
-                        StudioExportRecoveryStore::release_path(directory)
-                        return CreateResult.SnapshotWriteFailed
-                    journal_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_batch_journal(directory, record)
-                    if not StudioPublicationDurabilityPolicy::published(journal_status):
-                        StudioExportRecoveryStore::release_path(directory)
-                        return CreateResult.JournalWriteFailed
-                    directory_ok: bool = StudioExportRecoveryStore::sync_directory(directory)
-                    parent_ok: bool = StudioExportRecoveryStore::sync_directory(build_directory)
-                    if not directory_ok or not parent_ok:
-                        StudioExportRecoveryStore::release_path(directory)
-                        return CreateResult.SyncFailed
-                    out_directory.clear()
-                    mutable path_index: usize = 0
-                    while path_index < 4096 and directory[path_index] != 0:
-                        out_directory.push(directory[path_index])
-                        path_index <- path_index + 1
-                    StudioExportRecoveryStore::release_path(directory)
-                    return CreateResult.Created if out_directory.count > 0
-                    CreateResult.DirectoryCreationFailed
+            return CreateResult.InvalidIdentity if not StudioExportBatchRootIdentity::valid(build_identity)
+            mutable directory_name: u8[64] = zeroed
+            create_status: i32 = batch_directory_create(build_directory, lock_descriptor,
+                build_identity.device, build_identity.inode, &directory_name[0], 64)
+            return CreateResult.DirectoryCreationFailed if create_status != 1
+            mutable leaf: darray[u8] = []
+            mutable leaf_index: usize = 0
+            while leaf_index < 64 and directory_name[leaf_index] != 0:
+                leaf.push(directory_name[leaf_index])
+                leaf_index <- leaf_index + 1
+            return CreateResult.DirectoryCreationFailed if not recovery_namespace(leaf)
+            output: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "output.glb", identity.staged_result_bytes)
+            json: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "report.json", identity.report_json_bytes)
+            text: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "report.txt", identity.report_text_bytes)
+            recipe: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "recipe.bin", identity.recipe_bytes)
+            if not StudioPublicationDurabilityPolicy::published(output) or not StudioPublicationDurabilityPolicy::published(json) or not StudioPublicationDurabilityPolicy::published(text) or not StudioPublicationDurabilityPolicy::published(recipe):
+                return CreateResult.SnapshotWriteFailed
+            journal_status: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "batch-journal.txt", journal)
+            return CreateResult.JournalWriteFailed if not StudioPublicationDurabilityPolicy::published(journal_status)
+            out_directory.clear()
+            mutable root_index: usize = 0
+            while root_index < 4096 and build_directory[root_index] != 0:
+                out_directory.push(build_directory[root_index])
+                root_index <- root_index + 1
+            out_directory.push(47) if out_directory.count > 0 and out_directory[out_directory.count - 1] != 47
+            out_directory.extend(leaf)
+            return CreateResult.Created if out_directory.count > 0
+            CreateResult.DirectoryCreationFailed
 
 
         # Journal writes are atomic replacements. A durability-unknown return
@@ -271,6 +280,22 @@ module StudioExportBatchQueueStore:
             true
 
     private:
+        def write_record_relative(build_directory: cstr,
+                build_identity: StudioExportBatchRootIdentity::Facts&,
+                lock_descriptor: i32, directory_name: darray[u8]&,
+                file_name: cstr, bytes: darray[u8]&) -> StudioPublicationDurabilityPolicy::Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not recovery_namespace(directory_name) or bytes.count == 0 or not StudioExportBatchRootIdentity::valid(build_identity)
+            mutable directory: u8[64] = zeroed
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if directory_name.count >= 64
+            for index in 0..<directory_name.count |directory_name, directory|:
+                directory[index] <- directory_name[index]
+            status: i32 = batch_file_write_new(build_directory, lock_descriptor,
+                build_identity.device, build_identity.inode, (&directory[0]).cast[cstr],
+                file_name, &bytes[0], bytes.count.u64())
+            return StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced if status == 1
+            return StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown if status == 2
+            StudioPublicationDurabilityPolicy::Result.NotPublished
+
         def transaction_valid(build_directory: cstr, descriptor: i32) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
             mutable root: darray[u8] = []
             mutable index: usize = 0

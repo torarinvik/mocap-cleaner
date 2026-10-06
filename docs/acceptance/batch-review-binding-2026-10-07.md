@@ -121,13 +121,14 @@ description before closing its integer descriptor. The mutex remains held
 through descriptor-relative IO so release cannot unlock the workspace during a
 native operation. Durable journal updates now read the prior journal with
 `openat(O_NOFOLLOW)` and replace it with a synced temporary plus `renameat` in
-the opened recovery directory. This only covers an existing journal update.
-Initial recovery-directory creation, initial journal/snapshot writes, recovery
-enumeration and reads, and final output publication still use path-based APIs;
-those operations retain the replacement TOCTOU and need the same relative
-adapter before the race can be considered closed. Fresh O0 compile-only
-qualification on the provenance-checked Stage1 product produced nonempty queue
-store (724,216 bytes) and review binding (940,144 bytes) objects. Strict C11
+the opened recovery directory. Initial recovery-directory creation, snapshots
+and the initial journal also use the verified root with `mkdirat` and
+`openat(O_EXCL|O_NOFOLLOW)`; files and directories are synced before success.
+Recovery enumeration and reopen reads, reservation markers and final output
+publication still use path-based APIs and retain the replacement TOCTOU. Fresh
+O0 compile-only qualification on the provenance-checked Stage1 product
+produced nonempty queue store (726,432 bytes) and review binding (942,384 bytes)
+objects. Strict C11
 syntax checking of `storage_manifest_lock.c` and Objective-C syntax checking of
 `file_trash_appkit.m` exited 0. No native runtime, concurrent lock, fd reuse or
 filesystem replacement behavior was exercised.
