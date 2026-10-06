@@ -1,0 +1,220 @@
+include "export_recovery_store.elisa"
+include "export_recovery_inventory.elisa"
+include "../export_batch_journal.elisa"
+include "../export_batch_recovery_capacity_policy.elisa"
+include "../export_batch_identity.elisa"
+include "../export_batch_recovery_policy.elisa"
+include "export_batch_source_identity.elisa"
+include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
+
+# Durable per-item snapshots and journal. This store only returns a directory
+# after all immutable bytes, the initial journal and both directory entries
+# have crossed their sync boundaries. Failed attempts leave evidence in place.
+module StudioExportBatchQueueStore:
+    public:
+        const enum CreateResult of i64:
+            LockRequired = 0
+            InvalidBuildDirectory = 1
+            InvalidIdentity = 2
+            InventoryUnavailable = 3
+            CapacityExceeded = 4
+            DirectoryCreationFailed = 5
+            SnapshotWriteFailed = 6
+            JournalWriteFailed = 7
+            SyncFailed = 8
+            Created = 9
+
+        # `lock_descriptor` must be the live workspace manifest lock returned
+        # by StudioStorageManifestLockFile::try_acquire. The caller holds it
+        # across this reservation and subsequent queue updates.
+        def create_item[@r](build_directory: cstr, lock_descriptor: i32,
+                identity: StudioExportBatchIdentity::Identity&,
+                record: StudioExportBatchJournal::Record&,
+                out_directory: mutable darray[u8]& @r) -> CreateResult can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return CreateResult.LockRequired if lock_descriptor < 0
+            return CreateResult.InvalidIdentity if not StudioExportBatchJournal::matches_identity(record, identity)
+            return CreateResult.InvalidBuildDirectory if not build_directory_valid(build_directory)
+            scan: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan(build_directory)
+            mutable records: i64 = 0
+            mutable retained: i64 = 0
+            match scan:
+                StudioExportRecoveryInventory::Scan.Rejected(reason):
+                    return CreateResult.InventoryUnavailable
+                StudioExportRecoveryInventory::Scan.Verified(found_records, found_bytes):
+                    records <- found_records
+                    retained <- found_bytes
+            mutable journal: darray[u8] = []
+            return CreateResult.JournalWriteFailed if not StudioExportBatchJournal::encode(record, &journal)
+            requested: i64 = StudioExportBatchRecoveryCapacityPolicy::requested_bytes(record.output_bytes, record.json_bytes, record.text_bytes, record.recipe_bytes, journal.count.i64())
+            return CreateResult.CapacityExceeded if not StudioExportBatchRecoveryCapacityPolicy::reservation_admitted(true, records, retained, requested)
+            match StudioExportRecoveryStore::create(build_directory):
+                StudioExportRecoveryStore::Creation.Rejected(reason):
+                    return CreateResult.DirectoryCreationFailed
+                StudioExportRecoveryStore::Creation.Created(directory):
+                    output: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.OutputSnapshot, identity.staged_result_bytes)
+                    json: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.JsonReport, identity.report_json_bytes)
+                    text: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.TextReport, identity.report_text_bytes)
+                    recipe: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.RecipeSnapshot, identity.recipe_bytes)
+                    if not StudioPublicationDurabilityPolicy::published(output) or not StudioPublicationDurabilityPolicy::published(json) or not StudioPublicationDurabilityPolicy::published(text) or not StudioPublicationDurabilityPolicy::published(recipe):
+                        StudioExportRecoveryStore::release_path(directory)
+                        return CreateResult.SnapshotWriteFailed
+                    journal_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_batch_journal(directory, record)
+                    if not StudioPublicationDurabilityPolicy::published(journal_status):
+                        StudioExportRecoveryStore::release_path(directory)
+                        return CreateResult.JournalWriteFailed
+                    directory_ok: bool = StudioExportRecoveryStore::sync_directory(directory)
+                    parent_ok: bool = StudioExportRecoveryStore::sync_directory(build_directory)
+                    if not directory_ok or not parent_ok:
+                        StudioExportRecoveryStore::release_path(directory)
+                        return CreateResult.SyncFailed
+                    out_directory.clear()
+                    mutable path_index: usize = 0
+                    while path_index < 4096 and directory[path_index] != 0:
+                        out_directory.push(directory[path_index])
+                        path_index <- path_index + 1
+                    StudioExportRecoveryStore::release_path(directory)
+                    return CreateResult.Created if out_directory.count > 0
+                    CreateResult.DirectoryCreationFailed
+
+
+        # Journal writes are atomic replacements. A durability-unknown return
+        # is retried with an explicit directory sync; published bytes are never
+        # rolled back or deleted on failure.
+        def update_item(directory: darray[u8]&, lock_descriptor: i32,
+                record: StudioExportBatchJournal::Record&) -> StudioPublicationDurabilityPolicy::Result can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if lock_descriptor < 0 or not path_valid(directory)
+            if path_string(directory) is native_directory:
+                status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::update_batch_journal(native_directory, record)
+                StudioExportRecoveryStore::release_path(native_directory)
+                return status if status != StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+                if path_string(directory) is retry_directory:
+                    synced: bool = StudioExportRecoveryStore::sync_directory(retry_directory)
+                    StudioExportRecoveryStore::release_path(retry_directory)
+                    return StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced if synced
+                StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+            else:
+                StudioPublicationDurabilityPolicy::Result.NotPublished
+
+        def load_identity(directory: darray[u8]&, lock_descriptor: i32,
+                record: StudioExportBatchJournal::Record&,
+                out: mutable StudioExportBatchIdentity::Identity&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return false if lock_descriptor < 0 or not path_valid(directory) or not StudioExportBatchJournal::valid(record)
+            if path_string(directory) is native_directory:
+                mutable output: darray[u8] = []
+                mutable json: darray[u8] = []
+                mutable text: darray[u8] = []
+                mutable recipe: darray[u8] = []
+                output_ok: bool = read_regular(native_directory, StudioExportRecoveryStore::Record.OutputSnapshot, &output)
+                json_ok: bool = read_regular(native_directory, StudioExportRecoveryStore::Record.JsonReport, &json)
+                text_ok: bool = read_regular(native_directory, StudioExportRecoveryStore::Record.TextReport, &text)
+                recipe_ok: bool = read_regular(native_directory, StudioExportRecoveryStore::Record.RecipeSnapshot, &recipe)
+                StudioExportRecoveryStore::release_path(native_directory)
+                return false if not output_ok or not json_ok or not text_ok or not recipe_ok
+                return false if output.count.i64() != record.output_bytes or json.count.i64() != record.json_bytes or text.count.i64() != record.text_bytes or recipe.count.i64() != record.recipe_bytes
+                identity: StudioExportBatchIdentity::Identity = StudioExportBatchIdentity::Identity{
+                    source_path: record.source_path, source_device: record.source_device,
+                    source_inode: record.source_inode, source_size: record.source_size,
+                    source_modified_seconds: record.source_seconds,
+                    source_modified_nanoseconds: record.source_nanoseconds,
+                    result_generation: record.result_generation, animation_id: record.animation_id,
+                    staged_path: record.staged_path, recipe_bytes: recipe,
+                    output_path: record.output_path, report_json_path: record.json_path,
+                    report_text_path: record.text_path, staged_result_bytes: output,
+                    report_json_bytes: json, report_text_bytes: text}
+                return false if not StudioExportBatchIdentity::valid(identity)
+                out <- identity
+                true
+            else:
+                false
+
+        # Reopen derives a conservative lifecycle item from fresh native path
+        # facts and exact bytes. Warning data has no independent parser yet, so
+        # terminal success is never restored from the serialized count/state.
+        def recover_item[@r](directory: darray[u8]& @r, lock_descriptor: i32,
+                record: StudioExportBatchJournal::Record&,
+                out_identity: mutable StudioExportBatchIdentity::Identity& @r,
+                out_item: mutable StudioExportBatchQueue::Item& @r) -> bool @r can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            requires lock_descriptor >= 0
+            requires StudioExportBatchJournal::valid(record)
+            ensure not result or not out_item.approved
+            ensure not result or out_item.state == StudioExportBatchQueuePolicy::ItemState.Recoverable
+            mutable identity: StudioExportBatchIdentity::Identity @r = zeroed
+            return false if not load_identity(directory, lock_descriptor, record, &identity)
+            identity_exact: bool = StudioExportBatchJournal::matches_identity(record, identity)
+            mutable source_facts: StudioExportBatchSourceIdentity::Facts @r = zeroed
+            mutable error_bytes: darray[u8] @r = []
+            source_outcome: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(identity.source_path, &source_facts, &error_bytes)
+            source_matches: bool = StudioExportBatchSourceIdentity::admitted(source_outcome) and StudioExportBatchSourceIdentity::matches(source_facts, identity.source_path, identity.source_device, identity.source_inode, identity.source_size, identity.source_modified_seconds, identity.source_modified_nanoseconds)
+            paths_ok: bool = StudioExportBatchJournal::valid(record)
+            staged_exact: bool = exact_file(identity.staged_path, identity.staged_result_bytes, StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64())
+            glb_exact: bool = exact_file(identity.output_path, identity.staged_result_bytes, StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64())
+            json_exact: bool = exact_file(identity.report_json_path, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            text_exact: bool = exact_file(identity.report_text_path, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+            destinations_absent: bool = path_absent(identity.output_path) and path_absent(identity.report_json_path) and path_absent(identity.report_text_path)
+            receipt_consistent: bool = stage_consistent(record.glb_stage, glb_exact) and stage_consistent(record.json_stage, json_exact) and stage_consistent(record.text_stage, text_exact) and record.staging_disposition >= 0 and record.staging_disposition <= 3
+            mutable item: StudioExportBatchQueue::Item @r = StudioExportBatchRecoveryPolicy::item_after_reopen(record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64(), identity_exact, source_matches, paths_ok, true, receipt_consistent, staged_exact, glb_exact, json_exact, text_exact, destinations_absent, false, 0)
+            out_identity <- identity
+            out_item <- item
+            true
+
+    private:
+        def build_directory_valid(path: cstr) -> bool:
+            facts: i64 = FilePanel::path_facts(path)
+            facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+
+        def path_valid(path: darray[u8]&) -> bool:
+            return false if path.count == 0 or path.count >= 4096
+            for byte in path:
+                return false if byte == 0
+            true
+
+        def exact_file(path: darray[u8]&, expected: darray[u8]&, limit: i64) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            if path_string(path) is native_path:
+                facts: i64 = FilePanel::path_facts(native_path)
+                exact: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0 and StudioExportRecoveryBytes::matches(native_path, expected, limit)
+                StudioExportRecoveryStore::release_path(native_path)
+                return exact
+            false
+
+        def path_absent(path: darray[u8]&) -> bool can[Memory.Allocate, Unsafe.PointerCast]:
+            if path_string(path) is native_path:
+                facts: i64 = FilePanel::path_facts(native_path)
+                StudioExportRecoveryStore::release_path(native_path)
+                return facts == 0
+            false
+
+        def stage_consistent(stage: i64, exact: bool) -> bool:
+            if exact:
+                return stage == 2 or stage == 3 or stage == 4
+            stage == 0 or stage == 1 or stage == 5
+
+        def path_copy(path: cstr) -> darray[u8]:
+            mutable bytes: darray[u8] = []
+            mutable index: usize = 0
+            while index < 4096 and path[index] != 0:
+                bytes.push(path[index])
+                index <- index + 1
+            bytes
+
+        def path_string(path: darray[u8]&) -> cstr? can[Memory.Allocate, Unsafe.PointerCast]:
+            return null if not path_valid(path)
+            mutable buffer: u8[4096] = zeroed
+            for index in 0..<path.count |path, buffer|:
+                buffer[index] <- path[index]
+            if batch_store_strdup((&buffer[0]).cast[cstr]) is retained:
+                retained
+            else:
+                null
+
+        def read_regular(directory: cstr, record: StudioExportRecoveryStore::Record,
+                out: mutable darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            if StudioExportRecoveryStore::record_path(directory, record) is path:
+                facts: i64 = FilePanel::path_facts(path)
+                regular: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+                read: bool = regular and StudioExportRecoveryStore::read_record(directory, record, out)
+                StudioExportRecoveryStore::release_path(path)
+                return read
+            false
+
+        @link_name("strdup")
+        extern batch_store_strdup(path: cstr) -> cstr? can Memory.Allocate

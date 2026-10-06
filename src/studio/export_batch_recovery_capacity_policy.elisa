@@ -1,0 +1,29 @@
+include "export_batch_identity.elisa"
+include "export_recovery_budget_policy.elisa"
+include "export_recovery_capacity_policy.elisa"
+
+# Per-item queue snapshots live in the same bounded recovery namespace as
+# single exports. Atomic journal replacement may temporarily double file bytes.
+module StudioExportBatchRecoveryCapacityPolicy:
+    public:
+        const MAX_DURABLE_ITEMS: i64 = StudioExportRecoveryCapacityPolicy::Capacity::RECORDS
+
+        def requested_bytes(output_bytes: i64, json_bytes: i64, text_bytes: i64,
+                recipe_bytes: i64, journal_bytes: i64) -> i64:
+            requires output_bytes > 0 and output_bytes <= StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64()
+            requires json_bytes > 0 and json_bytes <= StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64()
+            requires text_bytes > 0 and text_bytes <= StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64()
+            requires recipe_bytes > 0 and recipe_bytes <= StudioExportBatchIdentity::Limit::MAX_RECIPE_BYTES.i64()
+            requires journal_bytes > 0 and journal_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            ensure result == 2 * (output_bytes + json_bytes + text_bytes + recipe_bytes + journal_bytes)
+            ensure result > 0 and result <= 142737408
+            2 * (output_bytes + json_bytes + text_bytes + recipe_bytes + journal_bytes)
+
+        def reservation_admitted(inventory_verified: bool, occupied_records: i64,
+                retained_bytes: i64, requested: i64) -> bool:
+            ensure result implies inventory_verified
+            ensure result implies occupied_records >= 0 and occupied_records < MAX_DURABLE_ITEMS
+            ensure result implies retained_bytes >= 0 and retained_bytes <= StudioExportRecoveryCapacityPolicy::Capacity::RETAINED_BYTES
+            ensure result implies requested > 0 and requested <= StudioExportRecoveryCapacityPolicy::Capacity::MAX_REQUEST_BYTES + 4194304
+            ensure result implies requested <= StudioExportRecoveryCapacityPolicy::Capacity::RETAINED_BYTES - retained_bytes
+            inventory_verified and occupied_records >= 0 and occupied_records < MAX_DURABLE_ITEMS and retained_bytes >= 0 and retained_bytes <= StudioExportRecoveryCapacityPolicy::Capacity::RETAINED_BYTES and requested > 0 and requested <= 142737408 and requested <= StudioExportRecoveryCapacityPolicy::Capacity::RETAINED_BYTES - retained_bytes

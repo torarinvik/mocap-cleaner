@@ -1,0 +1,236 @@
+include "export_batch_identity.elisa"
+include "export_batch_queue_policy.elisa"
+include "io/storage_manifest.elisa"
+include "export_recovery_budget_policy.elisa"
+
+# Versioned per-item queue journal. Exact recipe/result/report bytes are
+# separate immutable recovery-store records; this record binds their lengths
+# to source facts, paths, attempt and the last observed lifecycle stage.
+module StudioExportBatchJournal:
+    private:
+        const module Layout:
+            PATH_FIELDS: usize = 6
+            NUMBER_FIELDS: usize = 21
+            HEADER: sview = "mocap-export-batch-item 1"
+
+    public:
+        struct Record:
+            batch_id: darray[u8]
+            source_path: darray[u8]
+            staged_path: darray[u8]
+            output_path: darray[u8]
+            json_path: darray[u8]
+            text_path: darray[u8]
+            ordinal: i64
+            attempt: i64
+            warning_count: i64
+            state_hint: i64
+            worker_limit: i64
+            cancel_requested: i64
+            source_device: i64
+            source_inode: i64
+            source_size: i64
+            source_seconds: i64
+            source_nanoseconds: i64
+            result_generation: i64
+            animation_id: i64
+            output_bytes: i64
+            json_bytes: i64
+            text_bytes: i64
+            recipe_bytes: i64
+            glb_stage: i64
+            json_stage: i64
+            text_stage: i64
+            staging_disposition: i64
+
+        def from_identity(batch_id: darray[u8]&, identity: StudioExportBatchIdentity::Identity,
+                ordinal: i64, attempt: i64, warning_count: i64,
+                state: StudioExportBatchQueuePolicy::ItemState,
+                worker_limit: i64, cancel_requested: bool,
+                glb_stage: i64, json_stage: i64, text_stage: i64,
+                staging_disposition: i64) -> Record:
+            requires StudioExportBatchIdentity::valid(identity)
+            ensure valid(result)
+            mutable owned_batch_id: darray[u8] = []
+            owned_batch_id.extend(batch_id)
+            Record{batch_id: owned_batch_id, source_path: identity.source_path, staged_path: identity.staged_path,
+                output_path: identity.output_path, json_path: identity.report_json_path,
+                text_path: identity.report_text_path, ordinal: ordinal, attempt: attempt,
+                warning_count: warning_count, state_hint: state.i64(),
+                worker_limit: worker_limit, cancel_requested: 1 if cancel_requested else 0,
+                source_device: identity.source_device, source_inode: identity.source_inode,
+                source_size: identity.source_size, source_seconds: identity.source_modified_seconds,
+                source_nanoseconds: identity.source_modified_nanoseconds,
+                result_generation: identity.result_generation, animation_id: identity.animation_id,
+                output_bytes: identity.staged_result_bytes.count.i64(),
+                json_bytes: identity.report_json_bytes.count.i64(),
+                text_bytes: identity.report_text_bytes.count.i64(),
+                recipe_bytes: identity.recipe_bytes.count.i64(), glb_stage: glb_stage,
+                json_stage: json_stage, text_stage: text_stage,
+                staging_disposition: staging_disposition}
+
+        def matches_identity(record: Record&, identity: StudioExportBatchIdentity::Identity&) -> bool:
+            return false if not valid(record) or not StudioExportBatchIdentity::valid(identity)
+            return false if not StudioStorageManifest::same_path(record.source_path, identity.source_path)
+            return false if not StudioStorageManifest::same_path(record.staged_path, identity.staged_path)
+            return false if not StudioStorageManifest::same_path(record.output_path, identity.output_path)
+            return false if not StudioStorageManifest::same_path(record.json_path, identity.report_json_path)
+            return false if not StudioStorageManifest::same_path(record.text_path, identity.report_text_path)
+            return false if record.source_device != identity.source_device or record.source_inode != identity.source_inode or record.source_size != identity.source_size
+            return false if record.source_seconds != identity.source_modified_seconds or record.source_nanoseconds != identity.source_modified_nanoseconds
+            return false if record.result_generation != identity.result_generation or record.animation_id != identity.animation_id
+            return false if record.output_bytes != identity.staged_result_bytes.count.i64() or record.json_bytes != identity.report_json_bytes.count.i64()
+            record.text_bytes == identity.report_text_bytes.count.i64() and record.recipe_bytes == identity.recipe_bytes.count.i64()
+
+        def valid(record: Record&) -> bool:
+            return false if not batch_id_valid(record.batch_id)
+            return false if not StudioStorageManifest::path_valid(record.source_path)
+            return false if not StudioStorageManifest::path_valid(record.staged_path)
+            return false if not StudioStorageManifest::path_valid(record.output_path)
+            return false if not StudioStorageManifest::path_valid(record.json_path)
+            return false if not StudioStorageManifest::path_valid(record.text_path)
+            return false if StudioStorageManifest::same_path(record.output_path, record.json_path) or StudioStorageManifest::same_path(record.output_path, record.text_path) or StudioStorageManifest::same_path(record.json_path, record.text_path)
+            return false if record.ordinal < 0 or record.ordinal >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            return false if record.attempt < 0 or record.attempt > MAX_ATTEMPTS
+            return false if record.warning_count < 0 or record.warning_count > StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            return false if record.state_hint < StudioExportBatchQueuePolicy::ItemState.Queued or record.state_hint > StudioExportBatchQueuePolicy::ItemState.Recoverable
+            return false if record.worker_limit <= 0 or record.worker_limit > StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS
+            return false if record.cancel_requested != 0 and record.cancel_requested != 1
+            return false if record.source_device < 0 or record.source_device > StudioStorageReceiptPolicy::MAX_IDENTITY_VALUE or record.source_inode < 0 or record.source_inode > StudioStorageReceiptPolicy::MAX_IDENTITY_VALUE or record.source_size < 0 or record.source_size > StudioStorageReceiptPolicy::MAX_ITEM_BYTES
+            return false if record.source_seconds < 0 - StudioStorageReceiptPolicy::MAX_IDENTITY_VALUE or record.source_seconds > StudioStorageReceiptPolicy::MAX_IDENTITY_VALUE
+            return false if record.source_nanoseconds < 0 or record.source_nanoseconds >= 1000000000
+            return false if record.result_generation < 0 or record.result_generation > StudioStorageReceiptPolicy::MAX_IDENTITY_VALUE or record.animation_id < 0 or record.animation_id > StudioStorageReceiptPolicy::MAX_IDENTITY_VALUE
+            return false if record.output_bytes <= 0 or record.output_bytes > StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64()
+            return false if record.json_bytes <= 0 or record.json_bytes > StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64()
+            return false if record.text_bytes <= 0 or record.text_bytes > StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64()
+            return false if record.recipe_bytes <= 0 or record.recipe_bytes > StudioExportBatchIdentity::Limit::MAX_RECIPE_BYTES.i64()
+            return false if not stage_valid(record.glb_stage) or not stage_valid(record.json_stage) or not stage_valid(record.text_stage)
+            record.staging_disposition >= 0 and record.staging_disposition <= 3
+
+        def same_identity(left: Record&, right: Record&) -> bool:
+            return false if left.ordinal != right.ordinal or left.worker_limit != right.worker_limit
+            return false if not StudioStorageManifest::same_path(left.batch_id, right.batch_id)
+            return false if left.source_device != right.source_device or left.source_inode != right.source_inode or left.source_size != right.source_size
+            return false if left.source_seconds != right.source_seconds or left.source_nanoseconds != right.source_nanoseconds
+            return false if left.result_generation != right.result_generation or left.animation_id != right.animation_id
+            return false if left.output_bytes != right.output_bytes or left.json_bytes != right.json_bytes or left.text_bytes != right.text_bytes or left.recipe_bytes != right.recipe_bytes
+            return false if not StudioStorageManifest::same_path(left.source_path, right.source_path)
+            return false if not StudioStorageManifest::same_path(left.staged_path, right.staged_path)
+            return false if not StudioStorageManifest::same_path(left.output_path, right.output_path)
+            return false if not StudioStorageManifest::same_path(left.json_path, right.json_path)
+            return false if not StudioStorageManifest::same_path(left.text_path, right.text_path)
+            true
+
+        # Journal advancement follows the queue's legal lifecycle. Attempts
+        # never move backward, and a restart hint cannot manufacture approval.
+        def transition_admitted(previous: Record&, next: Record&) -> bool:
+            ensure result implies next.attempt == previous.attempt or previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Queued.i64() and next.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64() and next.attempt == previous.attempt + 1
+            return false if not valid(previous) or not valid(next) or not same_identity(previous, next)
+            return false if next.attempt != previous.attempt and not (previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Queued.i64() and next.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64() and next.attempt == previous.attempt + 1)
+            return false if previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Queued.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Queued.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Running.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Cancelled.i64()
+            return false if previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Running.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Staged.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.AwaitingReview.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Failed.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Recoverable.i64()
+            return false if previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Staged.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Staged.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Passed.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Failed.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Recoverable.i64()
+            return false if previous.state_hint == StudioExportBatchQueuePolicy::ItemState.AwaitingReview.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.AwaitingReview.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Warning.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Failed.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Recoverable.i64()
+            return false if (previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Failed.i64() or previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Cancelled.i64()) and next.state_hint != previous.state_hint and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Queued.i64()
+            return false if previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Passed.i64() and next.state_hint != previous.state_hint
+            return false if previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Warning.i64() and next.state_hint != previous.state_hint
+            return false if previous.state_hint == StudioExportBatchQueuePolicy::ItemState.Recoverable.i64() and next.state_hint != previous.state_hint and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Staged.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.AwaitingReview.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Passed.i64() and next.state_hint != StudioExportBatchQueuePolicy::ItemState.Warning.i64()
+            true
+
+        def encode(record: Record&, out: mutable darray[u8]&) -> bool:
+            return false if not valid(record)
+            mutable bytes: darray[u8] = []
+            StudioStorageManifest::push_text(&bytes, Layout::HEADER)
+            bytes.push(10)
+            append_path(&bytes, record.source_path)
+            append_path(&bytes, record.staged_path)
+            append_path(&bytes, record.output_path)
+            append_path(&bytes, record.json_path)
+            append_path(&bytes, record.text_path)
+            append_path(&bytes, record.batch_id)
+            append_number(&bytes, record.ordinal)
+            append_number(&bytes, record.attempt)
+            append_number(&bytes, record.warning_count)
+            append_number(&bytes, record.state_hint)
+            append_number(&bytes, record.worker_limit)
+            append_number(&bytes, record.cancel_requested)
+            append_number(&bytes, record.source_device)
+            append_number(&bytes, record.source_inode)
+            append_number(&bytes, record.source_size)
+            append_number(&bytes, record.source_seconds)
+            append_number(&bytes, record.source_nanoseconds)
+            append_number(&bytes, record.result_generation)
+            append_number(&bytes, record.animation_id)
+            append_number(&bytes, record.output_bytes)
+            append_number(&bytes, record.json_bytes)
+            append_number(&bytes, record.text_bytes)
+            append_number(&bytes, record.recipe_bytes)
+            append_number(&bytes, record.glb_stage)
+            append_number(&bytes, record.json_stage)
+            append_number(&bytes, record.text_stage)
+            append_number(&bytes, record.staging_disposition)
+            return false if bytes.count.i64() > StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            out.clear()
+            out.extend(bytes)
+            true
+
+        def decode(bytes: darray[u8]&, out: mutable Record&) -> bool:
+            return false if bytes.count.i64() > StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            mutable starts: darray[usize] = []
+            mutable ends: darray[usize] = []
+            mutable start: usize = 0
+            for index in 0..<bytes.count |bytes, starts, ends, start, index|:
+                if bytes[index] == 10:
+                    starts.push(start)
+                    ends.push(index)
+                    start <- index + 1
+            return false if start != bytes.count or starts.count != 1 + Layout::PATH_FIELDS + Layout::NUMBER_FIELDS
+            return false if ends[0] != Layout::HEADER.len.usize()
+            for index in 0..<Layout::HEADER.len.usize():
+                return false if bytes[index] != Layout::HEADER[index]
+            mutable paths: darray[darray[u8]] = []
+            for field in 0..<Layout::PATH_FIELDS |bytes, starts, ends, paths, field|:
+                mutable path: darray[u8] = []
+                return false if not StudioStorageManifest::parse_hex(bytes, starts[field + 1], ends[field + 1], &path)
+                paths.push(path)
+            mutable numbers: darray[i64] = []
+            for field in 0..<Layout::NUMBER_FIELDS |bytes, starts, ends, numbers, field|:
+                at: usize = starts[1 + Layout::PATH_FIELDS + field]
+                stop: usize = ends[1 + Layout::PATH_FIELDS + field]
+                mutable value: i64 = 0
+                return false if not StudioStorageManifest::parse_number(bytes, at, stop, &value)
+                numbers.push(value)
+            decoded: Record = Record{
+                source_path: paths[0], staged_path: paths[1], output_path: paths[2],
+                json_path: paths[3], text_path: paths[4], batch_id: paths[5],
+                ordinal: numbers[0], attempt: numbers[1], warning_count: numbers[2],
+                state_hint: numbers[3], worker_limit: numbers[4], cancel_requested: numbers[5],
+                source_device: numbers[6], source_inode: numbers[7], source_size: numbers[8],
+                source_seconds: numbers[9], source_nanoseconds: numbers[10],
+                result_generation: numbers[11], animation_id: numbers[12],
+                output_bytes: numbers[13], json_bytes: numbers[14], text_bytes: numbers[15],
+                recipe_bytes: numbers[16], glb_stage: numbers[17], json_stage: numbers[18],
+                text_stage: numbers[19], staging_disposition: numbers[20]}
+            return false if not valid(decoded)
+            out <- decoded
+            true
+
+    private:
+        const MAX_ATTEMPTS: i64 = 1000000
+
+        def stage_valid(value: i64) -> bool:
+            value >= 0 and value <= 5
+
+        def batch_id_valid(value: darray[u8]&) -> bool:
+            return false if value.count == 0 or value.count > 64
+            for byte in value:
+                return false if not (byte >= 48 and byte <= 57 or byte >= 65 and byte <= 90 or byte >= 97 and byte <= 122 or byte == 45 or byte == 95)
+            true
+
+        def append_path(out: mutable darray[u8]&, path: darray[u8]&) -> void:
+            StudioStorageManifest::push_hex(out, path)
+            out.push(10)
+
+        def append_number(out: mutable darray[u8]&, value: i64) -> void:
+            StudioStorageManifest::push_number(out, value)
+            out.push(10)

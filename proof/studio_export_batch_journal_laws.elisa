@@ -1,0 +1,63 @@
+include "../src/studio/export_batch_journal.elisa"
+
+module StudioExportBatchJournalLaws:
+    private:
+        def sample() -> StudioExportBatchJournal::Record:
+            StudioExportBatchJournal::Record{
+                batch_id: [98u8, 97u8, 116u8, 99u8, 104u8, 45u8, 49u8],
+                source_path: [47u8, 115u8, 114u8, 99u8, 46u8, 103u8, 108u8, 98u8],
+                staged_path: [47u8, 116u8, 109u8, 112u8, 47u8, 97u8],
+                output_path: [47u8, 98u8, 117u8, 105u8, 108u8, 100u8, 47u8, 97u8, 46u8, 103u8, 108u8, 98u8],
+                json_path: [47u8, 98u8, 117u8, 105u8, 108u8, 100u8, 47u8, 97u8, 46u8, 106u8, 115u8, 111u8, 110u8],
+                text_path: [47u8, 98u8, 117u8, 105u8, 108u8, 100u8, 47u8, 97u8, 46u8, 116u8, 120u8, 116u8],
+                ordinal: 0, attempt: 0, warning_count: 0,
+                state_hint: StudioExportBatchQueuePolicy::ItemState.Queued.i64(),
+                worker_limit: 1, cancel_requested: 0,
+                source_device: 1, source_inode: 2, source_size: 3,
+                source_seconds: 4, source_nanoseconds: 5,
+                result_generation: 1, animation_id: 0,
+                output_bytes: 2, json_bytes: 3, text_bytes: 4, recipe_bytes: 5,
+                glb_stage: 0, json_stage: 0, text_stage: 0, staging_disposition: 0}
+
+    public:
+        def versioned_record_round_trips() -> bool:
+            ensure result
+            source: StudioExportBatchJournal::Record = sample()
+            mutable bytes: darray[u8] = []
+            encoded: bool = StudioExportBatchJournal::encode(source, &bytes)
+            mutable decoded: StudioExportBatchJournal::Record = zeroed
+            decoded_ok: bool = StudioExportBatchJournal::decode(bytes, &decoded)
+            encoded and decoded_ok and StudioExportBatchJournal::same_identity(source, decoded) and decoded.state_hint == source.state_hint and decoded.attempt == source.attempt and decoded.glb_stage == source.glb_stage
+
+        def terminal_item_cannot_be_requeued_by_journal() -> bool:
+            ensure result
+            mutable previous: StudioExportBatchJournal::Record = sample()
+            mutable next: StudioExportBatchJournal::Record = sample()
+            previous.state_hint <- StudioExportBatchQueuePolicy::ItemState.Passed.i64()
+            next.state_hint <- StudioExportBatchQueuePolicy::ItemState.Queued.i64()
+            not StudioExportBatchJournal::transition_admitted(previous, next)
+
+        def running_item_can_be_recovered_without_claiming_success() -> bool:
+            ensure result
+            mutable previous: StudioExportBatchJournal::Record = sample()
+            mutable next: StudioExportBatchJournal::Record = sample()
+            previous.state_hint <- StudioExportBatchQueuePolicy::ItemState.Running.i64()
+            previous.attempt <- 1
+            next.state_hint <- StudioExportBatchQueuePolicy::ItemState.Recoverable.i64()
+            next.attempt <- 1
+            StudioExportBatchJournal::transition_admitted(previous, next)
+
+        def attempt_cannot_skip_a_claim() -> bool:
+            ensure result
+            previous: StudioExportBatchJournal::Record = sample()
+            mutable next: StudioExportBatchJournal::Record = sample()
+            next.state_hint <- StudioExportBatchQueuePolicy::ItemState.Running.i64()
+            next.attempt <- 2
+            not StudioExportBatchJournal::transition_admitted(previous, next)
+
+        def attempt_cannot_advance_without_running_claim() -> bool:
+            ensure result
+            mutable previous: StudioExportBatchJournal::Record = sample()
+            mutable next: StudioExportBatchJournal::Record = sample()
+            next.attempt <- 1
+            not StudioExportBatchJournal::transition_admitted(previous, next)

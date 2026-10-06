@@ -1,7 +1,10 @@
 include "../export_recovery_path_policy.elisa"
 include "export_recovery_bytes.elisa"
 include "export_recovery_journal.elisa"
+include "../export_batch_journal.elisa"
 include "../app/export_publisher.elisa"
+include "../export_batch_identity.elisa"
+include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 
 # Native directory creation is trusted host IO. Callers supply the selected,
 # canonical build directory; derived recovery files never belong beside sources.
@@ -23,6 +26,8 @@ module StudioExportRecoveryStore:
             TextReport = 1
             Journal = 2
             OutputSnapshot = 3
+            RecipeSnapshot = 4
+            BatchJournal = 5
 
         # Use only a directory returned by create. Existing record files are
         # never replaced. The caller must retain this directory on any failure
@@ -50,6 +55,55 @@ module StudioExportRecoveryStore:
             mutable bytes: darray[u8] = []
             return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportRecoveryJournal::encode(record, &bytes)
             write_record(directory, Record.Journal, bytes)
+
+        # Batch items bind immutable recipe/output/report snapshots to a
+        # versioned journal. Journal replacement is atomic and permitted only
+        # within the private directory created by this store.
+        def write_batch_journal(directory: cstr, record: StudioExportBatchJournal::Record&) -> StudioPublicationDurabilityPolicy::Result can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            mutable bytes: darray[u8] = []
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportBatchJournal::encode(record, &bytes)
+            write_record(directory, Record.BatchJournal, bytes)
+
+        def update_batch_journal(directory: cstr, record: StudioExportBatchJournal::Record&) -> StudioPublicationDurabilityPolicy::Result can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            mutable bytes: darray[u8] = []
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportBatchJournal::encode(record, &bytes)
+            if record_path(directory, Record.BatchJournal) is path:
+                mutable previous_bytes: darray[u8] = []
+                mutable previous: StudioExportBatchJournal::Record = record
+                facts: i64 = FilePanel::path_facts(path)
+                mutable admitted: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0 and StudioExportRecoveryBytes::read(path, record_byte_limit(Record.BatchJournal), &previous_bytes)
+                admitted <- admitted and StudioExportBatchJournal::decode(previous_bytes, &previous)
+                admitted <- admitted and StudioExportBatchJournal::transition_admitted(previous, record)
+                mutable status: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
+                if admitted:
+                    status <- StudioExportPublisher::write_sidecar_with_status(path, bytes)
+                release_path(path)
+                return status
+            StudioPublicationDurabilityPolicy::Result.NotPublished
+
+        def read_batch_journal(directory: cstr, out: mutable StudioExportBatchJournal::Record&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            if record_path(directory, Record.BatchJournal) is path:
+                facts: i64 = FilePanel::path_facts(path)
+                safe: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+                release_path(path)
+                return false if not safe
+            else:
+                return false
+            mutable bytes: darray[u8] = []
+            return false if not read_record(directory, Record.BatchJournal, &bytes)
+            mutable decoded: StudioExportBatchJournal::Record = zeroed
+            return false if not StudioExportBatchJournal::decode(bytes, &decoded)
+            out <- decoded
+            true
+
+        def read_record(directory: cstr, record: Record, out: mutable darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            limit: i64 = record_byte_limit(record)
+            return false if limit <= 0
+            if record_path(directory, record) is path:
+                read: bool = StudioExportRecoveryBytes::read(path, limit, out)
+                release_path(path)
+                return read
+            false
 
         # Only advances a strictly decoded journal of the same export. Never
         # adopt an unknown/corrupt file or downgrade published stages. Caller
@@ -128,6 +182,8 @@ module StudioExportRecoveryStore:
             return StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES if record == Record.JsonReport or record == Record.TextReport
             return StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES if record == Record.Journal
             return StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES if record == Record.OutputSnapshot
+            return StudioExportBatchIdentity::Limit::MAX_RECIPE_BYTES.i64() if record == Record.RecipeSnapshot
+            return StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES if record == Record.BatchJournal
             0
 
         def record_name(record: Record) -> cstr:
@@ -135,6 +191,8 @@ module StudioExportRecoveryStore:
             return "report.txt" if record == Record.TextReport
             return "journal.txt" if record == Record.Journal
             return "output.glb" if record == Record.OutputSnapshot
+            return "recipe.bin" if record == Record.RecipeSnapshot
+            return "batch-journal.txt" if record == Record.BatchJournal
             ""
 
         @link_name("strdup")

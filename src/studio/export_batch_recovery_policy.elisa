@@ -1,0 +1,29 @@
+include "export_batch_queue.elisa"
+
+# Restart classification is derived from freshly verified identities and
+# bytes. Serialized success and approval flags are intentionally absent.
+module StudioExportBatchRecoveryPolicy:
+    public:
+        def item_after_reopen(interrupted_running: bool,
+                identity_exact: bool, source_matches: bool, paths_valid: bool,
+                snapshots_exact: bool, receipt_consistent: bool,
+                staged_exact: bool, final_glb_exact: bool,
+                json_exact: bool, text_exact: bool,
+                destinations_absent: bool, warning_facts_verified: bool, verified_warning_count: i64) -> StudioExportBatchQueue::Item:
+            requires verified_warning_count >= 0
+            ensure result.warning_count == verified_warning_count
+            ensure not result.approved
+            ensure result.state == StudioExportBatchQueuePolicy::ItemState.Passed or result.state == StudioExportBatchQueuePolicy::ItemState.Warning implies warning_facts_verified
+            ensure result.state == StudioExportBatchQueuePolicy::ItemState.Passed implies final_glb_exact and json_exact and text_exact and receipt_consistent and identity_exact and source_matches and paths_valid and snapshots_exact and verified_warning_count == 0
+            ensure result.state == StudioExportBatchQueuePolicy::ItemState.Warning implies final_glb_exact and json_exact and text_exact and receipt_consistent and identity_exact and source_matches and paths_valid and snapshots_exact and verified_warning_count > 0
+            ensure result.state == StudioExportBatchQueuePolicy::ItemState.Recoverable implies not (final_glb_exact and json_exact and text_exact and receipt_consistent and not interrupted_running) or not identity_exact or not source_matches or not paths_valid or not snapshots_exact
+            if not identity_exact or not source_matches or not paths_valid or not snapshots_exact or not warning_facts_verified:
+                return StudioExportBatchQueue::Item{state: StudioExportBatchQueuePolicy::ItemState.Recoverable, warning_count: verified_warning_count, approved: false}
+            if final_glb_exact and json_exact and text_exact and receipt_consistent:
+                return StudioExportBatchQueue::Item{state: StudioExportBatchQueuePolicy::ItemState.Warning, warning_count: verified_warning_count, approved: false} if verified_warning_count > 0
+                return StudioExportBatchQueue::Item{state: StudioExportBatchQueuePolicy::ItemState.Passed, warning_count: 0, approved: false}
+            return StudioExportBatchQueue::Item{state: StudioExportBatchQueuePolicy::ItemState.Recoverable, warning_count: verified_warning_count, approved: false} if interrupted_running
+            if staged_exact and destinations_absent:
+                return StudioExportBatchQueue::Item{state: StudioExportBatchQueuePolicy::ItemState.AwaitingReview, warning_count: verified_warning_count, approved: false} if verified_warning_count > 0
+                return StudioExportBatchQueue::Item{state: StudioExportBatchQueuePolicy::ItemState.Staged, warning_count: 0, approved: false}
+            StudioExportBatchQueue::Item{state: StudioExportBatchQueuePolicy::ItemState.Recoverable, warning_count: verified_warning_count, approved: false}
