@@ -1,0 +1,32 @@
+# Nonblocking process lock for Storage manifest transactions on macOS.
+# The lock file is intentionally persistent: callers release the kernel lock
+# and close its descriptor, never unlink the file. All callers must use the
+# same lock path and hold the descriptor across refresh, mutation, and publish.
+include "../storage_manifest_lock_policy.elisa"
+
+@link_name("elisa_storage_manifest_lock_try")
+extern storage_lock_try(path: u8&, descriptor: mutable i32&) -> i32 can[Blocking.IO]
+@link_name("elisa_storage_manifest_lock_release")
+extern storage_lock_release(descriptor: i32) -> i32 can[Blocking.IO]
+
+module StudioStorageManifestLockFile:
+    public:
+        const LOCK_ACQUIRED: i64 = StudioStorageManifestLockPolicy::OUTCOME_ACQUIRED
+        const LOCK_BUSY: i64 = StudioStorageManifestLockPolicy::OUTCOME_BUSY
+        const LOCK_FAILED: i64 = StudioStorageManifestLockPolicy::OUTCOME_FAILED
+        const LOCK_INVALID: i64 = StudioStorageManifestLockPolicy::OUTCOME_INVALID
+
+        def try_acquire(lock_path: cstr, descriptor: mutable i32&) -> i64 can[Blocking.IO]:
+            descriptor <- -1
+            return LOCK_INVALID if lock_path[0] == 0
+            outcome: i32 = storage_lock_try(lock_path.cast[u8&], descriptor)
+            return LOCK_ACQUIRED if outcome == LOCK_ACQUIRED
+            return LOCK_BUSY if outcome == LOCK_BUSY
+            return LOCK_INVALID if outcome == LOCK_INVALID
+            LOCK_FAILED
+
+        # The caller must stop the batch if this reports failure. It must not
+        # start another move merely because the lock may already be unlocked.
+        def release(descriptor: i32) -> bool can[Blocking.IO]:
+            return false if descriptor < 0
+            storage_lock_release(descriptor) == 1
