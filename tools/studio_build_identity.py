@@ -87,6 +87,13 @@ arguments = sys.argv[1:]
 if arguments and arguments[0] in ("--snapshot", "--check-snapshot", "--seal-product"):
     mode = arguments.pop(0)
 project, engine, ui, compiler, output = (path.resolve() for path in map(Path, arguments))
+# Elisa imports currently name these sibling checkouts directly. An environment
+# override must not silently link another checkout's native implementation.
+for label, selected, sibling in (
+        ("engine", engine, project.parent / "elisa-engine-mocap"),
+        ("UI", ui, project.parent / "elisa-ui")):
+    if selected != sibling.resolve(strict=True):
+        raise SystemExit(f"Selected {label} checkout differs from the fixed Elisa include root: {sibling}")
 subprocess.run([sys.executable, str(compiler / "scripts/stage1_provenance.py"),
                 "check", str(compiler), str(compiler / "bin/elisac-stage1")],
                check=True)
