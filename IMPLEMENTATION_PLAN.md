@@ -8,6 +8,16 @@ The product goal is a clear, safe workflow from unfamiliar capture to reviewed
 export, with understandable diagnosis, recoverable cleanup and responsive
 professional tools.
 
+## Mandatory file size limit
+
+Every maintained repository file must have **at most 600 lines**. This applies
+to existing and new source, proof, test, script, configuration and documentation
+files throughout every milestone. Split growing files into cohesive modules
+before an edit would exceed the limit; use nested modules when appropriate,
+keep helpers private and expose only the APIs callers need. Preserve includes,
+behavior and proof coverage, and check file lengths before committing. Generated
+`build/` artifacts and sibling repositories are outside this repository rule.
+
 ## Detailed roadmap
 
 - [Product goals, user journeys and baseline](docs/plan/product-and-m0.md)
@@ -24,6 +34,6 @@ professional tools.
 - Commit each small improvement.
 - Preserve source takes; put derived files in `build/`.
 - Land contracts and proof laws alongside proof-critical logic.
-- Keep public APIs narrow and every repository source/document file at most
-  600 lines; see [module extraction plan](docs/module-refactor.md).
+- Enforce the mandatory 600-line file limit on every change; see
+  [module extraction details](docs/module-refactor.md).
 - Record unresolved evidence in [proof gaps](docs/proof-gaps.md).

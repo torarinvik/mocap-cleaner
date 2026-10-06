@@ -19,14 +19,16 @@ are outside this roadmap. Additional file formats and platforms require a
 separate demonstrated need; GLB and the current macOS studio are the first
 release target. Rig role mapping is not a promise of general retargeting.
 
-### File size and module refactor after current fixes
+### Mandatory file size and module hygiene
 
-- [ ] Inventory all repository files above 600 lines after the current fixes.
-      Split each into cohesive files of at most 600 lines, including proof and
-      documentation files. Use modules and nested modules where appropriate;
-      expose only the public API needed by callers and keep helpers private.
-      Update includes, tooling and proof coverage while preserving behavior.
-      Commit each small refactor separately.
+Every maintained repository file must remain at most 600 lines, including
+source, proofs, tests, scripts, configuration and documentation. This is an
+ongoing acceptance requirement for every milestone and every new file.
+Split growing files into cohesive modules before exceeding the limit. Use
+nested modules when appropriate, keep implementation helpers private and
+expose only necessary public APIs. Preserve behavior, includes, tooling and
+proof coverage. Recount file lengths before committing each small change.
+Generated `build/` artifacts and sibling repositories are outside this rule.
 
 ### Architecture and safety requirements
 
