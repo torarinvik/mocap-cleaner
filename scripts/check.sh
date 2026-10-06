@@ -2,6 +2,7 @@
 # Build and run every test, then run elisa-proof over sources and proofs.
 set -u
 cd "$(dirname "$0")/.."
+python3 scripts/check_file_lengths.py || exit 1
 ELISAC="${ELISAC:-../Elisa-compiler/scripts/elisac_stage1.sh}"
 PROVER="${ELISA_PROOF:-../elisa-proof-mocap/build/elisa-proof}"
 mkdir -p build/test

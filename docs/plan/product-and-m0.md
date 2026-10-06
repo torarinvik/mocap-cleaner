@@ -29,6 +29,9 @@ nested modules when appropriate, keep implementation helpers private and
 expose only necessary public APIs. Preserve behavior, includes, tooling and
 proof coverage. Recount file lengths before committing each small change.
 Generated `build/` artifacts and sibling repositories are outside this rule.
+Run `python3 scripts/check_file_lengths.py` before committing; the same static
+check runs before compilation in `scripts/check.sh`. It inspects tracked and
+non-ignored untracked UTF-8 text files, including documentation and proofs.
 
 ### Constant module requirement
 
