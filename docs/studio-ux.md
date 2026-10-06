@@ -293,6 +293,8 @@ The 2026-10-06 integration check rebuilt 78 executable tests and all 78
 returned zero, including the Storage semantic tests and UTC calendar
 boundaries. This covers the compiled test binaries, not native input flows
 or the complete roadmap. Its native Storage check stopped at stale compiler
-provenance; CLI scenarios and the proof gate were still running when this
-evidence was recorded. Concurrent registration proof edits require a final
+provenance. All four CLI scenarios returned zero. The complete command
+finished with exit 1 because native verification and the proof baseline gate
+were not clean; the latter reported established regressions and missing
+reviewed entries. Concurrent registration proof edits require a final
 focused recheck before a clean proof baseline can be claimed.
