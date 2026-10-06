@@ -240,3 +240,19 @@ compile to a nonempty positive object (exit 0). A scalar parameter shadowing
 the array name is rejected (exit 1, no nonempty object), rather than silently
 indexing the global. These checks strengthen type/owner evidence; no compiled
 program was executed and they do not replace native behavior acceptance.
+
+The complete Studio compile in `build/studio-goto-current-candidate.5bdqyL`
+completed successfully: exit 0 and a fresh 1,602,528-byte object. Its trace
+classifies the Studio event parameter and match as payload enum kind 11,
+with registered `UiCore::Event` slot plus one 1. No declined bodies are
+reported. This resolves the reproduced integrated compiler refusal for this
+source graph; it does not establish linked or native UI behavior.
+
+After fetching compiler origin again (no missing upstream commits), the
+qualified repairs were adopted into the normal compiler as `bbb3feb9`,
+`cc7b1e4a` and `5f89731a`. The ownership-preserving readiness API was also
+adopted as `709ec863`; its native memory behavior remains unqualified. The
+normal product rebuild is running. Fresh normal-product Studio compilation,
+native linking and matching prover/replay rebuild remain required. The
+ongoing full check selected the preceding `23a0e16a` product and is now
+comparison evidence, not acceptance of these newly adopted sources.
