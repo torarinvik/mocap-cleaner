@@ -20,9 +20,10 @@ passes. The Studio and CLI builds use the paths described in the README.
   compiler provenance, and its proof gate reported remaining regressions.
   Subsequent focused builds are documented with their own changes; they do not
   establish a green full check at the current head.
-- The compiler checkout is now clean, and a normal seed rebuild is being
-  attempted to restore valid product provenance. Until that succeeds and the
-  strict checks rerun, native Storage acceptance remains open.
+- The compiler checkout is now clean. A normal seed rebuild stopped at the
+  upstream stage0 freshness guard because that source tree has uncommitted
+  changes. No stale-oracle override was used. Until a fresh seed build succeeds
+  and the strict checks rerun, native Storage acceptance remains open.
 - Native lock, Unicode namespace and transaction wiring have build evidence;
   concurrent-process, crash/release-failure and Unicode filesystem scenarios
   still need runtime acceptance.
