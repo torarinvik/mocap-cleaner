@@ -13,6 +13,17 @@ module StudioStorageAccessibilityPolicy:
         const DONE: usize = 170
         const RESTORE: usize = 171
         const ANNOUNCEMENT: usize = 172
+        const FILE_TRIGGER: usize = 174
+        const FILE_MENU: usize = 175
+        const FILE_COMMAND_FIRST: usize = 176
+        const FILE_COMMAND_COUNT: i64 = 7
+        const FILE_OPEN_TAKE: i64 = 1
+        const FILE_OPEN_SESSION: i64 = 2
+        const FILE_SAVE: i64 = 3
+        const FILE_SAVE_AS: i64 = 4
+        const FILE_EXPORT_CURRENT: i64 = 5
+        const FILE_EXPORT_AS: i64 = 6
+        const FILE_OPEN_STORAGE: i64 = 7
 
         # These action numbers match StudioPanels storage actions.
         const ACTION_REFRESH: i64 = 0
@@ -43,7 +54,53 @@ module StudioStorageAccessibilityPolicy:
             id >= ROW_FIRST and id < ROW_FIRST + ROW_COUNT.usize()
 
         def is_node(id: usize) -> bool:
-            id == DIALOG or id == INVENTORY or is_row(id) or id == PROTECTED or id == REFRESH or id == DONE or id == RESTORE or id == ANNOUNCEMENT
+            id == DIALOG or id == INVENTORY or is_row(id) or id == PROTECTED or id == REFRESH or id == DONE or id == RESTORE or id == ANNOUNCEMENT or is_file_node(id)
+
+        def is_file_command(id: usize) -> bool:
+            id >= FILE_COMMAND_FIRST and id < FILE_COMMAND_FIRST + FILE_COMMAND_COUNT.usize()
+
+        def is_file_node(id: usize) -> bool:
+            id == FILE_TRIGGER or id == FILE_MENU or is_file_command(id)
+
+        def file_command_id(index: usize) -> usize:
+            requires index < FILE_COMMAND_COUNT.usize()
+            FILE_COMMAND_FIRST + index
+
+        def file_command_index(id: usize) -> i64:
+            ensure result >= -1
+            ensure result < FILE_COMMAND_COUNT
+            return 0 if id == FILE_COMMAND_FIRST
+            return 1 if id == FILE_COMMAND_FIRST + 1
+            return 2 if id == FILE_COMMAND_FIRST + 2
+            return 3 if id == FILE_COMMAND_FIRST + 3
+            return 4 if id == FILE_COMMAND_FIRST + 4
+            return 5 if id == FILE_COMMAND_FIRST + 5
+            return 6 if id == FILE_COMMAND_FIRST + 6
+            -1
+
+        def file_first_child(id: usize) -> usize:
+            return FILE_MENU if id == FILE_TRIGGER
+            return FILE_COMMAND_FIRST if id == FILE_MENU
+            NO_NODE
+
+        def file_next_sibling(id: usize) -> usize:
+            return id + 1 if is_file_command(id) and id + 1 < FILE_COMMAND_FIRST + FILE_COMMAND_COUNT.usize()
+            NO_NODE
+
+        # IDs follow the File menu's displayed row order. StudioFilePolicy is
+        # tested as the authority for matching these scalar command codes.
+        def file_command(id: usize) -> i64:
+            ensure result >= -1
+            ensure result <= FILE_OPEN_STORAGE
+            row: i64 = file_command_index(id)
+            return -1 if row < 0
+            row + 1
+
+        def file_command_enabled(id: usize, has_take: bool) -> bool:
+            command: i64 = file_command(id)
+            return true if command == FILE_OPEN_TAKE or command == FILE_OPEN_STORAGE
+            return false if command < FILE_OPEN_SESSION or command > FILE_EXPORT_AS
+            has_take
 
         # Modal root belongs to the existing Studio workspace. Inventory rows
         # are children of a list; the reason, actions, and live result are
@@ -52,6 +109,9 @@ module StudioStorageAccessibilityPolicy:
             return WORKSPACE if id == DIALOG
             return DIALOG if id == INVENTORY or id == PROTECTED or id == REFRESH or id == DONE or id == RESTORE or id == ANNOUNCEMENT
             return INVENTORY if is_row(id)
+            return WORKSPACE if id == FILE_TRIGGER
+            return FILE_TRIGGER if id == FILE_MENU
+            return FILE_MENU if is_file_command(id)
             NO_NODE
 
         def first_child(id: usize, visible_count: i64) -> usize:
@@ -66,7 +126,8 @@ module StudioStorageAccessibilityPolicy:
             requires visible_count <= ROW_COUNT
             row: i64 = row_index(id)
             return id + 1 if row >= 0 and row + 1 < visible_count
-            return PROTECTED if id == INVENTORY or row >= 0 and row + 1 >= visible_count
+            return NO_NODE if row >= 0
+            return PROTECTED if id == INVENTORY
             return REFRESH if id == PROTECTED
             return DONE if id == REFRESH
             return RESTORE if id == DONE
