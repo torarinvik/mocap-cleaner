@@ -289,6 +289,9 @@ module ReportDiff:
             if errors == 0 and ma.count == 0:
                 validation_problem(&errors, &diagnostics, "Baseline report contains no scalar metrics.")
             mutable schema_unknown: bool = false
+            mutable units_unknown: bool = false
+            mutable a_units: i64 = -1
+            mutable b_units: i64 = -1
             if errors == 0:
                 schema_status: ReportCompatibility::Status = declared_schema_status(&a_text, &b_text, &a_tokens, &b_tokens)
                 if schema_status == ReportCompatibility::Status.Invalid:
@@ -298,6 +301,11 @@ module ReportDiff:
                 elif schema_status == ReportCompatibility::Status.Unknown:
                     schema_unknown <- true
                     Out::line("Schema compatibility is unknown. Numeric results do not qualify units, detector settings or provenance.")
+            if errors == 0:
+                a_units <- unit_object(&a_text, &a_tokens)
+                b_units <- unit_object(&b_text, &b_tokens)
+                if a_units == -2 or b_units == -2:
+                    validation_problem(&errors, &diagnostics, "Metric unit declarations must be a single object in each report.")
             mutable candidate_index: darray[usize] = []
             build_index(&pb, &mb, &candidate_index)
             tol: i64 = tolerance(tol_permille)
@@ -335,6 +343,11 @@ module ReportDiff:
                         if flagged:
                             bad <- Regress::ok_lost(true, other.value == 1)
                         else:
+                            unit_status: ReportCompatibility::Status = declared_unit_status(&a_text, &a_tokens, a_units, &b_text, &b_tokens, b_units, &pa, m)
+                            if unit_status == ReportCompatibility::Status.Invalid or unit_status == ReportCompatibility::Status.Incompatible:
+                                metric_problem(&errors, &diagnostics, "Metric unit declarations differ, are malformed, or are missing on only one side.", &pa, m)
+                                continue
+                            units_unknown <- true if unit_status == ReportCompatibility::Status.Unknown
                             match ReportDecimal::align(m.value, m.exponent, other.value, other.exponent, fl):
                                 ReportDecimal::Alignment.Exact(before_scaled, after_scaled, floor_scaled, power):
                                     bad <- Regress::metric_regressed(before_scaled, after_scaled, tol, floor_scaled)
@@ -377,6 +390,8 @@ module ReportDiff:
                 Report::push_text(&document, "</ul></section>")
             if schema_unknown:
                 Report::push_text(&document, "<section aria-labelledby=schema-heading><h2 id=schema-heading>Schema compatibility unknown</h2><p>These reports use a legacy or unrecognized schema. Numeric results do not establish matching units, detector settings or provenance. Regenerate both reports with the same supported producer before acceptance.</p></section>")
+            if units_unknown:
+                Report::push_text(&document, "<section aria-labelledby=units-heading><h2 id=units-heading>Metric units unqualified</h2><p>At least one compared metric has missing or unrecognized units. Its numeric result does not establish a physically compatible comparison. Regenerate both reports with matching supported unit declarations before acceptance.</p></section>")
             ReportDiffHtml::table_begin(&document)
             document.extend(page)
             ReportDiffHtml::end(&document)
@@ -391,3 +406,5 @@ module ReportDiff:
 include "report_diff_index.elisa"
 
 include "report_diff_schema.elisa"
+
+include "report_diff_units.elisa"

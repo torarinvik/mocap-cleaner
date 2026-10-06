@@ -1,0 +1,51 @@
+# Declared metric units are independent of numeric spelling and schema names.
+extend ReportDiff:
+    private:
+        def unit_object(text: darray[u8]&, tokens: darray[GlbJson::Token]&) -> i64:
+            return -2 if member_count(text, tokens, 0, "metric_units") > 1
+            object: i64 = decoded_member(text, tokens, 0, "metric_units")
+            return -1 if object < 0
+            return -2 if tokens[object.usize()].kind != GlbJson::KIND_OBJECT
+            object
+
+        # -1 means absent; -2 means malformed or duplicated declaration.
+        def unit_member(text: darray[u8]&, tokens: darray[GlbJson::Token]&, object: i64,
+                        pool: darray[u8]&, metric: Metric) -> i64:
+            return object if object < 0
+            mutable at: usize = object.usize() + 1
+            mutable found: i64 = -1
+            mutable decoded: darray[u8] = []
+            for member in 0..<tokens[object.usize()].size:
+                decoded.clear()
+                return -2 if not JsonString::decode(text, tokens[at].start, tokens[at].stop, &decoded)
+                if compare_span(&decoded, 0, decoded.count.i64(), pool, metric.key_at, metric.key_len) == 0:
+                    return -2 if found >= 0
+                    found <- (at + 1).i64()
+                at <- tokens[at + 1].after
+            return -2 if found >= 0 and tokens[found.usize()].kind != GlbJson::KIND_STRING
+            found
+
+        def recognized_unit(value: darray[u8]&) -> bool:
+            return true if is_text(value, 0, value.count.i64(), "count")
+            return true if is_text(value, 0, value.count.i64(), "frame-count")
+            return true if is_text(value, 0, value.count.i64(), "micrometre")
+            is_text(value, 0, value.count.i64(), "microradian")
+
+        def declared_unit_status(left: darray[u8]&, left_tokens: darray[GlbJson::Token]&, left_object: i64,
+                                 right: darray[u8]&, right_tokens: darray[GlbJson::Token]&, right_object: i64,
+                                 pool: darray[u8]&, metric: Metric) -> ReportCompatibility::Status:
+            left_member: i64 = unit_member(left, left_tokens, left_object, pool, metric)
+            right_member: i64 = unit_member(right, right_tokens, right_object, pool, metric)
+            return ReportCompatibility::Status.Invalid if left_member == -2 or right_member == -2
+            if left_member < 0 or right_member < 0:
+                return ReportCompatibility::schema_status(left_member >= 0, right_member >= 0, true, false, false)
+            mutable left_unit: darray[u8] = []
+            mutable right_unit: darray[u8] = []
+            left_token: GlbJson::Token = left_tokens[left_member.usize()]
+            right_token: GlbJson::Token = right_tokens[right_member.usize()]
+            return ReportCompatibility::Status.Invalid if not JsonString::decode(left, left_token.start, left_token.stop, &left_unit)
+            return ReportCompatibility::Status.Invalid if not JsonString::decode(right, right_token.start, right_token.stop, &right_unit)
+            return ReportCompatibility::Status.Invalid if left_unit.count == 0 or right_unit.count == 0
+            equal: bool = compare_span(&left_unit, 0, left_unit.count.i64(), &right_unit, 0, right_unit.count.i64()) == 0
+            recognized: bool = recognized_unit(&left_unit)
+            ReportCompatibility::schema_status(true, true, true, recognized, equal)
