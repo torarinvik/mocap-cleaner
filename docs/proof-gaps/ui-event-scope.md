@@ -190,3 +190,25 @@ build. Qualification must rebuild with matching provenance, compile the
 reduction in both include orders and the complete Studio graph, and examine
 remaining refusals. This source inspection and failing reduction do not yet
 prove that the candidate repairs the full application.
+
+## Separate module-global array index failure (2026-10-07)
+
+The existing full Studio refusal in `append_retained_range` also reproduces
+without UI or engine dependencies. The compile-only source
+`build/repro/retained-range-cursor.elisa` indexes a module-global `darray[u8]`
+while appending to a borrowed output. Normal compiler `23a0e16a` exits 2,
+declines that index expression and writes no object; its log is
+`build/retained-range-cursor.CqHsEZ/compile.log`. An explicitly typed local
+cursor does not resolve it (`build/retained-range-position.iLKkGm/compile.log`).
+
+The dynamic-array address helper only consults lexical slots for an identifier.
+Candidate `b49c0d77` adds an owned mutable-global lookup when no lexical binding
+exists, checks the global is a dynamic array, and preserves local shadowing.
+This candidate remains isolated and unqualified pending fresh positive and
+shadowing reductions and full Studio compilation.
+
+The default and `-O1` diagnostic seeds both terminated at the 6 GB memory guard;
+neither produced a qualified replacement compiler. A bounded `-O1` seed with
+a 10 GB guard is running after observing 24 GB physical RAM and 81% reported
+free memory. The earlier validation sessions have disappeared without terminal
+full-check evidence; their partial logs cannot establish completion.
