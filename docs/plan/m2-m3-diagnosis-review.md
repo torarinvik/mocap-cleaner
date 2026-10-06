@@ -232,10 +232,13 @@ sample timestamp with six decimal places. Unsupported clocks explain refusal.
 Current proof/replay, integrated app compilation and native playback acceptance
 remain open; export reports and curve timing still need consistent integration.
 
-- [ ] Extend seconds entry to captured microsecond precision so displayed sample
-      timestamps can be entered without truncation. Keep one capacity policy for
-      typed input, committed text, accessibility replacement and parser; add the
-      matching contracts/laws and qualify boundary/clamp behavior.
+- [ ] Qualify microsecond seconds entry through typed input, committed text and
+      native accessibility replacement. The parser now accepts six fractional
+      digits and all three routes share its 15-byte capacity policy. Eight new
+      scalar laws cover exact decimal units, composition and domain saturation.
+      Current proof replay, displayed-time round trips and boundary/clamp native
+      behavior remain pending. The legacy millisecond adapter retains its prior
+      three-digit limit; it is not used for captured-clock navigation.
 - [ ] Qualify shared Play availability through pointer, keyboard and native
       accessibility routes. The toolbar and accessibility enablement now share
       the handler's captured-clock readiness/count predicate, with Stop admitted

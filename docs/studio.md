@@ -72,7 +72,7 @@ These new handlers await integrated compilation and native shortcut review;
 equivalent pointer/accessibility controls remain planned.
 
 **Cmd-G** opens frame entry; **Cmd-Shift-G** opens unsigned seconds entry with
-up to three decimal places (for example `2.125` or `.5`). The dialog shares
+up to six decimal places (for example `2.041667` or `.5`). The dialog shares
 Apply/Cancel, stale-target checks and mode-specific accessibility labels. Its
 new time integration awaits full compilation and native input qualification;
 committed-text insertion and navigation pause behavior are implemented but need
@@ -82,9 +82,7 @@ output timestamps. The status bar shows clip-relative sample time to six decimal
 places and labels the estimated average key rate with `~`. Unsupported grids
 refuse playback and seconds entry with an explanation. Play dims and its native
 accessibility element disables when captured timing is unavailable; Stop remains
-available during playback. Integrated/native acceptance is pending. Seconds entry still has
-millisecond precision; copying every displayed microsecond value back into that
-field is not yet supported. Current proof replay, integrated compilation, native
+available during playback. Integrated/native acceptance is pending. Seconds entry now accepts the same microsecond precision as the displayed time. Current proof replay, integrated compilation, native
 playback and timing consistency in curves/reports remain acceptance gaps.
 
 The keys include Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O, plus K (foot cleanup), J (hand cleanup), W (worst foot slide), **Shift-P** (plant selected contact frame), **Shift-L** (lift selected contact frame), **Shift-U** (restore automatic detection at the selected frame), **Shift-Delete** (remove the authored interval covering the selected frame), and `,` `.` (contact blend). **Cmd-Z** undoes and **Cmd-Shift-Z** redoes; plain Z/Y also work. File commands are available from the labelled File menu and as shortcuts: **Cmd-O** open take, **Cmd-Shift-O** open session, **Cmd-S** save session, **Cmd-Shift-S** save as, **E** export to the current path, and **Cmd-E** export as. Press `?` for the full shortcut sheet. Contact-row clicks select and scrub; Plant/Lift set a one-frame override, Reset removes only that frame from authored overrides, Delete removes the newest full interval covering it, Merge joins eligible adjacent intervals without changing contact output, Split divides the selected interval immediately before the selected frame, and dragging a run endpoint changes its extent. See `docs/foot-workflow.md`. Shift-F toggles the frame-time overlay; plain F frames the views.
