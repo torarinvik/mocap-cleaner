@@ -1,0 +1,173 @@
+# User-requested same-session retry of a retained prepared export. Replacement
+# is never inferred: this path uses create-only publication.
+include "app_state.elisa"
+include "app_storage_persistence.elisa"
+include "app_export_destination.elisa"
+include "../io/export_recovery_binding.elisa"
+include "../io/export_recovery_publication.elisa"
+include "../io/export_recovery_completion.elisa"
+include "../export_recovery_retry_policy.elisa"
+include "../export_staging_cleanup_policy.elisa"
+
+extend Studio:
+    public:
+        const enum RecoveryRetryFailure of i64:
+            None = 0
+            InvalidEntry = 1
+            WorkspaceChanged = 2
+            LockUnavailable = 3
+            DestinationChanged = 4
+            BindingChanged = 5
+            NotPrepared = 6
+            StagingChanged = 7
+            PublicationFailed = 8
+            ReportsIncomplete = 9
+
+        struct RecoveryRetryResult:
+            published: mutable bool
+            failure: mutable RecoveryRetryFailure
+            report_outcome: mutable StudioExportPublicationPolicy::Outcome
+            durability_unknown: mutable bool
+            tracking_failed: mutable bool
+            keep_staging: mutable bool
+            recovery_path_unavailable: mutable bool
+
+        def retry_retained_export(index: i64) -> RecoveryRetryResult can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable result: RecoveryRetryResult = zeroed
+            mutable directory_bytes: darray[u8] = []
+            mutable staging_bytes: darray[u8] = []
+            mutable expected: StudioExportRecoveryJournal::Record = zeroed
+            mutable output: darray[u8] = []
+            mutable json: darray[u8] = []
+            mutable text: darray[u8] = []
+            return retry_failed(result, RecoveryRetryFailure.InvalidEntry) if not retained_export_recovery_at(index, &directory_bytes, &staging_bytes, &expected, &output, &json, &text)
+            result.keep_staging <- true
+            return retry_failed(result, RecoveryRetryFailure.WorkspaceChanged) if not retry_workspace_matches(workspace_build_directory(), expected)
+            mutable directory: cstr = (&directory_bytes[0]).cast[cstr] can Unsafe.PointerCast
+            mutable staging: cstr = (&staging_bytes[0]).cast[cstr] can Unsafe.PointerCast
+            mutable destination: u8[4096] = zeroed
+            mutable json_destination: u8[4096] = zeroed
+            mutable text_destination: u8[4096] = zeroed
+            return retry_failed(result, RecoveryRetryFailure.BindingChanged) if not recovery_retry_copy_path(expected.destination, &destination)
+            return retry_failed(result, RecoveryRetryFailure.BindingChanged) if not recovery_retry_copy_path(expected.json_destination, &json_destination)
+            return retry_failed(result, RecoveryRetryFailure.BindingChanged) if not recovery_retry_copy_path(expected.text_destination, &text_destination)
+            destination_path: cstr = (&destination[0]).cast[cstr] can Unsafe.PointerCast
+            json_path: cstr = (&json_destination[0]).cast[cstr] can Unsafe.PointerCast
+            text_path: cstr = (&text_destination[0]).cast[cstr] can Unsafe.PointerCast
+            return retry_failed(result, RecoveryRetryFailure.DestinationChanged) if not retry_destinations_ready(destination_path, json_path, text_path, output, json, text)
+
+            descriptor: i32 = begin_storage_transaction()
+            return retry_failed(result, RecoveryRetryFailure.LockUnavailable) if descriptor == -1
+            locked: bool = storage_transaction_active and (descriptor >= 0 or descriptor == -2)
+            workspace_matches: bool = retry_workspace_matches(workspace_build_directory(), expected)
+            if not workspace_matches:
+                result <- retry_failed(result, RecoveryRetryFailure.WorkspaceChanged)
+                return retry_finish(result, descriptor)
+            if not locked:
+                result <- retry_failed(result, RecoveryRetryFailure.LockUnavailable)
+                return retry_finish(result, descriptor)
+            facts: i64 = FilePanel::path_facts(directory)
+            owned: bool = facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+            destinations_ready: bool = retry_destinations_ready(destination_path, json_path, text_path, output, json, text)
+            mutable current: StudioExportRecoveryJournal::Record = zeroed
+            mutable binding_matches: bool = false
+            if workspace_matches and locked and owned and destinations_ready:
+                binding_matches <- StudioExportRecoveryBinding::load_prepared(directory, expected, output, json, text, owned, locked, &current)
+            prepared: bool = binding_matches and current.observed == StudioExportRecoveryStagePolicy::Stage.Prepared and current.durable == StudioExportRecoveryStagePolicy::Stage.Prepared
+            staging_matches: bool = prepared and StudioExportRecoveryBytes::matches(staging, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            output_already_matches: bool = prepared and StudioExportRecoveryBytes::matches(destination_path, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            mutable published_binding_matches: bool = false
+            mutable published_binding: StudioExportRecoveryJournal::Record = zeroed
+            if output_already_matches:
+                published_binding_matches <- StudioExportRecoveryBinding::load(directory, expected, output, json, text, owned, locked, &published_binding)
+            admitted: bool = StudioExportRecoveryRetryPolicy::prepared_retry_admitted(workspace_matches, locked, owned, binding_matches, prepared, staging_matches, destinations_ready)
+            already_published_admitted: bool = StudioExportRecoveryRetryPolicy::existing_publication_admitted(workspace_matches, locked, owned, binding_matches and published_binding_matches, prepared, output_already_matches and published_binding_matches, destinations_ready)
+            if not admitted and not already_published_admitted:
+                failure: RecoveryRetryFailure = RecoveryRetryFailure.DestinationChanged if not destinations_ready else RecoveryRetryFailure.BindingChanged if not binding_matches or (output_already_matches and not published_binding_matches) else RecoveryRetryFailure.NotPrepared if not prepared else RecoveryRetryFailure.StagingChanged
+                result <- retry_failed(result, failure)
+                return retry_finish(result, descriptor)
+
+            if already_published_admitted:
+                current <- published_binding
+                result.published <- true
+                result.durability_unknown <- current.durable == StudioExportRecoveryStagePolicy::Stage.Prepared
+                staging_facts: i64 = FilePanel::path_facts(staging)
+                result.keep_staging <- staging_facts < 0 or (staging_facts & FilePanel::PATH_EXISTS) != 0
+            else:
+                publication: StudioExportRecoveryPublication::Outcome = StudioExportRecoveryPublication::commit(
+                    directory, staging, destination_path, current, output, json, text, owned, locked, false)
+                if publication is StudioExportRecoveryPublication::Outcome.Rejected(reason):
+                    result <- retry_failed(result, RecoveryRetryFailure.BindingChanged)
+                    return retry_finish(result, descriptor)
+                elif publication is StudioExportRecoveryPublication::Outcome.NotPublished:
+                    result <- retry_failed(result, RecoveryRetryFailure.PublicationFailed)
+                    return retry_finish(result, descriptor)
+                elif publication is StudioExportRecoveryPublication::Outcome.Published(status, journal_status, staging_removed):
+                    result.published <- true
+                    result.keep_staging <- StudioExportStagingCleanupPolicy::pending(true, staging_removed)
+                    result.recovery_path_unavailable <- not retain_recovery_path_diagnostic(staging) if not staging_removed
+                    result.durability_unknown <- status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown or journal_status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+                    result.tracking_failed <- journal_status == StudioPublicationDurabilityPolicy::Result.NotPublished
+                    current.observed <- StudioExportRecoveryStagePolicy::Stage.GlbPublished
+                    if status == StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced:
+                        current.durable <- StudioExportRecoveryStagePolicy::Stage.GlbPublished
+                else:
+                    result <- retry_failed(result, RecoveryRetryFailure.PublicationFailed)
+                    return retry_finish(result, descriptor)
+
+            json_outcome: StudioExportRecoveryCompletion::Outcome = StudioExportRecoveryCompletion::complete(
+                directory, current, output, json, text, owned, locked, StudioExportRecoveryCompletion::Report.Json)
+            json_saved: bool = recovery_report_completed(json_outcome)
+            result.tracking_failed <- result.tracking_failed or recovery_journal_failed(json_outcome)
+            result.durability_unknown <- result.durability_unknown or recovery_journal_unknown(json_outcome)
+            if json_saved:
+                result.tracking_failed <- true if not register_storage_artifact_locked(json_path, StudioStorageCleanupPolicy::GENERATED_REPORT)
+            text_outcome: StudioExportRecoveryCompletion::Outcome = StudioExportRecoveryCompletion::complete(
+                directory, current, output, json, text, owned, locked, StudioExportRecoveryCompletion::Report.Text)
+            text_saved: bool = recovery_report_completed(text_outcome)
+            result.tracking_failed <- result.tracking_failed or recovery_journal_failed(text_outcome)
+            result.durability_unknown <- result.durability_unknown or recovery_journal_unknown(text_outcome)
+            if text_saved:
+                result.tracking_failed <- true if not register_storage_artifact_locked(text_path, StudioStorageCleanupPolicy::GENERATED_REPORT)
+            result.report_outcome <- StudioExportPublicationPolicy::sidecar_outcome(json_saved, text_saved)
+            result.failure <- RecoveryRetryFailure.ReportsIncomplete if not json_saved or not text_saved
+            retry_finish(result, descriptor)
+
+    private:
+        def retry_failed(current: RecoveryRetryResult, failure: RecoveryRetryFailure) -> RecoveryRetryResult:
+            current.failure <- failure
+            current
+
+        def retry_finish(current: RecoveryRetryResult, descriptor: i32) -> RecoveryRetryResult:
+            current.tracking_failed <- true if not end_storage_transaction(descriptor)
+            current
+
+        def retry_workspace_matches(path: cstr, expected: StudioExportRecoveryJournal::Record&) -> bool:
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                length <- length + 1
+            return false if length >= 4096 or length.i64() != expected.workspace.count
+            for index in 0..<length:
+                return false if path[index] != expected.workspace[index]
+            true
+
+        def recovery_retry_copy_path(source: darray[u8]&, out: mutable u8[4096]&) -> bool:
+            return false if source.count == 0 or source.count >= 4096
+            for index in 0..<source.count |out, source, index|:
+                out[index] <- source[index]
+            out[source.count] <- 0
+            true
+
+        def retry_destinations_ready(destination: cstr, json_path: cstr, text_path: cstr,
+                output: darray[u8]&, json: darray[u8]&, text: darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not retry_destination_admitted(destination, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            return false if not retry_destination_admitted(json_path, json, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            retry_destination_admitted(text_path, text, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+
+        def retry_destination_admitted(path: cstr, bytes: darray[u8]&, limit: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not artifact_destination_allowed(path)
+            reason: i64 = export_reason(path, false)
+            return true if reason == StudioExportPolicy::ALLOW
+            return false if reason != StudioExportPolicy::OVERWRITE_UNCONFIRMED
+            facts: i64 = FilePanel::path_facts(path)
+            facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0 and StudioExportRecoveryBytes::matches(path, bytes, limit)

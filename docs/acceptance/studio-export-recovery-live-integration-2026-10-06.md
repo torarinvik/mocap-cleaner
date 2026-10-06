@@ -15,7 +15,9 @@ provide the entry access API for the retry UI, which remains to be integrated.
 Partial prepare failures retain up to 16 bounded path-only diagnostics; they do
 not authorize retry or cleanup. The diagnostic paths are exposed through
 `retained_export_recovery_path_count()` and
-`retained_export_recovery_path_at(...)` for a later review surface.
+`retained_export_recovery_path_at(...)` for a later review surface. If the list
+is full or a path cannot be represented, the result carries an explicit
+diagnostic-unavailable flag and the UI must keep the staging path visible.
 The retained `Record` is the immutable captured binding from preparation; its
 stage fields are not a live view after publication. Any retry surface must
 reread the journal under the matching workspace transaction lock and verify

@@ -31,6 +31,7 @@ extend Studio:
             durability_unknown: mutable bool
             tracking_failed: mutable bool
             keep_staging: mutable bool
+            recovery_path_unavailable: mutable bool
 
         global mutable retained_export_count: i64 = 0
         global mutable retained_export_payload_bytes: i64 = 0
@@ -82,14 +83,14 @@ extend Studio:
                 directory_facts: i64 = FilePanel::path_facts(directory)
                 directory_owned <- directory_facts >= 0 and (directory_facts & FilePanel::PATH_DIRECTORY) != 0 and (directory_facts & FilePanel::PATH_SYMLINK) == 0
                 if not directory_owned:
-                    retain_recovery_path_diagnostic(directory)
+                    result.recovery_path_unavailable <- not retain_recovery_path_diagnostic(directory)
                     FilePanel::release_path(directory)
                     result <- fail_recovery(result, RecoveryFailure.Binding)
                     result.keep_staging <- true
                     result.tracking_failed <- true if not end_storage_transaction(descriptor)
                     return result
                 if not retain_prepared_recovery(directory, staging, record, output, json, text):
-                    retain_recovery_path_diagnostic(directory)
+                    result.recovery_path_unavailable <- not retain_recovery_path_diagnostic(directory)
                     FilePanel::release_path(directory)
                     result <- fail_recovery(result, RecoveryFailure.Retention)
                     result.keep_staging <- true
@@ -97,7 +98,7 @@ extend Studio:
                     return result
                 recovery_directory <- directory
             elif preparation is StudioExportRecoveryPrepare::Preparation.RetainedFailure(reason, directory):
-                retain_recovery_path_diagnostic(directory)
+                result.recovery_path_unavailable <- not retain_recovery_path_diagnostic(directory)
                 FilePanel::release_path(directory)
                 result <- fail_recovery(result, RecoveryFailure.Prepare)
                 result.keep_staging <- true
@@ -126,7 +127,7 @@ extend Studio:
             elif publication is StudioExportRecoveryPublication::Outcome.Published(status, journal_status, staging_removed):
                 result.published <- true
                 result.keep_staging <- StudioExportStagingCleanupPolicy::pending(true, staging_removed)
-                retain_recovery_path_diagnostic(staging) if not staging_removed
+                result.recovery_path_unavailable <- not retain_recovery_path_diagnostic(staging) if not staging_removed
                 result.durability_unknown <- status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
                 result.tracking_failed <- journal_status == StudioPublicationDurabilityPolicy::Result.NotPublished
                 result.durability_unknown <- result.durability_unknown or journal_status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
@@ -221,16 +222,17 @@ extend Studio:
             retained_export_payload_bytes <- retained_export_payload_bytes + incoming
             true
 
-        def retain_recovery_path_diagnostic(directory: cstr) -> void:
-            return if retained_recovery_path_count >= 16
+        def retain_recovery_path_diagnostic(directory: cstr) -> bool:
+            return false if retained_recovery_path_count >= 16
             offset: usize = retained_recovery_path_count * 4096
             mutable length: usize = 0
             while length < 4096 and directory[length] != 0:
                 retained_recovery_paths[offset + length] <- directory[length]
                 length <- length + 1
-            return if length == 0 or length >= 4096
+            return false if length == 0 or length >= 4096
             retained_recovery_paths[offset + length] <- 0
             retained_recovery_path_count <- retained_recovery_path_count + 1
+            true
 
         def cstr_length(path: cstr) -> i64:
             mutable length: usize = 0

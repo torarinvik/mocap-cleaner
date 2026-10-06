@@ -1,6 +1,7 @@
 include "../export_publication_policy.elisa"
 include "app_state.elisa"
 include "app_export_recovery.elisa"
+include "app_export_recovery_retry.elisa"
 include "../export_snapshot_policy.elisa"
 include "report_text.elisa"
 include "../export_recovery_budget_policy.elisa"
@@ -124,7 +125,8 @@ extend Studio:
                         say_file("exported and validated; report saved", destination) if report_saved and not storage_tracking_failed
                         say_file(StudioExportPublicationPolicy::message(export_publication_outcome), destination) if not report_saved and not storage_tracking_failed
                         say_file("GLB published; directory durability is unconfirmed. The result exists; do not repeat export over it.", destination) if export_durability_unknown
-                        say_file("GLB was published, but its staging file could not be removed. Keep this file for recovery review.", temporary) if recovery.keep_staging
+                        say_file("GLB published; its staging file remains and the bounded recovery path list is full. Keep this file and inspect build/ recovery folders.", temporary) if recovery.keep_staging and recovery.recovery_path_unavailable
+                        say_file("GLB was published, but its staging file could not be removed. Keep this file for recovery review.", temporary) if recovery.keep_staging and not recovery.recovery_path_unavailable
                         FilePanel::release_path(temporary)
                         FilePanel::note_recent(destination)
                         _ = puts(destination)
@@ -135,9 +137,11 @@ extend Studio:
                         return true
                     if not recovery.keep_staging:
                         StudioExportPublisher::discard(temporary)
-                    FilePanel::release_path(temporary)
                     say_file(recovery_failure_message(recovery.failure), destination)
-                    say_file("No GLB was published. Storage lock release is uncertain; restart Studio before retrying workspace writes.", destination) if recovery.tracking_failed
+                    say_file("No GLB was published. Recovery path diagnostics could not be retained; keep the staging file and inspect build/ recovery folders.", temporary) if recovery.recovery_path_unavailable and not recovery.tracking_failed
+                    say_file("No GLB was published. Storage lock release is uncertain; restart Studio before retrying workspace writes.", destination) if recovery.tracking_failed and not recovery.recovery_path_unavailable
+                    say_file("No GLB was published. Recovery path diagnostics could not be retained, and Storage lock release is uncertain. Keep staging; restart Studio before retrying.", temporary) if recovery.tracking_failed and recovery.recovery_path_unavailable
+                    FilePanel::release_path(temporary)
                 else:
                     say_file(StudioExportValidation::message(prepare_error), destination)
                 touch()
