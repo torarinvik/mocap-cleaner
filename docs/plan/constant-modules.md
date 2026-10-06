@@ -97,7 +97,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioStorageReservedNamespace` | 3 | `src/studio/io/storage_reserved_namespace.elisa` |
 | `StudioStorageSelectionPolicy` | 9 | `src/studio/storage_selection_policy.elisa` |
 | `StudioText` | 3 | `src/studio/app/text.elisa` |
-| `StudioTimelineGotoPolicy` | 5 | `src/studio/app/timeline_goto_input.elisa` |
 | `StudioView` | 3 | `src/studio/view.elisa` |
 | `Timeline` | 9 | `src/studio/timeline.elisa` |
 | `Track` | 6 | `src/tools/track_support.elisa` |

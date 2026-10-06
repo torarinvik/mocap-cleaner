@@ -139,6 +139,14 @@ positives before enabling recommendations.
 
 ### 8.4 Timeline and viewport precision
 
+The frame dialog is implemented: Cmd-G, digit-only input, 1-based labels,
+last-frame clamping with an explanation, Apply/Cancel, input modality,
+focus-loss cancellation, accessibility routing and exact captured target
+checks. Its parser statuses are typed alternatives. Integrated compilation,
+native keyboard/accessibility acceptance and current proof replay remain
+open. Time input and the boundary-navigation controls below remain to be
+implemented; this does not close the combined timeline milestone.
+
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
       Display the indexing convention consistently; clamp invalid input with
