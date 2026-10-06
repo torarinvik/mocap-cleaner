@@ -1,0 +1,53 @@
+include "export_recovery_journal.elisa"
+include "../export_report_path_policy.elisa"
+
+# Copies borrowed native paths into export-owned metadata. This draft is not
+# recovery evidence: prepare replaces its transaction and byte counts only
+# after creating and syncing the actual recovery files.
+module StudioExportRecoveryMetadata:
+    public:
+        def draft[@r](build_root: cstr, destination: cstr, generation: i64,
+                  animation: i64, output_bytes: i64, json_bytes: i64,
+                  text_bytes: i64, out: mutable StudioExportRecoveryJournal::Record& @r) -> bool:
+            ensure result implies out.source_generation == generation
+            ensure result implies out.animation_index == animation
+            ensure result implies out.output_bytes == output_bytes
+            ensure result implies out.json_bytes == json_bytes and out.text_bytes == text_bytes
+            ensure result implies StudioExportRecoveryJournal::valid(out)
+            return false if generation < 0 or animation < 0
+            mutable workspace: darray[u8] @r = []
+            mutable target: darray[u8] @r = []
+            return false if not capture_path(build_root, &workspace)
+            return false if not capture_path(destination, &target)
+            return false if not StudioExportReportPathPolicy::admitted(target.count.i64())
+            mutable json_target: darray[u8] @r = []
+            json_target.extend(target)
+            json_target.extend(".report.json")
+            mutable text_target: darray[u8] @r = []
+            text_target.extend(target)
+            text_target.extend(".report.txt")
+            mutable transaction: darray[u8] @r = []
+            transaction.extend(".mocap-export-recovery-XXXXXX")
+            record: StudioExportRecoveryJournal::Record @r = StudioExportRecoveryJournal::Record{
+                transaction: transaction, workspace: workspace,
+                destination: target, json_destination: json_target,
+                text_destination: text_target, source_generation: generation,
+                animation_index: animation, output_bytes: output_bytes,
+                json_bytes: json_bytes, text_bytes: text_bytes,
+                observed: StudioExportRecoveryStagePolicy::Stage.Prepared,
+                durable: StudioExportRecoveryStagePolicy::Stage.Prepared}
+            return false if not StudioExportRecoveryJournal::valid(&record)
+            out <- record
+            true
+
+    private:
+        def capture_path[@r](path: cstr, out: mutable darray[u8]& @r) -> bool:
+            mutable bytes: darray[u8] @r = []
+            mutable length: usize = 0
+            while length < StudioExportReportPathPolicy::Capacity::PATH_BYTES.usize() and path[length] != 0:
+                bytes.push(path[length])
+                length <- length + 1
+            return false if length == 0 or length >= StudioExportReportPathPolicy::Capacity::PATH_BYTES.usize()
+            return false if not StudioStorageManifest::path_valid(bytes)
+            out <- bytes
+            true
