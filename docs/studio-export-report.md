@@ -7,16 +7,17 @@ input order, so callers must provide them in a deterministic order.
 
 The report contains a source label, selected animation name and index, input
 and output frame counts, integer frame-rate estimates, floored duration in
-milliseconds, cleanup settings, scope assumptions, quality metrics, and
-categorized warnings with severity. Distance fields ending in `_um` are
+milliseconds, active cleanup settings, ordered operation parameters, retime
+bands, scope assumptions, quality metrics, and categorized warnings with
+severity. Distance fields ending in `_um` are
 micrometres. Spike fields count detected frames, changed channels count GLB
 animation channels, and the balance field counts frames marked impossible by
 the Studio detector. These are detector outputs, not certification thresholds.
 
 The JSON `unavailable` array names provenance fields that this export snapshot
 does not provide and gives a reason for each omission: application/tool
-versions, dependency versions, detector thresholds, complete operation and rig
-settings, and per-frame retime provenance. The text summary has a matching
+versions, dependency versions, detector thresholds, detailed rig configuration,
+and the per-frame retime map. The text summary has a matching
 unavailable-provenance section. Consumers should treat these fields as
 unavailable, not infer defaults from their absence. The schema version was
 bumped to 2 when these explicit markers were added.
@@ -46,9 +47,11 @@ remain explicitly labeled non-cryptographic.
 Studio writes `<export>.report.json` and `<export>.report.txt` as atomic
 same-directory sidecars after the validated GLB rename succeeds. The source
 label is the loaded take's basename. The report includes the available
-detector metrics and the foot/hand cleanup toggles; operation parameters,
-tool versions, and detailed retime provenance are explicitly outside this
-snapshot. Output identity is calculated from the validated temporary GLB
-before it is renamed. A sidecar failure does not roll back the GLB; Studio
-reports that the GLB succeeded while report sidecars failed, with the
-destination path available for retry.
+detector metrics, foot/hand cleanup toggles, cleanup blend, each active stack
+operation's kind, enabled state, frame span, bone mask, strength, and edge
+blend, plus active retime bands and whether retiming was applied. It does not
+serialize rig configuration or the per-frame source-time map. Output identity
+is calculated from the validated temporary GLB before it is renamed. A
+sidecar failure does not roll back the GLB; Studio reports that the GLB
+succeeded while report sidecars failed, with the destination path available
+for retry.
