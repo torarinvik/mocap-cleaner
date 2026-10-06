@@ -34,9 +34,16 @@ def main() -> int:
             [compiler, *args],
             ["clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", "-c",
              str(engine / "native/file_path.c"), "-o", str(directory / "file_path.o")],
-            ["clang", str(directory / "main.o"), str(directory / "file_path.o"),
-             str(runtime), "-lm", "-o", str(directory / "executable")],
         ]
+        link_inputs = [str(directory / "main.o"), str(directory / "file_path.o"), str(runtime)]
+        if sys.platform == "darwin":
+            commands.append([
+                "clang", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-O2", "-c",
+                str(engine / "native/file_path_namespace_appkit.m"),
+                "-o", str(directory / "file_path_namespace.o"),
+            ])
+            link_inputs.extend([str(directory / "file_path_namespace.o"), "-framework", "Foundation"])
+        commands.append(["clang", *link_inputs, "-lm", "-o", str(directory / "executable")])
         for command in commands:
             status = subprocess.call(command)
             if status:

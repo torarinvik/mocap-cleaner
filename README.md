@@ -20,7 +20,9 @@ The CLI builds through Elisa-engine's `scripts/elisa_build_run.py` (from
 `../elisa-engine-mocap`, branch `mocap-track`). `elisa.project.json` sets
 `"host": "console"`, so the build omits the SDL3/Wicked application host.
 A local compiler wrapper links the engine's portable `file_path.c` adapter
-and the Elisa runtime for canonical path and source identity checks. Override
+and the Elisa runtime for canonical path and source identity checks. On macOS
+it also links Foundation's Unicode namespace comparison for reserved storage
+metadata names. Override
 paths with `ELISA_ENGINE_ROOT`, `ELISAC` and, for a separate runtime build,
 `MOCAP_CLI_RUNTIME`. The studio window has its own
 `scripts/build_studio.sh` (elisa-ui AppKit host).
