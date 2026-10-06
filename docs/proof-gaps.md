@@ -595,3 +595,13 @@ new rows after the prover/replay products are rebuilt from matching sources.
   `src/studio/issue_explanation_policy.elisa`, whose focused laws prove 16/16
   obligations with every certificate replayed. Keep the proof boundary there
   until Elisa Proof models aggregate record construction and field projection.
+
+## Storage totals model (2026-10-06)
+
+- G88: the totals prototype's mutable aggregate postconditions and display
+  loop are not established by the current prover. Its focused runtime test
+  passes, including rejection of an inconsistent count/byte state that would
+  exceed the total bound. The prototype is not wired into Studio and is not
+  claimed as proved. Extract scalar accumulation and display kernels before
+  UI integration, then resolve any remaining prover limitation in the proof
+  workspace. Source and law reports are retained under `build/proof/`.

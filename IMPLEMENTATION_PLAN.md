@@ -284,8 +284,12 @@ canonical original path is outside `build/` or matches the active take. This
 now checks live file identities, protects changed or unverifiable records,
 and reconciles interrupted native Trash moves into the manifest. Failed
 refreshes clear stale rows; read and save failures have distinct messages.
-The Studio build passed for this slice. Age/reference eligibility, byte totals,
-Trash actions, Restore, accessible dialog semantics and the acceptance
+The Studio build passed for this slice. A reviewed Restore action now
+rechecks the durable receipt and native identity before restoring and reports
+failed inventory saves separately. The native disposable-fixture test passed
+for conflict rejection, restore and reconciliation; the full live UI and
+accessibility acceptance remains unverified. Age/reference eligibility, byte
+totals, cleanup Trash actions, accessible dialog semantics and the acceptance
 criteria below remain open.
 
 - [ ] Add a clearly named **Storage & Recovery** entry under File or workspace
