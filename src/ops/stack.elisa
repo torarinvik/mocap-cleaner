@@ -4,6 +4,7 @@ include "../tools/track.elisa"
 include "../core/stack_cache.elisa"
 include "../core/cache_identity_policy.elisa"
 include "../core/cache_budget_policy.elisa"
+include "../core/cache_bank_budget_policy.elisa"
 
 # Process CPU clock (microseconds on macOS and Linux) for per-op profiling.
 @link_name("clock")
@@ -140,6 +141,15 @@ module Ops:
         def new_cache() -> Cache:
             return Cache{keys: [], results: [], frames: 0, evaluations: 0, source_snapshot: [], operations: [], bone: 0, looping: false}
 
+        def cache_logical_bytes(cache: Cache&) -> i64:
+            CacheBankBudgetPolicy::contents_bytes(cache.results.count.i64(), cache.source_snapshot.count.i64(), cache.keys.count.i64(), cache.operations.count.i64())
+
+        def discard_cached_contents(cache: mutable Cache&) -> void:
+            cache.keys.clear()
+            cache.results.clear()
+            cache.source_snapshot.clear()
+            cache.operations.clear()
+
         def kind_code(kind: Ops::Kind) -> i64:
             match kind:
                 Ops::Kind.Despike:
@@ -206,10 +216,7 @@ module Ops:
             count: i64 = ops.count.i64()
             request: CacheBudgetPolicy::ChannelRequest = CacheBudgetPolicy::channel_request(source.count.i64(), count)
             if count >= StackCache::Capacity::MAX_OPS or request.decision != CacheBudgetPolicy::Decision.ADMIT:
-                cache.keys.clear()
-                cache.results.clear()
-                cache.source_snapshot.clear()
-                cache.operations.clear()
+                discard_cached_contents(cache)
                 return evaluate_uncached_timed(ops, bone, source, looping, times, timed, &cache.evaluations)
             key: mutable i64 = source_key(source, looping)
             keys: mutable darray[i64] = []

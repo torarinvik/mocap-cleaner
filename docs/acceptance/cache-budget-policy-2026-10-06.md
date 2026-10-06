@@ -26,3 +26,20 @@ qualified yet. Runtime cache/full comparison and Rig-cache admission remain
 open; compile-only evidence does not close them.
 The exact channel layout and checked arithmetic laws are in
 `proof/cache_budget_laws.elisa`.
+
+## Aggregate channel bank admission
+
+`CacheBankBudgetPolicy` caps estimated logical contents at 268,435,456 bytes
+(256 MiB). The GLB adapter totals actual retained result/source/key/operation
+counts once, then replaces each slot's contribution during evaluation. A bank
+already beyond the limit discards cached contents before processing; an
+inadmissible replacement discards that slot and evaluates the complete stack
+with profiling. No output edit or operation is discarded by this decision.
+Checked sums/products refuse invalid counts before arithmetic overflow.
+
+Current compiler `720896f4` emits the combined performance fixture object at
+`build/cache-bank-integrated.YrIMRg/fixture.o`. Runtime equivalence and proof
+replay remain open. This estimate excludes bank headers, spare allocator
+capacity, transient evaluation/output copies and the rig cache. Clearing
+logical contents does not prove physical capacity release. Eviction order and
+performance under pressure still require measured qualification.

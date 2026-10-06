@@ -92,7 +92,14 @@ module GlbTracks:
             changed: mutable i64 = 0
             before: mutable i64 = 0
             after: mutable i64 = 0
-            for at in 0..<GlbDocument::channel_count(doc, animation) |at, doc, animation, ops, threshold, tracks, changed, before, after, bank, times, timed|:
+            retained_bytes: mutable i64 = 0
+            for index in 0..<bank.count |index, bank, retained_bytes|:
+                retained_bytes <- CacheBankBudgetPolicy::accumulate(retained_bytes, Ops::cache_logical_bytes(bank[index]))
+            if retained_bytes < 0:
+                for index in 0..<bank.count |index, bank|:
+                    Ops::discard_cached_contents(&bank[index])
+                retained_bytes <- 0
+            for at in 0..<GlbDocument::channel_count(doc, animation) |at, doc, animation, ops, threshold, tracks, changed, before, after, bank, times, timed, retained_bytes|:
                 held: GlbDocument::Channel = GlbDocument::channel(doc, animation, at)
                 continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
                 continue if held.path == GlbDocument::TargetPath.Weights
@@ -102,14 +109,23 @@ module GlbTracks:
                 ordinal: i64 = at.i64() if at.i64() < PerfCache::Capacity::MAX_TRACKS else -1
                 while ordinal >= 0 and PerfCache::grows(bank.count.i64(), PerfCache::bank_size(ordinal)):
                     bank.push(Ops::new_cache())
-                for component in 0..<track.components |component, doc, held, ops, bone, threshold, changed, before, after, bank, ordinal, times, timed|:
+                for component in 0..<track.components |component, doc, held, ops, bone, threshold, changed, before, after, bank, ordinal, times, timed, retained_bytes|:
                     source: darray[i64] = read(doc, held.output, component)
                     before <- before + Track::spike_count(source, threshold, false)
                     selected: PerfCache::Slot = PerfCache::select_slot(ordinal, component.i64())
                     cleaned: mutable darray[i64] = []
                     if selected is PerfCache::Slot.Available(at_slot):
-                        result: darray[i64] = Ops::evaluate_timed(ops, bone, source, false, &bank[at_slot.usize()], times, timed)
-                        cleaned <- Ops::copy(result)
+                        old_bytes: i64 = Ops::cache_logical_bytes(bank[at_slot.usize()])
+                        other_bytes: i64 = retained_bytes - old_bytes
+                        request: CacheBudgetPolicy::ChannelRequest = CacheBudgetPolicy::channel_request(source.count.i64(), ops.count.i64())
+                        if request.decision == CacheBudgetPolicy::Decision.ADMIT and CacheBankBudgetPolicy::admits(other_bytes, request.logical_bytes):
+                            result: darray[i64] = Ops::evaluate_timed(ops, bone, source, false, &bank[at_slot.usize()], times, timed)
+                            cleaned <- Ops::copy(result)
+                            retained_bytes <- CacheBankBudgetPolicy::accumulate(other_bytes, Ops::cache_logical_bytes(bank[at_slot.usize()]))
+                        else:
+                            Ops::discard_cached_contents(&bank[at_slot.usize()])
+                            retained_bytes <- other_bytes
+                            cleaned <- Ops::evaluate_uncached_timed(ops, bone, source, false, times, timed, &bank[at_slot.usize()].evaluations)
                     else:
                         evaluations: mutable i64 = 0
                         cleaned <- Ops::evaluate_uncached_timed(ops, bone, source, false, times, timed, &evaluations)
