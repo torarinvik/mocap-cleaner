@@ -282,3 +282,9 @@ The registration policy is not yet fully proved: its focused report is
 replay gaps. No clean baseline was added. The unresolved contracts remain
 in place while prover support is investigated. This is implementation
 progress, not completion of storage metadata or durability acceptance.
+
+Artifact registration rereads the manifest before extending it, preserving
+records published since the last inventory read. An unreadable or malformed
+latest manifest stops registration. This fixes stale-cache publication; it
+does not yet serialize overlapping reads/writes by two processes. The lock
+transaction must encompass that fresh read, native actions and publication.
