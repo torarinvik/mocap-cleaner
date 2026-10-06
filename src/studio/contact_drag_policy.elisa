@@ -1,0 +1,55 @@
+# Transient endpoint-drag preview. This policy computes the visible proposed
+# inclusive range without mutating the authored contact stack.
+module StudioContactDragPolicy:
+    public:
+        const module Part:
+            FIRST: i64 = 1
+            LAST: i64 = 2
+        const module FrameRange:
+            MAX: i64 = 10000000
+
+        struct Preview:
+            valid: bool
+            first: i64
+            last: i64
+
+        def clamp_first(target: i64, last: i64) -> i64:
+            requires last >= 0
+            requires last < FrameRange::MAX
+            ensure result >= 0 and result <= last
+            ensure target < 0 or target > last or result == target
+            ensure target >= 0 or result == 0
+            ensure target <= last or result == last
+            return 0 if target < 0
+            return last if target > last
+            target
+
+        def clamp_last(target: i64, first: i64, frames: i64) -> i64:
+            requires first >= 0 and first < frames
+            requires frames >= 1 and frames <= FrameRange::MAX
+            ensure result >= first and result < frames
+            ensure target < first or target >= frames or result == target
+            ensure target >= first or result == first
+            ensure target < frames or result == frames - 1
+            ensure target < first or target >= frames or result == target
+            return first if target < first
+            return frames - 1 if target >= frames
+            target
+
+        # Only endpoint grabs produce a preview. Targets clamp to the same
+        # legal interval used by FootState::release.
+        def preview(first: i64, last: i64, frames: i64, part: i64, target: i64) -> Preview:
+            requires frames >= 1 and frames <= FrameRange::MAX
+            requires first >= 0 and first <= last and last < frames
+            ensure result.valid == (part == Part::FIRST or part == Part::LAST)
+            ensure result.first >= 0 and result.first <= result.last and result.last < frames
+            ensure not result.valid or part != Part::FIRST or result.last == last
+            ensure not result.valid or part != Part::LAST or result.first == first
+            ensure not result.valid or part == Part::FIRST and result.last == last or part == Part::LAST and result.first == first
+            if part == Part::FIRST:
+                next_first: i64 = clamp_first(target, last)
+                return Preview{valid: true, first: next_first, last: last}
+            elif part == Part::LAST:
+                next_last: i64 = clamp_last(target, first, frames)
+                return Preview{valid: true, first: first, last: next_last}
+            Preview{valid: false, first: first, last: last}
