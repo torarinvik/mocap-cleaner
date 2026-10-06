@@ -25,3 +25,4 @@ status descriptions and evidence are preserved in the linked records.
 The complete check is not green. Native storage qualification requires fresh
 compiler provenance, and some proof obligations remain unknown or unsupported.
 See the recent records for exact revisions, counts and boundary limitations.
+- [Proof and standalone replay snapshot (2026-10-07)](proof-gaps/proof-replay-snapshot-20261007.md)
