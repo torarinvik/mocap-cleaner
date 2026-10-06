@@ -1,0 +1,34 @@
+# Each parallel batch owns a fresh private directory for worker part files.
+# mkdtemp atomically creates a unique directory with mode 0700. Its path and
+# contents are runtime filesystem facts, not formally proved here.
+module CliWorkerDirectory:
+    public:
+        # Return an owned NUL-terminated path, or an empty array on failure.
+        # The caller first admits outdir through CliOutputGuard and retains
+        # this array until every worker has exited and every part is read.
+        def create(outdir: cstr) -> darray[u8] can[Memory.Allocate, Blocking.IO, Unsafe.PointerCast]:
+            mutable path: darray[u8] = []
+            mutable index: usize = 0
+            while index < PATH_CAPACITY and outdir[index] != 0:
+                path.push(outdir[index])
+                index <- index + 1
+            return [] if index == 0 or index >= PATH_CAPACITY
+            for byte in "/.mocap-workers-XXXXXX" |path|:
+                path.push(byte.u8())
+            path.push(0)
+            if make_directory(&path[0]) is created:
+                return path
+            []
+
+        # rmdir refuses nonempty directories; this never recursively removes
+        # an unexpected file. Remove each known part before calling it.
+        def remove(path: cstr) -> bool can Blocking.IO:
+            remove_directory(path) == 0
+
+    private:
+        const PATH_CAPACITY: usize = 4096
+
+        @link_name("mkdtemp")
+        extern make_directory(path_template: mutable u8&) -> cstr? can[Blocking.IO]
+        @link_name("rmdir")
+        extern remove_directory(path: cstr) -> i32 can[Blocking.IO]
