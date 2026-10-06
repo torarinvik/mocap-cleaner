@@ -306,7 +306,8 @@ now identify correction replay as the missing feature instead of offset capture.
 The engine's equivalent helper is private; Studio uses a confined representation
 helper in report formatting rather than exposing engine internals. Pointer
 reinterpretation is a trusted native boundary and has not received a runtime
-round-trip qualification. Compile-only helper evidence is pending in
+round-trip qualification. Normal f292cbe0 compile-only helper composition emitted
+`build/report-float-bits.o` without diagnostics, recorded in
 `build/report-float-bits-build.log`. Full Studio run 99095 terminated with exit
 two on concurrent `install_session@73` (index expression), with no root report
 function among declines and no object emitted. Evidence:
