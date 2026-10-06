@@ -381,3 +381,19 @@ pass after pointer/key/AX modal integration and shared disabled feedback.
 Read-only code review found no remaining blocking snapshot or routing defect.
 Native screen/focus acceptance is pending; neither build success nor these
 pure certificates prove the complete native UI interaction.
+
+## G96: nested constant module scope resolution (2026-10-06)
+
+Moving Storage filter literals into actual `const module Filter` compiles,
+but source proofs fall from 483/483 to 337/483 and laws from 499/499 to
+346/506. Reproducing the original flat declarations under `build/` restores
+the original counts; retaining the original constant leaf names inside the
+nested module still produces the regression. Literal values are unchanged.
+
+The compiler emits already-qualified nested module names. Prover scope walks
+append these names to their existing parent scope, producing duplicated
+paths. A repair in `../elisa-proof-mocap` normalizes these paths in constant
+collection, witnesses and independent replay lookup. It remains unbuilt and
+unverified: stage1 seeding refuses modified upstream stage0 sources. Existing
+proof expectations remain intact; qualification requires a provenance-valid
+build and focused source/law runs with independent certificate replay.

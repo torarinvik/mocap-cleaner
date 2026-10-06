@@ -12,7 +12,10 @@ The Storage filter values have been moved into public
 `StudioStorageListFilterPolicy::Filter`. The object compile passes. The same
 prover currently regresses from 483/483 source and 499/499 law obligations to
 337/483 and 346/506, respectively. Nested qualified constant collection and
-contextual resolution are being investigated in `../elisa-proof-mocap`.
+contextual resolution repair is written in `../elisa-proof-mocap`: normalize
+already-qualified nested AST module names in both collection and independent
+replay. The repair is unverified because prover seeding rejects modified
+upstream stage0 sources. Qualify the repair before expanding this migration.
 Do not lower proof baselines or replace real constant modules with plain
 modules to bypass this gate. Record exact compiler/prover provenance and
 certificate replay when qualifying the fix.
