@@ -45,8 +45,10 @@ Integrated compilation then exposed a separate lookup in match patterns:
 modules. The extended `build/repro/pattern-enum-owner.elisa` reproduces the
 wrong two/three-field arity with `3c72f59f` in `build/pattern-owner.LaUJrv`.
 Compiler `720896f4` applies the same lexical module filter to this lookup.
-Its normal seed is running (`build/pattern-owner-compiler-seed.log`); source
-adoption is not yet reproduction or integrated qualification.
+Its normal seed completed (`build/pattern-owner-compiler-seed.log`) and its
+provenance check matches `720896f4`. The reduced match/constructor reproduction
+emits a fresh object without diagnostics in `build/pattern-owner.EhbbH8`.
+Integrated Studio qualification remains pending.
 
 ## Current global container lowering gap
 
