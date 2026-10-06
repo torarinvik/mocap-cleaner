@@ -59,3 +59,20 @@ semantics has its own implementation, review fields and quality validation.
 **Exit:** exported poses match the reviewed revision; failures leave no
 misleading partial deliverable; source files remain unchanged. Batch and
 single-take output agree for identical settings.
+
+### Report diff input qualification still required
+
+The CLI now errors when no baseline quality metric/status is comparable or a
+compared integer metric exceeds the supported regression domain. It does not
+silently accept those inputs through magnitude clamping. The domain kernel has
+contracts and composed laws; current compilation and replay remain pending.
+
+- [ ] Replace the legacy flat scanner with schema-aware JSON parsing. Reject
+  malformed booleans, truncated strings, invalid escapes, duplicate identities
+  and unsupported numeric representations. Preserve fractions/exponents using
+  declared units and rounding rather than dropping their suffixes.
+- [ ] Validate metric types and availability on both sides; Boolean values
+  cannot stand in for numeric errors. Compare only compatible provenance and
+  units, and report unavailable dimensions with explicit reasons.
+- [ ] Qualify missing clips/metrics, unsupported magnitudes, empty baselines,
+  decimal/exponent values and malformed documents before closing diff review.

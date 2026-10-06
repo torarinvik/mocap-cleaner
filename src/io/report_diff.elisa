@@ -190,17 +190,27 @@ module ReportDiff:
             tol: i64 = tolerance(tol_permille)
             fl: i64 = floor_of(floor)
             mutable regressions: i64 = 0
+            mutable compared: i64 = 0
             mutable page: darray[u8] = []
             Report::push_text(&page, "<!doctype html><meta charset=utf-8><title>Report diff</title><table><tr><th>clip</th><th>metric</th><th>a</th><th>b</th><th>verdict</th></tr>")
             for m in ma:
                 flagged: bool = m.flag and m.value == 1 and is_text(&pa, m.key_at, m.key_len, "ok")
                 if lower_better(&pa, m) or flagged:
+                    compared <- compared + 1
+                    if not flagged and not Regress::metric_in_domain(m.value):
+                        errors <- errors + 1
+                        Out::line("Baseline metric exceeds the supported comparison range.")
+                        continue
                     at: i64 = find(&pb, &mb, &pa, m)
                     mutable bad: bool = at < 0
                     mutable after: i64 = 0
                     if at >= 0:
                         other: Metric = mb[at.usize()]
                         after <- other.value
+                        if not flagged and not Regress::metric_in_domain(after):
+                            errors <- errors + 1
+                            Out::line("Candidate metric exceeds the supported comparison range.")
+                            continue
                         if flagged:
                             bad <- Regress::ok_lost(true, other.value == 1)
                         else:
@@ -230,6 +240,9 @@ module ReportDiff:
                     else:
                         Report::push_text(&page, "<td>missing</td>")
                     Report::push_text(&page, "<td>regressed</td></tr>" if bad else "<td>ok</td></tr>")
+            if compared == 0:
+                errors <- errors + 1
+                Out::line("Baseline report has no comparable quality metrics or passing status.")
             Report::push_text(&page, "</table>")
             if html[0] != 0:
                 if not Report::save(&page, html):
