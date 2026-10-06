@@ -26,8 +26,12 @@ semantics has its own implementation, review fields and quality validation.
 - [ ] Extend the existing schema-v2 `.report.json` and `.report.txt` baseline
       (identifiers, timing estimates, settings, assumptions, metrics and
       unavailable reasons) with missing provenance from one immutable export snapshot: rig configuration,
-      tool/dependency versions, detector thresholds and per-frame retime
-      mapping. Keep explicit unavailable reasons until the publisher can
+      tool/dependency versions and detector thresholds. Qualify the captured
+      per-frame retime map against the evaluated revision in both formats:
+      exact integer units, frame count, endpoints, order, singleton clips and
+      retimed clips. Qualify invalid-map and complete-report budget failures;
+      explain the failure before GLB publication without truncating the map.
+      Keep explicit unavailable reasons until the publisher can
       supply those exact values. Add cryptographic source/output hashes only
       when the exact source and validated output bytes are available. Current
       `studio-residue-v1` identifiers are non-cryptographic. Freeze animation,
@@ -62,13 +66,10 @@ single-take output agree for identical settings.
 
 ### Report diff remaining implementation and qualification
 
-Implemented foundations: schema-aware root/clip extraction, JSON string and
-UTF-8 decoding, duplicate identity rejection, exact coefficient/exponent
-parsing, common-scale comparison, sorted identity indexes, and separate HTML
-presentation. Current Stage1 `f292cbe0` compiles the reader and CLI. These
-foundations still need behavioral, proof and rendered qualification; compilation
-does not close the review workflow. Historical proof/check evidence belongs in
-`docs/acceptance/` and `docs/proof-gaps/`, rather than completed plan items.
+Qualify the existing reader, numeric comparison, indexing and presentation
+against the requirements below. Historical compiler, proof and check evidence
+belongs in `docs/acceptance/` and `docs/proof-gaps/`; a compile result does not
+close the review workflow. Use current dependency manifests for acceptance.
 
 - [ ] **Metric compatibility:** qualify supported metric units, direction and
   numeric type; supply missing sample/availability semantics. Compare matching provenance/schema
