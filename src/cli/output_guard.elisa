@@ -10,7 +10,7 @@ module CliOutputGuard:
         # Canonical-parent resolution leaves the final component visible for
         # lstat checks, so symlink destinations are rejected rather than followed.
         def file_decision(build_root: cstr, source: cstr,
-                          destination: cstr) -> i64 can[Blocking.IO, Memory.Allocate, Memory.Release]:
+                          destination: cstr) -> i64 can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
             mutable result: i64 = CliOutputGuardPolicy::PATH_UNRESOLVED
             if cli_output_resolve(build_root) is root_path:
                 if cli_output_resolve(source) is source_path:
@@ -27,9 +27,7 @@ module CliOutputGuard:
                         mutable same_source: bool = false
                         if facts_known and source_exists and target_exists:
                             same_source <- cli_output_same_identity(source_path, target_path)
-                        # This is ASCII case-insensitive only. Unicode
-                        # normalization aliases depend on native volume rules.
-                        reserved_metadata: bool = CliOutputGuardPolicy::reserved_metadata_path(root_bytes, target_bytes)
+                        reserved_metadata: bool = reserved_metadata_path(root_path, target_path, root_bytes, target_bytes)
                         result <- CliOutputGuardPolicy::file_decision(
                             facts_known and root_is_build,
                             root_is_build and CliOutputGuardPolicy::file_is_under_build(root_bytes, target_bytes),
@@ -66,6 +64,7 @@ module CliOutputGuard:
         const PATH_SYMLINK: i64 = 2
         const PATH_REGULAR: i64 = 4
         const PATH_DIRECTORY: i64 = 8
+        const CLI_RESERVED_PATH_CAPACITY: usize = 4144
 
         @link_name("elisa_file_path_resolve")
         extern cli_output_resolve(path: cstr) -> cstr? can[Blocking.IO, Memory.Allocate]
@@ -75,6 +74,37 @@ module CliOutputGuard:
         extern cli_output_facts(path: cstr) -> i64 can[Blocking.IO]
         @link_name("elisa_file_same_identity")
         extern cli_output_same_identity(first: cstr, second: cstr) -> bool can[Blocking.IO]
+
+        # macOS compares canonical Unicode names with Foundation. Other targets
+        # use the pure ASCII fallback, whose Unicode namespace coverage is limited.
+        static if ELISA_TARGET_OS_MACOS:
+            @link_name("elisa_file_path_namespace_match")
+            extern cli_output_namespace_match(candidate: cstr, reserved: cstr) -> i32 can[Blocking.IO, Memory.Allocate]
+
+            def reserved_metadata_path(root_path: cstr, target_path: cstr,
+                                       root: darray[u8]&, target: darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+                native_reserved_child_matches(root_path, target_path, "studio_storage_manifest.txt") or native_reserved_child_matches(root_path, target_path, "studio_storage_preferences.txt") or native_reserved_child_matches(root_path, target_path, "studio_storage_exemptions.txt") or native_reserved_child_matches(root_path, target_path, "studio_storage_manifest.lock")
+
+            def native_reserved_child_matches(root_path: cstr, target_path: cstr, name: sview) -> bool can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+                mutable reserved: u8[CLI_RESERVED_PATH_CAPACITY] = zeroed
+                mutable root_length: usize = 0
+                while root_length < CLI_OUTPUT_PATH_CAPACITY and root_path[root_length] != 0:
+                    reserved[root_length] <- root_path[root_length]
+                    root_length <- root_length + 1
+                return true if root_length == 0 or root_length >= CLI_OUTPUT_PATH_CAPACITY
+                reserved[root_length] <- 47
+                mutable name_length: usize = 0
+                for byte in name:
+                    return true if root_length + 1 + name_length + 1 >= CLI_RESERVED_PATH_CAPACITY
+                    reserved[root_length + 1 + name_length] <- byte.u8()
+                    name_length <- name_length + 1
+                reserved[root_length + 1 + name_length] <- 0
+                reserved_path: cstr = (&reserved[0]).cast[cstr] can Unsafe.PointerCast
+                cli_output_namespace_match(target_path, reserved_path) != 0
+        static else:
+            def reserved_metadata_path(root_path: cstr, target_path: cstr,
+                                       root: darray[u8]&, target: darray[u8]&) -> bool can Memory.Allocate:
+                CliOutputGuardPolicy::reserved_metadata_path(root, target)
 
         def copy_path(path: cstr) -> darray[u8] can Memory.Allocate:
             mutable bytes: darray[u8] = []
