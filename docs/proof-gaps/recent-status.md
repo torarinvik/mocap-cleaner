@@ -364,3 +364,20 @@ and missing reviewed entries in earlier Studio work. No original baseline
 was relaxed. The strict native gate rejects source revision/tree provenance;
 both compiler checkouts currently contain uncommitted work, which this task
 left intact. Detailed output is `build/test/module-refactor-full-check.log`.
+
+## G95: recorded Storage path inspection laws (2026-10-06)
+
+The read-only admission policy proves 72/72 obligations, including imported
+selection/totals contracts. Its laws currently prove 78 of 82 obligations;
+four negative admission ensures remain unknown (empty path, oversized path,
+invalid row and running batch). The raw focused run reports zero semantic
+diagnostics and certificate replay 78/78 with no gaps. The exact source
+contract is retained; the unresolved laws have not been weakened.
+
+The new accessibility action and hierarchy prove 158/158 source obligations
+and 196/196 law obligations. The existing Storage accessibility executable
+passes after its action-count expectation was updated to nine. Studio builds
+pass after pointer/key/AX modal integration and shared disabled feedback.
+Read-only code review found no remaining blocking snapshot or routing defect.
+Native screen/focus acceptance is pending; neither build success nor these
+pure certificates prove the complete native UI interaction.

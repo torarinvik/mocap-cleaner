@@ -1,0 +1,31 @@
+# Read-only snapshot of the manifest path; opening never changes cleanup selection.
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def path_inspector_path() -> cstr can Unsafe.PointerCast:
+            return (&storage_inspected_path[0]).cast[cstr] if storage_path_inspector
+            export_review_path
+
+        def storage_path_inspection_available() -> bool:
+            return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            StudioStoragePathInspectionPolicy::allowed(entries.count.i64(), storage_selected,
+                entries[storage_selected].original_path.count.i64(), storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING)
+
+        def open_storage_path_inspector() -> void can Unsafe.PointerCast:
+            return if not storage_path_inspection_available()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            entry: StudioStorageManifest::Entry = entries[storage_selected]
+            for index in 0..<entry.original_path.count |entry, storage_inspected_path|:
+                storage_inspected_path[index] <- entry.original_path[index]
+            storage_inspected_path[entry.original_path.count] <- 0
+            storage_path_inspector <- true
+            pages: i64 = StudioPanels::export_path_pages(path_inspector_path())
+            if pages < 1 or pages > StudioExportPathReview::MAX_PAGES:
+                storage_path_inspector <- false
+                return
+            export_path_inspector_page <- 0
+            export_path_inspector_focus <- StudioExportPathReview::initial_focus(0, pages)
+            export_path_inspector_open <- true
+            touch()
