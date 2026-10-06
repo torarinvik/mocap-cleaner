@@ -1,3 +1,4 @@
+include "../storage_window_policy.elisa"
 # The studio's 2D panels, drawn immediate-mode with elisa-ui primitives:
 # window layout, the toolbar with code-drawn vector icons, the timeline
 # (problem markers, contact bars, operation scope, playhead), the curve view
@@ -1048,17 +1049,22 @@ module StudioPanels:
 
         def storage_visible_count(w: f32, h: f32, count: i64, selected: i64) -> i64:
             return 0 if count <= 0
-            STORAGE_VISIBLE_ROWS if count > STORAGE_VISIBLE_ROWS else count
+            d: Box = storage_dialog_box(w, h)
+            available: f32 = d.h - 310.0
+            return 0 if available < STORAGE_ROW_HEIGHT
+            capacity: i64 = (available / STORAGE_ROW_HEIGHT).i64()
+            limit: i64 = STORAGE_VISIBLE_ROWS if capacity > STORAGE_VISIBLE_ROWS else capacity
+            limit if count > limit else count
 
-        def storage_first_visible(count: i64, selected: i64) -> i64:
-            return 0 if count <= STORAGE_VISIBLE_ROWS
-            return selected - STORAGE_VISIBLE_ROWS + 1 if selected >= count - 1
-            return selected - STORAGE_VISIBLE_ROWS / 2 if selected >= STORAGE_VISIBLE_ROWS / 2
-            0
+        def storage_first_visible(w: f32, h: f32, count: i64, selected: i64) -> i64:
+            limit: i64 = storage_visible_count(w, h, count, selected)
+            return 0 if limit <= 0 or count <= limit
+            safe_selected: i64 = 0 if selected < 0 else count - 1 if selected >= count else selected
+            StudioStorageWindowPolicy::first_visible(count, limit, safe_selected)
 
         def storage_row_hit(w: f32, h: f32, px: f32, py: f32,
                             count: i64, selected: i64) -> i64:
-            first: i64 = storage_first_visible(count, selected)
+            first: i64 = storage_first_visible(w, h, count, selected)
             for visible_row in 0..<storage_visible_count(w, h, count, selected) |visible_row, first, w, h, px, py|:
                 return first + visible_row if inside(storage_row_box(w, h, visible_row), px, py)
             -1
@@ -1103,6 +1109,7 @@ module StudioPanels:
                           restore_available: bool, restore_review: bool) -> void:
             return if not opened
             d: Box = storage_dialog_box(w, h)
+            footer: f32 = d.y + d.h - 110.0
             StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
             StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
             StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
@@ -1126,7 +1133,7 @@ module StudioPanels:
             StudioText::put_i(receipts)
             StudioDraw::text(d.x + 24.0, d.y + 106.0, 12.0, StudioText::view(), StudioDraw::accent())
             StudioDraw::bold(d.x + 24.0, d.y + 142.0, 11.0, "STUDIO-MANAGED INVENTORY", StudioDraw::muted())
-            first: i64 = storage_first_visible(entries.count.i64(), selected)
+            first: i64 = storage_first_visible(w, h, entries.count.i64(), selected)
             for visible_row in 0..<storage_visible_count(w, h, entries.count.i64(), selected) |visible_row, first, entries, statuses, selected, d|:
                 index: i64 = first + visible_row
                 row: Box = storage_row_box(w, h, visible_row)
@@ -1144,48 +1151,48 @@ module StudioPanels:
             if entries.count == 0:
                 StudioDraw::text(d.x + 30.0, d.y + 198.0, 12.0,
                     "No Studio-managed files are registered yet.", StudioDraw::muted())
-            StudioDraw::text(d.x + 24.0, d.y + 410.0, 11.0,
+            StudioDraw::text(d.x + 24.0, footer, 11.0,
                 "Refresh checks file identities. Cleanup requires additional safety checks.", StudioDraw::muted()) if not restore_review
             if restore_review:
-                StudioDraw::text(d.x + 24.0, d.y + 410.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer, 11.0,
                     "Restore the selected file to its original build location? Existing files will not be overwritten.", StudioDraw::ink())
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "Choose Confirm restore to proceed, or press Esc to cancel.", StudioDraw::accent())
             elif message == 6:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "File restored to its original location. The inventory is updated.", StudioDraw::color(150, 210, 160))
             elif message == 7:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "Restore failed: the item is unavailable, changed, or its destination is occupied. Refresh to retry.", StudioDraw::color(240, 170, 110))
             elif message == 8:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "File restored, but the inventory could not be saved. Refresh to finish recovery.", StudioDraw::color(240, 170, 110))
             elif message == 9:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "The recovery item changed. Review the refreshed inventory before restoring.", StudioDraw::color(240, 170, 110))
             elif message == 1:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "The inventory could not be read. No cleanup action is available.", StudioDraw::color(240, 170, 110))
             elif message == 5:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "Recovery changes could not be saved. Refresh to retry before taking action.", StudioDraw::color(240, 170, 110))
             elif message == 2:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "The build folder could not be verified. No inventory paths are shown.", StudioDraw::color(240, 170, 110))
             elif unverified_records > 0:
                 StudioText::begin()
                 StudioText::put_i(unverified_records)
                 StudioText::put(" item(s) are protected: file identity changed or could not be checked.")
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
             elif protected_records > 0:
                 StudioText::begin()
                 StudioText::put_i(protected_records)
                 StudioText::put(" record(s) are hidden outside build/ or match the active take.")
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
             elif message == 3:
-                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "Inventory refreshed; all visible file identities are verified.", StudioDraw::color(150, 210, 160))
-            StudioDraw::text(d.x + 24.0, d.y + 456.0, 10.0,
+            StudioDraw::text(d.x + 24.0, footer + 46.0, 10.0,
                 "Up / Down selects   Tab moves to a button   Enter activates   Esc closes", StudioDraw::muted())
             for action in 0..<STORAGE_ACTION_COUNT |action, w, h, focus, restore_available, restore_review|:
                 b: Box = storage_button_box(w, h, action)
