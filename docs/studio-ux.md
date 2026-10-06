@@ -125,5 +125,36 @@ shortcuts.
 
 Verified headless only: the geometry was rasterised offline from the
 generated segments into `build/generated/icon_preview.png` and inspected
-there. The on-screen toolbar has not been inspected (no desktop
-screenshots).
+there. The failed-load toolbar has since been inspected in a bundled Studio window
+(2026-10-06). Valid-take rendering and native activation remain unverified.
+
+## Storage & Recovery
+
+Open **File → Storage & Recovery** to inspect Studio-managed generated files
+and native Trash receipts. The entry is available even when no take is open.
+Refresh rereads the manifest and checks current file identity; a failed scan
+clears stale rows. Changed or unverifiable records stay protected. Source
+paths and hard-link aliases of the active source are excluded.
+
+The two verified byte totals distinguish files in `build/` from files in
+Trash. Files in Trash still occupy disk space. These totals exclude records
+whose identities could not be verified; they do not estimate reclaimed space.
+
+Use Up/Down to choose a row and Tab to move among Refresh, Done and Restore.
+Restore is available only for a valid, durably recorded, verified Trash
+receipt. The first activation opens a review; **Confirm restore** performs a
+fresh check and restores the file to its original location without replacing
+an existing destination. Escape cancels an open review; otherwise it closes
+the screen. Refresh also cancels a pending review.
+
+If restore succeeds but the manifest save fails, the result explicitly says
+the file was restored and asks for Refresh to finish recovery. An interrupted
+move can be reconciled using the identity already recorded in the manifest.
+Unreadable manifests are not replaced with empty inventories.
+
+Verification: Studio builds, the identity/restore/totals/window policies have
+proved scalar boundaries, and disposable native fixtures exercise checked
+move rejection, restore, destination conflicts and reconciliation. The
+Storage dialog's pointer, keyboard and VoiceOver acceptance is still open.
+Cleanup selection, retention preview and Move to Trash are still being wired;
+the current UI exposes inventory and Restore.
