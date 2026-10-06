@@ -161,3 +161,20 @@ JSON reports. Its cause is under investigation in the prover checkout; this is
 not evidence that journal contracts or round-trip laws are proved. The prior
 "checking is running" observation is superseded. Compilation remains separate
 evidence, and no journal/stage proof baseline has been added.
+
+`StudioExportRecoveryPrepare` now composes the accounting and storage adapters:
+it requires the caller's workspace transaction lock, validates metadata/snapshot
+bounds, reserves logical capacity from a complete inventory, creates a unique
+directory, syncs its build parent, and stores exact output/JSON/text snapshots
+plus the prepared journal. Every required write must report directory sync.
+It calls the fully replayed prepared-record policy and checks that staging still
+matches captured bytes before returning Prepared. Partial failures retain the
+directory and return its owned path; caller metadata changes only on success.
+
+Composition compiles with isolated faabd1f7; payload field annotations use exact
+module-qualified Failure types so sibling enums cannot share an ambiguous
+backend annotation. Normal compiler adoption, injected IO failures, ownership
+and lock qualification, persisted reservations and Studio integration remain
+open. Source/animation/stack provenance and exact report binding still require
+their separate acceptance checks. Evidence:
+`build/export-recovery-prepare-adapter-build.log`.

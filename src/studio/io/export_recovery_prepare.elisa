@@ -1,0 +1,99 @@
+include "export_recovery_store.elisa"
+include "export_recovery_inventory.elisa"
+include "../export_recovery_prepare_policy.elisa"
+
+module StudioExportRecoveryPrepare:
+    public:
+        const enum Failure of i64:
+            TransactionNotHeld = 0
+            InvalidSnapshot = 1
+            InvalidMetadata = 2
+            CapacityUnavailable = 3
+            CreationFailed = 4
+            OutputNotDurable = 5
+            JsonNotDurable = 6
+            TextNotDurable = 7
+            JournalNotDurable = 8
+            DirectoryNotDurable = 9
+            StagingChanged = 10
+
+        enum Preparation:
+            Rejected(reason: StudioExportRecoveryPrepare::Failure)
+            InventoryRejected(reason: StudioExportRecoveryInventory::Failure)
+            RetainedFailure(reason: StudioExportRecoveryPrepare::Failure, directory: cstr)
+            Prepared(directory: cstr)
+
+        # Caller prevalidates all final destinations and holds the workspace
+        # transaction lock until this operation ends. Directory-bearing results
+        # transfer only path-memory ownership; their files must remain on disk.
+        # `record` changes only after all required durability facts succeed.
+        def prepare(build_root: cstr, staging: cstr,
+                    record: mutable StudioExportRecoveryJournal::Record&,
+                    json: darray[u8]&, text: darray[u8]&, transaction_held: bool) -> Preparation:
+            return Preparation.Rejected(Failure.TransactionNotHeld) if not transaction_held
+            mutable output: darray[u8] = []
+            return Preparation.Rejected(Failure.InvalidSnapshot) if not StudioExportRecoveryBytes::read(staging, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES, &output) or output.count == 0
+            return Preparation.Rejected(Failure.InvalidSnapshot) if json.count == 0 or text.count == 0
+            return Preparation.Rejected(Failure.InvalidSnapshot) if not StudioExportRecoveryBudgetPolicy::append_admitted(0, json.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES) or not StudioExportRecoveryBudgetPolicy::append_admitted(0, text.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            mutable prepared: StudioExportRecoveryJournal::Record = record
+            mutable workspace: darray[u8] = []
+            return Preparation.Rejected(Failure.InvalidMetadata) if not path_bytes(build_root, &workspace)
+            prepared.workspace <- workspace
+            prepared.output_bytes <- output.count.i64()
+            prepared.json_bytes <- json.count.i64()
+            prepared.text_bytes <- text.count.i64()
+            prepared.observed <- StudioExportRecoveryStagePolicy::Stage.Prepared
+            prepared.durable <- StudioExportRecoveryStagePolicy::Stage.Prepared
+            mutable placeholder: darray[u8] = []
+            placeholder.extend(".mocap-export-recovery-XXXXXX")
+            prepared.transaction <- placeholder
+            return Preparation.Rejected(Failure.InvalidMetadata) if not StudioExportRecoveryJournal::valid(&prepared)
+            request: i64 = StudioExportRecoveryCapacityPolicy::requested_bytes(output.count.i64(), json.count.i64(), text.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES)
+            match StudioExportRecoveryInventory::scan(build_root):
+                StudioExportRecoveryInventory::Scan.Rejected(reason):
+                    return Preparation.InventoryRejected(reason)
+                StudioExportRecoveryInventory::Scan.Verified(records, bytes):
+                    return Preparation.Rejected(Failure.CapacityUnavailable) if not StudioExportRecoveryCapacityPolicy::reservation_admitted(true, records, bytes, 0, request)
+            match StudioExportRecoveryStore::create(build_root):
+                StudioExportRecoveryStore::Creation.Rejected(reason):
+                    return Preparation.Rejected(Failure.CreationFailed)
+                StudioExportRecoveryStore::Creation.Created(directory):
+                    mutable transaction: darray[u8] = []
+                    return Preparation.RetainedFailure(Failure.InvalidMetadata, directory) if not transaction_bytes(directory, &transaction)
+                    prepared.transaction <- transaction
+                    return Preparation.RetainedFailure(Failure.InvalidMetadata, directory) if not StudioExportRecoveryJournal::valid(&prepared)
+                    return Preparation.RetainedFailure(Failure.DirectoryNotDurable, directory) if not StudioExportRecoveryStore::sync_directory(build_root)
+                    output_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.OutputSnapshot, output)
+                    return Preparation.RetainedFailure(Failure.OutputNotDurable, directory) if not synced(output_status)
+                    json_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.JsonReport, json)
+                    return Preparation.RetainedFailure(Failure.JsonNotDurable, directory) if not synced(json_status)
+                    text_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_record(directory, StudioExportRecoveryStore::Record.TextReport, text)
+                    return Preparation.RetainedFailure(Failure.TextNotDurable, directory) if not synced(text_status)
+                    journal_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::write_prepared_journal(directory, &prepared)
+                    return Preparation.RetainedFailure(Failure.JournalNotDurable, directory) if not StudioExportRecoveryPreparePolicy::publication_admitted(true, true, synced(output_status), synced(json_status), synced(text_status), synced(journal_status), true)
+                    return Preparation.RetainedFailure(Failure.StagingChanged, directory) if not StudioExportRecoveryBytes::matches(staging, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+                    record <- prepared
+                    return Preparation.Prepared(directory)
+
+    private:
+        def synced(status: StudioPublicationDurabilityPolicy::Result) -> bool:
+            status == StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced
+
+        def path_bytes(path: cstr, out: mutable darray[u8]&) -> bool:
+            out.clear()
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                out.push(path[length])
+                length <- length + 1
+            length > 0 and length < 4096
+
+        def transaction_bytes(directory: cstr, out: mutable darray[u8]&) -> bool:
+            mutable bytes: darray[u8] = []
+            return false if not path_bytes(directory, &bytes)
+            mutable first: usize = 0
+            for index in 0..<bytes.count |bytes, first, index|:
+                first <- index + 1 if bytes[index] == 47
+            out.clear()
+            for index in first..<bytes.count |bytes, out, index|:
+                out.push(bytes[index])
+            out.count > 0
