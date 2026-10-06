@@ -34,6 +34,22 @@ during a run prevent treating it as immutable snapshot acceptance.
 Repeat fetch, ancestry and manifest checks before final snapshot acceptance.
 Rebuild stale binaries and rerun affected verification after dependency changes.
 
+## Refresh after the latest freshness request
+
+Fetched all five origins again on 2026-10-06. Compiler `f292cbe0` remains
+39 commits ahead / zero behind; mocap prover `6bced403` is 18 ahead / zero
+behind; primary prover `151a2772` is current; engine `01f5aec7` is 20 ahead /
+zero behind; UI `8ab2eb39` is 6 ahead / zero behind. No upstream update is
+missing. Compiler, engine and UI checkouts are clean. Both prover checkouts
+have active development changes, which are preserved.
+
+The default prover manifest still records `5776350b` with compiler/frontend
+`f292cbe0`. This is not the newest local prover source. Newer isolated prover
+repairs have unresolved independent replay gaps and an abnormal exit in the
+stage-policy diagnostic; they are not yet qualified replacements. The C-string
+compiler candidate compatibility check is still running. Keep these limitations
+explicit rather than describing every default binary as the latest local build.
+
 ## Latest upstream refresh
 
 A subsequent fetch confirmed zero missing `origin/main` commits in compiler
