@@ -7,9 +7,9 @@ instructions changed. Earlier sections below are historical observations.
 
 | Dependency | Local HEAD | Fetched `origin/main` | Ahead / behind |
 | --- | --- | --- | --- |
-| Compiler | `23a0e16a` | `23a0e16a` | 0 / 0 |
+| Compiler | `bb1f4095` | `23a0e16a` | 5 / 0 |
 | Primary proof assistant | `01c953c6` | `2610ddb6` | 115 / 0 |
-| Mocap engine | `ada26e9c` | `7699ec52` | 21 / 0 |
+| Mocap engine | `e11085c1` | `7699ec52` | 22 / 0 |
 | Elisa UI | `8ab2eb39` | `dc6cd397` | 6 / 0 |
 
 The required `../elisa-proof-mocap` checkout was absent at this fetch. It has
@@ -27,6 +27,16 @@ The compiler manifest declares source `23a0e16a`; its normal provenance checker
 passed the source-tree and product checks. Compiler
 remote-gate scripts have local changes, which are preserved. No new product
 acceptance is claimed from this fetch or manifest inspection.
+
+On 2026-10-07, after fetching compiler origin again, the integrated Studio
+diagnostic compile passed with both qualified backend repairs. Those repairs
+and the ownership-preserving readiness API are adopted in the normal compiler
+through `bb1f4095`; its replacement product is rebuilding. The preceding
+`23a0e16a` compiler/prover products are comparison evidence while that source
+and linked-product transition remains incomplete. Engine `e11085c1` adds the
+read-only no-follow source identity adapter; Objective-C syntax qualification
+passed, with linked/native behavior still open. Earlier tables below remain
+historical observations.
 
 Fetched `origin` in all five checkouts before comparing `HEAD...origin/main`.
 All adopted dependency branches contain every fetched upstream commit.
