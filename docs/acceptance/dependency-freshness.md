@@ -31,7 +31,9 @@ acceptance is claimed from this fetch or manifest inspection.
 On 2026-10-07, after fetching compiler origin again, the integrated Studio
 diagnostic compile passed with both qualified backend repairs. Those repairs
 and the ownership-preserving readiness API are adopted in the normal compiler
-through `bb1f4095`; its replacement product is rebuilding. The preceding
+through `bb1f4095`; its replacement seed completed successfully and the normal
+provenance checker passed on 2026-10-07. Product SHA-256 is
+`203009661b41a4aed677487848d300b7232d0801f76fa19a65222309ffe039a7`. The preceding
 `23a0e16a` compiler/prover products are comparison evidence while that source
 and linked-product transition remains incomplete. Engine `e11085c1` adds the
 read-only no-follow source identity adapter; Objective-C syntax qualification

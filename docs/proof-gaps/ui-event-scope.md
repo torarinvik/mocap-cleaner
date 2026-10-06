@@ -264,3 +264,10 @@ worker still release-publishes completion only after writing the result.
 Its replacement seed is running with the same bounded 10 GB guard. No normal
 compiler product acceptance is claimed until that seed and provenance checks
 complete.
+
+The replacement normal seed at `bb1f4095` completed with exit 0. The normal
+source-tree/product provenance check also completed with exit 0, with product
+SHA-256 `203009661b41a4aed677487848d300b7232d0801f76fa19a65222309ffe039a7`.
+Build log: `build/normal-compiler-adopted-rebuild-fixed-2026-10-07.log`.
+This supersedes the pending-seed statements above. Qualification of the latest
+Studio edits, native linking, and a matching prover/replay pair remains open.
