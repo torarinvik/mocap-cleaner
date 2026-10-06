@@ -120,10 +120,10 @@ Comparison input now has a 16 MiB per-report admission limit, applied both
 before parsing and during file reads. An oversized read closes the file and
 clears its partial bytes. This bounds input memory; indexed metric lookup and
 schema-aware traversal remain required to bound comparison work.
-`ReportBudget` has contracts and five laws. Current compiler builds the CLI;
-the published checker proves the source (4/4), but the laws have 11/14
-certificates replayed despite 14 producer-proven obligations. Qualification
-remains open until those three composition gaps replay.
+`ReportBudget` has contracts and eight laws covering byte admission and unique
+identity cardinality. The published checker proves the source (6/6), but the
+laws have 17/22 certificates replayed despite 22 producer-proven obligations.
+Qualification remains open until those five composition gaps replay.
 
 The reader now extracts direct root scalars and direct scalars of named
 objects in the root `clips` array using engine token subtree boundaries.
@@ -134,6 +134,12 @@ compiler `4c409da6`. This is partial structural implementation: duplicate
 container/name fields, clip identity normalization (including Unicode JSON
 escapes), fractional/exponent numbers, indexed lookup, and traversal proof
 coverage still need implementation and qualification.
+
+Duplicate root `clips` fields and duplicate clip `name` fields are now rejected.
+Clip identities must also be unique even when their metric sets do not overlap;
+the root identity `total` is reserved to prevent collisions. These structural
+checks currently compare the reader's decoded byte spans; complete Unicode
+escape normalization and proof coverage of traversal remain open.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
 

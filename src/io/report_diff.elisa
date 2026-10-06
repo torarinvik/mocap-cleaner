@@ -27,6 +27,19 @@ module ReportDiff:
             flag: bool
             exact_integer: bool
 
+        struct Identity:
+            at: i64
+            len: i64
+
+        def member_count(text: darray[u8]&, tokens: darray[GlbJson::Token]&, object: usize, key: sview) -> i64:
+            ensure result >= 0
+            mutable count: i64 = 0
+            mutable at: usize = object + 1
+            for member in 0..<tokens[object].size:
+                count <- count + 1 if GlbJson::text_is(text, tokens[at], key)
+                at <- tokens[at + 1].after
+            count
+
         def bounded(value: i64) -> i64:
             ensure result >= 0 - Regress::Domain::MAGNITUDE
             ensure result <= Regress::Domain::MAGNITUDE
@@ -131,7 +144,9 @@ module ReportDiff:
             mutable tokens: darray[GlbJson::Token] = []
             return false if not GlbJson::tokenize(text, 0, text.count, &tokens)
             return false if tokens.count == 0 or tokens[0].kind != GlbJson::KIND_OBJECT
+            return false if member_count(text, &tokens, 0, "clips") > 1
             Report::push_text(pool, "total")
+            mutable identities: darray[Identity] = [Identity{at: 0, len: 5}]
             object_metrics(text, &tokens, 0, 0, 5, pool, out)
             clips: i64 = GlbJson::member(text, &tokens, 0, "clips")
             if clips >= 0:
@@ -140,6 +155,12 @@ module ReportDiff:
                     return false
                 mutable clip: usize = clips.usize() + 1
                 for index in 0..<tokens[clips.usize()].size:
+                    if GlbJson::kind_of(&tokens, clip.i64()) != GlbJson::KIND_OBJECT:
+                        out.clear()
+                        return false
+                    if not ReportBudget::unique_identity(member_count(text, &tokens, clip, "name")):
+                        out.clear()
+                        return false
                     name: i64 = GlbJson::member(text, &tokens, clip.i64(), "name")
                     if GlbJson::kind_of(&tokens, clip.i64()) != GlbJson::KIND_OBJECT or GlbJson::kind_of(&tokens, name) != GlbJson::KIND_STRING:
                         out.clear()
@@ -149,6 +170,11 @@ module ReportDiff:
                     if clip_len == 0:
                         out.clear()
                         return false
+                    for identity in identities:
+                        if same_span(pool, identity.at, identity.len, pool, clip_at, clip_len):
+                            out.clear()
+                            return false
+                    identities.push(Identity{at: clip_at, len: clip_len})
                     object_metrics(text, &tokens, clip, clip_at, clip_len, pool, out)
                     clip <- tokens[clip].after
 
