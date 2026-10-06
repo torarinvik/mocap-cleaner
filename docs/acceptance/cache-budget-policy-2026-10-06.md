@@ -18,7 +18,11 @@ contents and evaluates enabled operations in order, preserving operation timing
 and evaluation counts. Rig cache admission is still outstanding. Clearing
 contents does not prove release of allocator capacity or a physical RAM bound.
 Current compiler `720896f4` emits a fresh channel adapter object at
-`build/cache-fallback-compile.FeyCI8/stack.o`. Runtime cache/full comparison
-and proof replay remain open; this compile-only evidence does not close them.
+`build/cache-fallback-compile.FeyCI8/stack.o`. A direct proof run on the
+committed policy reports 30/39 obligations proven and 4 replay gaps; the law
+file reports 47/81 obligations proven and 7 replay gaps. Both runs also report
+unverified callee summaries, so the arithmetic and fallback proof slice is not
+qualified yet. Runtime cache/full comparison and Rig-cache admission remain
+open; compile-only evidence does not close them.
 The exact channel layout and checked arithmetic laws are in
 `proof/cache_budget_laws.elisa`.
