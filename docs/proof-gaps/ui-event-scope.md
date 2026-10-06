@@ -101,3 +101,14 @@ graph. A remaining declaration-owner or registration collision is a hypothesis,
 not an established diagnosis. Temporary backend path/owner tracing is being
 built into a diagnostic compiler to distinguish these possibilities. Its
 results are not acceptance of a normal compiler product or application binary.
+
+The first current diagnostic seed completed with matching provenance. The
+full Studio trace in `build/studio-hierarchy-match-trace.log` still records
+24 declined bodies. No UI Event/PointerEvent/KeyEvent variant-path lookup is
+logged for that integrated build, whereas the isolated real-UI hierarchy
+reproduction enters the lookup and resolves its tags and offsets. This suggests
+the integrated failure occurs before payload-enum variant lookup; it does not
+establish a wrong variant owner. A second diagnostic trace now records the
+match scrutinee's type classification to locate that earlier dispatch failure.
+Those instrumentation edits invalidate the preceding product's provenance;
+further current-source compilation must wait for a matching rebuild.
