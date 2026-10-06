@@ -9,16 +9,15 @@ contracts and proof coverage. Keep each maintained repository file at most
 ## Current implementation and verification gate
 
 The Storage filter values have been moved into public
-`StudioStorageListFilterPolicy::Filter`. The object compile passes. The same
-prover currently regresses from 483/483 source and 499/499 law obligations to
-337/483 and 346/506, respectively. Nested qualified constant collection and
-contextual resolution repair is written in `../elisa-proof-mocap`: normalize
-already-qualified nested AST module names in both collection and independent
-replay. The repair was committed as `49714c65` in the prover checkout. Seeding
-initially rejected modified upstream stage0 sources; both compiler checkouts
-subsequently became clean, and a normal seed build started. The repair remains
-unverified until that build and focused proof/replay runs finish. Qualify it
-before expanding this migration.
+`StudioStorageListFilterPolicy::Filter`. Object and Studio builds pass.
+The first repair (`49714c65` in `../elisa-proof-mocap`) normalizes qualified
+nested AST module names in collection and independent replay. Normal compiler
+seeding and prover rebuilding now pass, but focused proofs still fail: fresh
+flat source/laws report 457/485 and 473/501; nested source/laws report 311/485
+and 320/508. Original reviewed expectations were 483/483 and 499/499.
+Lexical relative member resolution still needs repair, and 28 imported cleanup
+obligations remain open even with flat declarations. See G96 in proof gaps.
+Qualify both paths and certificate replay before expanding this migration.
 Do not lower proof baselines or replace real constant modules with plain
 modules to bypass this gate. Record exact compiler/prover provenance and
 certificate replay when qualifying the fix.
