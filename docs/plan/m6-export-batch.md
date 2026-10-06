@@ -211,3 +211,24 @@ Compile-only evidence and exact limits are recorded in
   journal failure and staging unlink failure. Establish that source takes and
   approved outputs remain unchanged. Compile success and Boolean IO wrappers
   do not prove crash durability or atomic recovery semantics.
+
+### Prepared-export panel integration status
+
+The panel now uses the shared policy's typed Action, Focus, Row and Controls
+instead of separate copies. Publication receipts use the extracted publication
+module. Durability-unknown evidence takes precedence over a verified-byte label;
+partial/conflicting destinations direct the user to inspect files. The empty
+sheet explains how to add a reviewed capture and states that no production
+result exists. Previous/Next enablement is supplied through the same Controls
+projection. Bounded seven-row paging clamps empty/shrinking queues and preserves
+the final partial page. Unknown action/direction codes refuse navigation.
+
+The current policy/law graph compiles at O0 to a fresh 235,464-byte object with
+paging/admission/uncertainty functions retained. This is compile-only evidence;
+current certificate replay and native UI acceptance remain open. Neither the
+panel nor capture extension is composed into the app yet. Still required:
+controller ownership and refresh snapshots, prepared-review token preservation,
+warning inspection, pointer/keyboard/native accessibility routing, queue entry
+and return-focus behavior, followed by current integrated/native qualification.
+The full multi-take input/evaluation pipeline remains part of M6; prepared export
+captures alone do not satisfy that production workflow.
