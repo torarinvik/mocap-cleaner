@@ -97,3 +97,11 @@ current Stage1 `4c409da6`. This check uses the legacy extracted byte identity;
 Unicode/escape-normalized identities and schema-aware nesting still need the
 reader replacement above. Its pairwise scan also needs an explicit input budget
 or indexed implementation before large batch-report qualification.
+
+Legacy numeric extraction now records whether its integer value is exact.
+Discarded decimal/exponent suffixes or overflowed digit accumulation mark a
+metric unavailable; compared values produce an input error instead of a false
+clean verdict. The availability kernel has contracts and two composed laws.
+Report diff compiles with current Stage1 `4c409da6`. Supporting those numeric
+representations with declared fixed-point units remains required; this guard
+does not complete the schema-aware reader or fractional report comparison.

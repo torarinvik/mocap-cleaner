@@ -22,6 +22,7 @@ module ReportDiff:
             key_len: i64
             value: i64
             flag: bool
+            exact_integer: bool
 
         def bounded(value: i64) -> i64:
             ensure result >= 0 - Regress::Domain::MAGNITUDE
@@ -121,16 +122,20 @@ module ReportDiff:
                     if negative:
                         i <- i + 1
                     mutable value: i64 = 0
+                    mutable exact_integer: bool = true
                     while i < text.count and text[i] >= 48 and text[i] <= 57:
                         if value < 100000000000:
                             value <- value * 10 + (text[i] - 48).i64()
+                        else:
+                            exact_integer <- false
                         i <- i + 1
+                    exact_integer <- false if i < text.count and (text[i] == 46 or text[i] == 101 or text[i] == 69)
                     while i < text.count and (text[i] == 46 or text[i] == 101 or text[i] == 69 or text[i] == 43 or (text[i] >= 48 and text[i] <= 57)):
                         i <- i + 1
-                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: -value if negative else value, flag: false})
+                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: -value if negative else value, flag: false, exact_integer: exact_integer})
                     key_at <- -1
                 elif key_at >= 0 and (c == 116 or c == 102):
-                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: 1 if c == 116 else 0, flag: true})
+                    out.push(Metric{clip_at: clip_at, clip_len: clip_len, key_at: key_at, key_len: key_len, value: 1 if c == 116 else 0, flag: true, exact_integer: true})
                     while i < text.count and text[i] >= 97 and text[i] <= 122:
                         i <- i + 1
                     key_at <- -1
@@ -222,9 +227,9 @@ module ReportDiff:
                         errors <- errors + 1
                         Out::line("Baseline numeric metric has a Boolean value.")
                         continue
-                    if not flagged and not Regress::metric_in_domain(m.value):
+                    if not flagged and not Regress::metric_available(m.value, m.exact_integer):
                         errors <- errors + 1
-                        Out::line("Baseline metric exceeds the supported comparison range.")
+                        Out::line("Baseline metric has unsupported numeric precision or range.")
                         continue
                     at: i64 = find(&pb, &mb, &pa, m)
                     mutable bad: bool = at < 0
@@ -236,9 +241,9 @@ module ReportDiff:
                             Out::line("Report metric types differ between baseline and candidate.")
                             continue
                         after <- other.value
-                        if not flagged and not Regress::metric_in_domain(after):
+                        if not flagged and not Regress::metric_available(after, other.exact_integer):
                             errors <- errors + 1
-                            Out::line("Candidate metric exceeds the supported comparison range.")
+                            Out::line("Candidate metric has unsupported numeric precision or range.")
                             continue
                         if flagged:
                             bad <- Regress::ok_lost(true, other.value == 1)
