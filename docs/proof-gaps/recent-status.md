@@ -496,3 +496,7 @@ samples no longer showed `proof_goal_depth` on the stack and instead showed
 linear-certificate and context construction. The full corpus comparison on
 that older binary was also running. These are diagnostic runs only; the 720
 candidate is not the default prover and no baseline was reduced.
+
+The recursion-depth refusal does not set a bound on total work across all
+producer search calls. The existing `budget` value still counts finite-domain
+enumeration only; no elapsed-time or global work bound is claimed here.
