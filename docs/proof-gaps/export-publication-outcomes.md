@@ -55,3 +55,12 @@ facts; the policy is not yet connected to the export operation. Evidence:
 `build/export-recovery-prepare-source.json`,
 `build/export-recovery-prepare-laws.json` and compile-only
 `build/export-recovery-prepare-build.log` (normal compiler f292cbe0).
+
+The bounded native reader preserves exact staged bytes and rejects reads beyond
+the caller's limit, IO errors and close failures. Limits are 64 MiB for one GLB,
+1 MiB per report and 64 KiB for a journal. The arithmetic budget policy and laws
+independently replay 6/6 and 20/20 on default 5776350b, with no findings or gaps;
+both the reader and laws compile with normal f292cbe0. Evidence:
+`build/export-recovery-budget-source.json`,
+`build/export-recovery-budget-laws.json`, `build/export-recovery-bytes-build.log`.
+Total retained disk capacity and concurrent file mutation remain unqualified.

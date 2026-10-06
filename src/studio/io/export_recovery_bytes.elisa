@@ -1,0 +1,40 @@
+include "../export_recovery_budget_policy.elisa"
+
+# Read exact staged bytes, not a decoded/reserialized GLB or a residue digest.
+module StudioExportRecoveryBytes:
+    public:
+        # Caller supplies a private staged path. Native reads do not prove that
+        # another process cannot mutate the file during the read.
+        def read(path: cstr, limit: i64, out: mutable darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            out.clear()
+            return false if not StudioExportRecoveryBudgetPolicy::append_admitted(0, 0, limit)
+            if bytes_fopen(path, "rb") is file:
+                mutable chunk: u8[65536] = zeroed
+                mutable finished: bool = false
+                mutable accepted: bool = true
+                while not finished:
+                    got: usize = bytes_fread(&chunk[0], 1, 65536, file)
+                    if not StudioExportRecoveryBudgetPolicy::append_admitted(out.count.i64(), got.i64(), limit):
+                        accepted <- false
+                        finished <- true
+                    else:
+                        for index in 0..<got |out, chunk, index|:
+                            out.push(chunk[index])
+                        finished <- got < 65536
+                failed: bool = bytes_ferror(file) != 0
+                closed: i32 = bytes_fclose(file)
+                if not accepted or failed or closed != 0:
+                    out.clear()
+                    return false
+                return true
+            false
+
+    private:
+        @link_name("fopen")
+        extern bytes_fopen(path: cstr, mode: cstr) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
+        @link_name("fread")
+        extern bytes_fread(buffer: u8&, size: usize, count: usize, file: mutable heap void&) -> usize can[Blocking.IO]
+        @link_name("ferror")
+        extern bytes_ferror(file: mutable heap void&) -> i32 can[Blocking.IO]
+        @link_name("fclose")
+        extern bytes_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
