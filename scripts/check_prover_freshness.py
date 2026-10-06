@@ -45,6 +45,16 @@ def main():
     revision = compiler["source_revision"]
     if manifest["frontend"]["revision"] != revision or manifest["compiler"]["source_revision"] != revision:
         raise ValueError("prover frontend/compiler is stale relative to current Stage1; rebuild and qualify it")
+    linked_compiler = manifest["compiler"]
+    for field in ("source_tree_sha256", "build_recipe_sha256"):
+        if linked_compiler[field] != compiler[field]:
+            raise ValueError(f"prover compiler {field} differs from current Stage1; rebuild and qualify it")
+    if linked_compiler["product"]["sha256"] != compiler["product_sha256"]:
+        raise ValueError("prover was linked with a different Stage1 product; rebuild and qualify it")
+    frontend_tree = subprocess.check_output(
+        ["git", "-C", str(compiler_root), "rev-parse", revision + "^{tree}"], text=True).strip()
+    if manifest["frontend"]["tree"] != frontend_tree:
+        raise ValueError("prover frontend tree does not match its compiler revision")
     if manifest["runtime"]["sha256"] != sha(compiler_root / "build/runtime/elisacore_runtime.o"):
         raise ValueError("prover runtime does not match current compiler runtime")
     print("prover freshness: current source, frontend, compiler and runtime")
