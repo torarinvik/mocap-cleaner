@@ -16,3 +16,26 @@ Logs sit beside their objects. This accepts syntax and object generation for
 the guarded exact frame conversion, navigation admission laws and typed intent
 fixture. The fixture was not executed. Proof replay, full application code
 generation and native input/accessibility behavior remain unqualified.
+
+## Second diagnostic seed: pending policy objects
+
+The second seed also reports current provenance and retains temporary compiler
+tracing. These compile-only law inputs returned zero and emitted nonempty
+`laws.o` objects; logs are `laws.log` in each directory:
+
+| Law input | Directory |
+| --- | --- |
+| `studio_retime_draft_laws` | `build/qualified-policy-compile.ZFOrkQ` |
+| `studio_text_entry_policy_laws` | `build/qualified-policy-compile.XZuJOV` |
+| `studio_contact_frame_laws` | `build/qualified-policy-compile.mXDXAW` |
+| `studio_suggestion_policy_laws` | `build/qualified-policy-compile.FrmoK0` |
+| `studio_issue_explanation_record_laws` | `build/qualified-policy-compile.yLbryL` |
+| `studio_report_text_laws` | `build/qualified-policy-compile.CI3gna` |
+| `studio_issue_browser_laws` | `build/qualified-policy-compile.JfIxvi` |
+
+The browser object includes the action representation, exact frame admission
+and final-window law; the report text object includes byte and slot admission.
+These objects establish source compilation, not law validity or replay. Full
+Studio compilation separately stopped on contact-preview work-in-progress
+syntax before reaching the backend; that attempt supplies no integrated
+application qualification.
