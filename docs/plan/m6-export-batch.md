@@ -83,3 +83,9 @@ compiled with current Stage1 `4c409da6`, without a stale override. This is only
 a structure admission step: legacy extraction still needs the schema, numeric,
 string decoding and duplicate-identity work listed above. Engine tokenization
 alone does not establish every required report validation rule.
+
+The diff comparison now rejects Boolean values for numeric quality metrics
+and mismatched baseline/candidate types, including numeric values used instead
+of a Boolean `ok` status. This does not replace schema validation or availability
+checks. Current object compilation is recorded separately from executable and
+proof acceptance.
