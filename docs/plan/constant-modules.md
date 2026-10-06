@@ -58,7 +58,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `Roles` | 31 | `src/core/roles.elisa` |
 | `SessionIssueAnnotationPolicy` | 4 | `src/studio/state/session_issue_annotation_policy.elisa` |
 | `SessionState` | 20 | `src/studio/state/session_state.elisa` |
-| `Slide` | 3 | `src/core/slide.elisa` |
 | `StackPolicy` | 2 | `src/studio/stack_policy.elisa` |
 | `StackState` | 8 | `src/studio/state/stack_state.elisa` |
 | `Studio` | 11 | `src/studio/app/app_state.elisa` |
@@ -177,3 +176,11 @@ findings. The prior 150-obligation law baseline is retained, not weakened.
 numeric rotation magnitude bound. Consumers use qualified names with unchanged
 values. Existing laws compile with current compiler `720896f4`; replay and
 full rig adapter qualification remain open.
+
+`Slide::Domain` groups frame, median radius and sorted-search bounds. Source,
+filter adapter and laws use qualified constants with unchanged values. Compiler
+`720896f4` emits `build/slide-domain.MfooxL/laws.o`. Candidate `4da/720`
+reports source 51/51 and law corpus 269/272, all produced certificates
+replayed without gaps. The three refusals are included `Window::middle`
+obligations at the budget gate. This is comparison evidence, not full runtime
+or corpus qualification; existing proof expectations remain intact.
