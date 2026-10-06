@@ -33,12 +33,18 @@ build_test() {
     name=$(basename "$t" .elisa)
     if [ -x "build/test/$name" ] && [ "$(cat "build/test/$name.build-key" 2>/dev/null)" = "$test_build_key" ]; then
         echo cached >"build/test/$name.status"
-    elif "$ELISAC" -emit exe -o "build/test/$name" "$t" >"build/test/$name.log" 2>&1; then
-        echo "$test_build_key" >"build/test/$name.build-key.tmp"
-        mv "build/test/$name.build-key.tmp" "build/test/$name.build-key"
-        echo ok >"build/test/$name.status"
     else
-        echo failed >"build/test/$name.status"
+        pending="build/test/$name.next"
+        rm -f "$pending"
+        if "$ELISAC" -emit exe -o "$pending" "$t" >"build/test/$name.log" 2>&1 && [ -s "$pending" ] && [ -x "$pending" ]; then
+            mv "$pending" "build/test/$name"
+            echo "$test_build_key" >"build/test/$name.build-key.tmp"
+            mv "build/test/$name.build-key.tmp" "build/test/$name.build-key"
+            echo ok >"build/test/$name.status"
+        else
+            rm -f "$pending"
+            echo failed >"build/test/$name.status"
+        fi
     fi
 }
 # Derived icon geometry for test/studio_icons.elisa (also made by build_studio.sh).

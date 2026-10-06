@@ -39,7 +39,11 @@ clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$OUT/studio_file_path_namespac
 clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$OUT/studio_workspace_root.o" "$ENGINE/native/workspace_root_appkit.m"
 clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$OUT/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
 clang++ -c -std=c++17 -O2 -o "$OUT/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
-bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$OUT/studio_main.o" "$ROOT/src/studio/app/main.elisa"
+pending_object="$OUT/studio_main.next.o"
+rm -f "$pending_object"
+bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$pending_object" "$ROOT/src/studio/app/main.elisa"
+[[ -s "$pending_object" ]] || { echo "compiler did not emit a fresh Studio object" >&2; exit 1; }
+mv "$pending_object" "$OUT/studio_main.o"
 clang -o "$OUT/mocap_studio" \
   "$OUT/studio_main.o" "$OUT/studio_canvas_shim.o" "$OUT/studio_viewport_metal.o" "$OUT/studio_file_panel.o" "$OUT/studio_file_trash.o" "$OUT/studio_file_path.o" "$OUT/studio_file_path_namespace.o" "$OUT/studio_workspace_root.o" "$OUT/studio_storage_manifest_lock.o" \
   "$OUT/studio_native_fallbacks.o" "$RUNTIME" \
