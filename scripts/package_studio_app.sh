@@ -121,6 +121,21 @@ PY
 
 # Prepare the whole bundle before moving the previous one. Keep a recoverable
 # backup, and restore it if publishing the new bundle fails.
+restore_previous_bundle() {
+  local package_status=$?
+  trap - EXIT
+  if [[ ! -e "$final_app" && ! -L "$final_app" ]] &&
+     [[ -e "$pending_package/previous.app" || -L "$pending_package/previous.app" ]]; then
+    if ! mv "$pending_package/previous.app" "$final_app"; then
+      echo "previous Studio bundle retained at $pending_package/previous.app; restore failed" >&2
+      package_status=1
+    fi
+  fi
+  exit "$package_status"
+}
+trap restore_previous_bundle EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 if [[ -e "$final_app" || -L "$final_app" ]]; then
   mv "$final_app" "$pending_package/previous.app"
 fi
@@ -128,7 +143,7 @@ if ! mv "$APP" "$final_app"; then
   if [[ -e "$pending_package/previous.app" || -L "$pending_package/previous.app" ]]; then
     mv "$pending_package/previous.app" "$final_app"
   fi
-  echo "could not publish Studio bundle; previous bundle restored" >&2
+  echo "could not publish Studio bundle" >&2
   exit 1
 fi
 echo "packaged $final_app"
