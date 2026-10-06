@@ -897,9 +897,14 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 return 1
             part_root: cstr = (&worker_directory[0]).cast[cstr]
             mutable running: i64 = 0
-            for i in 0..<inputs.count |i, inputs, outdir, part_root, preset, extra, checks, bank, running, jobs, failures|:
+            mutable launch_failed: bool = false
+            for i in 0..<inputs.count |i, inputs, outdir, part_root, preset, extra, checks, bank, running, jobs, failures, launch_failed|:
                 if running >= jobs:
-                    failures <- failures + 1 if not Workers::wait_any()
+                    waited = Workers::wait_any()
+                    if not waited.reaped:
+                        Out::line("error: cannot confirm worker completion; private worker files retained")
+                        return 1
+                    failures <- failures + 1 if not waited.ok
                     running <- running - 1
                 pid: i32 = Workers::spawn()
                 if pid == 0:
@@ -917,11 +922,16 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                     Workers::finish(0 if ok and ok_redirect and saved else 1)
                 if pid < 0:
                     Out::line("error: cannot start a worker")
+                    launch_failed <- true
                     failures <- failures + 1
                     break
                 running <- running + 1
             while running > 0 |running, failures|:
-                failures <- failures + 1 if not Workers::wait_any()
+                waited = Workers::wait_any()
+                if not waited.reaped:
+                    Out::line("error: cannot confirm worker completion; private worker files retained")
+                    return 1
+                failures <- failures + 1 if not waited.ok
                 running <- running - 1
             for i in 0..<inputs.count |i, part_root, html, profile|:
                 text: darray[u8] = take_part(part_root, i, "txt")
@@ -935,6 +945,9 @@ def main(argc: i64, argv: mutable void&) -> i64 can[Memory.Allocate, Memory.Rele
                 Out::text("warning: batch worker files remain at ")
                 Out::c_text(part_root)
                 Out::line("")
+            if launch_failed:
+                Out::line("error: batch incomplete; report was not published")
+                return 1
         Report::finish(&html)
         Report::finish_times(&html, &profile)
         if not Report::save(&html, (&report_path[0]).cast[cstr]):
