@@ -1766,6 +1766,13 @@ module Studio:
             storage_message <- 8 if storage_message == 5 or storage_message == 1 else 6
             touch()
 
+        def storage_receipt_is_durable(receipt: StudioStorageManifest::Entry) -> bool:
+            return false if storage_manifest_state != 1
+            for entry in storage_entries |entry, receipt|:
+                if entry.state == StudioStorageManifest::IN_TRASH and storage_identity_matches(receipt, entry) and StudioStorageManifest::same_path(receipt.trashed_path, entry.trashed_path):
+                    return true
+            false
+
         # The reviewed identity is already durable before the native move.
         # Engine reconciliation can recover it after a crash before receipt save.
         def move_storage_reviewed_entry(expected: StudioStorageManifest::Entry, confirmed: bool) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
@@ -1833,6 +1840,12 @@ module Studio:
                 StudioStorageMovePolicy::WRITE_FAILED, rollback)
             refresh_storage_inventory()
             storage_message <- 12 if original_restored else 13 if rollback == StudioStorageMovePolicy::ROLLBACK_FAILED else 15
+            if not original_restored and storage_receipt_is_durable(receipt):
+                # Refresh may have completed the failed atomic receipt save.
+                storage_retained_receipt <- null
+                storage_move_outcome <- StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED,
+                    StudioStorageMovePolicy::WRITE_SUCCEEDED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
+                storage_message <- 10
             touch()
 
         def storage_action(action: i64) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
