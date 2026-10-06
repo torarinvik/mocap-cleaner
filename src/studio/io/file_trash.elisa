@@ -1,6 +1,6 @@
 # Field-based macOS Trash ABI. The native adapter owns filesystem identity
 # checks; this wrapper converts its bounded C strings into Elisa receipt data.
-include "storage_receipts.elisa"
+include "storage_manifest.elisa"
 
 const STUDIO_TRASH_PATH_CAPACITY: usize = 4096
 const STUDIO_TRASH_ERROR_CAPACITY: usize = 512
@@ -23,7 +23,7 @@ module StudioFileTrash:
         # `record` is updated only after the engine returns a complete receipt.
         # Errors are copied into `message` and remain available to the UI.
         def move(build_root: cstr, candidate: cstr, kind: i64,
-                 record: mutable StudioStorageReceipts::Receipt&,
+                 record: mutable StudioStorageManifest::Entry&,
                  message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
             message.clear()
             if kind < StudioStorageReceiptPolicy::RECOVERY or kind >= StudioStorageReceiptPolicy::KIND_COUNT:
@@ -64,12 +64,13 @@ module StudioFileTrash:
             while trashed_index < STUDIO_TRASH_PATH_CAPACITY and trashed[trashed_index] != 0:
                 trashed_bytes.push(trashed[trashed_index])
                 trashed_index <- trashed_index + 1
-            next: StudioStorageReceipts::Receipt = StudioStorageReceipts::Receipt{
+            next: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+                state: StudioStorageManifest::IN_TRASH,
                 kind: kind, device: device, inode: inode, size_bytes: size_bytes,
                 modified_seconds: modified_seconds,
                 modified_nanoseconds: modified_nanoseconds,
                 original_path: original_bytes, trashed_path: trashed_bytes}
-            if not StudioStorageReceipts::valid(next):
+            if not StudioStorageManifest::valid(next):
                 message.clear()
                 explanation: sview = "The file moved, but its receipt data was outside the supported range."
                 for byte in explanation:
@@ -83,10 +84,10 @@ module StudioFileTrash:
 
         # The receipt remains unchanged on failure and is cleared by the UI
         # only after this function confirms that the engine restored the file.
-        def restore(build_root: cstr, record: StudioStorageReceipts::Receipt,
+        def restore(build_root: cstr, record: StudioStorageManifest::Entry,
                     message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
             message.clear()
-            if not StudioStorageReceipts::valid(record):
+            if record.state != StudioStorageManifest::IN_TRASH or not StudioStorageManifest::valid(record):
                 explanation: sview = "This restore receipt is incomplete or invalid."
                 for byte in explanation:
                     message.push(byte)
@@ -94,7 +95,7 @@ module StudioFileTrash:
             restore_fields(build_root, record, message)
 
     private:
-        def restore_fields(build_root: cstr, record: StudioStorageReceipts::Receipt,
+        def restore_fields(build_root: cstr, record: StudioStorageManifest::Entry,
                            message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
             mutable original: u8[4096] = zeroed
             mutable trashed: u8[4096] = zeroed

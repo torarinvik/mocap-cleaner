@@ -1,4 +1,4 @@
-include "../src/studio/io/storage_receipts.elisa"
+include "../src/studio/io/storage_manifest.elisa"
 
 extern puts(text: cstr) -> i64
 
@@ -20,54 +20,72 @@ def main() -> i32:
     return 20 if StudioStorageCleanupPolicy::GENERATED_REPORT != StudioStorageReceiptPolicy::GENERATED_REPORT
     return 21 if StudioStorageCleanupPolicy::KIND_COUNT != StudioStorageReceiptPolicy::KIND_COUNT
     return 22 if StudioStorageCleanupPolicy::MAX_ITEM_BYTES != StudioStorageReceiptPolicy::MAX_ITEM_BYTES
-    receipt: StudioStorageReceipts::Receipt = StudioStorageReceipts::Receipt{
+    receipt: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+        state: StudioStorageManifest::IN_TRASH,
         kind: StudioStorageCleanupPolicy::GENERATED_REPORT,
         device: 17, inode: 987654321, size_bytes: 12345,
         modified_seconds: 0 - 1791288000, modified_nanoseconds: 765432100,
         original_path: bytes("build/reports/line\n\t😀.report.json"),
         trashed_path: bytes("/Users/example/.Trash/report copy.json")
     }
-    return 1 if not StudioStorageReceipts::valid(receipt)
-    records: darray[StudioStorageReceipts::Receipt] = [receipt]
+    return 1 if not StudioStorageManifest::valid(receipt)
+    records: darray[StudioStorageManifest::Entry] = [receipt]
     encoded: darray[u8] = []
-    return 2 if not StudioStorageReceipts::encode(records, &encoded)
+    return 2 if not StudioStorageManifest::encode(records, &encoded)
     return 3 if encoded.count < 32
-    decoded: darray[StudioStorageReceipts::Receipt] = []
-    return 4 if not StudioStorageReceipts::decode(encoded, &decoded)
+    decoded: darray[StudioStorageManifest::Entry] = []
+    return 4 if not StudioStorageManifest::decode(encoded, &decoded)
     return 5 if decoded.count != 1
-    restored: StudioStorageReceipts::Receipt = decoded[0]
+    restored: StudioStorageManifest::Entry = decoded[0]
+    return 25 if restored.state != StudioStorageManifest::IN_TRASH
     return 6 if restored.kind != receipt.kind or restored.device != receipt.device or restored.inode != receipt.inode
     return 7 if restored.size_bytes != receipt.size_bytes or restored.modified_seconds != receipt.modified_seconds or restored.modified_nanoseconds != receipt.modified_nanoseconds
     return 8 if not same_bytes(restored.original_path, receipt.original_path)
     return 9 if not same_bytes(restored.trashed_path, receipt.trashed_path)
 
-    preserved: darray[StudioStorageReceipts::Receipt] = [receipt]
+    preserved: darray[StudioStorageManifest::Entry] = [receipt]
     wrong_version: darray[u8] = encoded
     wrong_version[28] <- 50
-    return 10 if StudioStorageReceipts::decode(wrong_version, &preserved)
+    return 10 if StudioStorageManifest::decode(wrong_version, &preserved)
     return 11 if preserved.count != 1 or not same_bytes(preserved[0].original_path, receipt.original_path)
 
     bad_hex: darray[u8] = encoded
     bad_hex[bad_hex.count - 2] <- 122
-    return 12 if StudioStorageReceipts::decode(bad_hex, &preserved)
+    return 12 if StudioStorageManifest::decode(bad_hex, &preserved)
     return 13 if preserved.count != 1 or not same_bytes(preserved[0].trashed_path, receipt.trashed_path)
 
-    mutable invalid: StudioStorageReceipts::Receipt = receipt
+    mutable invalid: StudioStorageManifest::Entry = receipt
     invalid.modified_nanoseconds <- 1000000000
-    return 14 if StudioStorageReceipts::valid(invalid)
+    return 14 if StudioStorageManifest::valid(invalid)
     invalid <- receipt
     invalid.original_path <- [47, 0, 97]
-    return 15 if StudioStorageReceipts::valid(invalid)
+    return 15 if StudioStorageManifest::valid(invalid)
     invalid.original_path <- [47, 192, 175]
-    return 23 if StudioStorageReceipts::valid(invalid)
+    return 23 if StudioStorageManifest::valid(invalid)
     invalid.original_path <- [47, 237, 160, 128]
-    return 24 if StudioStorageReceipts::valid(invalid)
+    return 24 if StudioStorageManifest::valid(invalid)
 
-    duplicate: darray[StudioStorageReceipts::Receipt] = [receipt, receipt]
+    duplicate: darray[StudioStorageManifest::Entry] = [receipt, receipt]
     untouched: darray[u8] = bytes("leave this buffer as-is")
     before: darray[u8] = untouched
-    return 16 if StudioStorageReceipts::encode(duplicate, &untouched)
+    return 16 if StudioStorageManifest::encode(duplicate, &untouched)
+
+    registered: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+        state: StudioStorageManifest::REGISTERED,
+        kind: StudioStorageCleanupPolicy::TEMP_EXPORT,
+        device: 17, inode: 987654322, size_bytes: 124,
+        modified_seconds: 1791288000, modified_nanoseconds: 0,
+        original_path: bytes("build/exports/result.glb"), trashed_path: []
+    }
+    return 26 if not StudioStorageManifest::valid(registered)
+    active_records: darray[StudioStorageManifest::Entry] = [registered]
+    active_bytes: darray[u8] = []
+    return 27 if not StudioStorageManifest::encode(active_records, &active_bytes)
+    active_decoded: darray[StudioStorageManifest::Entry] = []
+    return 28 if not StudioStorageManifest::decode(active_bytes, &active_decoded)
+    return 29 if active_decoded.count != 1 or active_decoded[0].state != StudioStorageManifest::REGISTERED
+    return 30 if active_decoded[0].trashed_path.count != 0
     return 17 if not same_bytes(untouched, before)
 
-    _ = puts("studio storage receipts: versioning, path escaping, bounds, and failure atomicity pass")
+    _ = puts("studio storage manifest: ownership/Trash states, path escaping, bounds, and failure atomicity pass")
     0

@@ -295,9 +295,9 @@ visually verified solely from offscreen rendering.
       the policy proof replays 351/353 obligations, with two explanation-code
       and exact-sum laws tracked in `docs/proof-gaps.md`. Studio inventory,
       atomic manifest publication, receipt restore and the user workflow
-      remain open. The versioned receipt codec and its bounded scalar proof
-      are in place, and the field-based engine bridge is linked into Studio;
-      the app does not persist or consume receipts yet.
+      remain open. The versioned ownership/Trash manifest codec and bounded
+      scalar proof are in place, and the field-based engine bridge is linked
+      into Studio; the app does not persist or consume receipts yet.
 
 #### Storage cleanup and Restore experience
 
