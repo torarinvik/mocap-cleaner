@@ -8,6 +8,39 @@ module CliOutputGuardPolicy:
         const SYMBOLIC_LINK: i64 = 4
         const NOT_REGULAR: i64 = 5
         const EXISTS: i64 = 6
+        const RESERVED_METADATA: i64 = 7
+
+        def ascii_equal(a: darray[u8]&, b: darray[u8]&) -> bool:
+            return false if a.count != b.count
+            for index in 0..<a.count |a, b, index|:
+                left: u8 = a[index] + 32 if a[index] >= 65 and a[index] <= 90 else a[index]
+                right: u8 = b[index] + 32 if b[index] >= 65 and b[index] <= 90 else b[index]
+                return false if left != right
+            true
+
+        # Studio owns these exact names directly under build. Reject their
+        # ASCII case variants even when the current file is absent.
+        def reserved_metadata_path(root: darray[u8]&, target: darray[u8]&) -> bool:
+            mutable expected: darray[u8] = []
+            expected.extend(root)
+            expected.push(47)
+            expected.extend("studio_storage_manifest.txt")
+            return true if ascii_equal(expected, target)
+            expected.clear()
+            expected.extend(root)
+            expected.push(47)
+            expected.extend("studio_storage_manifest.lock")
+            return true if ascii_equal(expected, target)
+            expected.clear()
+            expected.extend(root)
+            expected.push(47)
+            expected.extend("studio_storage_preferences.txt")
+            return true if ascii_equal(expected, target)
+            expected.clear()
+            expected.extend(root)
+            expected.push(47)
+            expected.extend("studio_storage_exemptions.txt")
+            ascii_equal(expected, target)
 
         # `root` and `target` are canonical-parent paths with the final
         # component intact. A file destination must be below, not equal to,
@@ -25,14 +58,16 @@ module CliOutputGuardPolicy:
         def file_decision(path_resolved: bool, target_inside_build: bool,
                           same_as_source: bool, target_exists: bool,
                           target_is_symlink: bool,
-                          target_is_regular: bool) -> i64:
+                          target_is_regular: bool,
+                          reserved_metadata: bool) -> i64:
             requires target_exists or (not target_is_symlink and not target_is_regular)
             ensure result >= ALLOW
-            ensure result <= EXISTS
-            ensure result != ALLOW or (path_resolved and target_inside_build and not same_as_source and not target_exists)
+            ensure result <= RESERVED_METADATA
+            ensure result != ALLOW or (path_resolved and target_inside_build and not same_as_source and not target_exists and not reserved_metadata)
             return PATH_UNRESOLVED if not path_resolved
             return OUTSIDE_BUILD if not target_inside_build
             return SOURCE_COLLISION if same_as_source
+            return RESERVED_METADATA if reserved_metadata
             return SYMBOLIC_LINK if target_is_symlink
             return NOT_REGULAR if target_exists and not target_is_regular
             return EXISTS if target_exists
@@ -42,8 +77,4 @@ module CliOutputGuardPolicy:
         # below build. Its individual output names are checked with
         # `file_decision` before any worker starts.
         def directory_is_under_build(root: darray[u8]&, target: darray[u8]&) -> bool:
-            return false if root.count <= 1 or target.count <= root.count
-            return false if root[root.count - 1] == 47
-            for index in 0..<root.count |root, target, index|:
-                return false if root[index] != target[index]
-            target[root.count] == 47
+            file_is_under_build(root, target)
