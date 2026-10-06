@@ -291,3 +291,10 @@ The character consumer emitted a fresh 2,572,928-byte O0 object before the model
 constant grouping. The two explicit negative/end ancestor boundary laws also
 compile with retained symbols in a fresh 39,320-byte law object. These are
 compile-only evidence, not proof replay or native character acceptance.
+
+After grouping, `StudioModel` emitted a fresh 2,385,776-byte O0 object with
+`balance_of`, `correction_for` and `nudge` retained. The selected normal compiler
+passed its source/binary/runtime provenance check. All four dependency origins
+were fetched again; local compiler, prover, UI and engine repairs were preserved.
+This does not close current proof replay, existing fixture execution or the full
+native application gate.
