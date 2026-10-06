@@ -1,0 +1,114 @@
+# Pure bounded lifecycle policy for a future Studio export queue. The queue
+# owner supplies durable output/review facts; this module does not publish.
+module StudioExportBatchQueuePolicy:
+    public:
+        const module Capacity:
+            MAX_ITEMS: i64 = 256
+            MAX_WORKERS: i64 = 32
+
+        const enum ItemState of i64:
+            Queued = 0
+            Running = 1
+            Passed = 2
+            Warning = 3
+            Failed = 4
+            Cancelled = 5
+            Staged = 6
+            AwaitingReview = 7
+
+        const enum Aggregate of i64:
+            Incomplete = 0
+            Complete = 1
+            CompleteWithWarnings = 2
+            Invalid = 3
+
+        # Admit only an actual queued item while the queue is live and below
+        # both the configured and absolute worker bounds.
+        def launch_admitted(state: ItemState, cancel_requested: bool,
+                            active_workers: i64, worker_limit: i64,
+                            index: i64, total: i64) -> bool:
+            requires total >= 0 and total <= Capacity::MAX_ITEMS
+            requires index >= 0 and index <= Capacity::MAX_ITEMS
+            requires active_workers >= 0 and active_workers <= Capacity::MAX_WORKERS
+            requires worker_limit >= 0
+            ensure cancel_requested implies not result
+            ensure result implies state == ItemState.Queued
+            ensure result implies index < total
+            ensure result implies active_workers < worker_limit
+            return false if cancel_requested
+            return false if state < ItemState.Queued or state > ItemState.Queued
+            return false if index >= total
+            return false if worker_limit <= 0 or worker_limit > Capacity::MAX_WORKERS
+            return false if active_workers >= worker_limit
+            true
+
+        # Cancellation drains already-running work and cancels work that has
+        # not launched. Terminal results remain intact.
+        def after_cancel(state: ItemState) -> ItemState:
+            ensure result == (ItemState.Cancelled if state == ItemState.Queued else state)
+            return ItemState.Cancelled if state == ItemState.Queued
+            state
+
+        # Successful workers produce validated staging evidence. Warning
+        # outputs wait for review before create-only publication is admitted.
+        def completion(succeeded: bool, staged_outputs_valid: bool,
+                       warning_count: i64) -> ItemState:
+            requires warning_count >= 0
+            ensure result == (ItemState.Failed if not succeeded or not staged_outputs_valid else ItemState.AwaitingReview if warning_count > 0 else ItemState.Staged)
+            return ItemState.Failed if not succeeded or not staged_outputs_valid
+            return ItemState.AwaitingReview if warning_count > 0
+            ItemState.Staged
+
+        # A clean staged result can publish directly. A warning result needs
+        # explicit review before publication. `published` covers all required
+        # outputs and reports, not just worker exit status.
+        def may_publish(state: ItemState, reviewed: bool,
+                       destinations_create_only: bool) -> bool:
+            ensure result implies destinations_create_only
+            ensure result and state == ItemState.AwaitingReview implies reviewed
+            ensure result implies state == ItemState.Staged or state == ItemState.AwaitingReview
+            state == ItemState.Staged and destinations_create_only or state == ItemState.AwaitingReview and reviewed and destinations_create_only
+
+        def publication_result(state: ItemState, published: bool) -> ItemState:
+            ensure state == ItemState.Staged and published implies result == ItemState.Passed
+            ensure state == ItemState.AwaitingReview and published implies result == ItemState.Warning
+            ensure (state == ItemState.Staged or state == ItemState.AwaitingReview) and not published implies result == ItemState.Failed
+            return ItemState.Passed if state == ItemState.Staged and published
+            return ItemState.Warning if state == ItemState.AwaitingReview and published
+            return ItemState.Failed if state == ItemState.Staged or state == ItemState.AwaitingReview
+            state
+
+        # A retry schedules only failed or cancelled inputs. Passed and
+        # warning outputs remain retained; warning review is not a retry.
+        def retry_state(state: ItemState) -> ItemState:
+            ensure result == (ItemState.Queued if state == ItemState.Failed or state == ItemState.Cancelled else state)
+            return ItemState.Queued if state == ItemState.Failed or state == ItemState.Cancelled
+            state
+
+        def may_approve_warning(state: ItemState, reviewed: bool) -> bool:
+            ensure result implies state == ItemState.Warning
+            ensure result implies reviewed
+            state == ItemState.Warning and reviewed
+
+        # Inputs are bounded counts of all item states. Any queued,
+        # running, failed, cancelled, or unreviewed warning keeps the manifest
+        # incomplete. Invalid partitions fail closed.
+        def aggregate(total: i64, queued: i64, running: i64,
+                      passed: i64, warning: i64, failed: i64,
+                      cancelled: i64, staged: i64, awaiting_review: i64,
+                      unapproved_warnings: i64) -> Aggregate:
+            requires total >= 0 and total <= Capacity::MAX_ITEMS
+            requires queued >= 0 and running >= 0 and passed >= 0
+            requires warning >= 0 and failed >= 0 and cancelled >= 0
+            requires unapproved_warnings >= 0
+            requires queued <= Capacity::MAX_ITEMS and running <= Capacity::MAX_ITEMS and passed <= Capacity::MAX_ITEMS
+            requires warning <= Capacity::MAX_ITEMS and failed <= Capacity::MAX_ITEMS and cancelled <= Capacity::MAX_ITEMS
+            requires staged >= 0 and staged <= Capacity::MAX_ITEMS
+            requires awaiting_review >= 0 and awaiting_review <= Capacity::MAX_ITEMS
+            requires unapproved_warnings <= Capacity::MAX_ITEMS
+            ensure result == (Aggregate.Invalid if queued + running + passed + warning + failed + cancelled + staged + awaiting_review < total or queued + running + passed + warning + failed + cancelled + staged + awaiting_review > total or unapproved_warnings > warning else Aggregate.Incomplete if queued + running + failed + cancelled + staged + awaiting_review + unapproved_warnings > 0 else Aggregate.CompleteWithWarnings if warning > 0 else Aggregate.Complete)
+            return Aggregate.Invalid if queued + running + passed + warning + failed + cancelled + staged + awaiting_review < total or queued + running + passed + warning + failed + cancelled + staged + awaiting_review > total
+            return Aggregate.Invalid if unapproved_warnings > warning
+            return Aggregate.Incomplete if queued + running + failed + cancelled + staged + awaiting_review + unapproved_warnings > 0
+            return Aggregate.CompleteWithWarnings if warning > 0
+            Aggregate.Complete

@@ -1,0 +1,88 @@
+# Laws for bounded queue admission, cancellation, retry, and truthful totals.
+include "../src/studio/export_batch_queue_policy.elisa"
+
+module StudioExportBatchQueueLaws:
+    public:
+        def cancelled_queue_never_launches() -> bool:
+            ensure result
+            not StudioExportBatchQueuePolicy::launch_admitted(StudioExportBatchQueuePolicy::ItemState.Queued, true, 0, 4, 0, 1)
+
+        def worker_limit_is_enforced() -> bool:
+            ensure result
+            not StudioExportBatchQueuePolicy::launch_admitted(StudioExportBatchQueuePolicy::ItemState.Queued, false, 2, 2, 0, 1)
+
+        def absolute_worker_bound_is_enforced() -> bool:
+            ensure result
+            not StudioExportBatchQueuePolicy::launch_admitted(StudioExportBatchQueuePolicy::ItemState.Queued, false, 0, StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS + 1, 0, 1)
+
+        def only_queued_items_launch() -> bool:
+            ensure result
+            not StudioExportBatchQueuePolicy::launch_admitted(StudioExportBatchQueuePolicy::ItemState.Passed, false, 0, 1, 0, 1)
+
+        def cancellation_drains_running_item() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::after_cancel(StudioExportBatchQueuePolicy::ItemState.Running) == StudioExportBatchQueuePolicy::ItemState.Running
+
+        def cancellation_marks_unlaunched_item() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::after_cancel(StudioExportBatchQueuePolicy::ItemState.Queued) == StudioExportBatchQueuePolicy::ItemState.Cancelled
+
+        def complete_outputs_are_required_for_pass() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::completion(true, false, 0) == StudioExportBatchQueuePolicy::ItemState.Failed
+
+        def clean_completion_stages_before_publication() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::completion(true, true, 0) == StudioExportBatchQueuePolicy::ItemState.Staged
+
+        def warning_completion_waits_for_review() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::completion(true, true, 1) == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+
+        def warning_needs_review_before_publication() -> bool:
+            ensure result
+            not StudioExportBatchQueuePolicy::may_publish(StudioExportBatchQueuePolicy::ItemState.AwaitingReview, false, true) and StudioExportBatchQueuePolicy::may_publish(StudioExportBatchQueuePolicy::ItemState.AwaitingReview, true, true)
+
+        def only_complete_create_only_publication_passes() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::publication_result(StudioExportBatchQueuePolicy::ItemState.Staged, true) == StudioExportBatchQueuePolicy::ItemState.Passed
+
+        def warnings_require_review_before_approval() -> bool:
+            ensure result
+            not StudioExportBatchQueuePolicy::may_approve_warning(StudioExportBatchQueuePolicy::ItemState.Warning, false) and StudioExportBatchQueuePolicy::may_approve_warning(StudioExportBatchQueuePolicy::ItemState.Warning, true)
+
+        def retry_requeues_only_failed_or_cancelled() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::retry_state(StudioExportBatchQueuePolicy::ItemState.Failed) == StudioExportBatchQueuePolicy::ItemState.Queued and StudioExportBatchQueuePolicy::retry_state(StudioExportBatchQueuePolicy::ItemState.Cancelled) == StudioExportBatchQueuePolicy::ItemState.Queued
+
+        def retry_preserves_passed_and_warning_outputs() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::retry_state(StudioExportBatchQueuePolicy::ItemState.Passed) == StudioExportBatchQueuePolicy::ItemState.Passed and StudioExportBatchQueuePolicy::retry_state(StudioExportBatchQueuePolicy::ItemState.Warning) == StudioExportBatchQueuePolicy::ItemState.Warning
+
+        def failed_take_keeps_aggregate_incomplete() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::aggregate(2, 0, 0, 1, 0, 1, 0, 0, 0, 0) == StudioExportBatchQueuePolicy::Aggregate.Incomplete
+
+        def unapproved_warning_keeps_aggregate_incomplete() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::aggregate(1, 0, 0, 0, 1, 0, 0, 0, 0, 1) == StudioExportBatchQueuePolicy::Aggregate.Incomplete
+
+        def approved_warning_is_truthfully_reported() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::aggregate(1, 0, 0, 0, 1, 0, 0, 0, 0, 0) == StudioExportBatchQueuePolicy::Aggregate.CompleteWithWarnings
+
+        def clean_all_passed_queue_is_complete() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::aggregate(2, 0, 0, 2, 0, 0, 0, 0, 0, 0) == StudioExportBatchQueuePolicy::Aggregate.Complete
+
+        def invalid_partition_fails_closed() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::aggregate(1, 0, 0, 0, 0, 0, 0, 0, 0, 0) == StudioExportBatchQueuePolicy::Aggregate.Invalid
+
+        def excess_unapproved_warnings_fail_closed() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::aggregate(1, 0, 0, 0, 0, 0, 0, 0, 0, 1) == StudioExportBatchQueuePolicy::Aggregate.Invalid
+
+        def staged_input_keeps_manifest_incomplete() -> bool:
+            ensure result
+            StudioExportBatchQueuePolicy::aggregate(1, 0, 0, 0, 0, 0, 0, 1, 0, 0) == StudioExportBatchQueuePolicy::Aggregate.Incomplete
