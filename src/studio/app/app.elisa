@@ -18,6 +18,7 @@ include "../storage_selection_policy.elisa"
 include "../storage_batch_policy.elisa"
 include "../storage_identity_policy.elisa"
 include "../storage_totals_kernel.elisa"
+include "../storage_overview_policy.elisa"
 include "../io/storage_clock.elisa"
 include "../storage_accessibility_policy.elisa"
 include "../io/storage_manifest_file.elisa"
@@ -139,6 +140,8 @@ module Studio:
         global mutable storage_scan_seconds: i64 = -1
         global mutable storage_protected_records: i64 = 0
         global mutable storage_unverified_records: i64 = 0
+        global mutable storage_overview_counts: darray[i64] = zeroed
+        global mutable storage_overview_bytes: darray[i64] = zeroed
         global mutable storage_present_bytes: i64 = 0
         global mutable storage_trash_bytes: i64 = 0
         const REPLACE_TAKE: i64 = 1
@@ -1703,6 +1706,8 @@ module Studio:
             storage_visible_reasons <- []
             storage_protected_records <- 0
             storage_unverified_records <- 0
+            storage_overview_counts <- [0, 0, 0, 0]
+            storage_overview_bytes <- [0, 0, 0, 0]
             storage_present_bytes <- 0
             storage_trash_bytes <- 0
             storage_manifest_state <- 0
@@ -1789,6 +1794,22 @@ module Studio:
                         mutable reasons: darray[i64] = []
                         for index in 0..<visible.count |visible, statuses, reasons|:
                             reasons.push(storage_cleanup_reason(visible[index], statuses[index]))
+                        mutable overview_counts: darray[i64] = [0, 0, 0, 0]
+                        mutable overview_bytes: darray[i64] = [0, 0, 0, 0]
+                        for index in 0..<visible.count |visible, statuses, reasons, overview_counts, overview_bytes|:
+                            entry: StudioStorageManifest::Entry = visible[index]
+                            category: i64 = StudioStorageOverviewPolicy::category(
+                                statuses[index] == StudioPanels::STORAGE_STATUS_PRESENT,
+                                statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH,
+                                entry.kind == StudioStorageCleanupPolicy::RECOVERY,
+                                reasons[index] == StudioStorageCleanupPolicy::PROTECT_NONE)
+                            if category >= 0 and category < StudioStorageOverviewPolicy::CATEGORY_COUNT:
+                                slot: usize = category.usize()
+                                if StudioStorageTotalsKernel::add_allowed(overview_counts[slot], overview_bytes[slot], entry.size_bytes):
+                                    overview_bytes[slot] <- StudioStorageTotalsKernel::next_total(overview_bytes[slot], entry.size_bytes)
+                                    overview_counts[slot] <- StudioStorageTotalsKernel::next_count(overview_counts[slot])
+                        storage_overview_counts <- overview_counts
+                        storage_overview_bytes <- overview_bytes
                         storage_visible_reasons <- reasons
                         storage_present_bytes <- present_bytes
                         storage_trash_bytes <- trash_bytes
@@ -1855,6 +1876,11 @@ module Studio:
                 StudioStorageManifest::valid(entry), storage_manifest_state == 1,
                 statuses[storage_selected] == StudioPanels::STORAGE_STATUS_IN_TRASH,
                 true, false)
+
+        def storage_has_no_eligible() -> bool:
+            counts: darray[i64] = storage_overview_counts
+            return false if counts.count != StudioStorageOverviewPolicy::CATEGORY_COUNT.usize()
+            counts[StudioStorageOverviewPolicy::CATEGORY_ELIGIBLE.usize()] == 0
 
         def storage_trash_available() -> bool:
             return false if not storage_preferences_valid
@@ -3301,7 +3327,7 @@ module Studio:
                 storage_selected, storage_focus, storage_message,
                 storage_protected_records, storage_unverified_records,
                 storage_restore_available(), storage_restore_review, storage_trash_available(), storage_move_review,
-                storage_present_bytes, storage_trash_bytes, storage_scan_seconds,
+                storage_present_bytes, storage_trash_bytes, storage_overview_counts, storage_overview_bytes, storage_scan_seconds,
                 StudioStorageSelectionPolicy::retention_days(storage_retention_preset), storage_selection_bytes, storage_selection_removed,
                 storage_batch_state, storage_batch_completed, storage_batch_failed, storage_batch_untouched,
                 storage_batch_entries, storage_batch_items)
@@ -3713,7 +3739,18 @@ module Studio:
                 StudioText::put_i(storage_cleanup_selection.count.i64())
                 StudioText::put(" files, ")
                 StudioText::put_i(storage_selection_bytes)
-                StudioText::put(" bytes.")
+                StudioText::put(" bytes. Logical sizes, not estimated disk space freed. ")
+                overview_counts: darray[i64] = storage_overview_counts
+                overview_bytes: darray[i64] = storage_overview_bytes
+                for category in 0..<overview_counts.count |category, overview_counts, overview_bytes|:
+                    StudioText::put(StudioPanels::storage_overview_name(category.i64()))
+                    StudioText::put(": ")
+                    StudioText::put_i(overview_counts[category])
+                    StudioText::put(" files, ")
+                    StudioText::put_i(overview_bytes[category])
+                    StudioText::put(" bytes. ")
+                StudioText::put_i(storage_unverified_records)
+                StudioText::put(" unverified records; their sizes are not included in verified totals.")
                 total_value <- StudioText::view()
             list_box: StudioPanels::Box = StudioPanels::box(dialog.x + 22.0, dialog.y + 178.0,
                 dialog.w - 44.0, dialog.h - 300.0)
@@ -3797,7 +3834,7 @@ module Studio:
                 StudioStorageAccessibilityPolicy::ANNOUNCEMENT,
                 StudioStorageAccessibilityPolicy::DIALOG, none, none,
                 none, true, false,
-                storage_batch_announcement() if storage_batch_state != StudioStorageBatchPolicy::STATE_IDLE else StudioStorageAccessibilityCopy::result_announcement(storage_message))
+                storage_batch_announcement() if storage_batch_state != StudioStorageBatchPolicy::STATE_IDLE else "No eligible files. Review protection reasons and retention; Refresh after changes." if storage_message == 3 and storage_has_no_eligible() else StudioStorageAccessibilityCopy::result_announcement(storage_message))
 
         def publish_export_review_accessibility(w: f32, h: f32) -> void:
             return if not accessibility_review_ready
