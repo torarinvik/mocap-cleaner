@@ -156,7 +156,15 @@ invalid candidates without losing the prior choice. It also validates inclusive
 selection endpoints. Its accompanying laws compile with retained function
 symbols at O0; current producer/replay and UI integration remain open. Contact
 and correction-key producers must feed exact frames, never visual bins, and
-the UI must explain when no boundary is available.
+the UI must explain when no boundary is available. Keyboard integration now
+uses Home/End for clip endpoints, Shift-Home/End for selection endpoints,
+Cmd-Up/Down for contact-state transitions, and Cmd-PageUp/PageDown for enabled
+correction keys. Contact transitions select the first frame with the new state;
+they do not fabricate a clip-end transition. Incomplete contact tracks, an
+unevaluated current stack, and active pointer drags refuse navigation. Empty
+directional searches explain why the playhead stayed unchanged. Full integrated
+compilation, current replay, pointer/AX controls, native shortcut delivery and
+selection/contact/key journey acceptance remain open.
 
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
