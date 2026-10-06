@@ -60,3 +60,21 @@ Current compiler `720896f4` emits the combined fixture object at
 five laws. Runtime comparison, independent proof replay, physical memory
 release and transient peak qualification remain open. The channel and rig
 limits are separate; their combination is not a whole-process memory limit.
+
+## Focused proof comparison on compiler 720
+
+The clean `4da/720` candidate reports the following for current budget files,
+including imported helper obligations. Every report remains unqualified:
+
+| File | Produced / obligations | Replayed / produced | Replay gaps |
+| --- | ---: | ---: | ---: |
+| Aggregate bank policy | 44 / 56 | 40 / 44 | 4 |
+| Aggregate bank laws | 52 / 81 | 48 / 52 | 4 |
+| Rig budget policy | 37 / 46 | 33 / 37 | 4 |
+| Rig budget laws | 42 / 61 | 38 / 42 | 4 |
+
+Reports are `build/cache-budget-focus-{0,1,2,3}-720.json` respectively.
+Inherited findings include checked-product wrap guards, typed execution
+contracts and unverified helper summaries. Aggregate contents and rig laws
+also report ambiguous constant goals; lexical owner resolution requires
+investigation. No contract or existing baseline was weakened in response.
