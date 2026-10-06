@@ -76,3 +76,10 @@ contracts and composed laws; current compilation and replay remain pending.
   units, and report unavailable dimensions with explicit reasons.
 - [ ] Qualify missing clips/metrics, unsupported magnitudes, empty baselines,
   decimal/exponent values and malformed documents before closing diff review.
+
+Report diff now checks engine JSON tokenization and an object root before metric
+extraction; failed structure/empty input produces an input error. The module
+compiled with current Stage1 `4c409da6`, without a stale override. This is only
+a structure admission step: legacy extraction still needs the schema, numeric,
+string decoding and duplicate-identity work listed above. Engine tokenization
+alone does not establish every required report validation rule.

@@ -6,6 +6,7 @@
 # unbalanced_frames and unbalanced_runs. "ok" turning false regresses, and so
 # does a metric or clip missing from b. The verdict is Regress::verdict.
 include "../core/regress.elisa"
+include "../../../elisa-engine-mocap/src/assets/glb_json.elisa"
 include "report.elisa"
 include "console.elisa"
 
@@ -77,7 +78,10 @@ module ReportDiff:
             return c == 32 or c == 10 or c == 13 or c == 9
 
         # Parse `text` into metrics; key and clip bytes go into `pool`.
-        def parse(text: darray[u8]&, pool: mutable darray[u8]&, out: mutable darray[Metric]&):
+        def parse(text: darray[u8]&, pool: mutable darray[u8]&, out: mutable darray[Metric]&) -> bool:
+            mutable tokens: darray[GlbJson::Token] = []
+            return false if not GlbJson::tokenize(text, 0, text.count, &tokens)
+            return false if tokens.count == 0 or tokens[0].kind != GlbJson::KIND_OBJECT
             mutable clip_at: i64 = pool.count.i64()
             for c in "total":
                 pool.push(c)
@@ -133,6 +137,8 @@ module ReportDiff:
                         key_at <- -1
                     i <- i + 1
 
+            true
+
         def read_bytes(path: cstr, out: mutable darray[u8]&) -> bool:
             mutable ok: bool = false
             can Blocking.IO, Memory.Allocate, Memory.Release:
@@ -183,8 +189,12 @@ module ReportDiff:
             mutable pb: darray[u8] = []
             mutable ma: darray[Metric] = []
             mutable mb: darray[Metric] = []
-            parse(&a_text, &pa, &ma)
-            parse(&b_text, &pb, &mb)
+            if not parse(&a_text, &pa, &ma):
+                errors <- errors + 1
+                Out::line("Baseline report is empty or has invalid JSON structure.")
+            if not parse(&b_text, &pb, &mb):
+                errors <- errors + 1
+                Out::line("Candidate report is empty or has invalid JSON structure.")
             if errors == 0 and ma.count == 0:
                 errors <- 1
             tol: i64 = tolerance(tol_permille)
