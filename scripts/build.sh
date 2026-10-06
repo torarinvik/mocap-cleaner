@@ -11,7 +11,6 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ENGINE="${ELISA_ENGINE_ROOT:-$ROOT/../elisa-engine-mocap}"
 ELISAC="${ELISAC:-$ROOT/../Elisa-compiler/scripts/elisac_stage1.sh}"
-export ELISA_ALLOW_STALE_STAGE1="${ELISA_ALLOW_STALE_STAGE1:-1}"
 export MOCAP_CLI_COMPILER="$(cd "$(dirname "$ELISAC")" && pwd)/$(basename "$ELISAC")"
 export ELISA_COMPILER_BIN="$ROOT/scripts/cli_compiler.py"
 export ELISA_ENGINE_ROOT="$ENGINE"

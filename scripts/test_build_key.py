@@ -51,12 +51,12 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_build_key.py ELISAC")
     compiler_root = ROOT.parent / "Elisa-compiler"
-    digest = hashlib.sha256(b"mocap-cleaner-test-build-v1\0")
+    digest = hashlib.sha256(b"mocap-cleaner-test-build-v2\0")
     digest.update(f"{platform.system()}:{platform.machine()}:{sys.version}\0".encode())
-    digest.update((sys.argv[1] + "\0-emit exe\0ELISA_ALLOW_STALE_STAGE1=1").encode())
+    digest.update((sys.argv[1] + "\0-emit exe").encode())
     tool_env = {
         "ELISAC", "ELISA_STAGE1_BIN", "ELISA_RUNTIME_OBJ", "ELISA_CLANG",
-        "ELISA_AR", "LLVM_CONFIG",
+        "ELISA_AR", "LLVM_CONFIG", "ELISA_ALLOW_STALE_STAGE1",
     }
     tool_env.update(
         name for name in os.environ

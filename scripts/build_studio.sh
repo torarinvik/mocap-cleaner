@@ -19,19 +19,8 @@ STAGE1="$(cd -- "${ELISA_STAGE1:-$ROOT/../Elisa-compiler}" && pwd)"
 PROOF="${ELISA_PROOF:-$ROOT/../elisa-proof-mocap/build/elisa-proof}"
 RUNTIME="$STAGE1/build/runtime/elisacore_runtime.o"
 OUT="$ROOT/build"
-export ELISA_ALLOW_STALE_STAGE1="${ELISA_ALLOW_STALE_STAGE1:-1}"
-# The main compiler checkout's bin/elisac-stage1 predates two fixes the studio
-# needs: the current module winning name lookup (compiler e2871b2c; otherwise
-# Ops::Kind clashes with elisa-ui's Kind) and keeping values stored into module
-# globals out of the storing function's auto region (branch studio-globals;
-# otherwise the Studio's clip/memo globals read freed memory and the window
-# shows an empty rig and timeline). Prefer that binary; ELISA_STAGE1_BIN
-# overrides it.
-STUDIO_STAGE1="$ROOT/../elisa-compiler-worktrees/studio-globals/bin/elisac-stage1"
-if [[ -z "${ELISA_STAGE1_BIN:-}" && -x "$STUDIO_STAGE1" ]]; then export ELISA_STAGE1_BIN="$STUDIO_STAGE1"; fi
-# The current compiler also supports global storage lifetimes. The focused
-# test/studio_global_lifetime.elisa regression runs with normal Studio checks;
-# absence of the historic worktree alone does not mean globals are unsafe.
+# Use the configured current compiler. Its wrapper enforces build provenance;
+# do not silently select a historical worktree or permit a stale Stage1.
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "the studio window is macOS only" >&2; exit 2; }
 [[ -f "$RUNTIME" ]] || { echo "no runtime object at $RUNTIME" >&2; exit 2; }

@@ -33,7 +33,7 @@ build_test() {
     name=$(basename "$t" .elisa)
     if [ -x "build/test/$name" ] && [ "$(cat "build/test/$name.build-key" 2>/dev/null)" = "$test_build_key" ]; then
         echo cached >"build/test/$name.status"
-    elif ELISA_ALLOW_STALE_STAGE1=1 "$ELISAC" -emit exe -o "build/test/$name" "$t" >"build/test/$name.log" 2>&1; then
+    elif "$ELISAC" -emit exe -o "build/test/$name" "$t" >"build/test/$name.log" 2>&1; then
         echo "$test_build_key" >"build/test/$name.build-key.tmp"
         mv "build/test/$name.build-key.tmp" "build/test/$name.build-key"
         echo ok >"build/test/$name.status"
