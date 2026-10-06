@@ -12,10 +12,13 @@ extern f_closedir(dir: mutable heap void&) -> i32 can[Blocking.IO, Memory.Releas
 extern f_memcpy(dst: mutable u8&, src: mutable heap void&, n: usize) -> mutable u8& can[Memory.Allocate]
 
 module Folder:
+    private:
+        const module DarwinDirent:
+            NAME_OFFSET: usize = 21
+            HEADER: usize = 24
+            MAX_RECORD: usize = 1048
+
     public:
-        const NAME_OFFSET: usize = 21
-        const HEADER: usize = 24
-        const MAX_RECORD: usize = 1048
 
         def is_dir(path: cstr) -> bool:
             mutable ok: bool = false
@@ -65,7 +68,7 @@ module Folder:
         def entries(dir: cstr) -> darray[darray[u8]]:
             mutable out: darray[darray[u8]] = []
             mutable buf: darray[u8] = []
-            for k in 0..<MAX_RECORD:
+            for k in 0..<DarwinDirent::MAX_RECORD:
                 buf.push(0)
             can Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast:
                 d: mutable heap void&? = f_opendir(dir.cast[u8&])
@@ -78,14 +81,14 @@ module Folder:
                         if e != null:
                             going <- true
                             ent: mutable heap void& = e
-                            _ = f_memcpy((&buf[0]).cast[mutable u8&], ent, HEADER)
+                            _ = f_memcpy((&buf[0]).cast[mutable u8&], ent, DarwinDirent::HEADER)
                             reclen: usize = buf[16].usize() + buf[17].usize() * 256
                             namlen: usize = buf[18].usize() + buf[19].usize() * 256
-                            if reclen >= HEADER and reclen <= MAX_RECORD and NAME_OFFSET + namlen <= reclen:
+                            if reclen >= DarwinDirent::HEADER and reclen <= DarwinDirent::MAX_RECORD and DarwinDirent::NAME_OFFSET + namlen <= reclen:
                                 _ = f_memcpy((&buf[0]).cast[mutable u8&], ent, reclen)
                                 mutable name: darray[u8] = []
                                 for i in 0..<namlen:
-                                    name.push(buf[NAME_OFFSET + i])
+                                    name.push(buf[DarwinDirent::NAME_OFFSET + i])
                                 dot: bool = namlen == 1 and name[0] == 46
                                 dotdot: bool = namlen == 2 and name[0] == 46 and name[1] == 46
                                 out.push(name) if not dot and not dotdot

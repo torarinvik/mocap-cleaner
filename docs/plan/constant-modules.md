@@ -35,7 +35,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **73 owners, 701 ungrouped constants**.
+Remaining source inventory: **72 owners, 698 ungrouped constants**.
 File-level export publisher limits, outside this module-owner inventory, now
 use private `StudioExportPublisher::Capacity` (path and staging buffer sizes).
 Numeric capacities remain a const module; typed validation outcomes use an enum.
@@ -48,7 +48,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `CliOutputGuardPolicy` | 8 | `src/cli/output_guard_policy.elisa` |
 | `CliOutputPublisher` | 3 | `src/cli/output_publisher.elisa` |
 | `Fade` | 3 | `src/core/fade.elisa` |
-| `Folder` | 3 | `src/io/folder.elisa` |
 | `GlbTracks` | 4 | `src/io/glb_tracks.elisa` |
 | `Hand` | 4 | `src/core/hand.elisa` |
 | `Hinge` | 3 | `src/core/hinge.elisa` |
@@ -128,3 +127,8 @@ Compilation and proof replay await current toolchain products.
 `Regress::Domain` groups the bounded metric magnitude and maximum permille
 tolerance. All law consumers use the qualified names; numeric values and
 regression behavior are unchanged. Current compilation/replay remain pending.
+
+`Folder::DarwinDirent` privately groups native directory-record layout limits.
+These ABI offsets are platform-specific numeric facts, not alternatives for an
+enum. The current folder reader remains Darwin-specific; cross-platform batch
+work must use a qualified host directory service rather than assuming this ABI.
