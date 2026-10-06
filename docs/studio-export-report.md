@@ -97,3 +97,17 @@ difference and 1,000,000 scale. These are not physical acceleration units.
 The unavailable marker now concerns complete detector configuration; it does
 not negate individually captured thresholds in settings. Other callers may
 provide fewer settings, so consumers must inspect the actual entries.
+
+## Report text storage
+
+Operation/band values use report-only 512-byte slots rather than the UI's
+128-byte display slots. At the current 16-operation and 8-band capacities,
+export uses at most 50 simultaneous formatted views in 96 slots. Source
+basenames use their own local buffer. Integer formatting supports the full
+signed i64 range without negating its minimum value. Report formatting is
+synchronous; a future worker implementation must give each job owned storage.
+
+The slot offset/advance policy proves 10/10. Its caller laws prove 21/22 with
+one unresolved upper-bound implication; no claim of complete proof coverage
+is made. Studio object compilation passes. Native report-content qualification
+remains required.

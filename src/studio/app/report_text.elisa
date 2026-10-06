@@ -1,0 +1,41 @@
+include "../report_text_policy.elisa"
+
+# Export formatting has at most 50 simultaneous views at current stack limits.
+# Each operation/band description fits 512 bytes even with full i64 fields.
+module StudioReportText:
+    private:
+        global mutable buffer: u8[49152] = zeroed
+        global mutable slot: i64 = 0
+        global mutable start: usize = 0
+        global mutable length: usize = 0
+
+        # Keep the accumulator negative so i64 minimum never needs negation.
+        def negative_digits(value: i64) -> void:
+            negative_digits(value / 10) if value <= -10
+            byte((48 - value % 10).u8())
+
+    public:
+        def begin() -> void:
+            start <- StudioReportTextPolicy::offset(slot).usize()
+            slot <- StudioReportTextPolicy::next_slot(slot)
+            length <- 0
+
+        def byte(value: u8) -> void:
+            return if length >= StudioReportTextPolicy::Buffer::WIDTH.usize()
+            buffer[start + length] <- value
+            length <- length + 1
+
+        def put(value: sview) -> void:
+            return if value.len <= 0 or value.data == null
+            for index in 0..<value.len.usize():
+                byte(value.data[index])
+
+        def put_i(value: i64) -> void:
+            if value < 0:
+                byte(45)
+                negative_digits(value)
+            else:
+                negative_digits(0 - value)
+
+        def view() -> sview can Unsafe.PointerCast:
+            UiText::fixed_bytes_view_range[49152](buffer, start, length)
