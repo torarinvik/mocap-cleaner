@@ -159,3 +159,23 @@ not missing published upstream changes. Their worktree is preserved. Carrying
 that broad refactor into the mocap prover requires compatibility qualification
 and preservation of its mocap-specific repairs. No default prover promotion
 is claimed by this source refresh.
+
+## Latest fetched source snapshot (2026-10-06)
+
+All five `git fetch origin` operations completed successfully. Comparisons
+against each fetched `origin/HEAD` show zero missing upstream commits:
+
+| Checkout | Local HEAD | Fetched upstream | Ahead / behind |
+| --- | --- | --- | --- |
+| Compiler | `1f136742` | `72a75282` | 44 / 0 |
+| Mocap prover | `6ebc2a81` | `151a2772` | 24 / 0 |
+| Primary prover | `0491e6ad` | `151a2772` | 2 / 0 |
+| Mocap engine | `01f5aec7` | `7699ec52` | 20 / 0 |
+| Elisa UI | `8ab2eb39` | `dc6cd397` | 6 / 0 |
+
+Compiler/prover source edits remain unqualified WIP beyond these HEADs. The
+default compiler product is stale, and its diagnostic reseed is waiting on a
+live isolated host build. The prover fuel patch likewise awaits a matching
+compiler. These fetch results establish published-source ancestry only;
+they do not establish binary freshness or complete Studio/proof acceptance.
+No checkout was repointed and no stale-product override was used.
