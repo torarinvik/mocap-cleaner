@@ -132,3 +132,18 @@ payload-arity lookup. Its normal seed and provenance check match this revision.
 The reduced constructor/match reproduction and current existing performance
 fixture emit fresh objects. Recovery UI integration and a stable full check
 still require qualification; the prover default has not been promoted.
+
+Checked Studio builds and `scripts/check.sh` now run
+`scripts/check_prover_freshness.py` before qualification. It checks the selected
+binary hash against its manifest, current prover HEAD/source contents, current
+Stage1 provenance, linked frontend/compiler revisions and runtime hash. The
+older default prover is rejected explicitly rather than silently qualifying a
+current source snapshot with an old tool. A missing/malformed manifest fails.
+
+Historical diagnostic or candidate comparisons require explicit
+`MOCAP_PROOF_COMPARISON=1` alongside the selected `ELISA_PROOF` path. This mode
+still verifies the manifest's binary hash and prints that the run is a
+comparison, not current snapshot qualification. The active earlier diagnostic
+run started before this preflight existed and remains comparison evidence.
+`STUDIO_SKIP_CHECKS=1` remains the explicit compile-only route; it does not
+establish proof acceptance. No executable tests were added or run for this gate.

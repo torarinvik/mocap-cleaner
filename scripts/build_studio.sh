@@ -26,6 +26,9 @@ OUT="$ROOT/build"
 [[ -f "$RUNTIME" ]] || { echo "no runtime object at $RUNTIME" >&2; exit 2; }
 mkdir -p "$OUT" "$OUT/test"
 cd "$ROOT"
+if [[ "${STUDIO_SKIP_CHECKS:-0}" != 1 ]]; then
+  python3 scripts/check_prover_freshness.py "$PROOF" "${ELISA_PROOF_ROOT:-$ROOT/../elisa-proof-mocap}" "$STAGE1"
+fi
 python3 "$ROOT/scripts/check_file_lengths.py"
 python3 "$ROOT/tools/svg_icons.py" "$OUT/generated/studio_icon_paths.elisa"
 python3 "$ROOT/tools/studio_build_identity.py" "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$OUT/generated/studio_build_identity.elisa"
