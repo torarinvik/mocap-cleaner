@@ -1,0 +1,57 @@
+# Publish an already-prepared GLB only after rechecking its complete captured
+# binding. Native rename status remains authoritative if journal update fails.
+include "export_recovery_binding.elisa"
+include "export_recovery_store.elisa"
+include "../export_recovery_publication_policy.elisa"
+
+module StudioExportRecoveryPublication:
+    public:
+        const enum Failure of i64:
+            OwnershipUnavailable = 0
+            WorkspaceBusy = 1
+            InvalidPreparedRecord = 2
+            BindingChanged = 3
+            StagingChanged = 4
+            DestinationChanged = 5
+            NotPublished = 6
+
+        enum Outcome:
+            Rejected(reason: StudioExportRecoveryPublication::Failure)
+            NotPublished
+            Published(status: StudioPublicationDurabilityPolicy::Result,
+                      journal_status: StudioPublicationDurabilityPolicy::Result)
+
+        # This cannot authenticate ownership or a lock: callers must provide
+        # those native facts. The journal and every retained file are reread
+        # before rename; staging bytes are compared again to the capture.
+        def commit(directory: cstr, staging: cstr, destination: cstr,
+                   expected: StudioExportRecoveryJournal::Record&,
+                   output: darray[u8]&, json: darray[u8]&, text: darray[u8]&,
+                   owned: bool, locked: bool) -> Outcome can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            return Outcome.Rejected(Failure.OwnershipUnavailable) if not owned
+            return Outcome.Rejected(Failure.WorkspaceBusy) if not locked
+            return Outcome.Rejected(Failure.InvalidPreparedRecord) if not StudioExportRecoveryJournal::valid(expected)
+            return Outcome.Rejected(Failure.InvalidPreparedRecord) if expected.observed != StudioExportRecoveryStagePolicy::Stage.Prepared or expected.durable != StudioExportRecoveryStagePolicy::Stage.Prepared
+            mutable journal: StudioExportRecoveryJournal::Record = expected
+            return Outcome.Rejected(Failure.BindingChanged) if not StudioExportRecoveryBinding::load(directory, expected, output, json, text, owned, locked, &journal)
+            return Outcome.Rejected(Failure.BindingChanged) if journal.observed != StudioExportRecoveryStagePolicy::Stage.Prepared or journal.durable != StudioExportRecoveryStagePolicy::Stage.Prepared
+            return Outcome.Rejected(Failure.DestinationChanged) if not exact_path(destination, expected.destination)
+            return Outcome.Rejected(Failure.StagingChanged) if not StudioExportRecoveryBytes::matches(staging, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            status: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::commit_with_status(staging, destination)
+            return Outcome.NotPublished if not StudioPublicationDurabilityPolicy::published(status)
+            journal.observed <- StudioExportRecoveryStagePolicy::Stage.GlbPublished
+            if status == StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced:
+                journal.durable <- StudioExportRecoveryStagePolicy::Stage.GlbPublished
+            journal_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::update_journal(directory, journal)
+            Outcome.Published(status, journal_status)
+
+    private:
+        def exact_path(path: cstr, expected: darray[u8]&) -> bool:
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                length <- length + 1
+            return false if length >= 4096 or length != expected.count
+            for index in 0..<length:
+                return false if path[index] != expected[index]
+            true
+
