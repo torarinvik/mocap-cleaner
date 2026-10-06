@@ -132,14 +132,14 @@ module ReportDiff:
 
         # Root scalars belong to `total`; only direct `clips` elements may
         # introduce clip identities. Name order within an object is irrelevant.
-        def parse(text: darray[u8]&, pool: mutable darray[u8]&, out: mutable darray[Metric]&) -> bool:
+        def parse(text: darray[u8]&, pool: mutable darray[u8]&, out: mutable darray[Metric]&, tokens: mutable darray[GlbJson::Token]&) -> bool:
             pool.clear()
             out.clear()
             return false if not ReportBudget::admitted(text.count.i64())
-            mutable tokens: darray[GlbJson::Token] = []
-            return false if not GlbJson::tokenize(text, 0, text.count, &tokens)
+            tokens.clear()
+            return false if not GlbJson::tokenize(text, 0, text.count, tokens)
             return false if tokens.count == 0 or tokens[0].kind != GlbJson::KIND_OBJECT
-            return false if member_count(text, &tokens, 0, "clips") > 1
+            return false if member_count(text, tokens, 0, "clips") > 1
             # Validate every string, including skipped metadata, before admitting
             # the report. Invalid escapes must not hide a recognized field.
             mutable decoded: darray[u8] = []
@@ -149,22 +149,22 @@ module ReportDiff:
                     return false if not JsonString::decode(text, token.start, token.stop, &decoded)
             Report::push_text(pool, "total")
             mutable identities: darray[Identity] = [Identity{at: 0, len: 5}]
-            object_metrics(text, &tokens, 0, 0, 5, pool, out)
-            clips: i64 = decoded_member(text, &tokens, 0, "clips")
+            object_metrics(text, tokens, 0, 0, 5, pool, out)
+            clips: i64 = decoded_member(text, tokens, 0, "clips")
             if clips >= 0:
-                if GlbJson::kind_of(&tokens, clips) != GlbJson::KIND_ARRAY:
+                if GlbJson::kind_of(tokens, clips) != GlbJson::KIND_ARRAY:
                     out.clear()
                     return false
                 mutable clip: usize = clips.usize() + 1
                 for index in 0..<tokens[clips.usize()].size:
-                    if GlbJson::kind_of(&tokens, clip.i64()) != GlbJson::KIND_OBJECT:
+                    if GlbJson::kind_of(tokens, clip.i64()) != GlbJson::KIND_OBJECT:
                         out.clear()
                         return false
-                    if not ReportBudget::unique_identity(member_count(text, &tokens, clip, "name")):
+                    if not ReportBudget::unique_identity(member_count(text, tokens, clip, "name")):
                         out.clear()
                         return false
-                    name: i64 = decoded_member(text, &tokens, clip, "name")
-                    if GlbJson::kind_of(&tokens, clip.i64()) != GlbJson::KIND_OBJECT or GlbJson::kind_of(&tokens, name) != GlbJson::KIND_STRING:
+                    name: i64 = decoded_member(text, tokens, clip, "name")
+                    if GlbJson::kind_of(tokens, clip.i64()) != GlbJson::KIND_OBJECT or GlbJson::kind_of(tokens, name) != GlbJson::KIND_STRING:
                         out.clear()
                         return false
                     clip_at: i64 = pool.count.i64()
@@ -173,7 +173,7 @@ module ReportDiff:
                         out.clear()
                         return false
                     identities.push(Identity{at: clip_at, len: clip_len})
-                    object_metrics(text, &tokens, clip, clip_at, clip_len, pool, out)
+                    object_metrics(text, tokens, clip, clip_at, clip_len, pool, out)
                     clip <- tokens[clip].after
 
             if not unique_clip_identities(pool, &identities):
@@ -280,9 +280,11 @@ module ReportDiff:
             mutable pb: darray[u8] = []
             mutable ma: darray[Metric] = []
             mutable mb: darray[Metric] = []
-            if not parse(&a_text, &pa, &ma):
+            mutable a_tokens: darray[GlbJson::Token] = []
+            mutable b_tokens: darray[GlbJson::Token] = []
+            if not parse(&a_text, &pa, &ma, &a_tokens):
                 validation_problem(&errors, &diagnostics, "Baseline report is empty, malformed or has duplicate metric identities.")
-            if not parse(&b_text, &pb, &mb):
+            if not parse(&b_text, &pb, &mb, &b_tokens):
                 validation_problem(&errors, &diagnostics, "Candidate report is empty, malformed or has duplicate metric identities.")
             if errors == 0 and ma.count == 0:
                 validation_problem(&errors, &diagnostics, "Baseline report contains no scalar metrics.")
