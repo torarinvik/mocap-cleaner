@@ -85,3 +85,19 @@ before a foreign const fallback. The product reports current clean provenance.
 Log: `build/repro/ui-policy-cross.log`. This closes the reproduced compiler
 collision; integrated Studio compilation and native behavior remain separate
 gates. The report diff module also compiles on this product.
+
+## Remaining integrated failure, 2026-10-06
+
+The historical collision above is reproduced and repaired. It must not be
+treated as the confirmed cause of the remaining full Studio backend failure.
+The integrated build still declines 24 function bodies and emits no Studio
+object after the recovery accessibility frame conversion was corrected; see
+`docs/acceptance/export-recovery-ui-2026-10-06.md`.
+
+The exact UI Event/InputEvent hierarchy, payloads, module-qualified match arms
+and `request_frame_after` compile in isolation, including the actual UI core.
+This narrows the investigation to an interaction in the complete include
+graph. A remaining declaration-owner or registration collision is a hypothesis,
+not an established diagnosis. Temporary backend path/owner tracing is being
+built into a diagnostic compiler to distinguish these possibilities. Its
+results are not acceptance of a normal compiler product or application binary.
