@@ -173,7 +173,7 @@ def complete_report(text):
     counts = {}
     for name in ("obligations", "proven", "unproven"):
         values = re.findall(rf"^\s*{name}: (\d+)\s*$", text, re.MULTILINE)
-        if len(values) != 1:
+        if len(values) != 1 or len(values[0]) > 20:
             return False
         counts[name] = int(values[0])
     return (len(states) == 1 and counts["proven"] + counts["unproven"] == counts["obligations"]
@@ -189,7 +189,7 @@ def complete_cached_report(line):
     state = values["verification state"]
     if state not in ("proved", "unknown", "unsupported", "disproved"):
         return False
-    if any(not values[name].isascii() or not values[name].isdigit()
+    if any(len(values[name]) > 20 or not values[name].isascii() or not values[name].isdigit()
            for name in ("obligations", "proven", "unproven")):
         return False
     total, proven, unproven = (int(values[name]) for name in ("obligations", "proven", "unproven"))

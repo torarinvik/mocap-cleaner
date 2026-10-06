@@ -88,3 +88,9 @@ numeric obligation/proven/unproven totals whose sum is consistent. A `proved`
 state with unresolved obligations is invalid. Reports missing totals or showing
 inconsistent counters cannot be reused; discarded reports still fail the run.
 Qualify malformed/partial summaries alongside timeout and abnormal-exit cases.
+
+Cache format v5 retains obligation totals in its summary and validates the
+state/counters again when reading a cache hit. Incomplete or inconsistent
+entries lose their cached marker and are scheduled for fresh verification.
+Counter text length is bounded before integer parsing so corrupt oversized
+values cannot abort the entire run at Python's integer-string limit.
