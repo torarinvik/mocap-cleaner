@@ -84,6 +84,15 @@ positives before enabling recommendations.
       every applicable preservation constraint; unavailable data blocks an
       automatic pass. Cancel/Escape leave stack and history unchanged; Apply
       followed by Undo restores their exact prior state.
+- [ ] Admit preview only when the current displayed result matches its evaluated
+      stack and document; failed/pending evaluation cannot be treated as the
+      baseline. Candidate generation failure preserves the prior valid settings
+      and candidate together, or invalidates both explicitly. Never show new
+      lock settings with an old candidate pose.
+- [ ] Make the Apply handler enforce the same candidate existence, freshness,
+      changed-stack and evidence admission as its visual/keyboard/AX enablement.
+      Cover adjustment failure, stale results during preview, failed evaluation,
+      missing candidate and no-op candidate. Retain focus and explain recovery.
 - [ ] Evaluate candidate improvement against preservation constraints:
       contacts, knee/elbow transitions, boundaries, peak velocity and intended
       impact timing. Flag or withhold candidates that worsen protected metrics.
