@@ -35,7 +35,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **71 owners, 696 ungrouped constants**.
+Remaining source inventory: **70 owners, 693 ungrouped constants**.
 File-level export publisher limits, outside this module-owner inventory, now
 use private `StudioExportPublisher::Capacity` (path and staging buffer sizes).
 Numeric capacities remain a const module; typed validation outcomes use an enum.
@@ -47,7 +47,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `CliOutputGuard` | 6 | `src/cli/output_guard.elisa` |
 | `CliOutputGuardPolicy` | 8 | `src/cli/output_guard_policy.elisa` |
 | `CliOutputPublisher` | 3 | `src/cli/output_publisher.elisa` |
-| `Fade` | 3 | `src/core/fade.elisa` |
 | `GlbTracks` | 4 | `src/io/glb_tracks.elisa` |
 | `Hand` | 4 | `src/core/hand.elisa` |
 | `Hinge` | 3 | `src/core/hinge.elisa` |
@@ -142,3 +141,8 @@ qualification must be rerun after this consumer change.
 Codec follow-up with current prover `d3a17832`: source 50/50 obligations and
 certificates replayed, zero gaps; laws 71/74 replayed with three gaps and no
 producer findings. Law replay remains open; source success is not a substitute.
+
+`Fade::Domain` groups full permille weight, frame bound and edge-window bound.
+All source/law consumers use the qualified values. Current prover `d3a17832`
+replays source 103/103; laws replay 147/150 with three gaps and no producer
+findings. The prior 150-obligation law baseline is retained, not weakened.
