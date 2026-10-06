@@ -210,3 +210,21 @@ rejection of genuine borrowed results and unknown calls. No matching borrowed
 `read/3` collision was found in the included sources, so the earlier VRO-union
 explanation remains an unconfirmed separate hypothesis, not the established
 cause. Reduced before/after compile qualification remains pending.
+
+## Mutable global darray receiver lowering (2026-10-06)
+
+Compiler commit `1f136742` adds mutable-global fallback to the darray type
+and header-address helpers, using the existing module-owner resolver and
+preserving local binding precedence. The normal seed completed successfully;
+its binary provenance matches `1f136742cb9af78add49fdf633168d69572dca06`.
+`build/repro/global-darray-receiver.elisa` compiles to the fresh nonempty
+object `build/global-darray-zeroed.29GBwv/receiver.o`. It exercises extend,
+push and clear, two modules with identical global names/different element
+types, and a local shadow. This is compile-only evidence; lifetime, allocation
+and runtime mutation behavior still require qualification.
+
+The initial reproduction used `[]` as a global initializer and declined
+before receiver lowering, even with a single module or distinct names.
+Using `zeroed`, as Studio's retained payload does, isolates the receiver
+operations. Empty-array global literal initialization remains unsupported;
+it was not silently accepted as a successful reproduction.
