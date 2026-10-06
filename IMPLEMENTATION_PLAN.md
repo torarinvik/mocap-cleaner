@@ -25,7 +25,8 @@ in Elisa `const module` declarations. Give groups names that describe their
 purpose (such as limits, actions or statuses), preserve public/private
 visibility, and update callers and proof references. Use bare constant members
 inside `const module` bodies. Apply this rule to existing code and every new
-change, while retaining the 600-line maximum.
+change, while retaining the 600-line maximum. See the
+[constant module migration inventory](docs/plan/constant-modules.md).
 
 ## Detailed roadmap
 
