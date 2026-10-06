@@ -250,7 +250,8 @@ preflight. Partial-result detail and accessibility text explicitly describe
 existing reports being kept; old reports are not represented as reports for
 the new export. A new export filename is offered as the way to save new reports.
 
-The normal f292cbe0 compile/package run is pending in session 86259, log
+The normal f292cbe0 compile/package run completed with exit zero in session
+86259, with built and packaged outputs in
 `build/export-report-create-only-studio-build.log`. Existing outcome laws report
 41 obligations, 24 proven/replayed, 17 findings, zero replay gaps and zero
 semantic diagnostics (`build/export-report-create-only-laws.log`); those open
