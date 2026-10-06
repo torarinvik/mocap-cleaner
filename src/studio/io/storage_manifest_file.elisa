@@ -6,6 +6,8 @@ include "storage_manifest.elisa"
 extern manifest_fopen(path: u8&, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
 @link_name("fgetc")
 extern manifest_fgetc(file: mutable heap void&) -> i32 can[Blocking.IO]
+@link_name("ferror")
+extern manifest_ferror(file: mutable heap void&) -> i32 can[Blocking.IO]
 @link_name("fclose")
 extern manifest_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
 
@@ -23,15 +25,19 @@ module StudioStorageManifestFile:
                 file <- manifest_fopen(path.cast[u8&], "rb".cast[u8&])
                 if file is opened:
                     mutable reading: bool = true
+                    mutable read_failed: bool = false
                     while reading:
                         byte: i32 = manifest_fgetc(opened)
-                        reading <- false if byte < 0
+                        if byte < 0:
+                            reading <- false
+                            read_failed <- manifest_ferror(opened) != 0
                         if byte >= 0:
                             if bytes.count >= MAX_FILE_BYTES:
                                 _ = manifest_fclose(opened)
                                 return false
                             bytes.push(byte.u8())
-                    return false if manifest_fclose(opened) != 0
+                    close_status: i32 = manifest_fclose(opened)
+                    return false if read_failed or close_status != 0
                 else:
                     return false
             mutable parsed: darray[StudioStorageManifest::Entry] = []
