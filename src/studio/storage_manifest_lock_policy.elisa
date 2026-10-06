@@ -1,0 +1,66 @@
+# Pure bounded policy for a future nonblocking manifest lock adapter.
+# This module does not acquire locks, publish files, move artifacts, retry, or
+# resume work. Its decisions must be enforced by the filesystem adapter.
+module StudioStorageManifestLockPolicy:
+    public:
+        const OUTCOME_INVALID: i64 = 0
+        const OUTCOME_ACQUIRED: i64 = 1
+        const OUTCOME_BUSY: i64 = 2
+        const OUTCOME_FAILED: i64 = 3
+        const OUTCOME_COUNT: i64 = 4
+
+        def outcome_valid(outcome: i64) -> bool:
+            ensure result == (outcome > OUTCOME_INVALID and outcome < OUTCOME_COUNT)
+            outcome > OUTCOME_INVALID and outcome < OUTCOME_COUNT
+
+        # A lock decision grants no authority unless the nonblocking lock was
+        # acquired. Busy, failed, and invalid are fail-closed outcomes.
+        def may_read_modify_write(outcome: i64) -> bool:
+            ensure result == (outcome == OUTCOME_ACQUIRED)
+            ensure outcome == OUTCOME_BUSY implies not result
+            ensure outcome == OUTCOME_FAILED implies not result
+            ensure not outcome_valid(outcome) implies not result
+            outcome == OUTCOME_ACQUIRED
+
+        # Publication must follow a held lock, a valid refreshed version,
+        # exact equality with the reviewed version, and the reviewed file's
+        # full identity comparison (including canonical path) succeeding.
+        def may_publish(outcome: i64, refreshed_version_valid: bool,
+                        exact_reviewed_version: bool,
+                        reviewed_identity_matches: bool) -> bool:
+            ensure result implies outcome == OUTCOME_ACQUIRED
+            ensure result implies refreshed_version_valid
+            ensure result implies exact_reviewed_version
+            ensure result implies reviewed_identity_matches
+            ensure outcome == OUTCOME_BUSY implies not result
+            ensure outcome == OUTCOME_FAILED implies not result
+            ensure outcome == OUTCOME_INVALID implies not result
+            ensure not refreshed_version_valid implies not result
+            ensure not exact_reviewed_version implies not result
+            ensure not reviewed_identity_matches implies not result
+            outcome == OUTCOME_ACQUIRED and refreshed_version_valid and exact_reviewed_version and reviewed_identity_matches
+
+        # Native moves are gated by the same refreshed manifest and exact
+        # reviewed identity, while the lock is still held.
+        def may_move(outcome: i64, refreshed_version_valid: bool,
+                     exact_reviewed_version: bool,
+                     reviewed_identity_matches: bool) -> bool:
+            ensure result == may_publish(outcome, refreshed_version_valid, exact_reviewed_version, reviewed_identity_matches)
+            may_publish(outcome, refreshed_version_valid, exact_reviewed_version, reviewed_identity_matches)
+
+        # A known release failure ends the batch. No subsequent move may
+        # begin after release failed or after any non-acquired outcome.
+        def may_start_next_move(outcome: i64, release_succeeded: bool) -> bool:
+            ensure result implies outcome == OUTCOME_ACQUIRED
+            ensure result implies release_succeeded
+            ensure not release_succeeded implies not result
+            ensure outcome == OUTCOME_BUSY implies not result
+            ensure outcome == OUTCOME_FAILED implies not result
+            ensure outcome == OUTCOME_INVALID implies not result
+            outcome == OUTCOME_ACQUIRED and release_succeeded
+
+        # Recovery from busy/failed publication requires a fresh explicit
+        # review. This kernel never authorizes automatic blind retry/resume.
+        def may_automatically_retry_or_resume(outcome: i64) -> bool:
+            ensure not result
+            false
