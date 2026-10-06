@@ -51,3 +51,10 @@ An isolated compiler candidate `faabd1f7`, based on current `f292cbe0`, admits
 C-string ADT payloads. Its seed manifest matches its source commit and both the
 minimal payload example and recovery store compile successfully. Runtime and
 ABI qualification remain open, so the normal compiler has not been replaced.
+
+Mocap prover source subsequently advanced to `6bced403` for exact-owner enum
+value evidence, including equal-valued aliases. Focused comparisons independently
+replay 5/5; broader proposition formation and caller-summary gaps remain open.
+The default binary is still `5776350b`. Compiler candidate extraction IR also
+loads the C-string payload with `load ptr`; emitted constructor and extraction
+layouts agree, but this is compile evidence rather than runtime qualification.
