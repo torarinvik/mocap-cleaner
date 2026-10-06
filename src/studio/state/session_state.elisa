@@ -203,7 +203,7 @@ module SessionState:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
                 out.push(10)
-            q: f32 = StudioChrome::CHROME_MICRO.f32()
+            q: f32 = StudioChrome::Correction::MICRO.f32()
             t: f32 = 1000000.0
             for i in 0..<s.fix_count |s, out, q, t|:
                 c: Corrections::Correction = s.fixes[i]
@@ -260,18 +260,18 @@ module SessionState:
         # A gizmo correction from a tag 4 line, or null when its node is not
         # one of this take's `nodes` document nodes.
         def fix_from(fields: darray[i64]&, frames: i64, nodes: i64) -> Corrections::Correction?:
-            return null if nodes < 0 or nodes > StudioChrome::CHROME_NODES
+            return null if nodes < 0 or nodes > StudioChrome::Correction::MAX_NODES
             return null if not StudioChrome::session_node_ok(fields[2], nodes)
             key: i64 = StudioChrome::session_frame(fields[3], frames)
             a: i64 = StudioChrome::session_frame(fields[4], frames)
             b: i64 = StudioChrome::session_frame(fields[5], frames)
             lo: i64 = a if a <= b else b
             hi: i64 = b if a <= b else a
-            q: f32 = StudioChrome::CHROME_MICRO.f32()
-            mutable rx: f32 = from_micro(StudioChrome::session_clamp(fields[6], StudioChrome::CHROME_MICRO), q)
-            mutable ry: f32 = from_micro(StudioChrome::session_clamp(fields[7], StudioChrome::CHROME_MICRO), q)
-            mutable rz: f32 = from_micro(StudioChrome::session_clamp(fields[8], StudioChrome::CHROME_MICRO), q)
-            mutable rw: f32 = from_micro(StudioChrome::session_clamp(fields[9], StudioChrome::CHROME_MICRO), q)
+            q: f32 = StudioChrome::Correction::MICRO.f32()
+            mutable rx: f32 = from_micro(StudioChrome::session_clamp(fields[6], StudioChrome::Correction::MICRO), q)
+            mutable ry: f32 = from_micro(StudioChrome::session_clamp(fields[7], StudioChrome::Correction::MICRO), q)
+            mutable rz: f32 = from_micro(StudioChrome::session_clamp(fields[8], StudioChrome::Correction::MICRO), q)
+            mutable rw: f32 = from_micro(StudioChrome::session_clamp(fields[9], StudioChrome::Correction::MICRO), q)
             norm: f32 = Geometry::sqrt_f32(rx * rx + ry * ry + rz * rz + rw * rw)
             if norm < 0.000001:
                 rx <- 0.0
@@ -284,9 +284,9 @@ module SessionState:
                 rz <- rz / norm
                 rw <- rw / norm
             t: f32 = 1000000.0
-            tx: f32 = from_micro(StudioChrome::session_clamp(fields[10], StudioChrome::CHROME_REACH), t)
-            ty: f32 = from_micro(StudioChrome::session_clamp(fields[11], StudioChrome::CHROME_REACH), t)
-            tz: f32 = from_micro(StudioChrome::session_clamp(fields[12], StudioChrome::CHROME_REACH), t)
+            tx: f32 = from_micro(StudioChrome::session_clamp(fields[10], StudioChrome::Correction::MAX_REACH), t)
+            ty: f32 = from_micro(StudioChrome::session_clamp(fields[11], StudioChrome::Correction::MAX_REACH), t)
+            tz: f32 = from_micro(StudioChrome::session_clamp(fields[12], StudioChrome::Correction::MAX_REACH), t)
             return Corrections::Correction{enabled: fields[1] != 0, node: fields[2], key: key if key >= lo and key <= hi else lo, first: lo, last: hi, rotation: Geometry::Quat{x: rx, y: ry, z: rz, w: rw}, translation: Geometry::Vec3{x: tx, y: ty, z: tz}}
 
         # Decode a session for a clip of `frames` frames and `nodes` document
@@ -307,10 +307,10 @@ module SessionState:
                                         impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
             session_annotation_overflow <- false
             session_impact_invalid <- false
-            return null if frames < 1 or frames > StudioChrome::CHROME_FRAMES
+            return null if frames < 1 or frames > StudioChrome::Frame::MAX_FRAMES
             return null if not header_line(text)
             version: i64 = header_version(text)
-            return null if version < StudioChrome::CHROME_VERSION and not allow_legacy
+            return null if version < StudioChrome::Session::VERSION and not allow_legacy
             mutable s: StackState::Stack = StackState::empty()
             mutable cur: darray[u8] = []
             mutable fields: darray[i64] = []
@@ -372,7 +372,7 @@ module SessionState:
                                 band.blend <- blend
                                 band.enabled <- enabled == 1
                                 s.bands[at] <- band
-                    elif tag == TAG_ANNOTATION and version == StudioChrome::CHROME_VERSION and fields.count == 11 and fields[1] == SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA:
+                    elif tag == TAG_ANNOTATION and version == StudioChrome::Session::VERSION and fields.count == 11 and fields[1] == SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA:
                         record: SessionIssueAnnotationPolicy::Stored = SessionIssueAnnotationPolicy::Stored{analysis_frames: fields[2], finding: SessionIssueAnnotationPolicy::Record{first_frame: fields[3], last_frame: fields[4], issue_type: fields[5], subject_id: fields[6], peak_frame: fields[7], severity: fields[8], peak_value: fields[9], threshold: fields[10]}}
                         if SessionIssueAnnotationPolicy::valid(record.finding, record.analysis_frames):
                             if decoded_annotations.count.i64() >= SessionIssueAnnotationPolicy::MAX_RECORDS:
@@ -384,7 +384,7 @@ module SessionState:
                                 if not duplicate:
                                     decoded_annotations.push(record)
                     elif tag == TAG_IMPACT:
-                        if version != StudioChrome::CHROME_VERSION or fields.count != 10 or fields[1] != SessionImpactAnnotationPolicy::Schema::VERSION or (fields[2] != SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() and fields[2] != SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed.i64()):
+                        if version != StudioChrome::Session::VERSION or fields.count != 10 or fields[1] != SessionImpactAnnotationPolicy::Schema::VERSION or (fields[2] != SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() and fields[2] != SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed.i64()):
                             session_impact_invalid <- true
                         else:
                             review: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.EventsMarked if fields[2] == SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() else SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed
@@ -395,7 +395,7 @@ module SessionState:
                                 decoded_impact_state <- review if decoded_impact.count.i64() == 0
                                 decoded_impact.push(record)
                 cur.clear()
-            return null if version == StudioChrome::CHROME_VERSION and (identity_count != 1 or not identity_matches)
+            return null if version == StudioChrome::Session::VERSION and (identity_count != 1 or not identity_matches)
             session_annotation_overflow <- annotation_overflow
             return null if annotation_overflow
             session_impact_invalid <- true if not impact_records_valid(decoded_impact, decoded_impact_state, expected)
@@ -450,7 +450,7 @@ module SessionState:
             if version == 0:
                 session_load_error <- LOAD_ERROR_FORMAT
                 return null
-            if version < StudioChrome::CHROME_VERSION and not allow_legacy:
+            if version < StudioChrome::Session::VERSION and not allow_legacy:
                 session_load_error <- LOAD_ERROR_LEGACY
                 return null
             session_annotation_overflow <- false
@@ -458,7 +458,7 @@ module SessionState:
                 return decoded
             session_load_error <- LOAD_ERROR_IMPACT if session_impact_invalid
             session_load_error <- LOAD_ERROR_ANNOTATIONS if session_annotation_overflow and not session_impact_invalid
-            session_load_error <- LOAD_ERROR_SOURCE if session_load_error == LOAD_ERROR_NONE and version == StudioChrome::CHROME_VERSION
+            session_load_error <- LOAD_ERROR_SOURCE if session_load_error == LOAD_ERROR_NONE and version == StudioChrome::Session::VERSION
             session_load_error <- LOAD_ERROR_FORMAT if session_load_error == LOAD_ERROR_NONE
             return null
 

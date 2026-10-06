@@ -5,72 +5,73 @@
 # help sheet's open state.
 module StudioChrome:
     public:
-        # Escape layers, innermost first.
-        const ESC_NONE: i64 = 0
-        const ESC_HELP: i64 = 1
-        const ESC_DRAG: i64 = 2
-        const ESC_PRESS: i64 = 3
-        const ESC_GIZMO: i64 = 4
-        const ESC_SELECT: i64 = 5
+        # Escape layers are ordered by handling precedence and retain their stable codes.
+        const enum EscapeLayer of i64:
+            None = 0
+            Help = 1
+            Drag = 2
+            Press = 3
+            Gizmo = 4
+            Select = 5
 
-        # Screens.
-        const SCREEN_EMPTY: i64 = 0
-        const SCREEN_FAILED: i64 = 1
-        const SCREEN_EDIT: i64 = 2
+        const enum Screen of i64:
+            Empty = 0
+            Failed = 1
+            Edit = 2
 
-        const CHROME_FRAMES: i64 = 10000000
-        const CHROME_RATE_MAX: i64 = 1000
-        const CHROME_SIZE: i64 = 1000000000
-        const CHROME_ALL: i64 = 1000
-        # Session field ranges (match StackState and Ops).
-        const CHROME_KINDS: i64 = 6
-        const CHROME_STRENGTH: i64 = 64
-        const CHROME_EDGE: i64 = 120
-        # Session format version written now; older versions are accepted only
-        # through the caller's explicit unverified-legacy choice.
-        const CHROME_VERSION: i64 = 4
-        # Gizmo corrections are saved in micro units: quaternion components
-        # times 10^6, translations in micrometres (scene metres times 10^6).
-        const CHROME_MICRO: i64 = 1000000
-        const CHROME_REACH: i64 = 1000000000
-        const CHROME_NODES: i64 = 1000000
+        const module Frame:
+            MAX_FRAMES: i64 = 10000000
+            MAX_RATE: i64 = 1000
+
+        const module Gain:
+            MAX_MAGNITUDE: i64 = 1000000000
+            PERMILLE: i64 = 1000
+
+        const module Session:
+            KINDS: i64 = 6
+            MAX_STRENGTH: i64 = 64
+            MAX_EDGE: i64 = 120
+            VERSION: i64 = 4
+
+        const module Correction:
+            MICRO: i64 = 1000000
+            MAX_REACH: i64 = 1000000000
+            MAX_NODES: i64 = 1000000
 
         # What one Escape press cancels: the help sheet, then a gizmo drag,
         # then a contact-bar press, then the gizmo mode, then the selection.
-        def escape_layer(help: bool, dragging: bool, pressing: bool, gizmo: bool, selected: bool) -> i64:
-            ensure result >= ESC_NONE
-            ensure result <= ESC_SELECT
-            ensure not help or result == ESC_HELP
-            ensure help or not dragging or result == ESC_DRAG
-            ensure help or dragging or not pressing or result == ESC_PRESS
-            ensure help or dragging or pressing or not gizmo or result == ESC_GIZMO
-            ensure help or dragging or pressing or gizmo or not selected or result == ESC_SELECT
-            ensure help or dragging or pressing or gizmo or selected or result == ESC_NONE
-            return ESC_HELP if help
-            return ESC_DRAG if dragging
-            return ESC_PRESS if pressing
-            return ESC_GIZMO if gizmo
-            return ESC_SELECT if selected
-            return ESC_NONE
+        def escape_layer(help: bool, dragging: bool, pressing: bool, gizmo: bool, selected: bool) -> EscapeLayer:
+            ensure result == EscapeLayer.None or result == EscapeLayer.Help or result == EscapeLayer.Drag or result == EscapeLayer.Press or result == EscapeLayer.Gizmo or result == EscapeLayer.Select
+            ensure not help or result == EscapeLayer.Help
+            ensure help or not dragging or result == EscapeLayer.Drag
+            ensure help or dragging or not pressing or result == EscapeLayer.Press
+            ensure help or dragging or pressing or not gizmo or result == EscapeLayer.Gizmo
+            ensure help or dragging or pressing or gizmo or not selected or result == EscapeLayer.Select
+            ensure help or dragging or pressing or gizmo or selected or result == EscapeLayer.None
+            return EscapeLayer.Help if help
+            return EscapeLayer.Drag if dragging
+            return EscapeLayer.Press if pressing
+            return EscapeLayer.Gizmo if gizmo
+            return EscapeLayer.Select if selected
+            return EscapeLayer.None
 
         # Screen to draw: the editor once a clip is loaded, otherwise the
         # first-run guide, or the load failure with its path.
-        def chrome_screen(loaded: bool, failed: bool) -> i64:
-            ensure result >= SCREEN_EMPTY
-            ensure result <= SCREEN_EDIT
-            ensure not loaded or result == SCREEN_EDIT
-            ensure loaded or not failed or result == SCREEN_FAILED
-            ensure loaded or failed or result == SCREEN_EMPTY
-            return SCREEN_EDIT if loaded
-            return SCREEN_FAILED if failed
-            return SCREEN_EMPTY
+        def chrome_screen(loaded: bool, failed: bool) -> Screen:
+            ensure result == Screen.Empty or result == Screen.Failed or result == Screen.Edit
+            ensure not loaded or result == Screen.Edit
+            ensure loaded or not failed or result == Screen.Failed
+            ensure loaded or failed or result == Screen.Empty
+            return Screen.Edit if loaded
+            return Screen.Failed if failed
+            return Screen.Empty
 
         # Clip time of `frame` at `rate` frames per second, in milliseconds.
         def clip_millis(frame: i64, rate: i64) -> i64:
             requires frame >= 0
-            requires frame <= CHROME_FRAMES
+            requires frame <= Frame::MAX_FRAMES
             requires rate >= 1
-            requires rate <= CHROME_RATE_MAX
+            requires rate <= Frame::MAX_RATE
             ensure result >= 0
             ensure result <= frame * 1000
             return frame * 1000 / rate
@@ -78,7 +79,7 @@ module StudioChrome:
         # Shown frame number: one-based, as editors label frames.
         def shown_frame(frame: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= CHROME_FRAMES
+            requires count <= Frame::MAX_FRAMES
             requires frame >= 0
             requires frame < count
             ensure result >= 1
@@ -90,46 +91,46 @@ module StudioChrome:
         # was there or it got worse, 1000 when all of it went).
         def clean_gain(before: i64, after: i64) -> i64:
             requires before >= 0
-            requires before <= CHROME_SIZE
+            requires before <= Gain::MAX_MAGNITUDE
             requires after >= 0
-            requires after <= CHROME_SIZE
+            requires after <= Gain::MAX_MAGNITUDE
             ensure result >= 0
-            ensure result <= CHROME_ALL
+            ensure result <= Gain::PERMILLE
             ensure before > 0 or result == 0
             ensure after < before or result == 0
-            ensure after > 0 or before == 0 or result == CHROME_ALL
+            ensure after > 0 or before == 0 or result == Gain::PERMILLE
             return 0 if before == 0
             return 0 if after >= before
-            return CHROME_ALL if after == 0
+            return Gain::PERMILLE if after == 0
             removed: i64 = before - after
-            share: i64 = removed * CHROME_ALL / before
+            share: i64 = removed * Gain::PERMILLE / before
             return 0 if share < 0
-            return CHROME_ALL if share > CHROME_ALL
+            return Gain::PERMILLE if share > Gain::PERMILLE
             return share
 
         # Session file checks: a kind code, and fields brought into range.
         def session_kind_ok(code: i64) -> bool:
-            ensure code < 0 or code >= CHROME_KINDS or result
+            ensure code < 0 or code >= Session::KINDS or result
             ensure code >= 0 or not result
-            ensure code < CHROME_KINDS or not result
+            ensure code < Session::KINDS or not result
             return false if code < 0
-            return false if code >= CHROME_KINDS
+            return false if code >= Session::KINDS
             return true
 
         def session_strength(value: i64) -> i64:
             ensure result >= 1
-            ensure result <= CHROME_STRENGTH
-            ensure value < 1 or value > CHROME_STRENGTH or result == value
+            ensure result <= Session::MAX_STRENGTH
+            ensure value < 1 or value > Session::MAX_STRENGTH or result == value
             return 1 if value < 1
-            return CHROME_STRENGTH if value > CHROME_STRENGTH
+            return Session::MAX_STRENGTH if value > Session::MAX_STRENGTH
             return value
 
         def session_edge(value: i64) -> i64:
             ensure result >= 0
-            ensure result <= CHROME_EDGE
-            ensure value < 0 or value > CHROME_EDGE or result == value
+            ensure result <= Session::MAX_EDGE
+            ensure value < 0 or value > Session::MAX_EDGE or result == value
             return 0 if value < 0
-            return CHROME_EDGE if value > CHROME_EDGE
+            return Session::MAX_EDGE if value > Session::MAX_EDGE
             return value
 
         # A saved bone mask: all bones (-1), upper body (1) or legs (2);
@@ -146,7 +147,7 @@ module StudioChrome:
         # A saved scope frame brought inside a clip of `count` frames.
         def session_frame(value: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= CHROME_FRAMES
+            requires count <= Frame::MAX_FRAMES
             ensure result >= 0
             ensure result < count
             ensure value < 0 or value >= count or result == value
@@ -157,11 +158,11 @@ module StudioChrome:
 
         # A session header's version number: old (1) and current files load.
         def session_version_ok(version: i64) -> bool:
-            ensure version < 1 or version > CHROME_VERSION or result
+            ensure version < 1 or version > Session::VERSION or result
             ensure version >= 1 or not result
-            ensure version <= CHROME_VERSION or not result
+            ensure version <= Session::VERSION or not result
             return false if version < 1
-            return false if version > CHROME_VERSION
+            return false if version > Session::VERSION
             return true
 
         # A v4 session may only restore to the same source bytes, selected
@@ -171,11 +172,11 @@ module StudioChrome:
             return saved_first == current_first and saved_second == current_second and saved_animation == current_animation and saved_frames == current_frames and saved_nodes == current_nodes
 
         # A saved correction value brought into [-bound, bound], leaving
-        # values inside alone: quaternion components use CHROME_MICRO (one
-        # unit), translations CHROME_REACH (1 km in micrometres).
+        # values inside alone: quaternion components use Correction::MICRO (one
+        # unit), translations Correction::MAX_REACH (1 km in micrometres).
         def session_clamp(value: i64, bound: i64) -> i64:
             requires bound >= 0
-            requires bound <= CHROME_REACH
+            requires bound <= Correction::MAX_REACH
             ensure result + bound >= 0
             ensure result <= bound
             ensure value > bound or value + bound < 0 or result == value
@@ -188,7 +189,7 @@ module StudioChrome:
         # A saved correction's node exists in a document of `nodes` nodes.
         def session_node_ok(node: i64, nodes: i64) -> bool:
             requires nodes >= 0
-            requires nodes <= CHROME_NODES
+            requires nodes <= Correction::MAX_NODES
             ensure node < 0 or node >= nodes or result
             ensure node >= 0 or not result
             ensure node < nodes or not result
@@ -210,37 +211,40 @@ module StudioChrome:
             return true if open
             return false
 
+        const enum ParameterUnit of i64:
+            Passes = 0
+            Frames = 1
+            Degrees = 2
+            None = 3
+
         # ---- parameter units ---------------------------------------------
         # What an operation's strength means, by session kind code
         # (SessionState::kind_code): passes (×), a window or radius in
         # frames (shown with milliseconds), a wring limit (°), or nothing.
-        const UNIT_PASSES: i64 = 0
-        const UNIT_FRAMES: i64 = 1
-        const UNIT_DEGREES: i64 = 2
-        const UNIT_NONE: i64 = 3
 
-        def param_unit(kind: i64) -> i64:
-            ensure kind != 0 or result == UNIT_PASSES
-            ensure kind != 1 or result == UNIT_NONE
-            ensure kind != 2 or result == UNIT_FRAMES
-            ensure kind != 3 or result == UNIT_PASSES
-            ensure kind != 4 or result == UNIT_DEGREES
-            ensure kind != 5 or result == UNIT_FRAMES
-            ensure kind <= 5 or result == UNIT_NONE
-            return UNIT_NONE if kind < 0 or kind > 5
-            return UNIT_DEGREES if kind == 4
-            return UNIT_FRAMES if kind == 5
-            return UNIT_FRAMES if kind == 2
-            return UNIT_PASSES if kind == 0
-            return UNIT_PASSES if kind == 3
-            return UNIT_NONE
+        def param_unit(kind: i64) -> ParameterUnit:
+            ensure result == ParameterUnit.Passes or result == ParameterUnit.Frames or result == ParameterUnit.Degrees or result == ParameterUnit.None
+            ensure kind != 0 or result == ParameterUnit.Passes
+            ensure kind != 1 or result == ParameterUnit.None
+            ensure kind != 2 or result == ParameterUnit.Frames
+            ensure kind != 3 or result == ParameterUnit.Passes
+            ensure kind != 4 or result == ParameterUnit.Degrees
+            ensure kind != 5 or result == ParameterUnit.Frames
+            ensure kind <= 5 or result == ParameterUnit.None
+            return ParameterUnit.None if kind < 0 or kind > 5
+            return ParameterUnit.Degrees if kind == 4
+            return ParameterUnit.Frames if kind == 5
+            return ParameterUnit.Frames if kind == 2
+            return ParameterUnit.Passes if kind == 0
+            return ParameterUnit.Passes if kind == 3
+            return ParameterUnit.None
 
         # A wring limit (quaternion component deviation, millionths) as the
         # joint angle it allows, in whole degrees: 2 * asin(s) taken at its
         # small-angle slope, 114.6 degrees per unit, rounded.
         def wring_degrees(limit: i64) -> i64:
             requires limit >= 0
-            requires limit <= CHROME_REACH
+            requires limit <= Correction::MAX_REACH
             ensure result >= 0
             scaled: i64 = limit * 1146 + 5000000
             return scaled / 10000000
