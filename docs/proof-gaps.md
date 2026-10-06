@@ -724,3 +724,42 @@ leave two goals unknown, despite the helpers' exact contracts. The current
 proof boundary verifies the helpers and wrapper bounds separately; composed
 step replay remains open. Earlier direct implication contracts on the
 unbounded wrapper also left forward-return goals unknown.
+
+## G93: CLI destination and publication boundaries (2026-10-06)
+
+`CliOutputGuardPolicy` source proves 61/61 obligations, with all 61
+certificates replayed. Its admission contracts reject unresolved/outside paths,
+source aliases, existing outputs and reserved metadata. Its laws report 73/79
+proven with six unresolved ensure obligations, no semantic diagnostics and
+73/73 certificates replayed. The array-construction/path-composition laws are
+not claimed as fully proved. The sibling-prefix law now excludes a leading
+slash, which would otherwise construct a legitimate descendant.
+
+The authorized integration check recorded these runtime adapter scopes:
+
+| Module | Proven | Unproven | State |
+| --- | ---: | ---: | --- |
+| CLI output guard | 62 | 14 | unsupported |
+| CLI GLB publisher | 248 | 265 | unsupported |
+| CLI private worker directory | 1 | 4 | unsupported |
+
+Native realpath/lstat/identity/Unicode facts and filesystem IO are trusted
+runtime boundaries. Preflight checks cannot pin directories against later
+changes. GLB bytes are written through the original mkstemp descriptor,
+flushed/synced, reloaded and compared before create-only hard-link publication.
+Final destinations cannot be replaced by that link operation. A temporary-name
+replacement between validation and linking remains possible; directory sync,
+crash durability and orphan-temporary cleanup are not established. Non-macOS
+namespace comparison currently has only ASCII case-fold coverage.
+
+Report, saved-operation and worker-part writers use exclusive creation and
+check completion. `OutputCompletionPolicy` proves 4/4 source and 10/10 law
+obligations with full replay; it proves the boolean completion gate, not libc
+write/close behavior. Failed writes may leave partial new artifacts.
+
+The integration check rebuilt 78 executables: 77 passed and `rig_tools` exited
+43 because its previous generated ops destination existed. The named fixture
+reset was corrected and its focused rerun passed. All four CLI scenarios
+passed. Strict native Storage verification still stopped at stale stage1
+provenance, and the proof gate retained existing regressions and missing
+reviewed baselines. No green full-check claim is made at this head.
