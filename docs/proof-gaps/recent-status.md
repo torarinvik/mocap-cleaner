@@ -401,3 +401,14 @@ build and focused source/law runs with independent certificate replay.
 Follow-up: the repair is committed as prover `49714c65`. Both compiler
 checkouts subsequently became clean and normal seeding started. This removes
 the dirty-source barrier to rebuilding; proof qualification remains pending.
+
+The normal seed and prover build subsequently succeeded. Fresh runs with that
+toolchain report 457/485 for the saved flat source and 473/501 for its laws;
+28 imported cleanup obligations are open in both. The nested source reports
+311/485, adding 146 open obligations, and nested laws report 320/508. Certificate
+replay completes for every proven obligation in these runs. The first path
+normalization repair therefore does not close G96. Function bodies/contracts
+spell lexical paths such as `Filter::ALL`, while collection currently matches
+only full paths such as `StudioStorageListFilterPolicy::Filter::ALL`. Lexical
+relative resolution needs repair without admitting ambiguous sibling names or
+weakening independent replay. Original proof expectations remain unchanged.
