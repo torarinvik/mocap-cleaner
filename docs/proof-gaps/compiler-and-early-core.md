@@ -13,10 +13,12 @@ Global materialization looked up each declaration's table row by owner but
 did not set that owner while folding its initializer. Compiler commit
 `45330579` wraps materialization in the declaration's module context and
 restores the previous context after the inner operation, including early
-returns. A normal compiler seed rebuild is running, with log
-`build/global-owner-compiler-seed.log`. The patch is not yet qualified by the
-reproduction or full Studio compilation; do not treat source adoption as a
-matching binary or a completed fix. No executable tests were added or run.
+returns. The normal seed completed successfully; its provenance check matches
+`45330579` (log `build/global-owner-compiler-seed.log`). The reduced reproduction
+emits a fresh object without diagnostics in `build/enum-owner.WIsTrM`, and the
+recovery publication adapter compiles in `build/recovery-publication.jBPo5b`.
+Full Studio compilation remains pending. No executable tests were added or run
+for this repair.
 
 ## Current global container lowering gap
 

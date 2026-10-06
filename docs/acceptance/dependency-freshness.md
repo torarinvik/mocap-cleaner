@@ -101,3 +101,18 @@ The normal compiler seed subsequently completed successfully. Its freshness
 check confirms source revision `04b384ec`; the integrated time-map report
 formatter emitted an object without diagnostics using this normal compiler.
 Direct C-string payload runtime qualification is still open.
+
+## Latest verified compiler and pending prover build
+
+Fetched all five origins again on 2026-10-06. Compiler `45330579` is 41
+commits ahead / zero behind; mocap prover `4da37c97` is 22 ahead / zero
+behind; primary prover `151a2772` equals upstream; engine `01f5aec7` is
+20 ahead / zero behind; UI `8ab2eb39` is 6 ahead / zero behind.
+
+The normal Stage1 binary's provenance check matches `45330579`. Its global
+enum-owner reproduction and recovery publication adapter emit fresh objects
+without diagnostics. Integrated Studio qualification remains pending.
+The newest prover source repairs recursive search depth handling; its separate
+`elisa-proof-goaldepth-453` candidate is building against compiler `45330579`.
+The default prover is still `5776350b`; latest-source binary adoption remains
+unfinished until the candidate builds and its certificates independently replay.
