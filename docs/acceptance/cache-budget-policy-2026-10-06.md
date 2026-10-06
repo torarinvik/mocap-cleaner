@@ -43,3 +43,20 @@ replay remain open. This estimate excludes bank headers, spare allocator
 capacity, transient evaluation/output copies and the rig cache. Clearing
 logical contents does not prove physical capacity release. Eviction order and
 performance under pressure still require measured qualification.
+
+## Rig cache admission
+
+The rig adapter now checks a separate 256 MiB logical contents budget before
+constructing its schedule or copying the input clip. It accounts three clip
+snapshots and operation/schedule records. Per-element estimates are 192 bytes
+for joints, 32 for quaternions, 24 for vectors, 8 for indices/times, 1 for flags
+and 80 for operation records. These reflect the current field schemas and
+require reassessment if those schemas change; they are not allocator metrics.
+Refusal invalidates all retained snapshots and runs `RigOps::run_clip` on the
+complete input, preserving its returned summary and applied-operation count.
+
+Current compiler `720896f4` emits the combined fixture object at
+`build/rig-cache-budget.vjUN9z/fixture.o`. The scalar policy has contracts and
+five laws. Runtime comparison, independent proof replay, physical memory
+release and transient peak qualification remain open. The channel and rig
+limits are separate; their combination is not a whole-process memory limit.

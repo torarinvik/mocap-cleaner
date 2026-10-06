@@ -9,6 +9,7 @@
 include "rig_cache_schema.elisa"
 include "../core/perf_cache.elisa"
 include "../core/cache_identity_policy.elisa"
+include "../core/rig_cache_budget_policy.elisa"
 
 extend RigCache:
     public:
@@ -126,6 +127,18 @@ extend RigCache:
         # run_clip with the boundary cache. `source` fingerprints the input
         # clip (callers key it by what produced the clip).
         def run_clip_cached(c: mutable Rig::Clip&, ops: darray[RigOps::RigOp]&, threshold: i64, source: i64, cache: mutable Cache&) -> RigOps::Summary:
+            if not budget_admitted(c, ops.count.i64()):
+                cache.valid <- false
+                cache.final_valid <- false
+                cache.input_valid <- false
+                cache.snapshot <- Rig::empty_clip()
+                cache.result <- Rig::empty_clip()
+                cache.input_snapshot <- Rig::empty_clip()
+                cache.operations.clear()
+                cache.step_order.clear()
+                full: RigOps::Summary = RigOps::run_clip(c, ops, threshold)
+                cache.evaluations <- cache.evaluations + full.ops
+                return full
             order: darray[i64] = schedule(ops)
             boundary: mutable i64 = order.count.i64()
             for k in 0..<order.count |k, order, ops, boundary|:
@@ -175,5 +188,18 @@ extend RigCache:
             cache.step_order.clear()
             cache.step_order.extend(order)
             return s
+
+    private:
+        def budget_admitted(c: Rig::Clip&, operations: i64) -> bool:
+            bytes: mutable i64 = RigCacheBudgetPolicy::add_array(0, c.joints.count.i64(), RigCacheBudgetPolicy::LogicalSize::JOINT_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.roles.count.i64(), RigCacheBudgetPolicy::LogicalSize::INDEX_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.order.count.i64(), RigCacheBudgetPolicy::LogicalSize::INDEX_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.times.count.i64(), RigCacheBudgetPolicy::LogicalSize::INDEX_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.rot.count.i64(), RigCacheBudgetPolicy::LogicalSize::QUATERNION_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.pos.count.i64(), RigCacheBudgetPolicy::LogicalSize::VECTOR_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.scl.count.i64(), RigCacheBudgetPolicy::LogicalSize::VECTOR_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.rot_dirty.count.i64(), RigCacheBudgetPolicy::LogicalSize::FLAG_BYTES)
+            bytes <- RigCacheBudgetPolicy::add_array(bytes, c.pos_dirty.count.i64(), RigCacheBudgetPolicy::LogicalSize::FLAG_BYTES)
+            RigCacheBudgetPolicy::admits(bytes, operations)
 
 include "rig_cache_identity.elisa"
