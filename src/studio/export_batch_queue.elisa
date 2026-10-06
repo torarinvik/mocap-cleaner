@@ -27,6 +27,10 @@ module StudioExportBatchQueue:
             ensure result == queue.active_workers
             queue.active_workers
 
+        def worker_limit(queue: Queue&) -> i64:
+            ensure result == queue.worker_limit
+            queue.worker_limit
+
         def cancelled(queue: Queue&) -> bool:
             ensure result == queue.cancel_requested
             queue.cancel_requested
@@ -73,6 +77,17 @@ module StudioExportBatchQueue:
             return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
             queue.items.push(Item{state: StudioExportBatchQueuePolicy::ItemState.Queued, warning_count: 0, approved: false})
             true
+
+        def restore_item(queue: mutable Queue&, item: Item) -> bool:
+            requires valid(queue)
+            ensure valid(queue)
+            return false if queue.active_workers != 0 or queue.items.count >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+            return false if not StudioExportBatchItemPolicy::valid(item.state, item.warning_count, item.approved)
+            queue.items.push(item)
+            true
+
+        def restore_cancelled(queue: mutable Queue&) -> void:
+            queue.cancel_requested <- true
 
         # Selects the earliest queued input, preserving manifest order.
         # Returns -1 when cancelled, full, or no queued item remains.
@@ -121,6 +136,21 @@ module StudioExportBatchQueue:
             queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::completion(succeeded, staged_outputs_valid, warning_count)
             queue.items[index.usize()].warning_count <- warning_count
             queue.active_workers <- queue.active_workers - 1
+            true
+
+        # A journal update failure after worker completion cannot be shown as
+        # either success or an ordinary processing failure.
+        def mark_recoverable(queue: mutable Queue&, index: i64, warning_count: i64) -> bool:
+            requires valid(queue)
+            requires index >= 0 and index < queue.items.count.i64()
+            requires warning_count >= 0
+            ensure valid(queue)
+            ensure result implies queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Recoverable
+            return false if queue.items[index.usize()].state != StudioExportBatchQueuePolicy::ItemState.Running and queue.items[index.usize()].state != StudioExportBatchQueuePolicy::ItemState.Staged and queue.items[index.usize()].state != StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+            queue.active_workers <- queue.active_workers - 1 if queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
+            queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::ItemState.Recoverable
+            queue.items[index.usize()].warning_count <- warning_count
+            queue.items[index.usize()].approved <- false
             true
 
         def publish(queue: mutable Queue&, index: i64, reviewed: bool,
@@ -181,8 +211,9 @@ module StudioExportBatchQueue:
             mutable cancelled: i64 = 0
             mutable staged: i64 = 0
             mutable awaiting_review: i64 = 0
+            mutable recoverable: i64 = 0
             mutable unapproved: i64 = 0
-            for index in 0..<queue.items.count.i64() |index, queue, queued, running, passed, warning, failed, cancelled, staged, awaiting_review, unapproved|:
+            for index in 0..<queue.items.count.i64() |index, queue, queued, running, passed, warning, failed, cancelled, staged, awaiting_review, recoverable, unapproved|:
                 item: Item = queue.items[index.usize()]
                 queued <- queued + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Queued
                 running <- running + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Running
@@ -193,4 +224,5 @@ module StudioExportBatchQueue:
                 cancelled <- cancelled + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Cancelled
                 staged <- staged + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Staged
                 awaiting_review <- awaiting_review + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
-            StudioExportBatchQueuePolicy::aggregate(queue.items.count.i64(), queued, running, passed, warning, failed, cancelled, staged, awaiting_review, unapproved)
+                recoverable <- recoverable + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Recoverable
+            StudioExportBatchQueuePolicy::aggregate(queue.items.count.i64(), queued, running, passed, warning, failed, cancelled, staged, awaiting_review, recoverable, unapproved)

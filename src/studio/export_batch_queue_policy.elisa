@@ -15,6 +15,7 @@ module StudioExportBatchQueuePolicy:
             Cancelled = 5
             Staged = 6
             AwaitingReview = 7
+            Recoverable = 8
 
         const enum Aggregate of i64:
             Incomplete = 0
@@ -92,12 +93,12 @@ module StudioExportBatchQueuePolicy:
             state == ItemState.Warning and reviewed
 
         # Inputs are bounded counts of all item states. Any queued,
-        # running, failed, cancelled, or unreviewed warning keeps the manifest
-        # incomplete. Invalid partitions fail closed.
+        # running, failed, cancelled, recoverable, or unreviewed warning keeps
+        # the manifest incomplete. Invalid partitions fail closed.
         def aggregate(total: i64, queued: i64, running: i64,
                       passed: i64, warning: i64, failed: i64,
                       cancelled: i64, staged: i64, awaiting_review: i64,
-                      unapproved_warnings: i64) -> Aggregate:
+                      recoverable: i64, unapproved_warnings: i64) -> Aggregate:
             requires total >= 0 and total <= Capacity::MAX_ITEMS
             requires queued >= 0 and running >= 0 and passed >= 0
             requires warning >= 0 and failed >= 0 and cancelled >= 0
@@ -106,11 +107,12 @@ module StudioExportBatchQueuePolicy:
             requires warning <= Capacity::MAX_ITEMS and failed <= Capacity::MAX_ITEMS and cancelled <= Capacity::MAX_ITEMS
             requires staged >= 0 and staged <= Capacity::MAX_ITEMS
             requires awaiting_review >= 0 and awaiting_review <= Capacity::MAX_ITEMS
+            requires recoverable >= 0 and recoverable <= Capacity::MAX_ITEMS
             requires unapproved_warnings <= Capacity::MAX_ITEMS
-            ensure result == (Aggregate.Invalid if queued + running + passed + warning + failed + cancelled + staged + awaiting_review < total or queued + running + passed + warning + failed + cancelled + staged + awaiting_review > total or unapproved_warnings > warning else Aggregate.NotStarted if total == 0 else Aggregate.Incomplete if queued + running + failed + cancelled + staged + awaiting_review + unapproved_warnings > 0 else Aggregate.CompleteWithWarnings if warning > 0 else Aggregate.Complete)
-            return Aggregate.Invalid if queued + running + passed + warning + failed + cancelled + staged + awaiting_review < total or queued + running + passed + warning + failed + cancelled + staged + awaiting_review > total
+            ensure result == (Aggregate.Invalid if queued + running + passed + warning + failed + cancelled + staged + awaiting_review + recoverable < total or queued + running + passed + warning + failed + cancelled + staged + awaiting_review + recoverable > total or unapproved_warnings > warning else Aggregate.NotStarted if total == 0 else Aggregate.Incomplete if queued + running + failed + cancelled + staged + awaiting_review + recoverable + unapproved_warnings > 0 else Aggregate.CompleteWithWarnings if warning > 0 else Aggregate.Complete)
+            return Aggregate.Invalid if queued + running + passed + warning + failed + cancelled + staged + awaiting_review + recoverable < total or queued + running + passed + warning + failed + cancelled + staged + awaiting_review + recoverable > total
             return Aggregate.Invalid if unapproved_warnings > warning
             return Aggregate.NotStarted if total == 0
-            return Aggregate.Incomplete if queued + running + failed + cancelled + staged + awaiting_review + unapproved_warnings > 0
+            return Aggregate.Incomplete if queued + running + failed + cancelled + staged + awaiting_review + recoverable + unapproved_warnings > 0
             return Aggregate.CompleteWithWarnings if warning > 0
             Aggregate.Complete

@@ -157,6 +157,15 @@ source, 22/22 laws). Integration must establish all six input facts; the policy
 does not supply durable records or exact-byte verification. Evidence is in
 [recovery admission](../acceptance/export-recovery-policy-2026-10-06.md).
 
+The batch review binding now has a durable per-item journal/store path and a
+reopen classifier that checks source identity, snapshots, staged/final/report
+bytes and recorded publication stages. Interrupted workers become Recoverable;
+serialized approval and success flags do not restore terminal state. Warning
+facts still lack an independent report parser, the durable constructor is not
+yet wired into the Studio UI, and native filesystem durability/race behavior
+remains unqualified. Compile-only evidence and exact limits are recorded in
+[batch review binding](../acceptance/batch-review-binding-2026-10-07.md).
+
 - [ ] **Owned recovery record:** give each export an immutable transaction ID
   and keep the GLB identity, exact frozen report bytes, source/animation/stack
   revisions, final paths and stage outcomes together. Preserve multiple pending

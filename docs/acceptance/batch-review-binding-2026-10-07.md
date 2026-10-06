@@ -46,6 +46,43 @@ recovery records, destination/recipe/rig preflight verification, proof replay,
 and UI review wiring remain unqualified. The separate preflight policy still
 accepts facts that its caller must establish from the OS.
 
+## Durable batch queue journal — 2026-10-07
+
+The batch review binding now offers a durable queue constructor and routes its
+enqueue, worker claim/completion, publication, retry, cancel and resume
+transitions through the existing recovery store while the workspace lock is
+held. Enqueue stores exact staged GLB, recipe and report snapshots with a
+versioned per-item journal under `build/.mocap-export-recovery-*`. Claims
+persist the incremented attempt and Running state before returning a worker
+claim. Journal failures after work or publication keep outputs intact and
+surface Recoverable in memory. Updates are accepted only along the recorded
+lifecycle and atomically replaced; unknown durability is followed by a
+directory sync attempt.
+
+`reopen_durable` scans the bounded recovery inventory and rejects unreadable or
+invalid record directories rather than dropping them. It checks source
+identity with the no-follow source adapter, rejects symlink/non-regular
+snapshot paths, reloads exact snapshot bytes, compares staged/final GLB and
+report files byte-for-byte, and checks the stored publication stage facts.
+Interrupted Running records are atomically rewritten to Recoverable before the
+queue is returned. Serialized approval is not stored or restored. The report
+warning list does not yet have an independent parser, so reopened items remain
+Recoverable even when final bytes match; they never regain Passed/Warning from
+the journal's state or warning count. Empty durable queues and the batch UI
+entry point are not yet wired into Studio.
+
+Compile-only qualification used the provenance-checked normal Stage1 product
+(`bb1f4095`) with `-emit obj -O0`; O2 dead-stripped these proof/module-only
+fixtures to 336-byte symbol-only objects, so those outputs are not counted as
+evidence. O0 outputs were nonempty: review-binding laws 850,816 bytes, journal
+laws 301,104 bytes, queue model laws 153,424 bytes, recovery-policy laws
+186,384 bytes, queue-store source 677,776 bytes and recovery-store source
+483,048 bytes. The compiler exited 0 for each. No law replay, executable,
+native adapter behavior, crash, race, flush/close failure, filesystem
+durability or Studio UI qualification was run. The native recovery store still
+needs qualification for directory enumeration, symlink races, atomic journal
+replacement and sync failures.
+
 Root subsequently ran `clang -fsyntax-only -fobjc-arc` on the current engine
 `native/file_trash_appkit.m`; it exited 0 without diagnostics. This establishes
 native source syntax only, not a linked adapter, file identity behavior or race
