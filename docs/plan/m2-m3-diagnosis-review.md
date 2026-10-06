@@ -177,6 +177,24 @@ outside the current symbolic boundary; current producer/replay, UI wiring,
 native text input and the actual-rate playback/time-display consistency audit
 remain open. A parser implementation alone does not close Go to time.
 
+The frame/time dialog is now wired to Cmd-G / Cmd-Shift-G, shared Apply/Cancel
+validation, decimal keyboard drafts, retained text-field changes and mode-specific
+visual/accessibility labels. It captures the clip rate as well as the existing
+take/document/stack/frame-count target, refusing a changed rate. Integrated
+qualification remains open. The committed-text callback still needs its matching
+decimal/capacity update, and endpoint/boundary navigation must explicitly pause
+playback because the generic scrub transition preserves playing state.
+
+- [ ] Qualify time conversion against the timeline clock and evaluated sample
+      times. The current playback kernels use a fixed 120 fps while the displayed
+      clip rate is estimated from the longest channel's key count and duration.
+      Use one validated time basis for playback, time entry, stepping, display,
+      curves and reports; describe any rounding. Detect nonuniform key spacing
+      and distinguish authored keys from evaluated review samples. Never present
+      an estimated average key rate as exact timing. Cover supported rates,
+      retimed results, degenerate channels and nonuniform input without moving
+      or exporting a different pose than the time label indicates.
+
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
       Display the indexing convention consistently. Keep empty, malformed or
