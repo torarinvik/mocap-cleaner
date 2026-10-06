@@ -23,3 +23,10 @@ coverage now filters same-named variant rows using the existing module resolver,
 as flat-enum coverage already does. Product verification is pending: the seed
 request was refused because another live host seed (PID 53052) owns the shared
 memory-protection lock. No stale compiler override was enabled.
+
+Compiler follow-up `e4acb8de` also constrains value-wall variant lookup to the
+selected lexical declaration. Resolving a local enum as firm must not allow a
+foreign same-named enum to contribute variant names. This guard also handles
+an empty local enum shadowing a populated foreign enum. Fresh compiler product
+verification is still pending the live host seed; the patch is not accepted
+as qualification until the reproduction and integrated build succeed.
