@@ -126,6 +126,20 @@ must display unknown, never a misleading zero. Source and laws prove 60/60
 and 80/80 obligations respectively; the policy object compiles. UI integration
 and native acceptance remain pending.
 
+### Native acceptance attempt (2026-10-06)
+
+The current build launched in a derived review bundle with an empty workspace.
+The workspace and File accessibility nodes and the initial screen were visible.
+Activating File through native automation produced no observable menu; keyboard
+activation also produced no observable change. Subsequent window observations
+failed while the exact application process remained alive. A one-second sample
+found its main thread waiting during a Core Animation backing-store commit,
+with the submission thread inside IOGPU command submission. This is diagnostic
+evidence of a rendering wait during the attempt, not proof of its cause or a
+verified File-routing defect. Storage, inspector focus and minimum-window
+acceptance remain unqualified. The sample is retained under
+`build/ui-smoke/filter-review-sample.txt`.
+
 ## Hard links and allocation: next native boundary
 
 Current totals are logical file sizes. A fresh native measurement must provide
