@@ -53,3 +53,21 @@ Both compiler exits were zero and logs are beside the objects. This checks the
 formatter's global snapshot/slot guard integration at object-generation scope.
 The fixture was not executed. Overflow behavior, law replay, full report
 publication and full application qualification remain pending.
+
+## Integration policy compilation
+
+Three further law inputs emitted fresh nonempty `laws.o` objects with zero
+compiler exits and current diagnostic provenance, without a stale override:
+
+| Input | Directory |
+| --- | --- |
+| `studio_contact_preview_laws` | `build/integration-policy-compile.VTa8n1` |
+| `studio_export_batch_queue_laws` | `build/integration-policy-compile.PdPA9O` |
+| `studio_issue_browser_laws` | `build/integration-policy-compile.S8BkdX` |
+
+Logs are beside the objects. The browser now passes the sidebar's actual
+one-row capacity into a generalized window policy; its existing two-row API
+remains available. This corrects the earlier application wiring that assumed
+the two-row policy matched the current geometry. Selection visibility still
+needs native qualification. Contact timing and staged warning-review queue
+contracts compile; their proof validity and independent replay remain open.
