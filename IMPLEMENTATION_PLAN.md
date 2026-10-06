@@ -159,17 +159,12 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       retime, undo, sessions and export. Record the exact build, outcomes and
       screenshots in `docs/studio-capability-matrix.md`. Review contact
       nudges and finding filters on screen, including focus, hit targets,
-      issue-row selection, ignore/restore and undo. Commit `93e2e15` fixes the
-      filter geometry; on the read-only 97-frame, 54-bone `jab` take the chips
-      render, severity advances to 250‰ with status feedback, the filtered
-      empty state updates, and Reset restores defaults. This take has no
-      findings, so finding-row and intent actions remain unverified. Verify
-      Escape on every remaining layer and review replacement, legacy-session
-      and export dialogs for readability and dismissal at the minimum window
-      size. Complete Duplicate edge-state feedback (no selection and full
-      stack), native `Cmd-D`, text-entry ownership, and VoiceOver activation.
-      The CUA `super+D` and `super+O` gestures reached plain-key actions, so
-      they do not count as native Command-chord evidence.
+      issue-row selection, ignore/restore and undo using fixtures that contain
+      real findings. Verify Escape on every layer and review replacement,
+      legacy-session and export dialogs for readability, focus and dismissal
+      at the minimum window size. Verify Duplicate edge-state feedback (no
+      selection and full stack), native `Cmd-D`/`Cmd-O` routing, text-entry
+      ownership and VoiceOver activation through the app's native input path.
 - [ ] Review the legacy-session warning on screen: Cancel and Escape preserve
       a dirty document; Load leads to the separate Save/Discard/Cancel prompt;
       mouse, arrows, Enter, L and Esc have clear visible focus and outcomes.
@@ -177,9 +172,9 @@ ship later. P2 is exploratory and must not delay a safe useful release.
       screenshot of both it and the following dirty-document prompt.
 - [ ] Complete running-window review of capacity behavior. Record limit
       feedback, atomicity, memory and accessibility/draw overflow; close the
-      still-unverified capacity cases in `docs/studio-capacities.md`. Contact
-      edit limits now align with the 10,000,000-frame timeline; visually check
-      fields/nudges at that boundary and close the larger-domain proof gaps.
+      still-unverified capacity cases in `docs/studio-capacities.md`. Visually
+      check contact fields and keyboard nudges at the supported frame boundary
+      and close the larger-domain proof gaps.
 - [ ] Establish benchmark takes: short boxing, walking/running, idle jitter,
       turns, jumps/landings, planted hands, unusual proportions, noisy input,
       long clips and multi-animation GLBs. Use licensed or synthetic fixtures;
@@ -279,74 +274,101 @@ visually verified solely from offscreen rendering.
       newer schemas without replacing current work.
 - [ ] Add in-app recent takes/sessions with missing-file handling and Clear
       recents. Remember paths as preferences, not embedded source copies.
-- [ ] Add local storage cleanup for Studio-managed recovery snapshots,
-      abandoned temporary exports and generated reports. Show item type,
-      location, age and size; exclude source takes, open documents and current
-      session references; let users review a cleanup selection before moving
-      recoverable items to Trash. Report item count and bytes moved, and explain
-      that Finder must empty Trash to reclaim disk space. Make retention rules
-      and Restore easy to find. `StudioStorageCleanupPolicy` defines the
-      eligibility and review gates. `../elisa-engine-mocap` now supplies a
-      macOS move/restore adapter that checks build-root containment and records
-      Trash-item identity. The policy fails closed for changed or unverified
-      inventory identity and gives each a separate protection reason; the
-      focused executable covers these cases. Eligibility, explicit review and
-      confirmation, and bounded byte accumulation now have verified contracts;
-      the policy proof replays 351/353 obligations, with two explanation-code
-      and exact-sum laws tracked in `docs/proof-gaps.md`. Studio inventory,
-      atomic manifest publication, receipt restore and the user workflow
-      remain open. The versioned ownership/Trash manifest codec and bounded
-      scalar proof are in place, and the field-based engine bridge is linked
-      into Studio with a bounded reader and identity snapshots; the app does
-      not persist or consume entries yet.
 
 #### Storage cleanup and Restore experience
 
 - [ ] Add a clearly named **Storage & Recovery** entry under File or workspace
-      settings. Show generated-storage use, eligible bytes, protected bytes,
-      and the last cleanup or restore result. Explain that moving items to
-      Trash is recoverable and that emptying Trash is handled by Finder.
-- [ ] Inventory only Studio-managed generated files under the canonical
-      `build/` root. Group recovery snapshots, temporary exports and reports;
-      display filename, kind, relative location, modified age and size; and
-      sort, search and filter by those fields. Keep source takes outside the
-      candidate list entirely.
+      settings and make it reachable from the main workspace without opening
+      a document. Give the screen a plain-language purpose statement and show
+      total Studio-managed storage, eligible-to-move bytes, protected bytes,
+      recovery storage and the last scan/action result. Explain beside the
+      action that Move to Trash is recoverable and Finder controls permanent
+      deletion. Never label bytes moved to Trash as disk space reclaimed.
+- [ ] Define artifact ownership at creation time. Register only files Studio
+      actually created, with artifact kind, canonical build-relative path,
+      identity, creation/modification time and any session/recovery dependency.
+      Add explicit registration for future recovery snapshots and temporary
+      exports. Never infer ownership from a filename or sweep arbitrary files
+      in `build/`. Keep the manifest and active outputs excluded from cleanup.
+      If manifest loading or writing fails, show a recoverable storage error
+      and fail closed; do not replace a malformed manifest with an empty one.
+- [ ] Build a fresh inventory from registered artifacts and current filesystem
+      facts. Recheck canonical containment, file type, symlink status, source
+      identity, active-document/open-session references, retention and identity
+      before eligibility is shown. Preserve unknown facts as protected states.
+      Refresh on entry, on explicit Refresh and after each action; show when the
+      inventory was last checked. Never list a source take as a cleanup row.
+- [ ] Group recovery snapshots, interrupted/temporary exports and reports.
+      Display filename, human-readable kind, build-relative location, modified
+      age and exact size; offer useful sorting, search and type/eligibility
+      filters. Keep long paths inspectable without forcing the main list wider.
+      Support large inventories with bounded rendering, scrolling and stable
+      selection while sorting or filtering.
+- [ ] Design distinct first-use, scanning, empty, no-eligible-items, stale
+      inventory, permission failure, unreadable-manifest and partial-failure
+      states. Each state explains what happened and offers a safe next action
+      such as Refresh, open the containing folder, retry, or inspect details.
+      Do not show a blank screen or an ambiguous success toast for these cases.
 - [ ] Show protected candidates with a plain-language reason such as active
       document, open-session reference, too recent, outside the managed root,
       symbolic link, changed identity or unsupported file type. Keep protected
-      rows visible for explanation but never selectable.
+      rows visible for explanation but never selectable. Put the reason beside
+      the item, provide a more detailed explanation on demand, and use text and
+      icons as well as color. Do not suggest changing a safety rule to force an
+      item through.
 - [ ] Let users select eligible rows individually or by safe group and retain
       selection while sorting and filtering. Show a live item and size total.
       Provide Select eligible and Clear selection actions with obvious scope;
-      never preselect items on first open.
+      never preselect items on first open. Show selected, eligible and protected
+      counts separately. Keep selection stable by artifact identity rather
+      than row index; remove stale or newly protected items with an explanation.
 - [ ] Before acting, show exact item count, estimated space, names and
-      destinations. Require an explicit **Move to Trash** action. Re-scan and
-      revalidate canonical path, source/session references, file type and
-      identity immediately before each move; a changed item becomes protected
-      and the review updates before remaining actions proceed.
+      original locations and destinations in a concise review. State that the
+      files can be restored from Recently moved to Trash and that Finder must
+      empty Trash to reclaim disk space. Require an explicit **Move to Trash**
+      action; selection alone never acts. Re-scan and revalidate canonical
+      path, source/session references, file type and identity immediately
+      before each move. If the set or size changes, update the review and ask
+      for confirmation again before proceeding.
 - [ ] Persist each successful engine receipt atomically in a versioned
       Studio-managed manifest that is itself excluded from cleanup. Record the
       original path, Trash location and identity. Report partial success per
-      item, and never claim space was freed when a move failed. A crash while
-      saving receipts must not turn a successful move into a falsely reported
-      permanent deletion.
+      item, and never claim space was freed when a move failed. Define the
+      crash boundary between moving an item and persisting its receipt; use a
+      durable intent/reconciliation protocol or an engine-supported recovery
+      lookup so a restart cannot silently strand an untracked Trash item. If
+      receipt persistence fails, attempt immediate restore and report whether
+      rollback succeeded. If neither persistence nor rollback succeeds, retain
+      the verified receipt for retry/recovery and clearly explain the manual
+      recovery path.
+- [ ] Show operation progress and per-item outcome for multi-item actions.
+      Support cancellation between items, preserve completed receipts, and
+      explain which items remain untouched. Retrying a partial batch must not
+      repeat successful moves or overwrite another manifest update. Keep the
+      screen usable while work is running and prevent duplicate activation.
 - [ ] Provide a **Recently moved to Trash** view with item name, original
       location, date and Restore action. Restore only when the receipt and
-      Trash item still match; never overwrite an existing destination. Explain
-      missing, altered or expired Trash items and destination conflicts, then
-      let the user rescan after resolving a conflict.
+      Trash item still match; never overwrite an existing destination. Show
+      missing, altered, expired and conflicting items with clear next steps.
+      Offer Refresh after the user resolves a destination conflict. Removing
+      an expired receipt from Studio's list must not delete any unrelated file.
 - [ ] Define visible retention preferences with a sensible default, concise
       explanation and preview of what each choice makes eligible. Retain
       snapshots needed for recovery, honor the policy's minimum age and let
       users exempt a report or recovery point. Changing retention must not move
-      files until the user reviews and confirms the resulting list.
+      files until the user reviews and confirms the resulting list. Distinguish
+      the app's retention policy from Finder Trash retention; never imply that
+      Studio permanently empties Trash.
 - [ ] Make the workflow keyboard and VoiceOver accessible: named entry, item
       roles and values, selection state, protected reason, selection totals,
       review heading, confirmation, progress, per-item result and restore
       outcome. Escape cancels an unconfirmed review and focus returns to the
-      invoking control. Test large inventories, long paths, permission failures,
-      stale receipts, unavailable Trash, partial batch errors and interrupted
-      receipt writes with generated fixtures under `build/`.
+      invoking control. Add visible focus, predictable tab order, keyboard
+      sorting/filtering/selection and non-color status cues. Test pointer-only,
+      keyboard-only and VoiceOver paths with large inventories, long paths,
+      permission failures, stale receipts, unavailable Trash, partial batch
+      errors, cancellation and interrupted receipt writes using generated
+      fixtures under `build/`.
 
 **Storage cleanup exit:** an animator can identify what Studio owns, select
 only eligible generated files, understand the consequences before acting,
@@ -508,9 +530,8 @@ state. No recommendation passes solely on aggregate improvement.
       handles with usable hit targets. Visually verify the shipped 1-based
       endpoint fields and keyboard nudges on valid takes, including focus,
       invalid drafts, clip boundaries, long clips and the minimum window size.
-      The numeric frame limit now matches the supported 10,000,000-frame clip;
-      visually verify that boundary and expose contact selection and edits
-      through native accessibility actions.
+      Verify the supported frame boundary and expose contact selection and
+      edits through native accessibility actions.
 - [ ] Show automatic versus edited intervals, lock/pivot choice, anchor point,
       target surface, blend-in/out and confidence. Users can revert an interval
       without deleting other contact edits.
