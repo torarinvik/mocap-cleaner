@@ -89,3 +89,22 @@ and an equivalent explicit-branch formulation is being checked. Do not use
 superseded `build/export-recovery-stage-*.json` reports as acceptance evidence
 until the current runs finish and their certificates are reviewed. No baseline
 is added for the stage policy, and journal parsing/integration remain open.
+
+The version-1 journal codec now stores a strict header, transaction basename,
+workspace and three final paths, capture generation/animation, frozen byte sizes,
+and separate observed/durable stages. Paths are UTF-8-validated hex fields;
+transaction names are restricted to the private mkdtemp namespace. It rejects
+extra/missing fields, aliased final paths, noncanonical or out-of-range numbers,
+unknown stages and durability claims inconsistent with observed publication.
+Decode and encode publish caller outputs only after complete validation.
+Source contracts and companion laws compile with normal f292cbe0; proof checking
+is running, so no certificate closure or reviewed baseline is claimed.
+
+The native store creates `journal.txt` without replacing an existing record.
+Updates require a strictly decoded prior journal, unchanged immutable binding,
+and monotonic observed/durable stages, then use the atomic synced publisher.
+These adapters compile with isolated faabd1f7. Native ownership/race checks,
+semantic source/stack provenance qualification, round-trip proof and injected
+journal failures remain open. Format validity alone never authorizes retry or
+cleanup. Evidence: `build/export-recovery-journal-laws-build.log` and
+`build/export-recovery-store-build.log`.

@@ -1,0 +1,147 @@
+include "storage_manifest.elisa"
+include "../export_recovery_stage_policy.elisa"
+include "../export_recovery_budget_policy.elisa"
+
+# Strict versioned text journal. Hex paths keep controls from creating fields.
+# A valid record is not proof of ownership, exact output binding or durability.
+module StudioExportRecoveryJournal:
+    private:
+        const module Layout:
+            PATH_FIELDS: usize = 5
+            NUMBER_FIELDS: usize = 7
+            HEADER: sview = "mocap-export-recovery 1"
+
+    public:
+        struct Record:
+            transaction: darray[u8]
+            workspace: darray[u8]
+            destination: darray[u8]
+            json_destination: darray[u8]
+            text_destination: darray[u8]
+            source_generation: i64
+            animation_index: i64
+            output_bytes: i64
+            json_bytes: i64
+            text_bytes: i64
+            observed: StudioExportRecoveryStagePolicy::Stage
+            durable: StudioExportRecoveryStagePolicy::Stage
+
+        # Stage updates cannot silently replace an earlier export's binding.
+        def same_binding(left: Record&, right: Record&) -> bool:
+            ensure result implies left.source_generation == right.source_generation
+            ensure result implies left.animation_index == right.animation_index
+            ensure result implies left.output_bytes == right.output_bytes and left.json_bytes == right.json_bytes and left.text_bytes == right.text_bytes
+            return false if not StudioStorageManifest::same_path(left.transaction, right.transaction)
+            return false if not StudioStorageManifest::same_path(left.workspace, right.workspace)
+            return false if not StudioStorageManifest::same_path(left.destination, right.destination)
+            return false if not StudioStorageManifest::same_path(left.json_destination, right.json_destination)
+            return false if not StudioStorageManifest::same_path(left.text_destination, right.text_destination)
+            left.source_generation == right.source_generation and left.animation_index == right.animation_index and left.output_bytes == right.output_bytes and left.json_bytes == right.json_bytes and left.text_bytes == right.text_bytes
+
+        def valid(record: Record&) -> bool:
+            ensure result implies record.source_generation >= 0
+            ensure result implies record.animation_index >= 0
+            ensure result implies record.output_bytes > 0 and record.output_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES
+            ensure result implies record.json_bytes > 0 and record.json_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+            ensure result implies record.text_bytes > 0 and record.text_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+            return false if not transaction_valid(record.transaction)
+            return false if not StudioStorageManifest::path_valid(record.workspace)
+            return false if not StudioStorageManifest::path_valid(record.destination)
+            return false if not StudioStorageManifest::path_valid(record.json_destination)
+            return false if not StudioStorageManifest::path_valid(record.text_destination)
+            return false if StudioStorageManifest::same_path(record.destination, record.json_destination) or StudioStorageManifest::same_path(record.destination, record.text_destination) or StudioStorageManifest::same_path(record.json_destination, record.text_destination)
+            return false if record.source_generation < 0 or record.source_generation > StudioStorageManifest::MAX_IDENTITY_VALUE
+            return false if record.animation_index < 0 or record.animation_index > StudioStorageManifest::MAX_IDENTITY_VALUE
+            return false if record.output_bytes <= 0 or not StudioExportRecoveryBudgetPolicy::append_admitted(0, record.output_bytes, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
+            return false if record.json_bytes <= 0 or not StudioExportRecoveryBudgetPolicy::append_admitted(0, record.json_bytes, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            return false if record.text_bytes <= 0 or not StudioExportRecoveryBudgetPolicy::append_admitted(0, record.text_bytes, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            StudioExportRecoveryStagePolicy::transition_admitted(record.durable.i64(), record.observed.i64())
+
+        # Invalid input leaves the caller's prior output untouched.
+        def encode(record: Record&, out: mutable darray[u8]&) -> bool:
+            ensure result implies out.count.i64() <= StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            return false if not valid(record)
+            mutable bytes: darray[u8] = []
+            bytes.extend(Layout::HEADER)
+            bytes.push(10)
+            append_path(&bytes, record.transaction)
+            append_path(&bytes, record.workspace)
+            append_path(&bytes, record.destination)
+            append_path(&bytes, record.json_destination)
+            append_path(&bytes, record.text_destination)
+            append_number(&bytes, record.source_generation)
+            append_number(&bytes, record.animation_index)
+            append_number(&bytes, record.output_bytes)
+            append_number(&bytes, record.json_bytes)
+            append_number(&bytes, record.text_bytes)
+            append_number(&bytes, record.observed.i64())
+            append_number(&bytes, record.durable.i64())
+            return false if bytes.count.i64() > StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            out.clear()
+            out.extend(bytes)
+            true
+
+        def decode(bytes: darray[u8]&, out: mutable Record&) -> bool:
+            ensure result implies valid(out)
+            return false if bytes.count.i64() > StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            mutable starts: darray[usize] = []
+            mutable ends: darray[usize] = []
+            mutable start: usize = 0
+            for index in 0..<bytes.count |bytes, starts, ends, start, index|:
+                if bytes[index] == 10:
+                    starts.push(start)
+                    ends.push(index)
+                    start <- index + 1
+            return false if start != bytes.count or starts.count != 1 + Layout::PATH_FIELDS + Layout::NUMBER_FIELDS
+            return false if ends[0] != Layout::HEADER.len.usize()
+            for index in 0..<Layout::HEADER.len.usize():
+                return false if bytes[index] != Layout::HEADER[index]
+            mutable transaction: darray[u8] = []
+            mutable workspace: darray[u8] = []
+            mutable destination: darray[u8] = []
+            mutable json_destination: darray[u8] = []
+            mutable text_destination: darray[u8] = []
+            return false if not StudioStorageManifest::parse_hex(bytes, starts[1], ends[1], &transaction)
+            return false if not StudioStorageManifest::parse_hex(bytes, starts[2], ends[2], &workspace)
+            return false if not StudioStorageManifest::parse_hex(bytes, starts[3], ends[3], &destination)
+            return false if not StudioStorageManifest::parse_hex(bytes, starts[4], ends[4], &json_destination)
+            return false if not StudioStorageManifest::parse_hex(bytes, starts[5], ends[5], &text_destination)
+            mutable numbers: darray[i64] = []
+            for field in 0..<Layout::NUMBER_FIELDS |bytes, starts, ends, numbers, field|:
+                at: usize = starts[1 + Layout::PATH_FIELDS + field]
+                stop: usize = ends[1 + Layout::PATH_FIELDS + field]
+                return false if at >= stop or bytes[at] < 48 or bytes[at] > 57
+                return false if stop - at > 1 and bytes[at] == 48
+                mutable value: i64 = 0
+                return false if not StudioStorageManifest::parse_number(bytes, at, stop, &value)
+                numbers.push(value)
+            return false if not StudioExportRecoveryStagePolicy::wire_admitted(numbers[5]) or not StudioExportRecoveryStagePolicy::wire_admitted(numbers[6])
+            decoded: Record = Record{
+                transaction: transaction, workspace: workspace, destination: destination,
+                json_destination: json_destination, text_destination: text_destination,
+                source_generation: numbers[0], animation_index: numbers[1],
+                output_bytes: numbers[2], json_bytes: numbers[3], text_bytes: numbers[4],
+                observed: numbers[5].cast[StudioExportRecoveryStagePolicy::Stage],
+                durable: numbers[6].cast[StudioExportRecoveryStagePolicy::Stage]}
+            return false if not valid(decoded)
+            out <- decoded
+            true
+
+    private:
+        def transaction_valid(value: darray[u8]&) -> bool:
+            prefix: sview = ".mocap-export-recovery-"
+            return false if value.count != prefix.len.usize() + 6
+            for index in 0..<prefix.len.usize():
+                return false if value[index] != prefix[index]
+            for index in prefix.len.usize()..<value.count:
+                byte: u8 = value[index]
+                return false if not (byte >= 48 and byte <= 57 or byte >= 65 and byte <= 90 or byte >= 97 and byte <= 122)
+            true
+
+        def append_path(out: mutable darray[u8]&, path: darray[u8]&):
+            StudioStorageManifest::push_hex(out, path)
+            out.push(10)
+
+        def append_number(out: mutable darray[u8]&, value: i64):
+            StudioStorageManifest::push_number(out, value)
+            out.push(10)

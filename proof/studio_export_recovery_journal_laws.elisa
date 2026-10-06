@@ -1,0 +1,79 @@
+include "../src/studio/io/export_recovery_journal.elisa"
+
+module StudioExportRecoveryJournalLaws:
+    public:
+        def negative_generation_is_rejected(record: StudioExportRecoveryJournal::Record) -> bool:
+            ensure not result
+            mutable invalid: StudioExportRecoveryJournal::Record = record
+            invalid.source_generation <- -1
+            StudioExportRecoveryJournal::valid(&invalid)
+
+        def negative_animation_is_rejected(record: StudioExportRecoveryJournal::Record) -> bool:
+            ensure not result
+            mutable invalid: StudioExportRecoveryJournal::Record = record
+            invalid.animation_index <- -1
+            StudioExportRecoveryJournal::valid(&invalid)
+
+        def empty_output_is_rejected(record: StudioExportRecoveryJournal::Record) -> bool:
+            ensure not result
+            mutable invalid: StudioExportRecoveryJournal::Record = record
+            invalid.output_bytes <- 0
+            StudioExportRecoveryJournal::valid(&invalid)
+
+        def empty_json_is_rejected(record: StudioExportRecoveryJournal::Record) -> bool:
+            ensure not result
+            mutable invalid: StudioExportRecoveryJournal::Record = record
+            invalid.json_bytes <- 0
+            StudioExportRecoveryJournal::valid(&invalid)
+
+        def empty_text_is_rejected(record: StudioExportRecoveryJournal::Record) -> bool:
+            ensure not result
+            mutable invalid: StudioExportRecoveryJournal::Record = record
+            invalid.text_bytes <- 0
+            StudioExportRecoveryJournal::valid(&invalid)
+
+        def admitted_output_is_bounded(record: StudioExportRecoveryJournal::Record&) -> bool:
+            requires StudioExportRecoveryJournal::valid(record)
+            ensure result
+            record.output_bytes > 0 and record.output_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES
+
+        def admitted_reports_are_bounded(record: StudioExportRecoveryJournal::Record&) -> bool:
+            requires StudioExportRecoveryJournal::valid(record)
+            ensure result
+            record.json_bytes > 0 and record.json_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES and record.text_bytes > 0 and record.text_bytes <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+
+        def changed_generation_cannot_share_binding(record: StudioExportRecoveryJournal::Record) -> bool:
+            requires record.source_generation >= 0
+            ensure not result
+            mutable changed: StudioExportRecoveryJournal::Record = record
+            changed.source_generation <- -1
+            StudioExportRecoveryJournal::same_binding(&record, &changed)
+
+        def changed_output_size_cannot_share_binding(record: StudioExportRecoveryJournal::Record) -> bool:
+            requires record.output_bytes > 0
+            ensure not result
+            mutable changed: StudioExportRecoveryJournal::Record = record
+            changed.output_bytes <- 0
+            StudioExportRecoveryJournal::same_binding(&record, &changed)
+
+        def admitted_encoding_is_bounded(record: StudioExportRecoveryJournal::Record&, out: mutable darray[u8]&) -> bool:
+            ensure result implies out.count.i64() <= StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES
+            StudioExportRecoveryJournal::encode(record, out)
+
+extend StudioExportRecoveryJournal:
+    public:
+        def empty_transaction_is_rejected() -> bool:
+            ensure not result
+            mutable value: darray[u8] = []
+            transaction_valid(value)
+
+        def path_traversal_transaction_is_rejected() -> bool:
+            ensure not result
+            mutable value: darray[u8] = []
+            value.extend("../outside")
+            transaction_valid(value)
+
+        def unsupported_empty_document_is_rejected(out: mutable Record&) -> bool:
+            ensure not result
+            mutable bytes: darray[u8] = []
+            decode(bytes, out)
