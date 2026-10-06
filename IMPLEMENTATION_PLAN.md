@@ -277,6 +277,14 @@ visually verified solely from offscreen rendering.
 
 #### Storage cleanup and Restore experience
 
+Implementation status (2026-10-06): the first UI slice adds a File-menu entry
+available without a loaded take and a keyboard-navigable Storage & Recovery
+inventory. It rereads the manifest on entry/Refresh and hides records whose
+canonical original path is outside `build/` or matches the active take. This
+is only an inventory shell: live identity/age/reference checks, byte totals,
+Trash moves, crash reconciliation, Restore, accessible dialog semantics and
+the acceptance criteria below remain open.
+
 - [ ] Add a clearly named **Storage & Recovery** entry under File or workspace
       settings and make it reachable from the main workspace without opening
       a document. Give the screen a plain-language purpose statement and show
