@@ -194,6 +194,16 @@ playback because the generic scrub transition preserves playing state.
       an estimated average key rate as exact timing. Cover supported rates,
       retimed results, degenerate channels and nonuniform input without moving
       or exporting a different pose than the time label indicates.
+      Include fractional rates such as 30000/1001 and 60000/1001; an integer
+      rounded fps label must not become the authoritative sample clock.
+
+An integer-rate clock policy now provides ceiling-rounded frame starts, an
+exclusive clip end, floor conversion and modulo looping that preserves phase
+across several short loops in one tick. Its ten laws compile at O0 with retained
+symbols. It is not yet integrated into playback and does not represent
+fractional rates or validate authored key spacing. Current producer/replay,
+rational-rate timing, evaluated-grid admission and clock integration remain
+required before the clock-consistency item can be closed.
 
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
