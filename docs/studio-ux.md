@@ -278,11 +278,10 @@ Replacement workflows retain the current document when this guard fails.
 This reuses the export admission kernel; native session-save path acceptance
 and filesystem race/fault qualification remain open.
 
-The registration policy is not yet fully proved: its focused report is
-90/93 source obligations and 96/115 law obligations, with zero certificate
-replay gaps. No clean baseline was added. The unresolved contracts remain
-in place while prover support is investigated. This is implementation
-progress, not completion of storage metadata or durability acceptance.
+The registration policy now proves 14/14 source obligations and 33/33 law
+obligations, with zero certificate replay gaps. Its exact receipt-kind mapping
+is checked against the persisted schema. Native registration and durability
+acceptance remain open.
 
 Artifact registration rereads the manifest before extending it, preserving
 records published since the last inventory read. An unreadable or malformed
