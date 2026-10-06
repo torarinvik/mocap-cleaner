@@ -149,3 +149,9 @@ trusting `_after` suffixes. Unsupported quality names are unavailable, and
 quality values must be nonnegative; counts/frame-counts must be whole numbers.
 The typed policy reports 14/14, its expanded laws 25/32. Reader and laws compile;
 seven law obligations, replay and behavioral qualification remain open.
+
+HTML tables now show expected units and Boolean status words, with metric
+direction and exact decimal notation explained. Compilation succeeds. A fresh
+pre-presentation-change artifact was generated successfully; local-file browser
+opening was blocked by protocol security policy, so rendered layout, keyboard
+and screen-reader qualification remain open (see the HTML review evidence).
