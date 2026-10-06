@@ -43,9 +43,9 @@ from concurrent.futures import ThreadPoolExecutor
 OUT = "build/proof"
 CACHE = os.path.join(OUT, "cache")
 DURATIONS = os.path.join(CACHE, "durations.json")
-KEEP = re.compile(r"verification state|proven:|failed:|unproven:")
+KEEP = re.compile(r"verification state|obligations:|proven:|failed:|unproven:")
 # Bump when the key layout or the cached line format changes.
-KEY_VERSION = b"prove-cache-v4"
+KEY_VERSION = b"prove-cache-v5"
 # The prover is run as `PROVER <absolute file>`; part of the key so a change
 # here cannot reuse results produced by another invocation.
 INVOCATION = b"argv:PROVER,ABSFILE"
@@ -180,6 +180,22 @@ def complete_report(text):
             and (states[0] != "proved" or counts["unproven"] == 0))
 
 
+def complete_cached_report(line):
+    """Cached summaries keep all counters, squeezed onto one line."""
+    fields = re.findall(r"\b(verification state|obligations|proven|unproven): ([\w]+)", line)
+    if len(fields) != 4 or len(dict(fields)) != 4:
+        return False
+    values = dict(fields)
+    state = values["verification state"]
+    if state not in ("proved", "unknown", "unsupported", "disproved"):
+        return False
+    if any(not values[name].isascii() or not values[name].isdigit()
+           for name in ("obligations", "proven", "unproven")):
+        return False
+    total, proven, unproven = (int(values[name]) for name in ("obligations", "proven", "unproven"))
+    return proven + unproven == total and (state != "proved" or unproven == 0)
+
+
 def main():
     ap = argparse.ArgumentParser(usage=__doc__.rsplit("Usage: ", 1)[1].strip())
     ap.add_argument("--recheck-sample", type=int, default=0, metavar="N")
@@ -206,10 +222,16 @@ def main():
         marker = out[:-4] + ".cached"
         if os.path.exists(cached):
             line = open(cached).read()
-            with open(out, "w") as o:
-                o.write(line)
-            open(marker, "w").close()
-            hits.append((f, out, cached, line))
+            if complete_cached_report(line):
+                with open(out, "w") as o:
+                    o.write(line)
+                open(marker, "w").close()
+                hits.append((f, out, cached, line))
+            else:
+                os.remove(cached)
+                if os.path.exists(marker):
+                    os.remove(marker)
+                todo.append((f, out, cached, None))
         else:
             if os.path.exists(marker):
                 os.remove(marker)
