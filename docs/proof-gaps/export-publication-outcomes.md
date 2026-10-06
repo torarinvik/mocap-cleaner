@@ -79,3 +79,13 @@ requiring equal lengths and equality at every byte. Failed or oversize reads
 return false; residue fingerprints are not involved. It compiles with f292cbe0.
 Quantified byte-comparison proof, native race qualification and retry integration
 remain open; this observation alone does not authorize publication or cleanup.
+
+`StudioExportRecoveryStagePolicy` defines prepared, GLB, GLB+JSON, GLB+text and
+complete stages as a const enum with explicit wire values. Its boundary rejects
+report-only and unknown values; transitions preserve observed sidecars and do
+not regress. Current source and laws compile with f292cbe0. Proof qualification
+is pending: the first formula produced budget refusals and caller replay gaps,
+and an equivalent explicit-branch formulation is being checked. Do not use
+superseded `build/export-recovery-stage-*.json` reports as acceptance evidence
+until the current runs finish and their certificates are reviewed. No baseline
+is added for the stage policy, and journal parsing/integration remain open.
