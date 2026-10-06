@@ -605,3 +605,20 @@ new rows after the prover/replay products are rebuilt from matching sources.
   Scalar source and law proofs establish exact accumulation and display unit
   bounds; runtime tests pin limits to the manifest schema and exercise full
   capacity and invalid sizes. UI byte totals remain exact.
+
+## Storage retention age arithmetic (2026-10-06)
+
+- `src/studio/storage_age_policy.elisa` bounds signed filesystem timestamps and
+  nonnegative clock facts before age calculation. It avoids signed timestamp
+  subtraction unless the age is below the cleanup saturation cutoff, counts
+  completed days, and clamps old receipts at the existing 365000-day cleanup
+  limit. Its source proves 20/20 obligations and its focused laws prove 46/46,
+  with every certificate replayed. Runtime boundary coverage is in
+  `test/studio_storage_age_policy.elisa`.
+- The age proof exposed a report-accounting invariant that incorrectly required
+  branch-specific proof attempts to be no greater than source obligations.
+  A return-heavy function can produce multiple independently replayed attempts
+  for one source obligation. The prover's report invariant was corrected and a
+  regression fixture verifies the source-level totals, per-attempt certificates,
+  and fully proved status together. The previously unknown age report is now
+  fully proved; no timestamp bound or requirement was weakened.
