@@ -583,3 +583,15 @@ new rows after the prover/replay products are rebuilt from matching sources.
   postcondition obligations over the proof budget, while the exact-sum
   postcondition still lacked a verified executable summary. The attempted
   contract edits were removed; the 351/353 baseline remains authoritative.
+
+## Issue explanation model (2026-10-06)
+
+- G87: the prover reports `unsupported runtime expression` for the populated
+  `StudioIssueExplanation::Explanation{...}` aggregate returned by
+  `StudioIssueExplanation::explain`. Removing that builder removes the
+  unsupported finding. The explanation record assembly remains runtime-tested
+  in `test/studio_issue_explanation.elisa`; it is not claimed as proved. The
+  classification policy was split into
+  `src/studio/issue_explanation_policy.elisa`, whose focused laws prove 16/16
+  obligations with every certificate replayed. Keep the proof boundary there
+  until Elisa Proof models aggregate record construction and field projection.
