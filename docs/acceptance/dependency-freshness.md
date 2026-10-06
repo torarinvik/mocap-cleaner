@@ -96,3 +96,8 @@ and journal proof runs have abnormal exits under investigation. The default
 prover remains `5776350b`; adopting the latest source as the default binary
 is unfinished. These are current limitations, superseding the earlier
 candidate-running and compiler-not-adopted entries above.
+
+The normal compiler seed subsequently completed successfully. Its freshness
+check confirms source revision `04b384ec`; the integrated time-map report
+formatter emitted an object without diagnostics using this normal compiler.
+Direct C-string payload runtime qualification is still open.
