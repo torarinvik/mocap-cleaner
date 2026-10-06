@@ -90,3 +90,12 @@ proved: checked-product wrap guards, helper summaries and ambiguous goals
 remain. The changed obligation totals reflect the include graph, not weakened
 assertions. These reports are `build/cache-arithmetic-laws-720.json` and
 `build/rig-budget-extracted-laws-720.json`.
+
+Arithmetic contracts now also require admitted values to stay below the
+supplied limit, reject invalid dimensions explicitly and specify valid
+zero-size products. Four additional laws cover those boundary guarantees.
+Compiler `720896f4` emits `build/cache-arithmetic-contracts.iq0Ngl/laws.o`.
+The strengthened law corpus reports 44/60 certificates, all 44 replayed with
+zero gaps, in `build/cache-arithmetic-strengthened-laws-720.json`. Sixteen
+obligations remain open, including product-range and literal-call refusals;
+the extra assertions increase coverage and do not establish qualification.
