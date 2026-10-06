@@ -27,7 +27,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **81 owners, 737 ungrouped constants**.
+Remaining source inventory: **80 owners, 733 ungrouped constants**.
 
 | Module | Ungrouped constants | Declaration files |
 | --- | ---: | --- |
@@ -66,7 +66,6 @@ Remaining source inventory: **81 owners, 737 ungrouped constants**.
 | `StudioDraw` | 93 | `src/studio/app/panels_geometry.elisa` |
 | `StudioExportPathReview` | 5 | `src/studio/export_path_review.elisa` |
 | `StudioExportPolicy` | 7 | `src/studio/export_policy.elisa` |
-| `StudioExportResult` | 4 | `src/studio/export_result.elisa` |
 | `StudioExportReview` | 13 | `src/studio/export_review.elisa` |
 | `StudioExportValidation` | 4 | `src/studio/export_validation.elisa` |
 | `StudioFilePolicy` | 9 | `src/studio/file_policy.elisa` |
@@ -112,3 +111,7 @@ Remaining source inventory: **81 owners, 737 ungrouped constants**.
 | `Track` | 6 | `src/tools/track_support.elisa` |
 | `Window` | 2 | `src/core/window.elisa` |
 | `WorkerWaitPolicy` | 4 | `src/io/worker_wait_policy.elisa` |
+
+Export-result actions migrated to `StudioExportResult::Action`; policy/laws
+retain 7/7 and 16/16 proved results. Existing test compilation is pending a
+provenance-valid Stage1 product after the external compiler source edit.
