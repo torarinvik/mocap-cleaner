@@ -155,3 +155,11 @@ direction and exact decimal notation explained. Compilation succeeds. A fresh
 pre-presentation-change artifact was generated successfully; local-file browser
 opening was blocked by protocol security policy, so rendered layout, keyboard
 and screen-reader qualification remain open (see the HTML review evidence).
+
+Studio report fields are now serialized to an owned JSON/text byte snapshot
+while the validated GLB staging path and its identity still exist, before the
+second confirmation and publication. Later sidecar writes consume those frozen
+bytes. Compile-only integration currently stops on unrelated in-progress
+suggestion mutability and workspace native-effect diagnostics; these owners
+are repairing them. Publication-stage durability, snapshot-bound retry and
+semantic/crash qualification remain open.

@@ -4,6 +4,10 @@ include "report_text.elisa"
 
 extend Studio:
     private:
+        struct ExportReportSnapshot:
+            json: darray[u8]
+            summary: darray[u8]
+
         def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool:
             if not artifact_destination_allowed(destination):
                 say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
@@ -47,6 +51,9 @@ extend Studio:
                 mutable prepare_error: StudioExportValidation::Result = StudioExportValidation::Result.WRITE_FAILED
                 if StudioExportPublisher::prepare(c.cleaned, destination, &prepare_error) is temporary:
                     output_identity: StudioSourceFingerprint::Fingerprint? = export_staged_identity(temporary)
+                    mutable report_snapshot: ExportReportSnapshot? = null
+                    if output_identity is output_fp:
+                        report_snapshot <- prepare_export_report_for(c, report_stack, report_animation, output_fp)
                     # Recheck after writing and validating the temporary so a
                     # destination that changed during export cannot be silently
                     # replaced. Publication is a single same-directory rename.
@@ -82,8 +89,8 @@ extend Studio:
                     if StudioExportPublisher::commit(temporary, destination):
                         storage_tracking_failed <- false
                         mutable report_saved: bool = false
-                        if output_identity is output_fp:
-                            report_saved <- write_export_report_for(c, report_stack, report_animation, destination, output_fp)
+                        if report_snapshot is frozen_reports:
+                            report_saved <- publish_export_reports(destination, frozen_reports)
                         export_report_saved <- report_saved
                         FilePanel::release_path(temporary)
                         export_path <- destination
@@ -172,13 +179,9 @@ extend Studio:
         # source label is a basename, and fingerprints remain explicitly
         # non-cryptographic residues. Values unavailable in the current export
         # snapshot (tool versions and detailed retime provenance) are omitted.
-        def write_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, destination: cstr, output_fp: StudioSourceFingerprint::Fingerprint) -> bool can Unsafe.PointerCast:
-            # The temporary path no longer exists after atomic publication.
-            # Use the captured staging-byte residue; it is not cryptographic.
-            mutable path_end: usize = 0
-            while path_end < 4096 and destination[path_end] != 0:
-                path_end <- path_end + 1
-            return false if path_end == 0 or path_end >= 4096
+        # Serialize all report fields before publishing the GLB or opening
+        # a second confirmation dialog. Later writes consume only these bytes.
+        def prepare_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, output_fp: StudioSourceFingerprint::Fingerprint) -> ExportReportSnapshot? can Unsafe.PointerCast:
             # Source and destination lengths are independent. Never index a
             # source path using offsets measured from the export destination.
             mutable source_end: usize = 0
@@ -187,7 +190,7 @@ extend Studio:
                 if path[source_end] == 47 or path[source_end] == 92:
                     source_start <- source_end + 1
                 source_end <- source_end + 1
-            return false if source_end == 0 or source_end >= 4096 or source_start >= source_end
+            return null if source_end == 0 or source_end >= 4096 or source_start >= source_end
             mutable source_label: u8[4096] = zeroed
             for index in source_start..<source_end |index, path, source_label, source_start|:
                 source_label[index - source_start] <- path[index]
@@ -247,6 +250,13 @@ extend Studio:
                 warnings: warnings}
             json: darray[u8] = StudioExportReport::json(&data)
             summary: darray[u8] = StudioExportReport::summary(&data)
+            ExportReportSnapshot{json: json, summary: summary}
+
+        def publish_export_reports(destination: cstr, snapshot: ExportReportSnapshot&) -> bool can Unsafe.PointerCast:
+            mutable path_end: usize = 0
+            while path_end < 4096 and destination[path_end] != 0:
+                path_end <- path_end + 1
+            return false if path_end == 0 or path_end >= 4096
             mutable json_path: u8[4128] = zeroed
             mutable text_path: u8[4128] = zeroed
             for index in 0..<path_end |destination, json_path, text_path|:
@@ -266,8 +276,8 @@ extend Studio:
             text_path[path_end + b] <- 0
             json_cstr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
             text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
-            json_ok: bool = export_reason(json_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(json_cstr) and StudioExportPublisher::write_sidecar(json_cstr, json)
-            text_ok: bool = export_reason(text_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(text_cstr) and StudioExportPublisher::write_sidecar(text_cstr, summary)
+            json_ok: bool = export_reason(json_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(json_cstr) and StudioExportPublisher::write_sidecar(json_cstr, snapshot.json)
+            text_ok: bool = export_reason(text_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(text_cstr) and StudioExportPublisher::write_sidecar(text_cstr, snapshot.summary)
             storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             json_ok and text_ok
