@@ -1,0 +1,158 @@
+# In-memory queue lifecycle. Durable recipe and output facts remain the
+# adapter's responsibility; enqueue accepts only a ready preflight result.
+include "export_batch_queue_policy.elisa"
+include "export_batch_preflight_policy.elisa"
+include "export_batch_resume_policy.elisa"
+
+module StudioExportBatchQueue:
+    public:
+        struct Item:
+            state: mutable StudioExportBatchQueuePolicy::ItemState
+            warning_count: mutable i64
+            approved: mutable bool
+
+        struct Queue:
+            items: mutable darray[Item]
+            worker_limit: mutable i64
+            active_workers: mutable i64
+            cancel_requested: mutable bool
+
+        def valid(queue: Queue&) -> bool:
+            ensure result implies queue.items.count <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+            ensure result implies queue.worker_limit > 0
+            ensure result implies queue.worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS
+            ensure result implies queue.active_workers >= 0
+            ensure result implies queue.active_workers <= queue.worker_limit
+            return false if queue.items.count > StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+            mutable running: i64 = 0
+            for index in 0..<queue.items.count.i64() |index, queue, running|:
+                running <- running + 1 if queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
+            queue.items.count <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize() and queue.worker_limit > 0 and queue.worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS and queue.active_workers >= 0 and queue.active_workers <= queue.worker_limit and running == queue.active_workers
+
+        def create(worker_limit: i64) -> Queue:
+            requires worker_limit > 0 and worker_limit <= StudioExportBatchQueuePolicy::Capacity::MAX_WORKERS
+            ensure result.items.count == 0
+            ensure result.worker_limit == worker_limit
+            ensure result.active_workers == 0
+            ensure not result.cancel_requested
+            Queue{items: [], worker_limit: worker_limit, active_workers: 0, cancel_requested: false}
+
+        def enqueue(queue: mutable Queue&, preflight: StudioExportBatchPreflightPolicy::Outcome) -> bool:
+            requires valid(queue)
+            ensure not result or preflight == StudioExportBatchPreflightPolicy::Outcome.Ready
+            ensure not result or queue.items.count <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+            return false if queue.cancel_requested
+            return false if queue.items.count >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+            return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
+            queue.items.push(Item{state: StudioExportBatchQueuePolicy::ItemState.Queued, warning_count: 0, approved: false})
+            true
+
+        # Selects the earliest queued input, preserving manifest order.
+        # Returns -1 when cancelled, full, or no queued item remains.
+        def launch_next(queue: mutable Queue&) -> i64:
+            requires valid(queue)
+            ensure result >= -1
+            ensure result < queue.items.count.i64()
+            ensure result < 0 or queue.items[result.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
+            return -1 if queue.cancel_requested
+            return -1 if queue.active_workers >= queue.worker_limit
+            for index in 0..<queue.items.count.i64() |index, queue|:
+                if queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Queued:
+                    queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::ItemState.Running
+                    queue.active_workers <- queue.active_workers + 1
+                    return index
+            -1
+
+        # Drain policy: cancellation converts queued work to Cancelled while
+        # running workers stay active until their completion is recorded.
+        def cancel(queue: mutable Queue&) -> i64:
+            requires valid(queue)
+            ensure result >= 0
+            ensure result <= queue.items.count.i64()
+            queue.cancel_requested <- true
+            mutable cancelled: i64 = 0
+            for index in 0..<queue.items.count.i64() |index, queue, cancelled|:
+                if queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Queued:
+                    queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::ItemState.Cancelled
+                    cancelled <- cancelled + 1
+            cancelled
+
+        def complete(queue: mutable Queue&, index: i64, succeeded: bool,
+                     staged_outputs_valid: bool, warning_count: i64) -> bool:
+            requires valid(queue)
+            requires index >= 0 and index < queue.items.count.i64()
+            requires queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Running
+            requires queue.active_workers > 0
+            requires warning_count >= 0
+            ensure result
+            queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::completion(succeeded, staged_outputs_valid, warning_count)
+            queue.items[index.usize()].warning_count <- warning_count
+            queue.active_workers <- queue.active_workers - 1
+            true
+
+        def publish(queue: mutable Queue&, index: i64, reviewed: bool,
+                    destinations_create_only: bool, all_outputs_published: bool) -> bool:
+            requires valid(queue)
+            requires index >= 0 and index < queue.items.count.i64()
+            return false if not StudioExportBatchQueuePolicy::may_publish(queue.items[index.usize()].state, reviewed, destinations_create_only)
+            state_before: StudioExportBatchQueuePolicy::ItemState = queue.items[index.usize()].state
+            queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::publication_result(state_before, all_outputs_published)
+            queue.items[index.usize()].approved <- state_before == StudioExportBatchQueuePolicy::ItemState.AwaitingReview and reviewed and all_outputs_published
+            true
+
+        def approve_warning(queue: mutable Queue&, index: i64, reviewed: bool) -> bool:
+            requires valid(queue)
+            requires index >= 0 and index < queue.items.count.i64()
+            return false if not StudioExportBatchQueuePolicy::may_approve_warning(queue.items[index.usize()].state, reviewed)
+            queue.items[index.usize()].approved <- true
+            true
+
+        # Retry is per item and rechecks exact destination/preflight facts.
+        # Existing passed or warning outputs are never reset or overwritten.
+        def retry(queue: mutable Queue&, index: i64,
+                  preflight: StudioExportBatchPreflightPolicy::Outcome) -> bool:
+            requires valid(queue)
+            requires index >= 0 and index < queue.items.count.i64()
+            ensure result implies queue.items[index.usize()].state == StudioExportBatchQueuePolicy::ItemState.Queued
+            ensure result implies preflight == StudioExportBatchPreflightPolicy::Outcome.Ready
+            return false if queue.active_workers > 0
+            return false if queue.items[index.usize()].state != StudioExportBatchQueuePolicy::ItemState.Failed and queue.items[index.usize()].state != StudioExportBatchQueuePolicy::ItemState.Cancelled
+            return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
+            queue.items[index.usize()].state <- StudioExportBatchQueuePolicy::ItemState.Queued
+            queue.items[index.usize()].warning_count <- 0
+            queue.items[index.usize()].approved <- false
+            true
+
+        # Resume is explicit after cancellation has drained. Retried items
+        # remain queued until this action; completed results are retained.
+        def resume(queue: mutable Queue&) -> bool:
+            requires valid(queue)
+            ensure result implies not queue.cancel_requested
+            ensure result implies queue.active_workers == 0
+            return false if not StudioExportBatchResumePolicy::admitted(queue.cancel_requested, queue.active_workers)
+            queue.cancel_requested <- StudioExportBatchResumePolicy::after_resume(queue.cancel_requested, queue.active_workers)
+            true
+
+        def counts(queue: Queue&) -> StudioExportBatchQueuePolicy::Aggregate:
+            requires valid(queue)
+            mutable queued: i64 = 0
+            mutable running: i64 = 0
+            mutable passed: i64 = 0
+            mutable warning: i64 = 0
+            mutable failed: i64 = 0
+            mutable cancelled: i64 = 0
+            mutable staged: i64 = 0
+            mutable awaiting_review: i64 = 0
+            mutable unapproved: i64 = 0
+            for index in 0..<queue.items.count.i64() |index, queue, queued, running, passed, warning, failed, cancelled, staged, awaiting_review, unapproved|:
+                item: Item = queue.items[index.usize()]
+                queued <- queued + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Queued
+                running <- running + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Running
+                passed <- passed + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Passed
+                warning <- warning + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Warning
+                unapproved <- unapproved + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Warning and not item.approved
+                failed <- failed + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Failed
+                cancelled <- cancelled + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Cancelled
+                staged <- staged + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.Staged
+                awaiting_review <- awaiting_review + 1 if item.state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+            StudioExportBatchQueuePolicy::aggregate(queue.items.count.i64(), queued, running, passed, warning, failed, cancelled, staged, awaiting_review, unapproved)

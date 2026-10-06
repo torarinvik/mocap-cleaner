@@ -1,0 +1,63 @@
+include "../src/studio/export_batch_queue.elisa"
+
+module StudioExportBatchQueueModelLaws:
+    public:
+        def created_queue_is_empty() -> bool:
+            ensure result
+            queue: StudioExportBatchQueue::Queue = StudioExportBatchQueue::create(1)
+            StudioExportBatchQueue::valid(queue) and StudioExportBatchQueue::counts(queue) == StudioExportBatchQueuePolicy::Aggregate.NotStarted
+
+        def invalid_preflight_preserves_empty_queue() -> bool:
+            ensure result
+            mutable queue: StudioExportBatchQueue::Queue = StudioExportBatchQueue::create(1)
+            admitted: bool = StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.SourceUnavailable)
+            not admitted and queue.items.count == 0 and StudioExportBatchQueue::valid(queue)
+
+        def one_worker_limits_launches() -> bool:
+            ensure result
+            mutable queue: StudioExportBatchQueue::Queue = StudioExportBatchQueue::create(1)
+            StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            first: i64 = StudioExportBatchQueue::launch_next(&queue)
+            second: i64 = StudioExportBatchQueue::launch_next(&queue)
+            first == 0 and second == -1 and queue.active_workers == 1 and StudioExportBatchQueue::valid(queue)
+
+        def cancellation_preserves_running_work() -> bool:
+            ensure result
+            mutable queue: StudioExportBatchQueue::Queue = StudioExportBatchQueue::create(1)
+            StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            StudioExportBatchQueue::launch_next(&queue)
+            cancelled: i64 = StudioExportBatchQueue::cancel(&queue)
+            resumed: bool = StudioExportBatchQueue::resume(&queue)
+            cancelled == 1 and not resumed and queue.cancel_requested and queue.active_workers == 1 and queue.items[0].state == StudioExportBatchQueuePolicy::ItemState.Running and queue.items[1].state == StudioExportBatchQueuePolicy::ItemState.Cancelled
+
+        def cancelled_input_retries_then_resumes() -> bool:
+            ensure result
+            mutable queue: StudioExportBatchQueue::Queue = StudioExportBatchQueue::create(1)
+            StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            StudioExportBatchQueue::cancel(&queue)
+            retried: bool = StudioExportBatchQueue::retry(&queue, 0, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            paused_launch: i64 = StudioExportBatchQueue::launch_next(&queue)
+            resumed: bool = StudioExportBatchQueue::resume(&queue)
+            launched: i64 = StudioExportBatchQueue::launch_next(&queue)
+            retried and paused_launch == -1 and resumed and launched == 0 and StudioExportBatchQueue::valid(queue)
+
+        def reviewed_warning_does_not_need_second_approval() -> bool:
+            ensure result
+            mutable queue: StudioExportBatchQueue::Queue = StudioExportBatchQueue::create(1)
+            StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            StudioExportBatchQueue::launch_next(&queue)
+            StudioExportBatchQueue::complete(&queue, 0, true, true, 1)
+            published: bool = StudioExportBatchQueue::publish(&queue, 0, true, true, true)
+            published and queue.items[0].approved and StudioExportBatchQueue::counts(queue) == StudioExportBatchQueuePolicy::Aggregate.CompleteWithWarnings
+
+        def successful_output_cannot_be_retried() -> bool:
+            ensure result
+            mutable queue: StudioExportBatchQueue::Queue = StudioExportBatchQueue::create(1)
+            StudioExportBatchQueue::enqueue(&queue, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            StudioExportBatchQueue::launch_next(&queue)
+            StudioExportBatchQueue::complete(&queue, 0, true, true, 0)
+            StudioExportBatchQueue::publish(&queue, 0, false, true, true)
+            retried: bool = StudioExportBatchQueue::retry(&queue, 0, StudioExportBatchPreflightPolicy::Outcome.Ready)
+            not retried and queue.items[0].state == StudioExportBatchQueuePolicy::ItemState.Passed
