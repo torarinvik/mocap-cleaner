@@ -290,6 +290,8 @@ module ReportDiff:
                 validation_problem(&errors, &diagnostics, "Baseline report contains no scalar metrics.")
             mutable schema_unknown: bool = false
             mutable units_unknown: bool = false
+            mutable detectors_unknown: bool = false
+            mutable spike_status: ReportCompatibility::Status = ReportCompatibility::Status.Unknown
             mutable a_units: i64 = -1
             mutable b_units: i64 = -1
             if errors == 0:
@@ -304,6 +306,7 @@ module ReportDiff:
             if errors == 0:
                 a_units <- unit_object(&a_text, &a_tokens)
                 b_units <- unit_object(&b_text, &b_tokens)
+                spike_status <- declared_spike_status(&a_text, &a_tokens, spike_setting(&a_text, &a_tokens), &b_text, &b_tokens, spike_setting(&b_text, &b_tokens))
                 if a_units == -2 or b_units == -2:
                     validation_problem(&errors, &diagnostics, "Metric unit declarations are duplicated, malformed or exceed the supported declaration budget.")
             mutable candidate_index: darray[usize] = []
@@ -343,6 +346,11 @@ module ReportDiff:
                         if flagged:
                             bad <- Regress::ok_lost(true, other.value == 1)
                         else:
+                            if uses_spike_threshold(&pa, m):
+                                if spike_status == ReportCompatibility::Status.Invalid or spike_status == ReportCompatibility::Status.Incompatible:
+                                    metric_problem(&errors, &diagnostics, "Spike detector settings differ, are malformed, or are missing on only one side.", &pa, m)
+                                    continue
+                                detectors_unknown <- true if spike_status == ReportCompatibility::Status.Unknown
                             unit_status: ReportCompatibility::Status = declared_unit_status(&a_text, &a_tokens, a_units, &b_text, &b_tokens, b_units, &pa, m)
                             if unit_status == ReportCompatibility::Status.Invalid or unit_status == ReportCompatibility::Status.Incompatible:
                                 metric_problem(&errors, &diagnostics, "Metric unit declarations differ, are malformed, or are missing on only one side.", &pa, m)
@@ -392,6 +400,8 @@ module ReportDiff:
                 Report::push_text(&document, "<section aria-labelledby=schema-heading><h2 id=schema-heading>Schema compatibility unknown</h2><p>These reports use a legacy or unrecognized schema. Numeric results do not establish matching units, detector settings or provenance. Regenerate both reports with the same supported producer before acceptance.</p></section>")
             if units_unknown:
                 Report::push_text(&document, "<section aria-labelledby=units-heading><h2 id=units-heading>Metric units unqualified</h2><p>At least one compared metric has missing or unrecognized units. Its numeric result does not establish a physically compatible comparison. Regenerate both reports with matching supported unit declarations before acceptance.</p></section>")
+            if detectors_unknown:
+                Report::push_text(&document, "<section aria-labelledby=detectors-heading><h2 id=detectors-heading>Spike detector settings unqualified</h2><p>At least one compared spike count lacks a declared threshold. Its numeric result does not establish matching detector settings.</p></section>")
             ReportDiffHtml::table_begin(&document)
             document.extend(page)
             ReportDiffHtml::end(&document)
@@ -408,3 +418,5 @@ include "report_diff_index.elisa"
 include "report_diff_schema.elisa"
 
 include "report_diff_units.elisa"
+
+include "report_diff_detectors.elisa"

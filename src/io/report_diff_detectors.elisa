@@ -1,0 +1,42 @@
+# Compare the declared integer fixed-point spike threshold, not its JSON spelling.
+extend ReportDiff:
+    private:
+        def uses_spike_threshold(pool: darray[u8]&, metric: Metric) -> bool:
+            return true if is_text(pool, metric.key_at, metric.key_len, "spikes_after")
+            return true if is_text(pool, metric.key_at, metric.key_len, "pole_after")
+            is_text(pool, metric.key_at, metric.key_len, "pelvis_after")
+
+        def spike_setting(text: darray[u8]&, tokens: darray[GlbJson::Token]&) -> i64:
+            return -2 if member_count(text, tokens, 0, "detector_settings") > 1
+            object: i64 = decoded_member(text, tokens, 0, "detector_settings")
+            return -1 if object < 0
+            return -2 if tokens[object.usize()].kind != GlbJson::KIND_OBJECT
+            return -2 if member_count(text, tokens, object.usize(), "spike_threshold_fixed_point") > 1
+            value: i64 = decoded_member(text, tokens, object.usize(), "spike_threshold_fixed_point")
+            return -2 if value >= 0 and tokens[value.usize()].kind != GlbJson::KIND_PRIMITIVE
+            value
+
+        def threshold_admitted(coefficient: i64, exponent: i64) -> bool:
+            return false if coefficient < 0 or coefficient > Regress::Domain::MAGNITUDE
+            return false if exponent < 0 or exponent > ReportDecimal::Capacity::DIGITS
+            ReportDecimal::can_scale(coefficient, ReportDecimal::factor(exponent))
+
+        def declared_spike_status(left: darray[u8]&, left_tokens: darray[GlbJson::Token]&, left_setting: i64,
+                                  right: darray[u8]&, right_tokens: darray[GlbJson::Token]&, right_setting: i64) -> ReportCompatibility::Status:
+            return ReportCompatibility::Status.Invalid if left_setting == -2 or right_setting == -2
+            if left_setting < 0 or right_setting < 0:
+                return ReportCompatibility::declaration_status(left_setting >= 0, right_setting >= 0, true, false, false)
+            left_token: GlbJson::Token = left_tokens[left_setting.usize()]
+            right_token: GlbJson::Token = right_tokens[right_setting.usize()]
+            match ReportNumber::parse(left, left_token.start, left_token.stop):
+                ReportNumber::Result.Unavailable:
+                    return ReportCompatibility::Status.Invalid
+                ReportNumber::Result.Exact(left_coefficient, left_exponent):
+                    return ReportCompatibility::Status.Invalid if not threshold_admitted(left_coefficient, left_exponent)
+                    match ReportNumber::parse(right, right_token.start, right_token.stop):
+                        ReportNumber::Result.Unavailable:
+                            return ReportCompatibility::Status.Invalid
+                        ReportNumber::Result.Exact(right_coefficient, right_exponent):
+                            return ReportCompatibility::Status.Invalid if not threshold_admitted(right_coefficient, right_exponent)
+                            equal: bool = left_coefficient == right_coefficient and left_exponent == right_exponent
+                            return ReportCompatibility::declaration_status(true, true, true, true, equal)
