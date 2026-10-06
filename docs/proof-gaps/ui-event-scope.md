@@ -110,5 +110,12 @@ reproduction enters the lookup and resolves its tags and offsets. This suggests
 the integrated failure occurs before payload-enum variant lookup; it does not
 establish a wrong variant owner. A second diagnostic trace now records the
 match scrutinee's type classification to locate that earlier dispatch failure.
-Those instrumentation edits invalidate the preceding product's provenance;
-further current-source compilation must wait for a matching rebuild.
+The matching second diagnostic rebuild completed. Its integrated trace in
+`build/studio-hierarchy-match-trace-accepted.log` records
+`HIERARCHY_SCRUTINEE owner=Studio kind=1 bits=64 arms=9` for
+`Studio.event(incoming: UiCore::Event)`. The isolated real-UiCore reproduction
+records kind 11 (payload enum) for the same event hierarchy. The integrated
+compiler therefore classifies this event match as an i64 before payload-enum
+dispatch; investigating type resolution and declaration registration is the
+next step. The exact cause remains unproven. The log filename does not indicate
+acceptance: this build still declines 24 bodies and explicitly writes no object.
