@@ -18,6 +18,15 @@ keep helpers private and expose only the APIs callers need. Preserve includes,
 behavior and proof coverage, and check file lengths before committing. Generated
 `build/` artifacts and sibling repositories are outside this repository rule.
 
+## Constant modules
+
+Whenever a module contains multiple constant values, group those constants
+in Elisa `const module` declarations. Give groups names that describe their
+purpose (such as limits, actions or statuses), preserve public/private
+visibility, and update callers and proof references. Use bare constant members
+inside `const module` bodies. Apply this rule to existing code and every new
+change, while retaining the 600-line maximum.
+
 ## Detailed roadmap
 
 - [Product goals, user journeys and baseline](docs/plan/product-and-m0.md)

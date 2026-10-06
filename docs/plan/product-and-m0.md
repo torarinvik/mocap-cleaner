@@ -30,6 +30,13 @@ expose only necessary public APIs. Preserve behavior, includes, tooling and
 proof coverage. Recount file lengths before committing each small change.
 Generated `build/` artifacts and sibling repositories are outside this rule.
 
+### Constant module requirement
+
+Modules with multiple constant values must group them in Elisa `const module`
+declarations, with purpose-specific names and appropriate public/private
+visibility. Update all callers, contracts and proof references when extracting
+a group. This applies to existing modules and every new change.
+
 ### Architecture and safety requirements
 
 - Product implementation is Elisa; UI components come from elisa-ui.
