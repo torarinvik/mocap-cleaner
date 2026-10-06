@@ -246,3 +246,17 @@ needing review. Sources and selected products changed during that long run,
 so it remains comparison evidence. No baseline was relaxed to make it pass.
 A stable current snapshot needs a new complete check after compiler and prover
 qualification; this terminal failure does not establish current acceptance.
+
+Another fetch of all four selected origins completed on 2026-10-07 before the
+next qualification cycle. Their source ancestry is:
+
+| Checkout | Selected HEAD | Fetched `origin/main` | Ahead / behind |
+| --- | --- | --- | --- |
+| Compiler | `bb1f4095` | `23a0e16a` | 5 / 0 |
+| Mocap prover | `4b71c24a` | `2610ddb6` | 116 / 0 |
+| Mocap engine | `e11085c1` | `7699ec52` | 22 / 0 |
+| Elisa UI | `8ab2eb39` | `dc6cd397` | 6 / 0 |
+
+These successful fetches establish no missing published upstream commits at
+that observation. They do not qualify the isolated compiler repair, the pending
+runtime-matched prover pair, or the newly integrated navigation handlers.
