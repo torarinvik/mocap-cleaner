@@ -1,0 +1,134 @@
+include "rig_hinges.elisa"
+include "rig_hands.elisa"
+
+extend RigOps:
+    public:
+        # ---- Pin ------------------------------------------------------------
+
+        # Head pin: the neck turns so the head reaches its anchor (exactly
+        # when the torso keeps the neck-to-anchor distance), then the head
+        # takes its anchor orientation.
+    private:
+        def pin_head(c: mutable Rig::Clip&, op: RigOp) -> void:
+            neck: i64 = Rig::node_of(c, Roles::NECK)
+            head: i64 = Rig::node_of(c, Roles::HEAD)
+            return if neck < 0 or head < 0 or c.frames < 1 or not Rig::rot_writable(c, neck) or not Rig::rot_writable(c, head)
+            first: i64 = Order::clamp(op.first, 0, c.frames - 1)
+            mutable w: Rig::World = Rig::empty_world()
+            Rig::solve_world(c, first, &w)
+            anchor: MotionQuat::V = w.pos[head.usize()]
+            anchor_rot: MotionQuat::Q = w.rot[head.usize()]
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                continue if weight == 0
+                Rig::solve_world(c, f, &w)
+                n: MotionQuat::V = w.pos[neck.usize()]
+                p: MotionQuat::V = w.pos[head.usize()]
+                target: MotionQuat::V = Rig::v(Limb::unmicro(Gate::apply(m(p.x), m(anchor.x), weight)), Limb::unmicro(Gate::apply(m(p.y), m(anchor.y), weight)), Limb::unmicro(Gate::apply(m(p.z), m(anchor.z), weight)))
+                q: MotionQuat::Q = MotionQuat::between(Rig::vsub(p, n), Rig::vsub(target, n))
+                _ = Rig::set_world_rot(c, f, neck, MotionQuat::mul(q, w.rot[neck.usize()]), &w)
+                Rig::solve_world(c, f, &w)
+                _ = Rig::set_world_rot(c, f, head, MotionQuat::slerp(w.rot[head.usize()], anchor_rot, weight.f64() / 1000.0), &w)
+
+        def pin_effector(c: mutable Rig::Clip&, op: RigOp) -> void:
+            if op.role == Roles::HEAD:
+                pin_head(c, op)
+                return
+            hinge_role: i64 = Roles::effector_hinge(op.role) if Roles::role_valid(op.role) else Roles::NONE
+            return if hinge_role < 0 or c.frames < 1
+            upper: i64 = Rig::node_of(c, Roles::hinge_upper(hinge_role))
+            hinge: i64 = Rig::node_of(c, hinge_role)
+            end: i64 = Rig::node_of(c, op.role)
+            return if upper < 0 or hinge < 0 or end < 0
+            first: i64 = Order::clamp(op.first, 0, c.frames - 1)
+            mutable w: Rig::World = Rig::empty_world()
+            Rig::solve_world(c, first, &w)
+            anchor: MotionQuat::V = w.pos[end.usize()]
+            anchor_rot: MotionQuat::Q = w.rot[end.usize()]
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                continue if weight == 0
+                Rig::solve_world(c, f, &w)
+                p: MotionQuat::V = w.pos[end.usize()]
+                target: MotionQuat::V = Rig::v(Limb::unmicro(Gate::apply(Limb::micro(p.x), Limb::micro(anchor.x), weight)), Limb::unmicro(Gate::apply(Limb::micro(p.y), Limb::micro(anchor.y), weight)), Limb::unmicro(Gate::apply(Limb::micro(p.z), Limb::micro(anchor.z), weight)))
+                rot: MotionQuat::Q = MotionQuat::slerp(w.rot[end.usize()], anchor_rot, weight.f64() / 1000.0)
+                _ = Limb::solve_chain(c, f, upper, hinge, end, target, rot, &w)
+
+        # ---- Offset layer ---------------------------------------------------
+
+        def offset_layer(c: mutable Rig::Clip&, op: RigOp) -> void:
+            node: i64 = Rig::node_of(c, op.role) if Roles::role_valid(op.role) else -1
+            return if node < 0 or not Rig::rot_writable(c, node)
+            axis: MotionQuat::V = Rig::v(1.0, 0.0, 0.0) if op.axis == 0 else (Rig::v(0.0, 1.0, 0.0) if op.axis == 1 else Rig::v(0.0, 0.0, 1.0))
+            delta: i64 = Order::clamp(op.amount, -Offset::LIMIT, Offset::LIMIT)
+            for f in 0..<c.frames:
+                weight: i64 = range_weight(op, f, c.frames)
+                amount: i64 = Offset::offset_amount(delta, weight)
+                continue if amount == 0
+                _ = Rig::set_local_rot(c, f, node, MotionQuat::mul(Rig::local_rot(c, f, node), MotionQuat::axis_angle(axis, Limb::unmicro(amount))))
+
+        # One keyed-offset segment: the curve between its two keys. A segment
+        # owns its first key; the final segment also owns its last one, so
+        # shared keys are applied once.
+        def keyed_layer(c: mutable Rig::Clip&, op: RigOp) -> void:
+            node: i64 = Rig::node_of(c, op.role) if Roles::role_valid(op.role) else -1
+            return if node < 0 or not Rig::rot_writable(c, node)
+            return if op.first < 0 or op.first >= op.last or op.last > Fade::MAX_FRAMES
+            axis: MotionQuat::V = Rig::v(1.0, 0.0, 0.0) if op.axis == 0 else (Rig::v(0.0, 1.0, 0.0) if op.axis == 1 else Rig::v(0.0, 0.0, 1.0))
+            a0: i64 = Order::clamp(op.amount, -Offset::LIMIT, Offset::LIMIT)
+            a1: i64 = Order::clamp(op.passes, -Offset::LIMIT, Offset::LIMIT)
+            stop: i64 = op.last if op.edge == 1 else op.last - 1
+            for f in op.first..<(stop + 1):
+                continue if f >= c.frames
+                amount: i64 = Offset::keyed(f, op.first, a0, op.last, a1)
+                continue if amount == 0
+                _ = Rig::set_local_rot(c, f, node, MotionQuat::mul(Rig::local_rot(c, f, node), MotionQuat::axis_angle(axis, Limb::unmicro(amount))))
+
+        # ---- Stack ----------------------------------------------------------
+
+        def hinge_roles() -> darray[i64]:
+            return [Roles::LEFT_LEG, Roles::RIGHT_LEG, Roles::LEFT_FOREARM, Roles::RIGHT_FOREARM]
+
+        # Run the rig ops on one clip (pins last, so they hold over every fix).
+    public:
+        def run_clip(c: mutable Rig::Clip&, ops: darray[RigOp]&, threshold: i64) -> Summary:
+            mutable s: Summary = empty_summary()
+            for round in 0..<2:
+                for op in ops:
+                    continue if not op.enabled or op.kind == RigKind.ContactEdit or op.kind == RigKind.Retime
+                    is_pin: bool = op.kind == RigKind.PinEffector
+                    continue if (round == 0) == is_pin
+                    s.ops <- s.ops + 1
+                    match op.kind:
+                        RigKind.Twist:
+                            for r in hinge_roles():
+                                twist_limb(c, op, r, &s) if role_selected(op, r)
+                        RigKind.Pole:
+                            for r in hinge_roles():
+                                pole_limb(c, op, r, threshold, &s) if role_selected(op, r)
+                        RigKind.PelvisPath:
+                            pelvis_path(c, op, threshold, &s)
+                        RigKind.FootLock:
+                            lock_leg(c, op, ops, 0, &s) if role_selected(op, Roles::LEFT_FOOT)
+                            lock_leg(c, op, ops, 1, &s) if role_selected(op, Roles::RIGHT_FOOT)
+                        RigKind.PinEffector:
+                            pin_effector(c, op)
+                        RigKind.OffsetLayer:
+                            offset_layer(c, op)
+                        RigKind.KeyedOffset:
+                            keyed_layer(c, op)
+                        RigKind.ContactEdit:
+                            pass
+                        RigKind.HandLock:
+                            lock_arm(c, op, ops, 0, &s) if role_selected(op, Roles::LEFT_HAND)
+                            lock_arm(c, op, ops, 1, &s) if role_selected(op, Roles::RIGHT_HAND)
+                        RigKind.Retime:
+                            pass
+            return s
+
+        def run(doc: mutable GlbDocument::Document&, animation: usize, ops: darray[RigOp]&, threshold: i64) -> Summary:
+            return empty_summary() if ops.count == 0
+            mutable c: Rig::Clip = Rig::load(doc, animation)
+            mutable s: Summary = run_clip(&c, ops, threshold)
+            s.changed <- Rig::store(doc, &c)
+            return s

@@ -1,0 +1,136 @@
+# Rig-level operation stack: fixes that need whole rotations and the joint
+# hierarchy (knee/elbow twist, pole stability, pelvis path, foot lock) and
+# the user layers (end-effector and head pins, constant and keyed additive
+# offsets, hand-edited foot contacts, heel/ball pivot). It runs after the
+# channel stack (stack.elisa) on the same document. Every per-frame decision
+# goes through a proved kernel: Pin::pin_weight (range weights),
+# Hinge::kept_off_axis / roll_share / unwrap_step, Reach::limb_reach (via
+# Limb), Offset::offset_amount / keyed, Gate::apply, Lock::hold,
+# Contact::step (via Track) / edited and Pivot::choose / shift / settle.
+include "../tools/limb.elisa"
+include "../tools/track.elisa"
+include "../core/pin.elisa"
+include "../core/offset.elisa"
+include "../core/pivot.elisa"
+include "../core/knee.elisa"
+include "../core/hand.elisa"
+
+module RigOps:
+    public:
+        const ALL: i64 = 0 - 1
+        # Twist cleanup's running-median radius: 10 frames each side, about
+        # 175 ms at 120 Hz.
+    private:
+        const TWIST_RADIUS: i64 = 10
+
+    public:
+        enum RigKind:
+            Twist         # rebuild knees/elbows from the hinge plane; twist to roll bones
+            Pole          # de-spike and wring-limit the knee/elbow pole angle
+            PelvisPath    # smooth the hips path, legs re-solved to their contacts
+            FootLock      # hold planted feet still (contacts from height and speed)
+            PinEffector   # hold a hand or foot at its pose on `first` over first..last
+            OffsetLayer   # add a rotation about a local axis over first..last
+            KeyedOffset   # one segment of a keyed offset curve, keys (first, amount) and (last, passes)
+            ContactEdit   # force a foot's or hand's contact on (amount 1) or off (0) over first..last
+            HandLock      # hold planted hands still (opt-in; contacts from plane height and speed)
+            Retime        # play source frames first..last at `amount` permille speed, `edge`-frame blend
+
+        # `role` is a Roles index or ALL. `amount` is kind-specific:
+        # Twist: kept off-axis tolerance (micro-rad); Pole: wring limit
+        # (micro-rad, 0 = none); OffsetLayer: angle (micro-rad); KeyedOffset:
+        # angle at `first` (micro-rad); ContactEdit: 1 planted, 0 lifted.
+        # `passes`: Twist: roll share (permille); Pole, PelvisPath: filter
+        # passes; KeyedOffset: angle at `last`. `axis`: Offset: local axis
+        # 0..2; FootLock: 0 ankle lock, 1 heel/ball pivot. `edge` is the ramp
+        # in frames (Pin/Offset/FootLock blend); KeyedOffset: 1 when the
+        # segment owns its `last` key (the curve's final segment), else 0.
+        struct RigOp:
+            kind: RigKind
+            enabled: bool
+            first: i64
+            last: i64
+            role: i64
+            axis: i64
+            amount: i64
+            passes: i64
+            edge: i64
+
+        struct Summary:
+            ops: mutable i64
+            changed: mutable i64
+            twist_max: mutable i64
+            pole_before: mutable i64
+            pole_after: mutable i64
+            slide_before: mutable i64
+            slide_after: mutable i64
+            pelvis_before: mutable i64
+            pelvis_after: mutable i64
+            sink_before: mutable i64
+            sink_after: mutable i64
+            hand_before: mutable i64
+            hand_after: mutable i64
+
+        def twist(role: i64, tolerance: i64, share: i64) -> RigOp:
+            return RigOp{kind: RigKind.Twist, enabled: true, first: 0, last: 1000000, role: role, axis: 0, amount: tolerance, passes: share, edge: 8}
+
+        def pole(role: i64, passes: i64, limit: i64) -> RigOp:
+            return RigOp{kind: RigKind.Pole, enabled: true, first: 0, last: 1000000, role: role, axis: 0, amount: limit, passes: passes, edge: 8}
+
+        def pelvis(passes: i64) -> RigOp:
+            return RigOp{kind: RigKind.PelvisPath, enabled: true, first: 0, last: 1000000, role: Roles::HIPS, axis: 0, amount: 0, passes: passes, edge: 8}
+
+        def foot_lock(blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.FootLock, enabled: true, first: 0, last: 1000000, role: ALL, axis: 0, amount: 0, passes: 0, edge: blend}
+
+        def pin(role: i64, first: i64, last: i64, blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.PinEffector, enabled: true, first: first, last: last, role: role, axis: 0, amount: 0, passes: 0, edge: blend}
+
+        def offset(role: i64, axis: i64, angle: i64, first: i64, last: i64, fade: i64) -> RigOp:
+            return RigOp{kind: RigKind.OffsetLayer, enabled: true, first: first, last: last, role: role, axis: axis, amount: angle, passes: 0, edge: fade}
+
+        def foot_pivot(blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.FootLock, enabled: true, first: 0, last: 1000000, role: ALL, axis: 1, amount: 0, passes: 0, edge: blend}
+
+    private:
+        def keyed_segment(role: i64, axis: i64, f0: i64, a0: i64, f1: i64, a1: i64, closes: bool) -> RigOp:
+            return RigOp{kind: RigKind.KeyedOffset, enabled: true, first: f0, last: f1, role: role, axis: axis, amount: a0, passes: a1, edge: 1 if closes else 0}
+
+        # Keys (frames ascending, angles in micro-rad) as curve segments.
+    public:
+        def keyed(role: i64, axis: i64, frames: darray[i64]&, angles: darray[i64]&) -> darray[RigOp]:
+            mutable out: darray[RigOp] = []
+            n: usize = frames.count if frames.count < angles.count else angles.count
+            return out if n < 2
+            for k in 1..<n:
+                out.push(keyed_segment(role, axis, frames[k - 1], angles[k - 1], frames[k], angles[k], k + 1 == n))
+            return out
+
+        def contact_edit(role: i64, first: i64, last: i64, planted: bool) -> RigOp:
+            return RigOp{kind: RigKind.ContactEdit, enabled: true, first: first, last: last, role: role, axis: 0, amount: 1 if planted else 0, passes: 0, edge: 1}
+
+        def hand_lock(blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.HandLock, enabled: true, first: 0, last: 1000000, role: ALL, axis: 0, amount: 0, passes: 0, edge: blend}
+
+        def retime(first: i64, last: i64, speed: i64, blend: i64) -> RigOp:
+            return RigOp{kind: RigKind.Retime, enabled: true, first: first, last: last, role: ALL, axis: 0, amount: speed, passes: 0, edge: blend}
+
+        def empty_summary() -> Summary:
+            return Summary{ops: 0, changed: 0, twist_max: 0, pole_before: 0, pole_after: 0, slide_before: 0, slide_after: 0, pelvis_before: 0, pelvis_after: 0, sink_before: 0, sink_after: 0, hand_before: 0, hand_after: 0}
+
+        # Per-frame layer weight (permille) of an op's frame range.
+    private:
+        def range_weight(op: RigOp, frame: i64, frames: i64) -> i64:
+            return 0 if not op.enabled or frames < 1 or frame < 0 or frame >= frames or frames > Fade::MAX_FRAMES
+            first: i64 = Order::clamp(op.first, 0, frames - 1)
+            last: i64 = Order::clamp(op.last, 0, frames - 1)
+            return 0 if last < first
+            # Whole-clip fixes are not faded at the clip ends.
+            return Fade::FULL if first == 0 and last == frames - 1 and op.kind != RigKind.PinEffector and op.kind != RigKind.OffsetLayer
+            blend: i64 = Order::clamp(op.edge, 1, Fade::MAX_EDGE)
+            return Pin::pin_weight(frame, first, last, blend)
+
+    public:
+        def role_selected(op: RigOp, role: i64) -> bool:
+            return op.role == ALL or op.role == role
+

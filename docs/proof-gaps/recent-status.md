@@ -339,3 +339,10 @@ This matches the pre-extraction result but still exceeds the stored 15-open
 baseline. The old baseline remains unchanged; extraction is not a proof fix.
 The CLI build and the existing track-tools test pass. New module baselines
 record their reviewed current results, including existing unresolved goals.
+
+Rig extraction preserves the existing operation bodies and contracts. Its
+composition reports unsupported, 1879 proven and 851 unproven, below the
+existing 995-open baseline. The original file checked with the same prover
+reports proven: 1879   unproven: 851 .
+The CLI build and existing rig-tools test pass. Native and floating-point
+implementation remains outside whole-program proof coverage.
