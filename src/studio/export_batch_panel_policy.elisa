@@ -1,5 +1,5 @@
 include "export_batch_queue_policy.elisa"
-include "export_batch_review_binding.elisa"
+include "export_batch_publication.elisa"
 
 # Immutable display projections. Review tokens, claims and identities remain
 # in the binding and never cross the panel projection boundary.
@@ -42,7 +42,7 @@ module StudioExportBatchPanelPolicy:
             attempt: i64
             warning_count: i64
             approved: bool
-            receipt: StudioExportBatchReviewBinding::PublicationReceipt
+            receipt: StudioExportBatchPublication::Receipt
 
         struct Controls:
             enqueue: bool
@@ -55,6 +55,8 @@ module StudioExportBatchPanelPolicy:
             publish: bool
             acknowledge: bool
             refresh: bool
+            previous: bool
+            next: bool
 
         # Converts a row offset in the clipped viewport into a queue index.
         # Negative or off-page rows have no hit target.
@@ -80,6 +82,9 @@ module StudioExportBatchPanelPolicy:
             "Recoverable · facts need inspection"
 
         def action_enabled(control: Focus, controls: Controls) -> bool:
+            ensure control != Focus.Previous or result == controls.previous
+            ensure control != Focus.Next or result == controls.next
+            ensure control != Focus.Close or result
             return controls.enqueue if control == Focus.Enqueue
             return controls.run if control == Focus.Run
             return controls.pause if control == Focus.Pause
@@ -90,6 +95,8 @@ module StudioExportBatchPanelPolicy:
             return controls.publish if control == Focus.Publish
             return controls.acknowledge if control == Focus.Acknowledge
             return controls.refresh if control == Focus.Refresh
+            return controls.previous if control == Focus.Previous
+            return controls.next if control == Focus.Next
             true
 
         def action_label(control: Focus) -> sview:
@@ -106,3 +113,21 @@ module StudioExportBatchPanelPolicy:
             return "Close" if control == Focus.Close
             return "Previous" if control == Focus.Previous
             "Next"
+
+        def publication_uncertain(receipt: StudioExportBatchPublication::Receipt) -> bool:
+            ensure result == (receipt.glb == StudioExportBatchPublication::ArtifactStage.PublishedDurabilityUnknown or receipt.json == StudioExportBatchPublication::ArtifactStage.PublishedDurabilityUnknown or receipt.text == StudioExportBatchPublication::ArtifactStage.PublishedDurabilityUnknown)
+            receipt.glb == StudioExportBatchPublication::ArtifactStage.PublishedDurabilityUnknown or receipt.json == StudioExportBatchPublication::ArtifactStage.PublishedDurabilityUnknown or receipt.text == StudioExportBatchPublication::ArtifactStage.PublishedDurabilityUnknown
+
+        def receipt_summary(receipt: StudioExportBatchPublication::Receipt) -> sview:
+            ensure not publication_uncertain(receipt) or result == "Publication durability unknown; inspect destinations"
+            return "Publication durability unknown; inspect destinations" if publication_uncertain(receipt)
+            return "Partial or conflicting publication; inspect destination files" if receipt.glb == StudioExportBatchPublication::ArtifactStage.ConflictingOrUnavailable or receipt.json == StudioExportBatchPublication::ArtifactStage.ConflictingOrUnavailable or receipt.text == StudioExportBatchPublication::ArtifactStage.ConflictingOrUnavailable
+            return "All GLB and report bytes verified" if StudioExportBatchPublication::outputs_verified(receipt)
+            return "GLB verified; one or more report files still need publication" if receipt.glb_bytes_verified and not (receipt.json_bytes_verified and receipt.text_bytes_verified)
+            return "Reports verified; GLB publication is incomplete" if not receipt.glb_bytes_verified and receipt.json_bytes_verified and receipt.text_bytes_verified
+            return "Partial publication; inspect each destination before retrying" if receipt.glb_bytes_verified or receipt.json_bytes_verified or receipt.text_bytes_verified
+            return "Staging output retained" if receipt.staging == StudioExportBatchPublication::StagingDisposition.StillPresent
+            return "Staging cleanup uncertain; recovery retained" if receipt.staging == StudioExportBatchPublication::StagingDisposition.Unknown
+            return "Staging removed after publication" if receipt.staging == StudioExportBatchPublication::StagingDisposition.Removed
+            "Recovery snapshots retained"
+
