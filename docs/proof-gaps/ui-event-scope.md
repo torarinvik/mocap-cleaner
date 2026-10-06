@@ -221,3 +221,14 @@ declines: the index reader's mutable-global branch returns before the general
 address fallback. Follow-up candidate `925bcbb2` adds the dynamic-array read
 to that branch, using the ordinary bounds and reference-element handling.
 Its reseed is queued behind a verified live host build; it remains unqualified.
+
+The follow-up seed completed at `925bcbb2`. All five reductions in
+`build/studio-owner-global-candidate.9j1L9G` now exit 0 and emit nonempty
+objects: the original hierarchy, both recovery-Key include orders and both
+global-array cursor variants. Full Studio compilation next encountered two
+new Go to frame syntax errors before reaching backend qualification. Root
+commit `c020573` corrects those conditional expressions and a separately
+observed accessibility text-buffer reset. A fresh complete Studio diagnostic
+compile is running in `build/studio-goto-current-candidate.5bdqyL`.
+The normal compiler has not adopted these candidates; reduced objects do not
+establish native Studio or current normal-product acceptance.
