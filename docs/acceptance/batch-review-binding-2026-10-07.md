@@ -115,6 +115,23 @@ checks only; no filesystem operation, law replay, queue UI, transaction-release
 callsite, concurrent lock use, descriptor misuse, replacement race, collision
 race or durability behavior was run.
 
+The latest native slice adds a registry mutex and a release check that verifies
+the caller descriptor still refers to the registered file and open-file
+description before closing its integer descriptor. The mutex remains held
+through descriptor-relative IO so release cannot unlock the workspace during a
+native operation. Durable journal updates now read the prior journal with
+`openat(O_NOFOLLOW)` and replace it with a synced temporary plus `renameat` in
+the opened recovery directory. This only covers an existing journal update.
+Initial recovery-directory creation, initial journal/snapshot writes, recovery
+enumeration and reads, and final output publication still use path-based APIs;
+those operations retain the replacement TOCTOU and need the same relative
+adapter before the race can be considered closed. Fresh O0 compile-only
+qualification on the provenance-checked Stage1 product produced nonempty queue
+store (724,216 bytes) and review binding (940,144 bytes) objects. Strict C11
+syntax checking of `storage_manifest_lock.c` and Objective-C syntax checking of
+`file_trash_appkit.m` exited 0. No native runtime, concurrent lock, fd reuse or
+filesystem replacement behavior was exercised.
+
 Compile-only qualification used the provenance-checked normal Stage1 product
 (`bb1f4095`) with `-emit obj -O0`; O2 dead-stripped these proof/module-only
 fixtures to 336-byte symbol-only objects, so those outputs are not counted as

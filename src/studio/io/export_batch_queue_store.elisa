@@ -17,6 +17,14 @@ extern batch_mkstemp(path_template: u8&) -> i32 can[Blocking.IO]
 extern batch_fsync(descriptor: i32) -> i32 can[Blocking.IO]
 @link_name("close")
 extern batch_close(descriptor: i32) -> i32 can[Blocking.IO]
+@link_name("elisa_storage_batch_file_read")
+extern batch_file_read(build_directory: cstr, lock_descriptor: i32,
+    device: i64, inode: i64, directory_name: cstr, file_name: cstr,
+    bytes: mutable u8&, capacity: u64) -> i64 can[Blocking.IO]
+@link_name("elisa_storage_batch_file_replace")
+extern batch_file_replace(build_directory: cstr, lock_descriptor: i32,
+    device: i64, inode: i64, directory_name: cstr, file_name: cstr,
+    bytes: u8&, byte_count: u64) -> i32 can[Blocking.IO]
 
 # Durable per-item snapshots and journal. This store only returns a directory
 # after all immutable bytes, the initial journal and both directory entries
@@ -172,20 +180,33 @@ module StudioExportBatchQueueStore:
         # Journal writes are atomic replacements. A durability-unknown return
         # is retried with an explicit directory sync; published bytes are never
         # rolled back or deleted on failure.
-        def update_item(build_directory: darray[u8]&, directory: darray[u8]&, lock_descriptor: i32,
+        def update_item(build_directory: darray[u8]&, build_identity: StudioExportBatchRootIdentity::Facts&,
+                directory: darray[u8]&, lock_descriptor: i32,
                 record: StudioExportBatchJournal::Record&) -> StudioPublicationDurabilityPolicy::Result can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
-            return StudioPublicationDurabilityPolicy::Result.NotPublished if not transaction_valid_bytes(build_directory, lock_descriptor) or not path_valid(directory)
-            if path_string(directory) is native_directory:
-                status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::update_batch_journal(native_directory, record)
-                StudioExportRecoveryStore::release_path(native_directory)
-                return status if status != StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
-                if path_string(directory) is retry_directory:
-                    synced: bool = StudioExportRecoveryStore::sync_directory(retry_directory)
-                    StudioExportRecoveryStore::release_path(retry_directory)
-                    return StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced if synced
-                StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
-            else:
-                StudioPublicationDurabilityPolicy::Result.NotPublished
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not transaction_valid_bytes(build_directory, lock_descriptor) or not path_valid(directory) or not StudioExportBatchRootIdentity::valid(build_identity)
+            mutable directory_name: u8[4096] = zeroed
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not recovery_leaf(build_directory, directory, &directory_name)
+            mutable build_path: u8[4096] = zeroed
+            for index in 0..<build_directory.count |build_directory, build_path|:
+                build_path[index] <- build_directory[index]
+            mutable previous_buffer: u8[StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES.usize()] = zeroed
+            previous_count: i64 = batch_file_read((&build_path[0]).cast[cstr], lock_descriptor,
+                build_identity.device, build_identity.inode, (&directory_name[0]).cast[cstr],
+                "batch-journal.txt", &previous_buffer[0], StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES.u64())
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if previous_count <= 0
+            mutable previous_bytes: darray[u8] = []
+            for index in 0..<previous_count.usize() |previous_buffer, previous_bytes|:
+                previous_bytes.push(previous_buffer[index])
+            mutable previous: StudioExportBatchJournal::Record = record
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportBatchJournal::decode(previous_bytes, &previous) or not StudioExportBatchJournal::transition_admitted(previous, record)
+            mutable bytes: darray[u8] = []
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportBatchJournal::encode(record, &bytes) or bytes.count == 0
+            status: i32 = batch_file_replace((&build_path[0]).cast[cstr], lock_descriptor,
+                build_identity.device, build_identity.inode, (&directory_name[0]).cast[cstr],
+                "batch-journal.txt", &bytes[0], bytes.count.u64())
+            return StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced if status == 1
+            return StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown if status == 2
+            StudioPublicationDurabilityPolicy::Result.NotPublished
 
         def load_identity(build_directory: darray[u8]&, directory: darray[u8]&, lock_descriptor: i32,
                 record: StudioExportBatchJournal::Record&,
@@ -289,6 +310,22 @@ module StudioExportBatchQueueStore:
             for index in 0..<prefix.len.usize():
                 return false if name[index] != prefix[index]
             true
+
+        def recovery_leaf(build_directory: darray[u8]&, directory: darray[u8]&,
+                out: mutable u8[4096]&) -> bool:
+            return false if directory.count <= build_directory.count + 1 or directory.count >= 4096
+            for index in 0..<build_directory.count |build_directory, directory|:
+                return false if build_directory[index] != directory[index]
+            return false if directory[build_directory.count] != 47
+            mutable leaf: darray[u8] = []
+            mutable leaf_count: usize = 0
+            for index in 0..<directory.count |directory, out, leaf, leaf_count, build_directory|:
+                continue if index <= build_directory.count
+                return false if directory[index] == 47 or directory[index] == 0
+                out[leaf_count] <- directory[index]
+                leaf.push(directory[index])
+                leaf_count <- leaf_count + 1
+            recovery_namespace(leaf)
 
         def batch_id_valid(batch_id: darray[u8]&) -> bool:
             return false if batch_id.count != 6
