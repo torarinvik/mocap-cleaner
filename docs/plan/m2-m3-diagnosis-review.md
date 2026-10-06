@@ -205,6 +205,15 @@ fractional rates or validate authored key spacing. Current producer/replay,
 rational-rate timing, evaluated-grid admission and clock integration remain
 required before the clock-consistency item can be closed.
 
+The clock arithmetic now also represents bounded rational rates, including
+30000/1001 and 60000/1001. Quotient/remainder splitting avoids overflowing a
+direct maximum-time × numerator product. The integer-rate entry points delegate
+to that same arithmetic. Nine rational-clock laws compile at O0 with retained
+symbols, including fractional-frame boundaries and maximum-duration cases.
+This has not changed the application's fixed-rate playback clock: the evaluated
+grid still needs validated numerator/denominator ownership, source-key admission,
+UI/report labels, integration and current proof/runtime qualification.
+
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
       Display the indexing convention consistently. Keep empty, malformed or

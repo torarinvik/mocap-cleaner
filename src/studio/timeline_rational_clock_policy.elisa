@@ -1,0 +1,44 @@
+# Exact bounded rational rate; split quotients avoid a time*rate overflow.
+module StudioTimelineRationalClockPolicy:
+    public:
+        const module Domain:
+            MAX_FRAMES: i64 = 10000000
+            MAX_RATE_PART: i64 = 1000000
+            MAX_FPS: i64 = 1000
+            MICROS: i64 = 1000000
+            MAX_TIME_US: i64 = 10000000000000
+            MAX_STEP_US: i64 = 250000
+
+        def rate_valid(numerator: i64, denominator: i64) -> bool:
+            ensure result == (numerator >= 1 and numerator <= Domain::MAX_RATE_PART and denominator >= 1 and denominator <= Domain::MAX_RATE_PART and numerator >= denominator and numerator <= denominator * Domain::MAX_FPS)
+            return false if numerator < 1 or numerator > Domain::MAX_RATE_PART
+            return false if denominator < 1 or denominator > Domain::MAX_RATE_PART
+            numerator >= denominator and numerator <= denominator * Domain::MAX_FPS
+
+        # An index may be the exclusive clip end. Frame starts round upward
+        # to the first representable microsecond inside that frame interval.
+        def boundary_us(index: i64, numerator: i64, denominator: i64) -> i64:
+            requires index >= 0 and index <= Domain::MAX_FRAMES
+            requires numerator >= 1 and numerator <= Domain::MAX_RATE_PART
+            requires denominator >= 1 and denominator <= Domain::MAX_RATE_PART
+            requires numerator >= denominator and numerator <= denominator * Domain::MAX_FPS
+            ensure result >= 0 and result <= Domain::MAX_TIME_US
+            ensure index != 0 or result == 0
+            scaled: i64 = index * denominator
+            whole: i64 = scaled / numerator
+            remainder: i64 = scaled % numerator
+            whole * Domain::MICROS + (remainder * Domain::MICROS + numerator - 1) / numerator
+
+        def frame_at_us(time: i64, numerator: i64, denominator: i64, count: i64) -> i64:
+            requires time >= 0 and time <= Domain::MAX_TIME_US + Domain::MAX_STEP_US
+            requires numerator >= 1 and numerator <= Domain::MAX_RATE_PART
+            requires denominator >= 1 and denominator <= Domain::MAX_RATE_PART
+            requires numerator >= denominator and numerator <= denominator * Domain::MAX_FPS
+            requires count >= 1 and count <= Domain::MAX_FRAMES
+            ensure result >= 0 and result < count
+            ensure time != 0 or result == 0
+            unit: i64 = denominator * Domain::MICROS
+            whole: i64 = time / unit
+            remainder: i64 = time % unit
+            raw: i64 = whole * numerator + remainder * numerator / unit
+            count - 1 if raw >= count else raw
