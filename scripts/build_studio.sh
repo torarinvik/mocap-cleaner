@@ -26,6 +26,7 @@ OUT="$ROOT/build"
 [[ -f "$RUNTIME" ]] || { echo "no runtime object at $RUNTIME" >&2; exit 2; }
 mkdir -p "$OUT" "$OUT/test"
 cd "$ROOT"
+python3 "$ROOT/scripts/check_file_lengths.py"
 python3 "$ROOT/tools/svg_icons.py" "$OUT/generated/studio_icon_paths.elisa"
 python3 "$ROOT/tools/studio_build_identity.py" "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$OUT/generated/studio_build_identity.elisa"
 
