@@ -27,3 +27,9 @@ an explicit successful cursor-bound contract. Public decoding retains the
 same input and output behavior. Standalone object and full CLI compilation
 succeed with current compiler `4c409da6`; focused source proof requalification
 is running. This refactor does not establish decoder qualification by itself.
+
+Surrogate-pair arithmetic is now a separate contracted `JsonScalar` kernel,
+with related limits in its `Domain` constant module and an additional range
+law. Clean qualified prover `3de825c7` establishes all 22 source and 38 law
+obligations, replaying 21/22 and 34/38 respectively. No findings are reported;
+the remaining replay gaps still prevent accepted proof qualification.
