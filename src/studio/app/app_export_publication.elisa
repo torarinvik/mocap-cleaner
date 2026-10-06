@@ -5,6 +5,7 @@ include "report_text.elisa"
 
 extend Studio:
     private:
+        global mutable export_durability_unknown: bool = false
         global mutable export_publication_outcome: StudioExportPublicationPolicy::Outcome = StudioExportPublicationPolicy::Outcome.GlbOnly
 
         struct ExportReportSnapshot:
@@ -89,7 +90,9 @@ extend Studio:
                         say_file("Export cancelled: displayed result changed; existing destination kept.", destination)
                         touch()
                         return false
-                    if StudioExportPublisher::commit(temporary, destination):
+                    publication: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::commit_with_status(temporary, destination)
+                    if StudioPublicationDurabilityPolicy::published(publication):
+                        export_durability_unknown <- publication == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
                         storage_tracking_failed <- false
                         export_publication_outcome <- StudioExportPublicationPolicy::Outcome.GlbOnly
                         if report_snapshot is frozen_reports:
@@ -101,6 +104,7 @@ extend Studio:
                         say_file("GLB exported and validated; report sidecars and Storage tracking could not be saved", destination) if not report_saved and storage_tracking_failed
                         say_file("exported and validated; report saved", destination) if report_saved and not storage_tracking_failed
                         say_file(StudioExportPublicationPolicy::message(export_publication_outcome), destination) if not report_saved and not storage_tracking_failed
+                        say_file("GLB published; directory durability is unconfirmed. The result exists; do not repeat export over it.", destination) if export_durability_unknown
                         FilePanel::note_recent(destination)
                         _ = puts(destination)
                         export_result_path <- destination
@@ -279,8 +283,15 @@ extend Studio:
             text_path[path_end + b] <- 0
             json_cstr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
             text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
-            json_ok: bool = export_reason(json_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(json_cstr) and StudioExportPublisher::write_sidecar(json_cstr, snapshot.json)
-            text_ok: bool = export_reason(text_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(text_cstr) and StudioExportPublisher::write_sidecar(text_cstr, snapshot.summary)
+            mutable json_result: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
+            mutable text_result: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
+            if export_reason(json_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(json_cstr):
+                json_result <- StudioExportPublisher::write_sidecar_with_status(json_cstr, snapshot.json)
+            if export_reason(text_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(text_cstr):
+                text_result <- StudioExportPublisher::write_sidecar_with_status(text_cstr, snapshot.summary)
+            export_durability_unknown <- true if json_result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown or text_result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+            json_ok: bool = StudioPublicationDurabilityPolicy::published(json_result)
+            text_ok: bool = StudioPublicationDurabilityPolicy::published(text_result)
             storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             StudioExportPublicationPolicy::sidecar_outcome(json_ok, text_ok)

@@ -1,3 +1,4 @@
+include "../publication_durability_policy.elisa"
 # Prepare an exported GLB beside its destination, validate the bytes by
 # reloading them, and publish with one same-filesystem rename. The destination
 # remains untouched until commit succeeds.
@@ -90,8 +91,13 @@ module StudioExportPublisher:
             _ = export_unlink(&temporary[0])
             null
 
+        # Compatibility result reports publication, not crash durability.
         def commit(temporary: cstr, destination: cstr) -> bool:
-            export_rename(temporary.cast[u8&], destination.cast[u8&]) == 0
+            StudioPublicationDurabilityPolicy::published(commit_with_status(temporary, destination))
+
+        def commit_with_status(temporary: cstr, destination: cstr) -> StudioPublicationDurabilityPolicy::Result:
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if export_rename(temporary.cast[u8&], destination.cast[u8&]) != 0
+            StudioPublicationDurabilityPolicy::outcome(true, sync_parent(destination))
 
         # Removes an uncommitted temporary; harmless after a successful rename.
         def discard(temporary: cstr) -> void:
@@ -100,10 +106,13 @@ module StudioExportPublisher:
         # Atomically writes a sidecar in the same directory. A failed report
         # write never changes the already-published GLB.
         def write_sidecar(path: cstr, bytes: darray[u8]&) -> bool:
+            StudioPublicationDurabilityPolicy::published(write_sidecar_with_status(path, bytes))
+
+        def write_sidecar_with_status(path: cstr, bytes: darray[u8]&) -> StudioPublicationDurabilityPolicy::Result:
             mutable length: usize = 0
             while length < Capacity::PATH and path[length] != 0:
                 length <- length + 1
-            return false if length == 0 or length >= Capacity::PATH
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if length == 0 or length >= Capacity::PATH
             mutable temporary: u8[Capacity::TEMPORARY] = zeroed
             for index in 0..<length |path, temporary|:
                 temporary[index] <- path[index]
@@ -114,12 +123,12 @@ module StudioExportPublisher:
                 suffix_length <- suffix_length + 1
             temporary[length + suffix_length] <- 0
             descriptor: i32 = export_mkstemp(&temporary[0])
-            return false if descriptor < 0
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if descriptor < 0
             file: mutable heap void&? = export_fdopen(descriptor, "wb".cast[u8&])
             if file == null:
                 _ = export_close(descriptor)
                 _ = export_unlink(&temporary[0])
-                return false
+                return StudioPublicationDurabilityPolicy::Result.NotPublished
             handle: mutable heap void& = file
             mutable wrote: usize = 0
             if bytes.count > 0:
@@ -132,13 +141,38 @@ module StudioExportPublisher:
             closed: i32 = export_fclose(handle)
             if wrote != bytes.count or flushed != 0 or synced != 0 or closed != 0:
                 _ = export_unlink(&temporary[0])
-                return false
+                return StudioPublicationDurabilityPolicy::Result.NotPublished
             if export_rename(&temporary[0], path.cast[u8&]) != 0:
                 _ = export_unlink(&temporary[0])
-                return false
-            true
+                return StudioPublicationDurabilityPolicy::Result.NotPublished
+            StudioPublicationDurabilityPolicy::outcome(true, sync_parent(path))
 
     private:
+        # A successful rename stays published even if directory fsync fails.
+        def sync_parent(path: cstr) -> bool:
+            mutable length: usize = 0
+            mutable slash: usize = 0
+            mutable found: bool = false
+            while length < Capacity::PATH and path[length] != 0:
+                if path[length] == 47:
+                    slash <- length
+                    found <- true
+                length <- length + 1
+            return false if length == 0 or length >= Capacity::PATH
+            mutable parent: u8[Capacity::PATH] = zeroed
+            if found:
+                parent_length: usize = 1 if slash == 0 else slash
+                for index in 0..<parent_length |parent, path, index|:
+                    parent[index] <- path[index]
+            else:
+                parent[0] <- 46
+            # O_RDONLY is zero on the supported POSIX hosts.
+            descriptor: i32 = export_open(&parent[0], 0)
+            return false if descriptor < 0
+            synced: i32 = export_fsync(descriptor)
+            closed: i32 = export_close(descriptor)
+            synced == 0 and closed == 0
+
         def save_document(doc: GlbDocument::Document&, path: cstr) -> bool:
             wrote: usize = catch GlbDocument::save(doc, path):
                 value: value
