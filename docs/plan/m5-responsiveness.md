@@ -50,8 +50,12 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
       Qualify the channel cache's per-instance logical admission (4,000,000
       entries / 64 MiB estimated contents) against full evaluation, including
       disabled operations and timing/accounting during fallback. Establish
-      aggregate bank, rig cache, allocator and transient memory bounds; the
-      channel admission limit alone does not establish a process RAM bound.
+      Qualify aggregate channel-bank and rig-cache admission, each with a
+      separate 256 MiB logical estimate, including replacement accounting and
+      fallback summaries. Verify budget estimates against evolving schemas.
+      Establish allocator and transient memory bounds; the admission limits
+      alone do not establish a process RAM bound. Measure cache pressure and
+      eviction behavior so long sessions remain responsive.
 - [ ] Optimize curves, issue rows and overlays for draw budget and density.
       Use explicit level of detail; selection and peak markers remain accurate.
 - [ ] Record per-stage latency, memory, cache hits and stale-job rejection in
