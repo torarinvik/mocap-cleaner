@@ -1,0 +1,49 @@
+# Longer-lived AX summaries use their own bounded slot; StudioText is only
+# 128 bytes per immediate-mode label and is reused by path previews.
+module StudioExportRecoveryAccessibilityText:
+    public:
+        const CAPACITY: usize = 1024
+        const TRUNCATION_NOTICE: sview = " Summary truncated; use recovery actions for details."
+        global mutable buffer: u8[CAPACITY] = zeroed
+        global mutable length: usize = 0
+        global mutable truncated: bool = false
+
+        def begin() -> void:
+            length <- 0
+            truncated <- false
+
+        def put(value: sview) -> void:
+            return if value.len <= 0 or value.data == null or truncated
+            usable: usize = CAPACITY - TRUNCATION_NOTICE.len.usize()
+            for index in 0..<value.len.usize() |index|:
+                if length >= usable:
+                    truncated <- true
+                    return
+                buffer[length] <- value.data[index]
+                length <- length + 1
+
+        def put_i(value: i64) -> void:
+            if value < 0:
+                put("-")
+                if value > -1000000000000:
+                    put_i(0 - value)
+                return
+            if value >= 10:
+                put_i(value / 10)
+            byte((48 + value % 10).u8())
+
+        def view() -> sview can Unsafe.PointerCast:
+            if truncated:
+                for index in 0..<TRUNCATION_NOTICE.len.usize() |index|:
+                    buffer[length] <- TRUNCATION_NOTICE.data[index]
+                    length <- length + 1
+            UiText::fixed_bytes_view_range[1024](buffer, 0, length)
+
+    private:
+        def byte(value: u8) -> void:
+            return if truncated
+            if length >= CAPACITY - TRUNCATION_NOTICE.len.usize():
+                truncated <- true
+                return
+            buffer[length] <- value
+            length <- length + 1
