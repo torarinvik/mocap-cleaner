@@ -55,3 +55,18 @@ is calculated from the validated temporary GLB before it is renamed. A
 sidecar failure does not roll back the GLB; Studio reports that the GLB
 succeeded while report sidecars failed, with the destination path available
 for retry.
+
+## Partial publication feedback
+
+The result dialog and its native accessibility announcement distinguish a
+validated GLB from incomplete report publication. If either report write
+fails, one sidecar may already exist and the other may be missing or stale.
+The dialog therefore does not recommend retrying the whole export, which
+would require replacing the published GLB. A report-only completion workflow
+from an immutable export snapshot remains planned in M6.
+
+Status also distinguishes report failure from Storage tracking failure,
+including simultaneous failure. Tracking failure cannot imply that reports
+were saved. These are presentation corrections; publication ordering and
+retry behavior are unchanged. Running-window failure-path qualification is
+still required.
