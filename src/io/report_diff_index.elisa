@@ -1,0 +1,67 @@
+# Stable metric identity index for report comparison. Part of ReportDiff.
+extend ReportDiff:
+    private:
+        def compare_span(a: darray[u8]&, a_at: i64, a_len: i64,
+                         b: darray[u8]&, b_at: i64, b_len: i64) -> i64:
+            mutable index: i64 = 0
+            while index < a_len and index < b_len:
+                left: u8 = a[(a_at + index).usize()]
+                right: u8 = b[(b_at + index).usize()]
+                return -1 if left < right
+                return 1 if left > right
+                index <- index + 1
+            return -1 if a_len < b_len
+            return 1 if a_len > b_len
+            0
+
+        def compare_identity(a: darray[u8]&, left: Metric,
+                             b: darray[u8]&, right: Metric) -> i64:
+            clip: i64 = compare_span(a, left.clip_at, left.clip_len, b, right.clip_at, right.clip_len)
+            return clip if clip != 0
+            compare_span(a, left.key_at, left.key_len, b, right.key_at, right.key_len)
+
+        # Bottom-up merge sort avoids recursion and preserves source row indices.
+        def build_index(pool: darray[u8]&, list: darray[Metric]&, index: mutable darray[usize]&):
+            index.clear()
+            for row in 0..<list.count:
+                index.push(row)
+            mutable scratch: darray[usize] = []
+            mutable width: usize = 1
+            while width < index.count:
+                scratch.clear()
+                mutable start: usize = 0
+                while start < index.count:
+                    mutable middle: usize = start + width
+                    middle <- index.count if middle > index.count
+                    mutable end: usize = middle + width
+                    end <- index.count if end > index.count
+                    mutable left: usize = start
+                    mutable right: usize = middle
+                    while left < middle or right < end:
+                        mutable take_left: bool = right == end
+                        if left < middle and right < end:
+                            take_left <- compare_identity(pool, list[index[left]], pool, list[index[right]]) <= 0
+                        if left < middle and take_left:
+                            scratch.push(index[left])
+                            left <- left + 1
+                        else:
+                            scratch.push(index[right])
+                            right <- right + 1
+                    start <- end
+                for row in 0..<index.count:
+                    index[row] <- scratch[row]
+                width <- ReportIndexKernel::next_width(width.i64()).usize()
+
+        def find_indexed(pool: darray[u8]&, list: darray[Metric]&, index: darray[usize]&,
+                         baseline_pool: darray[u8]&, metric: Metric) -> i64:
+            mutable first: usize = 0
+            mutable stop: usize = index.count
+            while first < stop:
+                middle: usize = ReportIndexKernel::midpoint(first.i64(), stop.i64()).usize()
+                order: i64 = compare_identity(pool, list[index[middle]], baseline_pool, metric)
+                return index[middle].i64() if order == 0
+                if order < 0:
+                    first <- middle + 1
+                else:
+                    stop <- middle
+            -1
