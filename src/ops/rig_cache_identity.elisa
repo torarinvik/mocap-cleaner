@@ -1,0 +1,60 @@
+# Exact cache admission helpers. Float representations are compared bytewise
+# so signed zero is distinguished and no NaN is equated by arithmetic rules.
+extend RigCache:
+    private:
+        def scalar_matches(a: f64, b: f64) -> bool can Unsafe.PointerCast:
+            left: cstr = (&a).cast[cstr]
+            right: cstr = (&b).cast[cstr]
+            for index in 0..<8:
+                return false if left[index] != right[index]
+            true
+
+        def vector_matches(a: MotionQuat::V, b: MotionQuat::V) -> bool:
+            scalar_matches(a.x, b.x) and scalar_matches(a.y, b.y) and scalar_matches(a.z, b.z)
+
+        def rotation_matches(a: MotionQuat::Q, b: MotionQuat::Q) -> bool:
+            scalar_matches(a.x, b.x) and scalar_matches(a.y, b.y) and scalar_matches(a.z, b.z) and scalar_matches(a.w, b.w)
+
+        def joint_matches(a: Rig::Joint, b: Rig::Joint) -> bool:
+            a.parent == b.parent and a.role == b.role and vector_matches(a.rest_t, b.rest_t) and rotation_matches(a.rest_r, b.rest_r) and vector_matches(a.rest_s, b.rest_s) and a.rot_in == b.rot_in and a.rot_out == b.rot_out and a.rot_step == b.rot_step and a.pos_in == b.pos_in and a.pos_out == b.pos_out and a.pos_step == b.pos_step and a.scl_in == b.scl_in and a.scl_out == b.scl_out and a.scl_step == b.scl_step
+
+        def input_matches(before: Rig::Clip&, after: Rig::Clip&) -> bool:
+            return false if before.frames != after.frames or before.joints.count != after.joints.count or before.roles.count != after.roles.count or before.order.count != after.order.count or before.times.count != after.times.count or before.rot.count != after.rot.count or before.pos.count != after.pos.count or before.scl.count != after.scl.count or before.rot_dirty.count != after.rot_dirty.count or before.pos_dirty.count != after.pos_dirty.count
+            for index in 0..<before.joints.count:
+                return false if not joint_matches(before.joints[index], after.joints[index])
+            for index in 0..<before.roles.count:
+                return false if before.roles[index] != after.roles[index]
+            for index in 0..<before.order.count:
+                return false if before.order[index] != after.order[index]
+            for index in 0..<before.times.count:
+                return false if not scalar_matches(before.times[index], after.times[index])
+            for index in 0..<before.rot.count:
+                return false if not rotation_matches(before.rot[index], after.rot[index])
+            for index in 0..<before.pos.count:
+                return false if not vector_matches(before.pos[index], after.pos[index])
+            for index in 0..<before.scl.count:
+                return false if not vector_matches(before.scl[index], after.scl[index])
+            for index in 0..<before.rot_dirty.count:
+                return false if before.rot_dirty[index] != after.rot_dirty[index]
+            for index in 0..<before.pos_dirty.count:
+                return false if before.pos_dirty[index] != after.pos_dirty[index]
+            true
+
+        def operation_matches(a: RigOps::RigOp, b: RigOps::RigOp) -> bool:
+            return true if not a.enabled and not b.enabled
+            a.enabled == b.enabled and a.kind == b.kind and a.first == b.first and a.last == b.last and a.role == b.role and a.axis == b.axis and a.amount == b.amount and a.passes == b.passes and a.edge == b.edge
+
+        def operations_match(before: darray[RigOps::RigOp]&, after: darray[RigOps::RigOp]&) -> bool:
+            return false if before.count != after.count
+            for index in 0..<before.count:
+                return false if not operation_matches(before[index], after[index])
+            true
+
+        def prefix_matches(cache: Cache&, ops: darray[RigOps::RigOp]&, order: darray[i64]&, boundary: i64) -> bool:
+            return false if boundary < 0 or boundary > order.count.i64() or boundary > cache.step_order.count.i64()
+            for index in 0..<boundary.usize():
+                before: i64 = cache.step_order[index]
+                after: i64 = order[index]
+                return false if before < 0 or before >= cache.operations.count.i64() or after < 0 or after >= ops.count.i64()
+                return false if not operation_matches(cache.operations[before.usize()], ops[after.usize()])
+            true

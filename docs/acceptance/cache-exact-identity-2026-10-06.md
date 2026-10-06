@@ -13,11 +13,32 @@ storage together. Clean candidate prover `4da37c97` built with compiler
 `45330579` proves and independently replays its laws 12/12, with zero gaps,
 findings or semantic errors (`build/cache-identity-laws.json`). This scalar
 evidence does not prove array comparison, snapshot ownership or the integrated
-evaluator. Compilation awaits the current constructor-owner compiler seed;
-existing cached/full executable comparisons await the authorized full check.
+evaluator. Compiler `3c72f59f` emits a fresh channel-cache object without
+diagnostics in `build/cache-compile.teUM8X`. The initial local-array assignment
+was rejected for escaping its inferred region; snapshot copying now extends
+the cache's existing array storage. Existing cached/full executable comparisons
+await the authorized full check.
 No executable tests were added or run for this change.
 
 Exact snapshots add one source-channel copy and one operation list per cache.
 Memory budgeting, eviction and runtime measurements remain open. Rig prefix
-and final caches still use modular fingerprints and need equivalent exact or
-revision-bound admission; this change does not close all cache correctness.
+and final caches now also require retained input and effective-operation
+identity alongside hashes. Their additional ownership and memory requirements
+still need qualification; this change does not close all cache correctness.
+
+## Rig prefix and final admission
+
+Rig cache admission retains the full pre-operation clip, exact source token,
+threshold, operation list and scheduled step order. Prefix reuse compares the
+effective scheduled operations before the contact boundary. Final reuse compares
+the full effective operation list, including contact edits. Both require exact
+input clip equality, including hierarchy, roles, times, TRS, animation slot facts
+and dirty masks. Floating values are compared bytewise to distinguish signed
+zero and preserve actual representations. Hash collisions or a threshold change
+alone cannot authorize reuse.
+
+Compiler `3c72f59f` emits a fresh object without diagnostics in
+`build/cache-compile.nyxmdr`. This does not qualify the pointer-cast float byte
+comparison, snapshot lifetime, cache/full equivalence or added memory pressure.
+The shared admission policy/laws remain the proved scalar kernel; integrated
+proof and runtime qualification are separate and unfinished.

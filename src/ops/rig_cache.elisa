@@ -8,6 +8,7 @@
 # result is identical to RigOps::run_clip.
 include "rig_stack.elisa"
 include "../core/perf_cache.elisa"
+include "../core/cache_identity_policy.elisa"
 
 module RigCache:
     public:
@@ -24,9 +25,15 @@ module RigCache:
             final_summary: mutable RigOps::Summary
             # Steps (ops) actually run, across calls.
             evaluations: mutable i64
+            input_snapshot: mutable Rig::Clip
+            input_valid: mutable bool
+            input_source: mutable i64
+            input_threshold: mutable i64
+            operations: mutable darray[RigOps::RigOp]
+            step_order: mutable darray[i64]
 
         def new_cache() -> Cache:
-            return Cache{valid: false, prefix_key: 0, prefix_steps: 0, snapshot: Rig::empty_clip(), summary: RigOps::empty_summary(), final_valid: false, final_key: 0, result: Rig::empty_clip(), final_summary: RigOps::empty_summary(), evaluations: 0}
+            return Cache{valid: false, prefix_key: 0, prefix_steps: 0, snapshot: Rig::empty_clip(), summary: RigOps::empty_summary(), final_valid: false, final_key: 0, result: Rig::empty_clip(), final_summary: RigOps::empty_summary(), evaluations: 0, input_snapshot: Rig::empty_clip(), input_valid: false, input_source: 0, input_threshold: 0, operations: [], step_order: []}
 
         def copy_clip(c: Rig::Clip&) -> Rig::Clip:
             mutable out: Rig::Clip = Rig::empty_clip()
@@ -160,11 +167,15 @@ module RigCache:
             for k in 0..<order.count |k, order, ops, whole, boundary|:
                 whole <- PerfCache::plain_key(whole, params_key(ops[order[k].usize()])) if k.i64() >= boundary
             final: i64 = PerfCache::step_key(whole, true, contacts_key(ops))
-            if cache.final_valid and cache.final_key == final:
+            exact_input: bool = cache.input_valid and cache.input_source == source and cache.input_threshold == threshold and input_matches(&cache.input_snapshot, c)
+            exact_prefix: bool = prefix_matches(cache, ops, order, boundary)
+            exact_operations: bool = operations_match(&cache.operations, ops)
+            if CacheIdentityPolicy::reuse_admitted(cache.final_key == final, exact_input, exact_operations, cache.final_valid):
                 c <- copy_clip(&cache.result)
                 return cache.final_summary
+            mutable next_input: Rig::Clip = copy_clip(c)
             mutable s: RigOps::Summary = RigOps::empty_summary()
-            if cache.valid and cache.prefix_key == key and cache.prefix_steps == boundary:
+            if CacheIdentityPolicy::reuse_admitted(cache.prefix_key == key, exact_input, exact_prefix, cache.valid and cache.prefix_steps == boundary):
                 c <- copy_clip(&cache.snapshot)
                 s <- cache.summary
             else:
@@ -184,4 +195,14 @@ module RigCache:
             cache.final_summary <- s
             cache.final_key <- final
             cache.final_valid <- true
+            cache.input_snapshot <- move next_input
+            cache.input_valid <- true
+            cache.input_source <- source
+            cache.input_threshold <- threshold
+            cache.operations.clear()
+            cache.operations.extend(ops)
+            cache.step_order.clear()
+            cache.step_order.extend(order)
             return s
+
+include "rig_cache_identity.elisa"

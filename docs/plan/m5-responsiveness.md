@@ -34,8 +34,7 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
       match exactly and which use a justified floating-point tolerance; cover
       operations, corrections, contacts, retime and cache boundaries.
       Hash equality must never establish cache identity alone. Qualify the
-      channel cache's exact source/effective-operation admission and add equivalent
-      exact or revision-bound identity to rig prefix/final caches. Include collisions,
+      channel and rig caches' exact source/effective-operation admission. Include collisions,
       source replacement with equal lengths, bone/loop changes, disabled edits,
       malformed retained storage and threshold changes in cache/full comparisons.
 - [ ] Replace or safely extend the current fixed capacities after an ownership
