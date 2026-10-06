@@ -82,3 +82,9 @@ are discarded and not cached. Earlier cache entries are invalidated rather than
 assuming they were produced under this stricter admission rule. Completed
 unproven reports remain evidence of unresolved work, subject to existing proof
 baselines; they are not promoted to successful verification.
+
+Cache format v4 requires exactly one recognized verification state and complete
+numeric obligation/proven/unproven totals whose sum is consistent. A `proved`
+state with unresolved obligations is invalid. Reports missing totals or showing
+inconsistent counters cannot be reused; discarded reports still fail the run.
+Qualify malformed/partial summaries alongside timeout and abnormal-exit cases.

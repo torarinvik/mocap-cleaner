@@ -45,7 +45,7 @@ CACHE = os.path.join(OUT, "cache")
 DURATIONS = os.path.join(CACHE, "durations.json")
 KEEP = re.compile(r"verification state|proven:|failed:|unproven:")
 # Bump when the key layout or the cached line format changes.
-KEY_VERSION = b"prove-cache-v3"
+KEY_VERSION = b"prove-cache-v4"
 # The prover is run as `PROVER <absolute file>`; part of the key so a change
 # here cannot reuse results produced by another invocation.
 INVOCATION = b"argv:PROVER,ABSFILE"
@@ -166,6 +166,20 @@ def summary(text):
     return " ".join(lines) + (" " if lines else "")
 
 
+def complete_report(text):
+    """Require one CLI summary and consistent obligation totals."""
+    states = re.findall(r"^\s*verification state: (proved|unknown|unsupported|disproved)\s*$",
+                        text, re.MULTILINE)
+    counts = {}
+    for name in ("obligations", "proven", "unproven"):
+        values = re.findall(rf"^\s*{name}: (\d+)\s*$", text, re.MULTILINE)
+        if len(values) != 1:
+            return False
+        counts[name] = int(values[0])
+    return (len(states) == 1 and counts["proven"] + counts["unproven"] == counts["obligations"]
+            and (states[0] != "proved" or counts["unproven"] == 0))
+
+
 def main():
     ap = argparse.ArgumentParser(usage=__doc__.rsplit("Usage: ", 1)[1].strip())
     ap.add_argument("--recheck-sample", type=int, default=0, metavar="N")
@@ -220,7 +234,7 @@ def main():
         # The current CLI returns 0 for complete source verification and 1
         # for a completed report with unresolved obligations. Other exits are
         # invocation/internal failures, even if a report marker was printed.
-        invalid = timed_out or "verification state" not in line or run.returncode not in (0, 1)
+        invalid = timed_out or not complete_report(run.stdout) or run.returncode not in (0, 1)
         if invalid:
             line = ""
         if old is not None and line != old:
