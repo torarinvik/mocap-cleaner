@@ -111,3 +111,9 @@ legitimately repeat `us`, while legacy extraction flattens them into one scope.
 Duplicate admission is now limited to compared quality metrics and `ok` status;
 proper per-object schema identity remains required in the reader replacement.
 The original rule rejected valid generated reports and is not qualified.
+
+Report reads now distinguish stream errors from normal EOF and check close
+status. Failed reads clear partial bytes before reporting unavailable input.
+This prevents complete-looking prefixes from being compared as full reports.
+The source compiles on current Stage1; filesystem fault qualification remains
+open.
