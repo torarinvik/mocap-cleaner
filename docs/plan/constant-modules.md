@@ -97,7 +97,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioStorageReservedNamespace` | 3 | `src/studio/io/storage_reserved_namespace.elisa` |
 | `StudioStorageSelectionPolicy` | 9 | `src/studio/storage_selection_policy.elisa` |
 | `StudioText` | 3 | `src/studio/app/text.elisa` |
-| `StudioTextEntryPolicy` | 7 | `src/studio/text_entry_policy.elisa` |
 | `StudioTimelineGotoPolicy` | 5 | `src/studio/app/timeline_goto_input.elisa` |
 | `StudioView` | 3 | `src/studio/view.elisa` |
 | `Timeline` | 9 | `src/studio/timeline.elisa` |
@@ -209,3 +208,9 @@ closed alternatives, preserving codes 0/1 through explicit integer boundary
 conversions. `Domain` holds the frame limit. Source, proof and fixture consumers
 retain existing invalid-target rejection and atomic invalid-draft behavior.
 Current compile/replay qualification awaits the compiler rebuild.
+
+`StudioTextEntryPolicy::Character` groups ASCII encoding facts; `Capacity`
+holds the numeric draft limit. The rejection sentinel remains a single integer
+boundary value. Capacity admission has a contract and three laws; a refused
+append preserves the draft and displays correction/cancellation guidance.
+Compiler/replay and native input qualification await current products.
