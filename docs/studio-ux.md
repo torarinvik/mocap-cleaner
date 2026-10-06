@@ -175,7 +175,7 @@ Storage interaction. The temporary bundle was removed after the process exited.
 The single-file cleanup flow exposes Move to Trash review and explicit
 confirmation. No row is selected on first open. Retention cycles through 7,
 30 (default), 90 and 365 days and refreshes eligibility without moving files.
-Changing rows, refreshing, changing retention, or pressing Escape cancels an
+Changing the Restore row, refreshing, changing retention, or pressing Escape cancels an
 open review. A confirmed move checks the reviewed identity and eligibility
 again immediately before the native checked move. Receipt-save failure
 attempts restore; fresh checks distinguish verified restoration, a retained
@@ -230,3 +230,11 @@ verify File or Storage activation; their running-window acceptance remains
 open. Cmd-Q closed the temporary app, its exit was checked, and its generated
 bundle was removed. The Storage overview layout itself is build-checked,
 not yet verified through native input.
+
+During Move review, Up/Down and pointer inspection preserve the frozen
+cleanup selection and confirmation state. Checkbox/Space selection changes
+still cancel review, as do Refresh, retention changes and Escape. Restore
+review still cancels when its inspected receipt changes. Inspection uses a
+bounded total navigation policy; exact next/previous helper contracts and
+wrapper bounds are proved, with the independent composed step replay gap
+recorded as G92. Native review interaction acceptance remains open.
