@@ -183,3 +183,14 @@ replay gaps. Twenty-eight obligations remain unsupported or unknown, including
 arithmetic bounds and dependent summaries. This is diagnostic evidence, not
 acceptance. The full result is `build/report-decimal-digit-laws.log`; retain the
 exact contracts and repair the arithmetic/replay gaps before closing this slice.
+
+`ReportNumber` now parses validated JSON number tokens into an ADT: unavailable
+or exact coefficient/exponent. It preserves trailing-zero equivalence and
+rejects coefficient overflow before arithmetic. Spans are limited to the report
+byte budget, and cursor/magnitude loop invariants are explicit. It compiles on
+Stage1 `2e1c1e51`; integration with common-scale comparisons and faithful output
+formatting remains open. Initial laws on prover `994f95be` report 204/231 proven,
+all 204 replayed, but three ADT wrapper guarantees are reported disproved and
+other invariants/summaries remain unresolved. Investigate these findings before
+acceptance; do not remove the requested guarantees to obtain a green result.
+Log: `build/report-number-invariant-laws.log`.
