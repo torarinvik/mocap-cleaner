@@ -1,9 +1,12 @@
+include "../export_publication_policy.elisa"
 include "app_state.elisa"
 include "../export_snapshot_policy.elisa"
 include "report_text.elisa"
 
 extend Studio:
     private:
+        global mutable export_publication_outcome: StudioExportPublicationPolicy::Outcome = StudioExportPublicationPolicy::Outcome.GlbOnly
+
         struct ExportReportSnapshot:
             json: darray[u8]
             summary: darray[u8]
@@ -88,16 +91,17 @@ extend Studio:
                         return false
                     if StudioExportPublisher::commit(temporary, destination):
                         storage_tracking_failed <- false
-                        mutable report_saved: bool = false
+                        export_publication_outcome <- StudioExportPublicationPolicy::Outcome.GlbOnly
                         if report_snapshot is frozen_reports:
-                            report_saved <- publish_export_reports(destination, frozen_reports)
+                            export_publication_outcome <- publish_export_reports(destination, frozen_reports)
+                        report_saved: bool = StudioExportPublicationPolicy::reports_complete(export_publication_outcome)
                         export_report_saved <- report_saved
                         FilePanel::release_path(temporary)
                         export_path <- destination
                         say_file("GLB exported and validated; report saved, but Storage tracking could not be saved", destination) if report_saved and storage_tracking_failed
                         say_file("GLB exported and validated; report sidecars and Storage tracking could not be saved", destination) if not report_saved and storage_tracking_failed
                         say_file("exported and validated; report saved", destination) if report_saved and not storage_tracking_failed
-                        say_file("GLB exported and validated; report sidecars could not be saved beside destination", destination) if not report_saved and not storage_tracking_failed
+                        say_file(StudioExportPublicationPolicy::message(export_publication_outcome), destination) if not report_saved and not storage_tracking_failed
                         FilePanel::note_recent(destination)
                         _ = puts(destination)
                         export_result_path <- destination
@@ -252,11 +256,11 @@ extend Studio:
             summary: darray[u8] = StudioExportReport::summary(&data)
             ExportReportSnapshot{json: json, summary: summary}
 
-        def publish_export_reports(destination: cstr, snapshot: ExportReportSnapshot&) -> bool can Unsafe.PointerCast:
+        def publish_export_reports(destination: cstr, snapshot: ExportReportSnapshot&) -> StudioExportPublicationPolicy::Outcome can Unsafe.PointerCast:
             mutable path_end: usize = 0
             while path_end < 4096 and destination[path_end] != 0:
                 path_end <- path_end + 1
-            return false if path_end == 0 or path_end >= 4096
+            return StudioExportPublicationPolicy::Outcome.GlbOnly if path_end == 0 or path_end >= 4096
             mutable json_path: u8[4128] = zeroed
             mutable text_path: u8[4128] = zeroed
             for index in 0..<path_end |destination, json_path, text_path|:
@@ -280,6 +284,6 @@ extend Studio:
             text_ok: bool = export_reason(text_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(text_cstr) and StudioExportPublisher::write_sidecar(text_cstr, snapshot.summary)
             storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
-            json_ok and text_ok
+            StudioExportPublicationPolicy::sidecar_outcome(json_ok, text_ok)
 
         # ---- native file panels (modal) --------------------------------
