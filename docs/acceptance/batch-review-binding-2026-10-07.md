@@ -33,3 +33,8 @@ between identity observation and publication, recovery after partial report
 writes, durability outcomes, preflight path/recipe/rig facts, proof replay, and
 UI review wiring remain unqualified. The separate preflight policy still
 accepts facts that its caller must establish from the OS.
+
+Root subsequently ran `clang -fsyntax-only -fobjc-arc` on the current engine
+`native/file_trash_appkit.m`; it exited 0 without diagnostics. This establishes
+native source syntax only, not a linked adapter, file identity behavior or race
+qualification. No native executable was run.
