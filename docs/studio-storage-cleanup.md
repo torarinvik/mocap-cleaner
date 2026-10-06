@@ -107,7 +107,10 @@ reasons separately from displayed rows. Selection reconciliation, pending batch
 freshness and reviewed Move/Restore checks use that complete snapshot. The same
 eligibility gate applies to inventory and displayed rows. This prepares list
 filtering without allowing hidden rows to escape cleanup safety checks; the
-filter controls and hidden-selection feedback are still pending.
+filter controls and hidden-selection feedback are still pending. The view
+projection now uses the filter policy, preserves inspection by exact identity
+when still visible, and keeps entry/status/reason arrays aligned. It defaults
+to All; cycling is prepared internally and refuses changes during a batch.
 
 The inventory separation builds with `STUDIO_SKIP_CHECKS=1`; this evidence
 does not qualify native filter interaction or filesystem race behavior.
