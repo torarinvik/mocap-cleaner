@@ -30,11 +30,11 @@ hex-encodes paths so control characters cannot split records, validates
 decoded UTF-8, rejects duplicate registration or receipt identities, and leaves the caller's
 output unchanged on malformed input. The scalar identity bounds live in
 `src/studio/storage_receipt_policy.elisa` with 18/18 obligations proved. This
-is the serialization foundation only: Studio has a bounded manifest reader
-and verified identity snapshot API, but does not yet register generated
-artifacts, publish the manifest atomically, or expose Trash/Restore controls.
-The field-based Elisa adapter is compiled into the Studio binary, but no user
-workflow invokes it yet.
+is the storage foundation: Studio has a bounded manifest reader, snapshots
+canonical identity through the engine, and atomically records report sidecars
+after successful export. The app does not yet display inventory or expose
+Trash/Restore controls, so those registered reports cannot yet be managed by
+the user. The field-based Elisa adapter is compiled into the Studio binary.
 
 `protection_reason` returns a stable numeric reason for the first applicable
 protection rule, including unmanaged files, paths outside `build/`, symlinks,

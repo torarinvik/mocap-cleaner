@@ -13,6 +13,7 @@ include "../../../../elisa-ui/src/platform/appkit/ui_appkit_canvas_flat.elisa"
 include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 include "../io/file_trash.elisa"
+include "../io/storage_manifest_file.elisa"
 include "scene.elisa"
 include "character.elisa"
 include "panels.elisa"
@@ -40,6 +41,7 @@ module Studio:
     public:
         const EXPORT_PATH: cstr = "build/studio_export.glb"
         const SESSION_PATH: cstr = "build/studio_session.txt"
+        const STORAGE_MANIFEST_PATH: cstr = "build/studio_storage_manifest.txt"
         const PATH_CAPACITY: usize = 4096
 
         global mutable path: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
@@ -92,6 +94,9 @@ module Studio:
         # (native panels) change them.
         global mutable session_path: cstr = "build/studio_session.txt"
         global mutable export_path: cstr = "build/studio_export.glb"
+        global mutable storage_manifest_state: i64 = 0
+        global mutable storage_entries: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_tracking_failed: bool = false
         const REPLACE_TAKE: i64 = 1
         const REPLACE_SESSION: i64 = 2
         const REPLACE_CLOSE: i64 = 3
@@ -1415,6 +1420,64 @@ module Studio:
             return "Export blocked: destination is not a regular file" if reason == StudioExportPolicy::NOT_REGULAR_FILE
             return "Export blocked: replace confirmation is required"
 
+        # Storage manifests are loaded once and fail closed on path, type,
+        # permission, size or format errors. A missing manifest is a new empty
+        # inventory; malformed data is never silently replaced.
+        def storage_manifest_ready() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return true if storage_manifest_state == 1
+            return false if storage_manifest_state == 2
+            facts: i64 = FilePanel::path_facts(STORAGE_MANIFEST_PATH)
+            if facts < 0:
+                storage_manifest_state <- 2
+                return false
+            if facts == 0:
+                storage_entries <- []
+                storage_manifest_state <- 1
+                return true
+            if (facts & FilePanel::PATH_SYMLINK) != 0 or (facts & FilePanel::PATH_REGULAR) == 0:
+                storage_manifest_state <- 2
+                return false
+            return false if export_reason(STORAGE_MANIFEST_PATH, true) != StudioExportPolicy::ALLOW
+            mutable loaded: darray[StudioStorageManifest::Entry] = []
+            if not StudioStorageManifestFile::load(STORAGE_MANIFEST_PATH, &loaded):
+                storage_manifest_state <- 2
+                return false
+            storage_entries <- loaded
+            storage_manifest_state <- 1
+            true
+
+        def persist_storage_manifest(entries: darray[StudioStorageManifest::Entry]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable bytes: darray[u8] = []
+            return false if not StudioStorageManifest::encode(entries, &bytes)
+            return false if export_reason(STORAGE_MANIFEST_PATH, true) != StudioExportPolicy::ALLOW
+            StudioExportPublisher::write_sidecar(STORAGE_MANIFEST_PATH, bytes)
+
+        # Persist a just-created report only after taking fresh filesystem
+        # identity under build/. A hard link already registered at another
+        # path remains ineligible so the same file cannot appear twice.
+        def register_storage_artifact(path: cstr, kind: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not storage_manifest_ready()
+            mutable entry: StudioStorageManifest::Entry = zeroed
+            mutable message: darray[u8] = []
+            return false if not StudioFileTrash::snapshot("build", path, kind, &entry, &message)
+            mutable updated: darray[StudioStorageManifest::Entry] = []
+            for previous in storage_entries:
+                updated.push(previous)
+            mutable found_path: bool = false
+            for index in 0..<updated.count |updated, entry, found_path|:
+                existing: StudioStorageManifest::Entry = updated[index]
+                if existing.state == StudioStorageManifest::REGISTERED and StudioStorageManifest::same_path(existing.original_path, entry.original_path):
+                    updated[index] <- entry
+                    found_path <- true
+                elif existing.state == StudioStorageManifest::REGISTERED and existing.device == entry.device and existing.inode == entry.inode:
+                    return false
+            if not found_path:
+                return false if updated.count.i64() >= StudioStorageManifest::MAX_ENTRIES
+                updated.push(entry)
+            return false if not persist_storage_manifest(updated)
+            storage_entries <- updated
+            true
+
         def current_export_warnings() -> i64:
             if clip is c:
                 return StudioExportPolicy::warning_count(
@@ -1717,12 +1780,14 @@ module Studio:
                         touch()
                         return false
                     if StudioExportPublisher::commit(temporary, destination):
+                        storage_tracking_failed <- false
                         report_saved: bool = write_export_report(destination, temporary)
                         export_report_saved <- report_saved
                         FilePanel::release_path(temporary)
                         export_path <- destination
-                        say_file("exported and validated; report saved", destination) if report_saved
-                        say_file("GLB exported and validated; report sidecars could not be saved beside destination", destination) if not report_saved
+                        say_file("Export complete; report saved, but Storage tracking could not be saved", destination) if storage_tracking_failed
+                        say_file("exported and validated; report saved", destination) if report_saved and not storage_tracking_failed
+                        say_file("GLB exported and validated; report sidecars could not be saved beside destination", destination) if not report_saved and not storage_tracking_failed
                         FilePanel::note_recent(destination)
                         _ = puts(destination)
                         export_result_path <- destination
@@ -1899,6 +1964,8 @@ module Studio:
             text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
             json_ok: bool = StudioExportPublisher::write_sidecar(json_cstr, json)
             text_ok: bool = StudioExportPublisher::write_sidecar(text_cstr, summary)
+            storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
+            storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             json_ok and text_ok
 
         # ---- native file panels (modal) --------------------------------
