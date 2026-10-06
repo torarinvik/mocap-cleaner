@@ -12,6 +12,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Nested const enum source witness gap](proof-gaps/nested-enum-producer.md)
 - [Law assertion coverage audit](proof-gaps/law-assertion-audit.md)
 - [JSON report string decoder qualification](proof-gaps/json-string-decoder.md)
+- [Compiler UI event scope collision](proof-gaps/ui-event-scope.md)
 
 ## Current qualification limits
 
