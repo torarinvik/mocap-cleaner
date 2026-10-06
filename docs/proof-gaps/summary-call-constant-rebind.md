@@ -3,17 +3,18 @@
 Prover commit `92700a7e` reconstructs a call summary's exact source site and
 checks scoped integer constant arguments against a unique validated declaration
 path. Literal parameter rebinds are tied to the callee summary's exact formal
-slot. The independent checks reject ambiguous owners and do not infer unequal
-values from different enum variant names.
+slot. It does not infer unequal values from different enum variant names.
 
-A focused qualified-constant call repro proves and replays all 6 obligations
-on an isolated candidate built with Stage1 `f292cbe0`. This candidate has not
-replaced the default prover.
+The qualified-constant caller repro proves and replays all 6 obligations on an
+isolated candidate built with Stage1 `f292cbe0`. Prover commit `84bb8a47` then
+deduplicates repeated summary rows only when they point to the same exact source
+call span and argument mapping. This resolves the recovery path caller laws:
+source 6/6 with full replay and laws 18/18 with full replay, zero findings.
+Evidence is `build/summary-rebind-recovery-source.json` and
+`build/summary-rebind-recovery6.json` in the prover checkout. The default prover
+has not been replaced by this candidate.
 
-`StudioExportRecoveryPathPolicy` laws remain 14/18 replayed on that candidate.
-The four open caller laws now pass source-call lookup but fail formal argument
-matching. No baseline was weakened. The candidate's direct stage-policy proof
-process also terminated with exit 139 and emitted an empty JSON file; this does
-not establish a cause or usable proof result. The journal proof process had
-previously terminated with exit 139 as well. These crashes remain under
-investigation.
+A separate stage-policy source proof process terminated with exit 139 and
+emitted an empty JSON file; this does not establish a cause or proof result. The
+journal proof process had previously terminated with exit 139 as well. These
+abnormal exits remain under investigation.
