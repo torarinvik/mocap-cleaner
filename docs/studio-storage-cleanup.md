@@ -114,6 +114,10 @@ to All; cycling is prepared internally and refuses changes during a batch.
 
 The inventory separation builds with `STUDIO_SKIP_CHECKS=1`; this evidence
 does not qualify native filter interaction or filesystem race behavior.
+Read-only review of the projection found no stale-index or hidden-row route
+that bypasses identity, eligibility or manifest-version checks. Select eligible
+uses displayed rows; Clear selection clears the whole selection. The future
+controls must state these scopes and announce selections hidden by a filter.
 
 ## Hard links and allocation: next native boundary
 
