@@ -214,3 +214,10 @@ holds the numeric draft limit. The rejection sentinel remains a single integer
 boundary value. Capacity admission has a contract and three laws; a refused
 append preserves the draft and displays correction/cancellation guidance.
 Compiler/replay and native input qualification await current products.
+
+Issue explanation `Category` and `Level` are now closed const enums, and the
+explanation record carries these types. Existing discriminant values remain
+0/1 and 0/1/2. The external detector code remains a separate encoding fact;
+unknown detector codes still produce the generic category. Matching laws and
+fixture consumers were migrated, with mild/strong threshold laws added.
+Current compiler/replay qualification remains pending.
