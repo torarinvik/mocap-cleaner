@@ -24,6 +24,7 @@ include "../io/storage_clock.elisa"
 include "../storage_accessibility_policy.elisa"
 include "../io/storage_manifest_file.elisa"
 include "../io/storage_manifest_lock_file.elisa"
+include "../io/storage_artifact_destination.elisa"
 include "../io/storage_preferences_file.elisa"
 include "../io/storage_exemptions_file.elisa"
 include "scene.elisa"
@@ -1396,6 +1397,13 @@ module Studio:
                 say_file(explanation, session_path)
                 touch()
                 return false
+            mutable artifact_allowed: bool = false
+            can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+                artifact_allowed <- artifact_destination_allowed(session_path)
+            if not artifact_allowed:
+                say_file("Session save blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", session_path)
+                touch()
+                return false
             mutable ok: bool = false
             if clip is c:
                 mutable records: darray[SessionIssueAnnotationPolicy::Stored] = []
@@ -1490,6 +1498,10 @@ module Studio:
                     FilePanel::release_path(target_path)
                 FilePanel::release_path(root_path)
             reason
+
+        def artifact_destination_allowed(destination: cstr) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            StudioStorageArtifactDestination::allowed(destination, STORAGE_MANIFEST_PATH,
+                STORAGE_PREFERENCES_PATH, STORAGE_EXEMPTIONS_PATH, STORAGE_LOCK_PATH)
 
         def export_error(reason: i64) -> sview:
             return "Export blocked: destination could not be resolved" if reason == StudioExportPolicy::PATH_UNRESOLVED
@@ -2468,6 +2480,10 @@ module Studio:
             StudioExportReview::NO_WARNING
 
         def request_export(destination: cstr, overwrite_confirmed: bool) -> void:
+            if not artifact_destination_allowed(destination):
+                say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
+                touch()
+                return
             if clip is c:
                 reason: i64 = export_reason(destination, overwrite_confirmed)
                 if reason != StudioExportPolicy::ALLOW and reason != StudioExportPolicy::OVERWRITE_UNCONFIRMED:
@@ -2693,6 +2709,10 @@ module Studio:
                 activate_export_result(export_result_focus)
 
         def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool:
+            if not artifact_destination_allowed(destination):
+                say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
+                touch()
+                return false
             if clip is c:
                 mutable allows_overwrite: bool = overwrite_confirmed
                 mutable reason: i64 = export_reason(destination, allows_overwrite)
@@ -2729,6 +2749,12 @@ module Studio:
                         StudioExportPublisher::discard(temporary)
                         FilePanel::release_path(temporary)
                         say_file(export_error(reason), destination)
+                        touch()
+                        return false
+                    if not artifact_destination_allowed(destination):
+                        StudioExportPublisher::discard(temporary)
+                        FilePanel::release_path(temporary)
+                        say_file("Export blocked: destination conflicts with Storage metadata or cannot be verified.", destination)
                         touch()
                         return false
                     if StudioExportPublisher::commit(temporary, destination):
@@ -2914,8 +2940,8 @@ module Studio:
             text_path[path_end + b] <- 0
             json_cstr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
             text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
-            json_ok: bool = StudioExportPublisher::write_sidecar(json_cstr, json)
-            text_ok: bool = StudioExportPublisher::write_sidecar(text_cstr, summary)
+            json_ok: bool = export_reason(json_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(json_cstr) and StudioExportPublisher::write_sidecar(json_cstr, json)
+            text_ok: bool = export_reason(text_cstr, true) == StudioExportPolicy::ALLOW and artifact_destination_allowed(text_cstr) and StudioExportPublisher::write_sidecar(text_cstr, summary)
             storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
             json_ok and text_ok

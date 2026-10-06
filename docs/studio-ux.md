@@ -316,3 +316,20 @@ The pure lock/alert kernels are proved; this does not prove native syscall
 behavior or whole-app lifetime/control flow. Two-instance, crash, path-replace,
 release-failure and keyboard/VoiceOver acceptance remain open. External
 programs that ignore the advisory lock are outside its serialization guarantee.
+
+## Reserved output destinations
+
+Session saves, GLB review/publication and report sidecars reject Storage's
+manifest, preferences, exemptions and persistent lock paths. Native namespace
+comparison canonicalizes parents and applies Unicode normalization/case
+folding, conservatively rejecting case-only variants on case-sensitive volumes
+too. Unknown resolution or invalid UTF-8 blocks the write. Existing targets
+and controls additionally require verified native snapshots; matching device
+and inode identities reject hard-link aliases. These checks supplement the
+source-take and build-root admission rules.
+
+The pure artifact admission gate proves 2/2 obligations and its laws prove
+6/6. The separate ASCII reference policy proves scalar folding and count
+bounds (13/13 source, 19/19 laws); it does not formally verify native Unicode
+comparison. Native syntax checks pass. Runtime Unicode/volume alias fixtures
+and filesystem race acceptance remain open.

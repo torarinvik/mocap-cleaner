@@ -1,0 +1,57 @@
+# Artifact output cannot replace Storage's reserved metadata or lock inode.
+include "file_trash.elisa"
+include "storage_reserved_namespace.elisa"
+include "../storage_control_destination_policy.elisa"
+include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
+
+module StudioStorageArtifactDestination:
+    private:
+        const SAFE: i64 = 0
+        const RESERVED_PATH: i64 = 1
+        const RESERVED_IDENTITY: i64 = 2
+        const UNVERIFIED: i64 = 3
+
+        def bytes(path: cstr) -> darray[u8] can Unsafe.PointerCast:
+            mutable out: darray[u8] = []
+            for index in 0..<4096 |path, out|:
+                return out if path[index] == 0
+                out.push(path[index])
+            []
+
+        def control_fact(target: cstr, target_exists: bool,
+                            device: i64, inode: i64, control: cstr) -> i64 can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            comparison: i64 = StudioStorageReservedNamespace::compare(target, control)
+            return UNVERIFIED if comparison == StudioStorageReservedNamespace::UNKNOWN
+            return RESERVED_PATH if comparison == StudioStorageReservedNamespace::MATCH
+            facts: i64 = FilePanel::path_facts(control)
+            return UNVERIFIED if facts < 0 or (facts & FilePanel::PATH_SYMLINK) != 0
+            return SAFE if (facts & FilePanel::PATH_EXISTS) == 0
+            mutable identity: StudioStorageManifest::Entry = zeroed
+            mutable explanation: darray[u8] = []
+            return UNVERIFIED if not StudioFileTrash::snapshot("build", control, StudioStorageReceiptPolicy::RECOVERY, &identity, &explanation)
+            RESERVED_IDENTITY if target_exists and device == identity.device and inode == identity.inode else SAFE
+
+    public:
+        def allowed(destination: cstr, manifest: cstr, preferences: cstr,
+                    exemptions: cstr, lock: cstr) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable admitted: bool = false
+            if FilePanel::resolve_path(destination) is resolved:
+                target: darray[u8] = bytes(resolved)
+                facts: i64 = FilePanel::path_facts(destination)
+                mutable identity: StudioStorageManifest::Entry = zeroed
+                mutable explanation: darray[u8] = []
+                exists: bool = facts >= 0 and (facts & FilePanel::PATH_EXISTS) != 0
+                mutable verified: bool = facts >= 0 and target.count > 0
+                if exists:
+                    verified <- verified and StudioFileTrash::snapshot("build", destination, StudioStorageReceiptPolicy::RECOVERY, &identity, &explanation)
+                if verified:
+                    manifest_fact: i64 = control_fact(resolved, exists, identity.device, identity.inode, manifest)
+                    preferences_fact: i64 = control_fact(resolved, exists, identity.device, identity.inode, preferences)
+                    exemptions_fact: i64 = control_fact(resolved, exists, identity.device, identity.inode, exemptions)
+                    lock_fact: i64 = control_fact(resolved, exists, identity.device, identity.inode, lock)
+                    path_match: bool = manifest_fact == RESERVED_PATH or preferences_fact == RESERVED_PATH or exemptions_fact == RESERVED_PATH or lock_fact == RESERVED_PATH
+                    alias: bool = manifest_fact == RESERVED_IDENTITY or preferences_fact == RESERVED_IDENTITY or exemptions_fact == RESERVED_IDENTITY or lock_fact == RESERVED_IDENTITY
+                    unknown: bool = manifest_fact == UNVERIFIED or preferences_fact == UNVERIFIED or exemptions_fact == UNVERIFIED or lock_fact == UNVERIFIED
+                    admitted <- StudioStorageControlDestinationPolicy::may_write_artifact(true, path_match, alias, unknown)
+                FilePanel::release_path(resolved)
+            admitted
