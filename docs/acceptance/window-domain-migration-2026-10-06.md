@@ -18,6 +18,7 @@ with the same candidate, under `build/repro/window-before-domain.elisa` and
 constant representation change. Historical baselines (42 and 244 proven) remain
 unchanged; current proof closure and candidate promotion remain open.
 
-Normal compilation awaits the current constructor-owner compiler rebuild.
+Normal compiler `3c72f59f` emits a fresh source object without diagnostics in
+`build/cache-compile.51bzFQ`.
 The existing track fixture will be covered by the authorized full check after
 the source/toolchain snapshot stabilizes.

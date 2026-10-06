@@ -118,7 +118,7 @@ provenance-valid Stage1 product after the external compiler source edit.
 `Window::Domain` groups frame, radius and reflection-magnitude bounds. These
 are numeric domain limits rather than alternatives. Source contracts, laws,
 track consumers and the existing fixture use qualified constants with unchanged
-values. Current compiler qualification is pending the constructor-owner seed;
+values. Current compiler `3c72f59f` emits a fresh source object;
 focused proof evidence is recorded separately without lowering the baseline.
 `StudioSourceFingerprint::Residue` already groups both residue moduli and has
 been removed from the remaining inventory.
@@ -126,8 +126,8 @@ been removed from the remaining inventory.
 `WorkerWaitPolicy::Action` represents Retry, Reaped and Failed as a closed enum;
 `Posix::EINTR` keeps the platform errno fact separate. Values and wait behavior
 are unchanged. Current independent replay has two unresolved law gaps; retain
-the existing complete law baseline until they are resolved. Normal compilation
-awaits the current compiler seed.
+the existing complete law baseline until they are resolved. Normal compiler
+`3c72f59f` emits a fresh policy object; native adapter qualification remains open.
 
 `Codec::Domain` holds decimal field magnitude and serialized operation-kind
 count. These numeric format bounds are not choices; operation variants remain

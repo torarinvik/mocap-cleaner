@@ -34,8 +34,10 @@ metadata had no declaration module. Compiler commit `3c72f59f` narrows bare
 variant lookup through the existing lexical/unambiguous enum-module resolver
 and retains payload modules for constructor type, label and count checks.
 Parser-only synthetic metadata retains its separate unowned fallback. The
-normal seed is running (`build/constructor-owner-compiler-seed.log`); the fix
-still needs fresh provenance, reduced reproduction and integrated compilation.
+normal seed completed (`build/constructor-owner-compiler-seed.log`), and its
+provenance check matches `3c72f59f`. The reduced reproduction emits a fresh
+object without diagnostics in `build/constructor-owner.IzGtYg`. Integrated
+Studio compilation remains pending.
 No executable tests were added or run for this repair.
 
 ## Current global container lowering gap

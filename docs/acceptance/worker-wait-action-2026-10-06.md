@@ -21,6 +21,7 @@ in `interrupted_wait_retries`. The typed representation adds one replay gap in
 this candidate; it is recorded for prover repair rather than hidden by the
 producer's complete count.
 
-Normal compile qualification awaits compiler `3c72f59f`'s seed. Native errno,
+Normal compiler `3c72f59f` emits a fresh policy object without diagnostics in
+`build/cache-compile.v2R4e2`. Native errno,
 waitpid behavior and interruption handling still require runtime qualification
 through the authorized check; pure classification does not prove those facts.
