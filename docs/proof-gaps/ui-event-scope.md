@@ -143,5 +143,23 @@ A separate compiler worktree at `build/compiler-event-resolution-23a0`, branch
 `codex/studio-event-resolution-23a0`, contains opt-in parameter/match diagnostics
 at `2bba123d`. It records kind, bits, enum identity and both relevant registry
 slots to distinguish missing expression types from wrong annotation resolution.
-The seed build is pending. This diagnostic worktree is not the selected normal
+The seed build completed at `abade1bd` with matching diagnostic provenance.
+This diagnostic worktree is not the selected normal
 compiler and cannot qualify the application as released.
+
+The completed trace in `build/event-current-diagnostic.k0kCxt/studio.log`
+narrows the failure further. The isolated real-UI reduction registers
+`UiCore::Event` (slot plus one 1), and its parameter and match both have payload
+enum kind 11. Full Studio has no registered `UiCore::Event` slot (0); its
+parameter and match instead have scalar kind 1, 64 bits and enum identity 2,
+matching the registered `StudioSuggestionPolicy::Event` slot plus one 2.
+The match already receives the wrong modeled type; this is not merely an
+unmodeled-expression fallback during match lowering.
+
+These observations establish incorrect resolution to the suggestion enum in
+the complete graph. They do not establish why the UI hierarchy was omitted:
+hierarchy classification, failed payload registration and metadata ownership
+still need investigation. The diagnostic compile exits 2 with the same 24
+refusals and no application object. No native or executable acceptance follows
+from this trace. Go to frame UI integration remains pending while this blocker
+is investigated.
