@@ -17,8 +17,7 @@
 #   remote_prover.sh --key                 print the cache key only (no build)
 #   remote_prover.sh --runtime             only ensure the Linux runtime object; print its path
 #
-# Environment: ELISA_STAGE1_ROOT (stage1 worktree, default elisa-compiler-worktrees/
-# local-shadow, the compiler the installed Mac prover uses), ELISA_COMPILER_SRC (git repo
+# Environment: ELISA_STAGE1_ROOT (default ../Elisa-compiler), ELISA_COMPILER_SRC (git repo
 # holding the pinned frontend revision, default ../Elisa-compiler; only read with
 # git archive), WINPC (ssh host, default winpc), REMOTE_BASE (default work/mocap-offload).
 set -euo pipefail
@@ -43,7 +42,7 @@ while [[ $# -gt 0 ]]; do
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-CROOT="${ELISA_STAGE1_ROOT:-$PROJECTS/elisa-compiler-worktrees/local-shadow}"
+CROOT="${ELISA_STAGE1_ROOT:-$PROJECTS/Elisa-compiler}"
 CSRC="${ELISA_COMPILER_SRC:-$PROJECTS/Elisa-compiler}"
 WINPC="${WINPC:-winpc}"
 RBASE="${REMOTE_BASE:-work/mocap-offload}"
@@ -79,7 +78,7 @@ KEY="$srcid-$OPT-c$cid"
 if [[ "$KEY_ONLY" == 1 ]]; then echo "$KEY"; exit 0; fi
 # --- Linux runtime object (shared with remote_check.sh) ------------------------------
 # The runtime must be generated for the Linux host too (else it calls sysctlbyname).
-export ELISA_HOST_LINUX=1 ELISA_HOST_X86_64=1 ELISA_ALLOW_STALE_STAGE1=1
+export ELISA_HOST_LINUX=1 ELISA_HOST_X86_64=1
 export ELISA_STAGE1_MAX_RSS_KB="${ELISA_STAGE1_MAX_RSS_KB:-8388608}"
 TRIPLE=x86_64-unknown-linux-gnu
 # Keyed by the product and the runtime sources.

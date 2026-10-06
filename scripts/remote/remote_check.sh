@@ -39,7 +39,7 @@ srckey="$( { shasum -a 256 "$CROOT/bin/elisac-stage1" | cut -c1-64
                 -name '*.elisa' -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256; } \
           | shasum -a 256 | cut -c1-16)"
 OBJ="$LOCAL/tests"; mkdir -p "$OBJ"
-export ELISA_HOST_LINUX=1 ELISA_HOST_X86_64=1 ELISA_ALLOW_STALE_STAGE1=1
+export ELISA_HOST_LINUX=1 ELISA_HOST_X86_64=1
 built=(); status=0
 for n in "${names[@]}"; do
     k="$n-$(cat "test/$n.elisa" | shasum -a 256 | cut -c1-10)-$srckey"

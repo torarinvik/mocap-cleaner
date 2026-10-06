@@ -106,7 +106,7 @@ EOF
 echo "running test.sh in winpc:$R with $PROVER" >&2
 
 # Compile server: answer queued requests until test.sh finishes.
-export ELISA_HOST_LINUX=1 ELISA_HOST_X86_64=1 ELISA_ALLOW_STALE_STAGE1=1
+export ELISA_HOST_LINUX=1 ELISA_HOST_X86_64=1
 served=0
 while :; do
     reqs="$(ssh "$WINPC" "cd $R/q && ls *.args 2>/dev/null | sed 's/\.args\$//' | while read i; do [ -f \$i.done ] || echo \$i; done")"
