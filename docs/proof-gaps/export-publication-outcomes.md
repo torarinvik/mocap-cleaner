@@ -122,3 +122,19 @@ baseline is reviewed; no law baseline is weakened or added. Compilation passes
 with f292cbe0. Evidence: `build/export-recovery-capacity-source.json`,
 `build/export-recovery-capacity-laws.json`, `build/export-recovery-capacity-build.log`.
 Native inventory, reservation persistence and export integration remain required.
+
+`Folder::entries_checked` now distinguishes failure from an empty directory,
+bounds entry count and Darwin dirent fields, checks embedded NUL/separator bytes,
+observes readdir errno, and requires successful close before publishing names.
+It preserves caller output on failure and explicitly ties allocations to the
+caller region. Other host layouts reject instead of using Darwin offsets.
+Normal f292cbe0 compilation passes (`build/folder-checked-build.log`). Its scalar
+policy independently replays 10/10; laws produce 24 certificates with 17 replayed
+and seven caller-summary replay gaps. No law baseline is added. Native error
+injection, race checks, portable dirent support and capacity inventory integration
+remain open. Evidence: `build/folder-scan-source.json`, `build/folder-scan-laws.json`.
+
+The explicit-branch stage proof batch ended with exit 1 and empty source/law
+JSON files; the shell's final JSON-reader failed because no report was available.
+The underlying prover failure cause is not established. This terminal run
+provides no proof acceptance evidence; source contracts remain unchanged.

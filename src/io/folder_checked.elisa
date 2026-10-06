@@ -1,0 +1,60 @@
+include "folder.elisa"
+include "folder_scan_policy.elisa"
+
+static if ELISA_TARGET_OS_MACOS:
+    @link_name("__error")
+    extern folder_errno_address() -> mutable i32& can[Blocking.IO]
+
+extend Folder:
+    public:
+        # Unlike entries(), failure is distinct from an empty directory.
+        # Output changes only after a bounded, complete, successfully closed
+        # scan. The supported dirent layout is Darwin; other hosts reject.
+        static if ELISA_TARGET_OS_MACOS:
+            def entries_checked[@r](dir: cstr, limit: i64, out: mutable darray[darray[u8]]& @r) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+                return false if not FolderScanPolicy::limit_admitted(limit)
+                mutable names: darray[darray[u8]] @r = []
+                if f_opendir(dir.cast[u8&]) is directory:
+                    mutable buffer: u8[1048] = zeroed
+                    mutable accepted: bool = true
+                    mutable finished: bool = false
+                    while not finished:
+                        folder_errno_address()[0] <- 0
+                        if f_readdir(directory) is entry:
+                            _ = f_memcpy((&buffer[0]).cast[mutable u8&], entry, DarwinDirent::HEADER)
+                            record_bytes: usize = buffer[16].usize() + buffer[17].usize() * 256
+                            name_bytes: usize = buffer[18].usize() + buffer[19].usize() * 256
+                            if not FolderScanPolicy::record_admitted(record_bytes.i64(), name_bytes.i64()):
+                                accepted <- false
+                                finished <- true
+                            else:
+                                _ = f_memcpy((&buffer[0]).cast[mutable u8&], entry, record_bytes)
+                                if buffer[DarwinDirent::NAME_OFFSET + name_bytes] != 0:
+                                    accepted <- false
+                                    finished <- true
+                                else:
+                                    mutable name: darray[u8] @r = []
+                                    for index in 0..<name_bytes |buffer, name, accepted, index|:
+                                        byte: u8 = buffer[DarwinDirent::NAME_OFFSET + index]
+                                        accepted <- false if byte == 0 or byte == 47
+                                        name.push(byte)
+                                    dot: bool = name_bytes == 1 and name[0] == 46
+                                    dotdot: bool = name_bytes == 2 and name[0] == 46 and name[1] == 46
+                                    if not dot and not dotdot:
+                                        if FolderScanPolicy::append_admitted(names.count.i64(), limit):
+                                            names.push(name)
+                                        else:
+                                            accepted <- false
+                                    finished <- true if not accepted
+                        else:
+                            accepted <- folder_errno_address()[0] == 0
+                            finished <- true
+                    closed: i32 = f_closedir(directory)
+                    return false if not accepted or closed != 0
+                    out.clear()
+                    out.extend(names)
+                    return true
+                false
+        static else:
+            def entries_checked[@r](dir: cstr, limit: i64, out: mutable darray[darray[u8]]& @r) -> bool:
+                false
