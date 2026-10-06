@@ -277,113 +277,84 @@ visually verified solely from offscreen rendering.
 
 #### Storage cleanup and Restore experience
 
-Implementation status (2026-10-06): the first UI slice adds a File-menu entry
-available without a loaded take and a keyboard-navigable Storage & Recovery
-inventory. It rereads the manifest on entry/Refresh and hides records whose
-canonical original path is outside `build/` or matches the active take. This
-now checks live file identities, protects changed or unverifiable records,
-and reconciles interrupted native Trash moves into the manifest. Failed
-refreshes clear stale rows; read and save failures have distinct messages.
-The Studio build passed for this slice. A reviewed Restore action now
-rechecks the durable receipt and native identity before restoring and reports
-failed inventory saves separately. The native disposable-fixture test passed
-for conflict rejection, restore and reconciliation; the full live UI and
-accessibility acceptance remains unverified. Age/reference eligibility, byte
-totals, cleanup Trash actions, accessible dialog semantics and the acceptance
-criteria below remain open.
+The remaining work below builds on the current inventory, identity-backed
+selection, retention presets, reviewed batch move, receipt reconciliation and
+Restore implementation. Current implementation and evidence are recorded in
+`docs/studio-ux.md`; running-window and failure-path acceptance remains open.
 
-- [ ] Add a clearly named **Storage & Recovery** entry under File or workspace
-      settings and make it reachable from the main workspace without opening
-      a document. Give the screen a plain-language purpose statement and show
-      total Studio-managed storage, eligible-to-move bytes, protected bytes,
-      recovery storage and the last scan/action result. Explain beside the
-      action that Move to Trash is recoverable and Finder controls permanent
-      deletion. Never label bytes moved to Trash as disk space reclaimed.
-- [ ] Define artifact ownership at creation time. Register only files Studio
-      actually created, with artifact kind, canonical build-relative path,
-      identity, creation/modification time and any session/recovery dependency.
-      Add explicit registration for future recovery snapshots and temporary
-      exports. Never infer ownership from a filename or sweep arbitrary files
-      in `build/`. Keep the manifest and active outputs excluded from cleanup.
-      If manifest loading or writing fails, show a recoverable storage error
-      and fail closed; do not replace a malformed manifest with an empty one.
-- [ ] Build a fresh inventory from registered artifacts and current filesystem
-      facts. Recheck canonical containment, file type, symlink status, source
-      identity, active-document/open-session references, retention and identity
-      before eligibility is shown. Preserve unknown facts as protected states.
-      Refresh on entry, on explicit Refresh and after each action; show when the
-      inventory was last checked. Never list a source take as a cleanup row.
-- [ ] Group recovery snapshots, interrupted/temporary exports and reports.
-      Display filename, human-readable kind, build-relative location, modified
-      age and exact size; offer useful sorting, search and type/eligibility
-      filters. Keep long paths inspectable without forcing the main list wider.
-      Support large inventories with bounded rendering, scrolling and stable
-      selection while sorting or filtering.
-- [ ] Design distinct first-use, scanning, empty, no-eligible-items, stale
-      inventory, permission failure, unreadable-manifest and partial-failure
-      states. Each state explains what happened and offers a safe next action
-      such as Refresh, open the containing folder, retry, or inspect details.
-      Do not show a blank screen or an ambiguous success toast for these cases.
-- [ ] Show protected candidates with a plain-language reason such as active
-      document, open-session reference, too recent, outside the managed root,
-      symbolic link, changed identity or unsupported file type. Keep protected
-      rows visible for explanation but never selectable. Put the reason beside
-      the item, provide a more detailed explanation on demand, and use text and
-      icons as well as color. Do not suggest changing a safety rule to force an
-      item through.
-- [ ] Let users select eligible rows individually or by safe group and retain
-      selection while sorting and filtering. Show a live item and size total.
-      Provide Select eligible and Clear selection actions with obvious scope;
-      never preselect items on first open. Show selected, eligible and protected
-      counts separately. Keep selection stable by artifact identity rather
-      than row index; remove stale or newly protected items with an explanation.
-- [ ] Before acting, show exact item count, estimated space, names and
-      original locations and destinations in a concise review. State that the
-      files can be restored from Recently moved to Trash and that Finder must
-      empty Trash to reclaim disk space. Require an explicit **Move to Trash**
-      action; selection alone never acts. Re-scan and revalidate canonical
-      path, source/session references, file type and identity immediately
-      before each move. If the set or size changes, update the review and ask
-      for confirmation again before proceeding.
-- [ ] Persist each successful engine receipt atomically in a versioned
-      Studio-managed manifest that is itself excluded from cleanup. Record the
-      original path, Trash location and identity. Report partial success per
-      item, and never claim space was freed when a move failed. Define the
-      crash boundary between moving an item and persisting its receipt; use a
-      durable intent/reconciliation protocol or an engine-supported recovery
-      lookup so a restart cannot silently strand an untracked Trash item. If
-      receipt persistence fails, attempt immediate restore and report whether
-      rollback succeeded. If neither persistence nor rollback succeeds, retain
-      the verified receipt for retry/recovery and clearly explain the manual
-      recovery path.
-- [ ] Show operation progress and per-item outcome for multi-item actions.
-      Support cancellation between items, preserve completed receipts, and
-      explain which items remain untouched. Retrying a partial batch must not
-      repeat successful moves or overwrite another manifest update. Keep the
-      screen usable while work is running and prevent duplicate activation.
-- [ ] Provide a **Recently moved to Trash** view with item name, original
-      location, date and Restore action. Restore only when the receipt and
-      Trash item still match; never overwrite an existing destination. Show
-      missing, altered, expired and conflicting items with clear next steps.
-      Offer Refresh after the user resolves a destination conflict. Removing
-      an expired receipt from Studio's list must not delete any unrelated file.
-- [ ] Define visible retention preferences with a sensible default, concise
-      explanation and preview of what each choice makes eligible. Retain
-      snapshots needed for recovery, honor the policy's minimum age and let
-      users exempt a report or recovery point. Changing retention must not move
-      files until the user reviews and confirms the resulting list. Distinguish
-      the app's retention policy from Finder Trash retention; never imply that
-      Studio permanently empties Trash.
-- [ ] Make the workflow keyboard and VoiceOver accessible: named entry, item
-      roles and values, selection state, protected reason, selection totals,
-      review heading, confirmation, progress, per-item result and restore
-      outcome. Escape cancels an unconfirmed review and focus returns to the
-      invoking control. Add visible focus, predictable tab order, keyboard
-      sorting/filtering/selection and non-color status cues. Test pointer-only,
-      keyboard-only and VoiceOver paths with large inventories, long paths,
-      permission failures, stale receipts, unavailable Trash, partial batch
-      errors, cancellation and interrupted receipt writes using generated
-      fixtures under `build/`.
+- [ ] Complete the overview with separate eligible, protected and recovery
+      counts/bytes and a visible last-scan timestamp. Distinguish logical file
+      size from estimated recoverable disk space, including hard links. Make
+      the no-eligible-items state explain its reasons and next safe action.
+- [ ] Extend artifact metadata and registration to recovery snapshots and
+      interrupted/temporary exports at their actual creation sites. Record
+      creation time, session/recovery dependencies and build-relative location
+      alongside the canonical identity. Migrate older manifests explicitly;
+      missing dependency/time evidence stays unknown and protected. Do not
+      infer ownership from names or sweep arbitrary files in `build/`.
+- [ ] Replace blanket recovery protection with verified dependency tracking:
+      retain the snapshots needed by open documents, saved sessions, recovery
+      generations and pending jobs. Preserve source/alias, manifest and active
+      output protection. Exercise fresh eligibility with changed sources,
+      symlink replacement, future timestamps and unavailable clock/filesystem
+      facts; unknown evidence must never permit a move.
+- [ ] Add grouping, sorting, search and type/eligibility filters. Show each
+      row's kind, modified age, exact size and build-relative location; keep
+      full paths inspectable at the minimum window size. Support bounded
+      rendering and scrolling through large inventories and review sets.
+- [ ] Add an explicit scanning state and keep the screen responsive during
+      slow scans and filesystem operations. Distinguish first use, empty,
+      no eligible files, stale analysis and partial failure. Exercise existing
+      read/save errors with permission failures and malformed manifests; offer
+      Refresh, retry, containing-folder access and inspectable details.
+- [ ] Put the protection reason beside every protected candidate, with a
+      detailed explanation on demand. Outside-root records need a safe
+      explanation rather than silently disappearing; source takes must never
+      become cleanup rows. Verify that pointer, keyboard and accessibility
+      activation cannot select a protected file. Use text/symbols as well as
+      color, and never suggest bypassing a protection rule.
+- [ ] Add safe group selection with an explicit scope after filtering. Show
+      eligible/protected counts separately from selected count/bytes. Verify
+      that selection survives sorting/filtering by exact identity, drops stale
+      or newly protected files with an announcement, and remains empty on
+      first use. Check Select eligible and Clear selection at all capacities.
+- [ ] Complete the multi-file review: every selected name, original location,
+      destination and exact size must be inspectable without cancelling the
+      review. Add dedicated review scrolling and full-path details. Exercise
+      changed set/size/retention immediately before confirmation and between
+      moves: stop, update the review and require explicit confirmation again.
+      Keep Restore and Finder's permanent-deletion role clear beside the action.
+- [ ] Qualify receipt durability and crash boundaries with generated fixtures:
+      interrupt before/after native move and atomic receipt publication;
+      inject write, rollback and recovery-lookup failures; restart and reconcile
+      the exact identity. Verify retained receipts, known original restoration
+      and unknown locations are reported accurately, with a manual Finder
+      recovery path. Never overwrite malformed manifests or claim freed space.
+- [ ] Protect concurrent manifest updates with a transaction/version or lock
+      protocol. Exercise two Studio instances and a retry during an external
+      manifest update. Preserve other receipts, reject stale reviews and keep
+      successful moves out of subsequent retries. Validate cancellation at
+      every item boundary, terminal unknown/recovery stops, duplicate activation,
+      maximum batch size and refreshed per-item accounting.
+- [ ] Add a dedicated **Recently moved to Trash** view with original location,
+      recorded move date and Restore. Extend/migrate the receipt schema for
+      move timestamps; do not substitute file modification time for move date.
+      Explain unknown dates on older receipts. Distinguish missing, changed,
+      expired and conflicting items, offer Refresh after conflict resolution,
+      and remove expired metadata without deleting unrelated files.
+- [ ] Persist visible retention preferences and user exemptions. Show a
+      preview of what each preset makes eligible and explain the minimum age.
+      Preserve required recovery snapshots even under the shortest setting.
+      Changing preferences or exemptions must only change the candidate set;
+      movement still requires review and confirmation. Keep Studio retention
+      separate from Finder Trash retention.
+- [ ] Finish focus restoration and keyboard sorting/filtering/review scrolling.
+      Exercise pointer-only, keyboard-only and VoiceOver flows through entry,
+      selection, review, cancellation, progress, result and Restore. Verify
+      roles, names, values, protection reasons, totals and announcements using
+      large inventories, long paths, stale receipts, unavailable Trash, partial
+      errors and interrupted writes. Record screen/tree evidence and source-take
+      hashes from generated fixtures under `build/`.
 
 **Storage cleanup exit:** an animator can identify what Studio owns, select
 only eligible generated files, understand the consequences before acting,
