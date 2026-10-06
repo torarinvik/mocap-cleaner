@@ -1498,6 +1498,17 @@ module Studio:
                 expected.modified_nanoseconds, current.modified_nanoseconds,
                 StudioStorageManifest::same_path(expected.original_path, current.original_path))
 
+        # Native identity comparison also protects hard links and aliases of
+        # the active source, whose canonical spelling may differ from a record.
+        def storage_path_is_source(bytes: darray[u8]&) -> bool can Unsafe.PointerCast:
+            return false if bytes.count == 0 or bytes.count >= PATH_CAPACITY
+            mutable candidate: u8[4096] = zeroed
+            for index in 0..<bytes.count |bytes, candidate|:
+                candidate[index] <- bytes[index]
+            candidate[bytes.count] <- 0
+            candidate_path: cstr = (&candidate[0]).cast[cstr] can Unsafe.PointerCast
+            FilePanel::same_identity(path, candidate_path)
+
         # The inventory view names only records below verified build/. Each
         # refresh checks live filesystem identity and reconciles interrupted
         # Trash moves before displaying an entry as verified.
@@ -1526,7 +1537,7 @@ module Studio:
                         mutable unverified: i64 = 0
                         mutable manifest_changed: bool = false
                         for entry in storage_entries |entry, root_bytes, active_source, updated, visible, statuses, protected, unverified, manifest_changed|:
-                            is_active_source: bool = active_source.count > 0 and StudioStorageManifest::same_path(entry.original_path, active_source)
+                            is_active_source: bool = (active_source.count > 0 and StudioStorageManifest::same_path(entry.original_path, active_source)) or storage_path_is_source(entry.original_path) or storage_path_is_source(entry.trashed_path)
                             if not StudioExportPolicy::inside_build(root_bytes, entry.original_path) or is_active_source:
                                 updated.push(entry)
                                 protected <- protected + 1
