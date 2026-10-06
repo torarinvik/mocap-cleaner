@@ -65,7 +65,7 @@ Timeline navigation handlers use **Home/End** for the first/last output frame,
 **Shift-Home/End** for the inclusive selection start/end, **Cmd-Up/Down** for
 the previous/next contact-state transition across feet and hands, and
 **Cmd-PageUp/PageDown** for the previous/next enabled local correction key.
-Navigation pauses playback. A contact transition selects the first frame of
+Playback pause for these handlers still needs explicit integration. A contact transition selects the first frame of
 the new state. Missing boundaries explain why the playhead did not move;
 incomplete tracks, pending result evaluation and active drags refuse navigation.
 These new handlers await integrated compilation and native shortcut review;
