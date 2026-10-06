@@ -260,3 +260,10 @@ or an explicit unavailable state, including empty inventories. The first
 implementation labels Unix seconds explicitly; human-readable formatting
 is being improved. This records scan time, not artifact creation or Trash
 move time.
+
+Artifact registration now reuses the canonical export-path admission guard
+before capturing or inserting identity metadata. This rejects source aliases,
+unsafe paths and nonregular files even when a creation caller requests
+registration. Fresh native snapshot checks remain required. Saved-session
+registration and a distinct completed-output kind are still pending; completed
+GLB outputs must not be mislabeled as temporary exports.
