@@ -116,3 +116,13 @@ The newest prover source repairs recursive search depth handling; its separate
 `elisa-proof-goaldepth-453` candidate is building against compiler `45330579`.
 The default prover is still `5776350b`; latest-source binary adoption remains
 unfinished until the candidate builds and its certificates independently replay.
+
+The normal compiler subsequently advanced to `3c72f59f` for lexical ownership
+of ADT constructor metadata. Its seed completed successfully and its provenance
+check matches that exact source revision. The reduced two-module constructor
+example emits a fresh object, as do channel/rig caches, the window source,
+worker-wait policy and existing Studio performance fixture. Integrated Studio
+and full current-snapshot checks remain pending. Prover `4da37c97`'s separate
+candidate was built cleanly against compiler `45330579`; broad journal search
+and independent replay gaps remain under investigation, so it has not replaced
+the older default prover.
