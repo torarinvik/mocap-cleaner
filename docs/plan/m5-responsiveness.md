@@ -64,3 +64,14 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
 **Exit:** responsiveness targets measured on the corpus; cancellation and
 stale-result scenarios pass; cached and full output agree; capacity pressure
 never silently loses edits. No representation rewrite without a measured need.
+
+### Verification worker supervision
+
+The local proof runner now has a configurable per-file wall-time limit:
+`PROOF_FILE_TIMEOUT` or `--file-timeout`, default 1800 seconds, matching the
+remote corpus runner. Timeout is an invalid verifier run, produces an explicit
+exit-124 diagnostic, discards partial evidence and cannot populate the proof
+cache. Recheck timeouts are failures rather than claims of a semantic cache
+mismatch. Existing already-running jobs are unaffected. Qualify timeout cleanup,
+cache refusal and subsequent-file progress before relying on this supervisor;
+it does not establish bounded prover search work or the proof timing target.

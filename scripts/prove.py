@@ -22,11 +22,16 @@ the result line is written to build/proof/<path with / as _>.txt, and a
 with a loud report if any fresh result differs from the cached one (those cache
 entries are replaced by the fresh results; the fresh line is what is reported).
 
-Usage: prove.py [--recheck-sample N] PROVER FILE...
+Each fresh file has a positive wall-time limit (default 1800 seconds), set by
+`--file-timeout` or PROOF_FILE_TIMEOUT. A timed-out report is invalid and is
+never cached. This supervisor limit is independent of producer search fuel.
+
+Usage: prove.py [--recheck-sample N] [--file-timeout SECONDS] PROVER FILE...
 """
 import argparse
 import hashlib
 import json
+import math
 import os
 import random
 import re
@@ -164,9 +169,13 @@ def summary(text):
 def main():
     ap = argparse.ArgumentParser(usage=__doc__.rsplit("Usage: ", 1)[1].strip())
     ap.add_argument("--recheck-sample", type=int, default=0, metavar="N")
+    ap.add_argument("--file-timeout", type=float,
+                    default=os.environ.get("PROOF_FILE_TIMEOUT", "1800"), metavar="SECONDS")
     ap.add_argument("prover")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args()
+    if not math.isfinite(args.file_timeout) or args.file_timeout <= 0:
+        ap.error("--file-timeout must be a positive finite number of seconds")
     prover, files = args.prover, args.files
     jobs = int(os.environ.get("PROOF_JOBS") or os.cpu_count() or 4)
     os.makedirs(CACHE, exist_ok=True)
@@ -198,7 +207,14 @@ def main():
     def prove(item):
         f, out, cached, old = item
         start = time.monotonic()
-        run = subprocess.run([prover, os.path.abspath(f)], capture_output=True, text=True)
+        timed_out = False
+        try:
+            run = subprocess.run([prover, os.path.abspath(f)], capture_output=True,
+                                 text=True, timeout=args.file_timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            run = subprocess.CompletedProcess([prover, os.path.abspath(f)], 124,
+                stdout="", stderr=f"proof file exceeded {args.file_timeout:g}s wall-time limit; partial output discarded")
         took = time.monotonic() - start
         line = summary(run.stdout)
         if old is not None and line != old:
@@ -216,7 +232,7 @@ def main():
             with open(tmp, "w") as o:
                 o.write(line)
             os.replace(tmp, cached)
-        invalid = "verification state" not in line or run.returncode < 0
+        invalid = timed_out or "verification state" not in line or run.returncode < 0
         if invalid and os.path.exists(cached):
             os.remove(cached)
         diagnostic = (run.stderr or run.stdout).strip() if invalid else ""
@@ -229,7 +245,7 @@ def main():
             durations[f] = round(took, 3)
             if invalid:
                 invalid_runs.append((f, returncode, diagnostic))
-            if old is not None and line != old:
+            if old is not None and not invalid and line != old:
                 mismatches.append((f, old, line))
     tmp = DURATIONS + ".tmp"
     with open(tmp, "w") as o:
