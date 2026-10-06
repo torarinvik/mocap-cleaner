@@ -105,3 +105,9 @@ clean verdict. The availability kernel has contracts and two composed laws.
 Report diff compiles with current Stage1 `4c409da6`. Supporting those numeric
 representations with declared fixed-point units remains required; this guard
 does not complete the schema-aware reader or fractional report comparison.
+
+The full check exposed a duplicate-admission regression: timing-stage objects
+legitimately repeat `us`, while legacy extraction flattens them into one scope.
+Duplicate admission is now limited to compared quality metrics and `ok` status;
+proper per-object schema identity remains required in the reader replacement.
+The original rule rejected valid generated reports and is not qualified.
