@@ -9,15 +9,18 @@ instructions changed. Earlier sections below are historical observations.
 | --- | --- | --- | --- |
 | Compiler | `23a0e16a` | `23a0e16a` | 0 / 0 |
 | Primary proof assistant | `01c953c6` | `2610ddb6` | 115 / 0 |
-| Mocap engine | `01f5aec7` | `7699ec52` | 20 / 0 |
+| Mocap engine | `ada26e9c` | `7699ec52` | 21 / 0 |
 | Elisa UI | `8ab2eb39` | `dc6cd397` | 6 / 0 |
 
 The required `../elisa-proof-mocap` checkout was absent at this fetch. It has
 subsequently been restored on `mocap-cleaner-proofs` at the primary integration
 source `01c953c6`. Its history contains earlier mocap commit `6ebc2a81`, verified
 by `git merge-base --is-ancestor`. The clean rebuild of prover and replay checker
-is in progress; qualification still requires matching manifests and reviewed
-replay. This ancestry check does not establish preservation of earlier
+completed in generation `232f491a63094a1781ce455f4143d98c`.
+`scripts/check_prover_freshness.py` accepted the selected prover's binary hash,
+proof source, frontend tree, compiler source/product/recipe and linked runtime.
+The authorized full check is running with this explicit generation; reviewed
+proof results and independent replay remain pending. This ancestry check does not establish preservation of earlier
 uncommitted diagnostic patches.
 
 The compiler manifest declares source `23a0e16a`; its normal provenance checker
