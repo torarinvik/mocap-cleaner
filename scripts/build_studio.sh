@@ -27,6 +27,7 @@ OUT="$ROOT/build"
 mkdir -p "$OUT" "$OUT/test"
 cd "$ROOT"
 python3 "$ROOT/tools/svg_icons.py" "$OUT/generated/studio_icon_paths.elisa"
+python3 "$ROOT/tools/studio_build_identity.py" "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$OUT/generated/studio_build_identity.elisa"
 
 clang -c -fobjc-arc -O2 -o "$OUT/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
 clang -c -fobjc-arc -O2 -o "$OUT/studio_viewport_metal.o" "$ENGINE/native/viewport_metal.m"

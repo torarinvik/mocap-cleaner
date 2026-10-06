@@ -4,6 +4,7 @@ include "../export_snapshot_policy.elisa"
 include "report_text.elisa"
 include "../export_recovery_budget_policy.elisa"
 include "../export_report_path_policy.elisa"
+include "../../../build/generated/studio_build_identity.elisa"
 
 extend Studio:
     private:
@@ -208,7 +209,8 @@ extend Studio:
         # Reports are best-effort sidecars after the GLB's atomic commit. The
         # source label is a basename, and fingerprints remain explicitly
         # non-cryptographic residues. Values unavailable in the current export
-        # snapshot (tool versions and detailed retime provenance) are omitted.
+        # snapshot (complete tool versions and detailed retime provenance) are
+        # unavailable. Compiled build-input revisions are captured explicitly.
         # Serialize all report fields before publishing the GLB or opening
         # a second confirmation dialog. Later writes consume only these bytes.
         def prepare_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, output_fp: StudioSourceFingerprint::Fingerprint) -> ExportReportSnapshot? can Unsafe.PointerCast:
@@ -226,6 +228,17 @@ extend Studio:
                 source_label[index - source_start] <- path[index]
             source_name: sview = UiText::fixed_bytes_view_range[4096](source_label, 0, source_end - source_start)
             mutable settings: darray[StudioExportReport::Setting] = []
+            settings.extend([
+                StudioExportReport::Setting{name: "build_project_revision", value: StudioBuildIdentity::Inputs::PROJECT_REVISION},
+                StudioExportReport::Setting{name: "build_project_dirty", value: StudioBuildIdentity::Inputs::PROJECT_DIRTY},
+                StudioExportReport::Setting{name: "build_engine_revision", value: StudioBuildIdentity::Inputs::ENGINE_REVISION},
+                StudioExportReport::Setting{name: "build_engine_dirty", value: StudioBuildIdentity::Inputs::ENGINE_DIRTY},
+                StudioExportReport::Setting{name: "build_ui_revision", value: StudioBuildIdentity::Inputs::UI_REVISION},
+                StudioExportReport::Setting{name: "build_ui_dirty", value: StudioBuildIdentity::Inputs::UI_DIRTY},
+                StudioExportReport::Setting{name: "build_compiler_revision", value: StudioBuildIdentity::Inputs::COMPILER_REVISION},
+                StudioExportReport::Setting{name: "build_compiler_dirty", value: StudioBuildIdentity::Inputs::COMPILER_DIRTY},
+                StudioExportReport::Setting{name: "build_compiler_sha256", value: StudioBuildIdentity::Inputs::COMPILER_SHA256},
+                StudioExportReport::Setting{name: "build_runtime_sha256", value: StudioBuildIdentity::Inputs::RUNTIME_SHA256}])
             settings.push(StudioExportReport::Setting{name: "spike_threshold_fixed_channel_units", value: report_integer(c.threshold)})
             settings.push(StudioExportReport::Setting{name: "spike_measure", value: "absolute second difference; rounded channel components scaled by 1000000; not physical acceleration"})
             settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "enabled"}) if active_stack.feet
@@ -244,6 +257,7 @@ extend Studio:
             assumptions: darray[sview] = [
                 "Frame rate is an integer estimate; durations are floored to milliseconds.",
                 "Fingerprints are non-cryptographic studio-residue-v1 values.",
+                "Build revisions describe compile-time inputs. Dirty revisions are not exact source identities; a complete dependency manifest is unavailable.",
                 "Operation fields and retime bands are captured before GLB publication; detailed rig settings and per-frame source-time mapping are unavailable."]
             metrics: StudioExportReport::Metrics = StudioExportReport::Metrics{
                 changed_channels: c.changed,
