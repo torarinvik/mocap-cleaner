@@ -208,6 +208,14 @@ A failed save preserves the previous setting. The settings file and its
 filesystem aliases are protected from cleanup. Changing retention only
 changes eligibility; every move still requires review and confirmation.
 
+The overview separates Eligible, Protected, Recovery and In Trash counts
+and exact logical bytes. Changed or unverified identities have unknown current
+sizes and stay outside these totals. Recovery files use their own category
+and remain protected. Logical bytes are not a disk-space-reclamation estimate:
+hard links and files retained in Trash can keep disk space allocated.
+A verified inventory with no eligible files explains the next safe action:
+review protection reasons and retention, then Refresh after changes.
+
 Grouping/filtering, user exemptions, dedicated review scrolling and
 running-window/fault-injection acceptance remain open.
 A single native filesystem operation still runs on the UI thread; the batch
