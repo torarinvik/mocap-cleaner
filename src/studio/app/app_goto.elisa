@@ -1,7 +1,10 @@
 include "app_state.elisa"
+include "../timeline_goto_focus.elisa"
 
 extend Studio:
     private:
+        global mutable goto_focus: StudioTimelineGotoFocus::Control = StudioTimelineGotoFocus::Control.Field
+
         def goto_target_now() -> StudioTimelineGotoDraftPolicy::Target:
             StudioTimelineGotoDraftPolicy::Target{take: take_serial, document: built,
                 generation: stack_generation, frames: frames()}
@@ -30,6 +33,7 @@ extend Studio:
             file_menu_open <- false
             reset_menu_open <- false
             goto_status <- StudioTimelineGotoPolicy::Status.Empty
+            goto_focus <- StudioTimelineGotoFocus::Control.Field
             # A shortcut can open the modal while a pointer gesture is still
             # in flight. Drop its capture so a later pointer-up cannot commit
             # it after the dialog closes.
@@ -74,14 +78,28 @@ extend Studio:
             if code == UiCore::Key.Escape:
                 goto_close()
             elif code == UiCore::Key.Enter:
-                goto_apply()
+                if goto_focus == StudioTimelineGotoFocus::Control.Cancel:
+                    goto_close()
+                else:
+                    goto_apply()
+            elif code == UiCore::Key.Space and goto_focus != StudioTimelineGotoFocus::Control.Field:
+                if goto_focus == StudioTimelineGotoFocus::Control.Cancel:
+                    goto_close()
+                else:
+                    goto_apply()
+            elif code == UiCore::Key.Tab:
+                return if StudioShortcuts::command(modifiers)
+                goto_focus <- StudioTimelineGotoFocus::next(goto_focus, StudioShortcuts::shift(modifiers))
+                touch()
             elif code == UiCore::Key.Backspace:
+                return if goto_focus != StudioTimelineGotoFocus::Control.Field
                 typed_len <- typed_len - 1 if typed_len > 0 else 0
                 touch()
             else:
                 goto_append_key(code)
 
         def goto_append_key(code: UiCore::Key) -> void:
+            return if goto_focus != StudioTimelineGotoFocus::Control.Field
             return if modifiers != 0 or typed_len >= 8
             mutable digit: i64 = -1
             digit <- 0 if code == UiCore::Key.Digit0
@@ -104,15 +122,24 @@ extend Studio:
             hit: i64 = StudioPanels::goto_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
             goto_apply() if hit == 0
             goto_close() if hit == 1
+            if hit == 2:
+                goto_focus <- StudioTimelineGotoFocus::Control.Field
+                touch()
 
     public:
+        def goto_focused_control() -> StudioTimelineGotoFocus::Control:
+            goto_focus
+
         def request_goto_frame() -> void:
             goto_open_dialog()
 
         def goto_accessibility_action(widget: usize, event: i32) -> bool:
             return false if not goto_open
             return true if event != UiConst::WidgetEvent.Click.i32()
-            return true if widget == accessibility_goto_field_widget
+            if widget == accessibility_goto_field_widget:
+                goto_focus <- StudioTimelineGotoFocus::Control.Field
+                touch()
+                return true
             goto_apply() if widget == accessibility_goto_apply_widget
             goto_close() if widget == accessibility_goto_cancel_widget
             true

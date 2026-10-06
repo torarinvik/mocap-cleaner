@@ -142,7 +142,10 @@ positives before enabling recommendations.
 The frame dialog is implemented: Cmd-G, digit-only input, 1-based labels,
 last-frame clamping with an explanation, Apply/Cancel, input modality,
 focus-loss cancellation, accessibility routing and exact captured target
-checks. Its parser statuses are typed alternatives. Integrated compilation,
+checks. Its parser statuses are typed alternatives. Tab/Shift-Tab traverse
+the input and both actions; Enter/Space activate focused buttons, and the
+focused control has a visible outline. Focus traversal uses a closed enum
+with accompanying laws; native focus behavior remains to be qualified. Integrated compilation,
 native keyboard/accessibility acceptance and current proof replay remain
 open. Time input and the boundary-navigation controls below remain to be
 implemented; this does not close the combined timeline milestone.
