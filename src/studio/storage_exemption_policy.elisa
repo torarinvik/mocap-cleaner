@@ -1,0 +1,88 @@
+# Bounded policy for user exemptions from automatic Storage cleanup.
+# Identity matching is pure; callers supply exact canonical-path comparisons
+# and verified filesystem facts. This module never reads or moves files.
+include "storage_identity_policy.elisa"
+module StudioStorageExemptionPolicy:
+    public:
+        const MAX_EXEMPTIONS: i64 = 256
+        const MAX_IDENTITY_VALUE: i64 = 9000000000000000000
+        const MAX_ITEM_BYTES: i64 = 1000000000000000
+        const MAX_MODIFIED_NANOSECONDS: i64 = 999999999
+
+        def count_valid(count: i64) -> bool:
+            ensure result == (count >= 0 and count <= MAX_EXEMPTIONS)
+            count >= 0 and count <= MAX_EXEMPTIONS
+
+        # A persisted exemption is usable only when both validity arguments
+        # came from identity_valid over the saved/current fields and every
+        # identity field, including the exact canonical path, agrees.
+        def identity_valid(device: i64, inode: i64, size_bytes: i64,
+                           modified_seconds: i64,
+                           modified_nanoseconds: i64) -> bool:
+            ensure result == (device > 0 and device <= MAX_IDENTITY_VALUE and inode > 0 and inode <= MAX_IDENTITY_VALUE and size_bytes >= 0 and size_bytes <= MAX_ITEM_BYTES and modified_seconds >= 0 - MAX_IDENTITY_VALUE and modified_seconds <= MAX_IDENTITY_VALUE and modified_nanoseconds >= 0 and modified_nanoseconds <= MAX_MODIFIED_NANOSECONDS)
+            device > 0 and device <= MAX_IDENTITY_VALUE and inode > 0 and inode <= MAX_IDENTITY_VALUE and size_bytes >= 0 and size_bytes <= MAX_ITEM_BYTES and modified_seconds >= 0 - MAX_IDENTITY_VALUE and modified_seconds <= MAX_IDENTITY_VALUE and modified_nanoseconds >= 0 and modified_nanoseconds <= MAX_MODIFIED_NANOSECONDS
+
+        def identity_matches(saved_valid: bool, current_valid: bool,
+                             saved_device: i64, current_device: i64,
+                             saved_inode: i64, current_inode: i64,
+                             saved_size_bytes: i64, current_size_bytes: i64,
+                             saved_modified_seconds: i64, current_modified_seconds: i64,
+                             saved_modified_nanoseconds: i64, current_modified_nanoseconds: i64,
+                             canonical_path_matches: bool) -> bool:
+            ensure result implies saved_valid
+            ensure result implies current_valid
+            ensure result == (saved_valid and current_valid and StudioStorageIdentityPolicy::matches(saved_device, current_device, saved_inode, current_inode, saved_size_bytes, current_size_bytes, saved_modified_seconds, current_modified_seconds, saved_modified_nanoseconds, current_modified_nanoseconds, canonical_path_matches))
+            saved_valid and current_valid and StudioStorageIdentityPolicy::matches(saved_device, current_device, saved_inode, current_inode, saved_size_bytes, current_size_bytes, saved_modified_seconds, current_modified_seconds, saved_modified_nanoseconds, current_modified_nanoseconds, canonical_path_matches)
+
+        # Adding is permitted only for a verified Studio-owned regular build
+        # artifact. Source takes and required recovery files remain under
+        # permanent protection and cannot consume exemption slots.
+        def may_add(count: i64, studio_managed: bool, canonical_under_build: bool,
+                    regular_file: bool, source_take: bool, required_recovery: bool,
+                    reviewed_identity_valid: bool) -> bool:
+            ensure not result or count >= 0
+            ensure not result or count < MAX_EXEMPTIONS
+            ensure not result or studio_managed
+            ensure not result or canonical_under_build
+            ensure not result or regular_file
+            ensure not result or not source_take
+            ensure not result or not required_recovery
+            ensure not result or reviewed_identity_valid
+            ensure source_take implies not result
+            ensure required_recovery implies not result
+            ensure count >= MAX_EXEMPTIONS implies not result
+            return false if count < 0 or count >= MAX_EXEMPTIONS
+            return false if not studio_managed or not canonical_under_build or not regular_file
+            return false if source_take or required_recovery or not reviewed_identity_valid
+            true
+
+        # Mandatory protection is independent of exemption state. A matching
+        # user exemption adds protection; it can never remove these guards.
+        def protected(source_take: bool, required_recovery: bool,
+                      exact_user_exemption: bool) -> bool:
+            ensure result == (source_take or required_recovery or exact_user_exemption)
+            ensure source_take implies result
+            ensure required_recovery implies result
+            ensure exact_user_exemption implies result
+            source_take or required_recovery or exact_user_exemption
+
+        # An exemption is an additional removal gate. Setting one can never
+        # authorize Trash; every ordinary cleanup, review, and confirmation
+        # condition must still hold and all protection flags must be clear.
+        def may_move(cleanup_eligible: bool, selected: bool, reviewed: bool,
+                     confirmed: bool, source_take: bool,
+                     required_recovery: bool,
+                     exact_user_exemption: bool) -> bool:
+            ensure result implies cleanup_eligible
+            ensure result implies selected
+            ensure result implies reviewed
+            ensure result implies confirmed
+            ensure result implies not source_take
+            ensure result implies not required_recovery
+            ensure result implies not exact_user_exemption
+            ensure source_take implies not result
+            ensure required_recovery implies not result
+            ensure exact_user_exemption implies not result
+            return false if not cleanup_eligible or not selected or not reviewed or not confirmed
+            return false if source_take or required_recovery or exact_user_exemption
+            true
