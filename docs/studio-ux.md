@@ -298,3 +298,21 @@ finished with exit 1 because native verification and the proof baseline gate
 were not clean; the latter reported established regressions and missing
 reviewed entries. Concurrent registration proof edits require a final
 focused recheck before a clean proof baseline can be claimed.
+
+## Manifest transaction integration (2026-10-06)
+
+Studio now holds a persistent-file nonblocking lock across fresh manifest
+reads, registration, reconciliation, Restore, and each batch item's full
+remaining-selection validation, native move and receipt publication. Nested
+refresh calls reuse the outer descriptor; wrappers release after all inner
+return paths. Retention and exemption changes share the same transaction
+scope. Publication requires a held scope. The lock file is protected metadata
+and is never unlinked by this protocol.
+
+Lock acquisition failure disables cleanup using unverified manifest state.
+Release uncertainty latches a block on later moves until restart and stops a
+running batch. Completed receipts and counters remain available for inspection.
+The pure lock/alert kernels are proved; this does not prove native syscall
+behavior or whole-app lifetime/control flow. Two-instance, crash, path-replace,
+release-failure and keyboard/VoiceOver acceptance remain open. External
+programs that ignore the advisory lock are outside its serialization guarantee.

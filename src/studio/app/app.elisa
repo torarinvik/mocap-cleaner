@@ -23,6 +23,7 @@ include "../storage_registration_policy.elisa"
 include "../io/storage_clock.elisa"
 include "../storage_accessibility_policy.elisa"
 include "../io/storage_manifest_file.elisa"
+include "../io/storage_manifest_lock_file.elisa"
 include "../io/storage_preferences_file.elisa"
 include "../io/storage_exemptions_file.elisa"
 include "scene.elisa"
@@ -54,6 +55,9 @@ module Studio:
         const EXPORT_PATH: cstr = "build/studio_export.glb"
         const SESSION_PATH: cstr = "build/studio_session.txt"
         const STORAGE_MANIFEST_PATH: cstr = "build/studio_storage_manifest.txt"
+        const STORAGE_LOCK_PATH: cstr = "build/studio_storage_manifest.lock"
+        global mutable storage_transaction_active: bool = false
+        global mutable storage_release_uncertain: bool = false
         const STORAGE_PREFERENCES_PATH: cstr = "build/studio_storage_preferences.txt"
         const STORAGE_EXEMPTIONS_PATH: cstr = "build/studio_storage_exemptions.txt"
         const PATH_CAPACITY: usize = 4096
@@ -1498,6 +1502,42 @@ module Studio:
         # Storage manifests are loaded once and fail closed on path, type,
         # permission, size or format errors. A missing manifest is a new empty
         # inventory; malformed data is never silently replaced.
+        # Synchronous nested refreshes reuse the outer transaction. The outer
+        # wrapper always releases its local descriptor after its inner call.
+        def begin_storage_transaction() -> i32 can[Unsafe.PointerCast, Blocking.IO]:
+            return -2 if storage_transaction_active
+            if storage_release_uncertain:
+                storage_message <- 22
+                touch()
+                return -1
+            if export_reason(STORAGE_LOCK_PATH, true) != StudioExportPolicy::ALLOW:
+                storage_manifest_state <- 2
+                storage_message <- 21
+                touch()
+                return -1
+            mutable descriptor: i32 = -1
+            outcome: i64 = StudioStorageManifestLockFile::try_acquire(STORAGE_LOCK_PATH, &descriptor)
+            if not StudioStorageManifestLockPolicy::may_read_modify_write(outcome) or descriptor < 0:
+                storage_manifest_state <- 2
+                storage_message <- 21
+                touch()
+                return -1
+            storage_transaction_active <- true
+            descriptor
+
+        def end_storage_transaction(descriptor: i32) -> bool can Blocking.IO:
+            return true if descriptor == -2
+            return false if descriptor < 0
+            released: bool = StudioStorageManifestLockFile::release(descriptor)
+            storage_transaction_active <- false
+            if not released:
+                storage_release_uncertain <- true
+                storage_manifest_state <- 2
+                storage_message <- 22
+                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
+                touch()
+            released
+
         def storage_manifest_ready() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return true if storage_manifest_state == 1
             return false if storage_manifest_state == 2
@@ -1563,6 +1603,7 @@ module Studio:
             false
 
         def persist_storage_exemptions(entries: darray[StudioStorageManifest::Entry]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not storage_transaction_active or storage_release_uncertain
             return false if not storage_exemptions_valid
             return false if export_reason(STORAGE_EXEMPTIONS_PATH, true) != StudioExportPolicy::ALLOW
             mutable bytes: darray[u8] = []
@@ -1571,6 +1612,13 @@ module Studio:
             load_storage_exemptions()
 
         def save_storage_retention(preset: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return false if descriptor == -1
+            succeeded: bool = save_storage_retention_locked(preset)
+            released: bool = end_storage_transaction(descriptor)
+            succeeded and released
+
+        def save_storage_retention_locked(preset: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return false if not load_storage_preferences()
             verified: bool = export_reason(STORAGE_PREFERENCES_PATH, true) == StudioExportPolicy::ALLOW
             return false if not StudioStoragePreferencesPolicy::may_publish(storage_preferences_valid, verified, preset)
@@ -1581,6 +1629,7 @@ module Studio:
             true
 
         def persist_storage_manifest(entries: darray[StudioStorageManifest::Entry]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not storage_transaction_active or storage_release_uncertain
             mutable bytes: darray[u8] = []
             return false if not StudioStorageManifest::encode(entries, &bytes)
             return false if export_reason(STORAGE_MANIFEST_PATH, true) != StudioExportPolicy::ALLOW
@@ -1590,6 +1639,13 @@ module Studio:
         # identity under build/. A hard link already registered at another
         # path remains ineligible so the same file cannot appear twice.
         def register_storage_artifact(path: cstr, kind: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return false if descriptor == -1
+            succeeded: bool = register_storage_artifact_locked(path, kind)
+            released: bool = end_storage_transaction(descriptor)
+            succeeded and released
+
+        def register_storage_artifact_locked(path: cstr, kind: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             # Reuse canonical build-root, regular-file and source-alias guards.
             # A creation call alone never makes a source take Studio-managed.
             return false if export_reason(path, true) != StudioExportPolicy::ALLOW
@@ -1660,7 +1716,7 @@ module Studio:
             return StudioStorageCleanupPolicy::PROTECT_INVALID_FACTS if not StudioStorageManifest::valid(entry)
             if storage_path_is_source(entry.original_path):
                 return StudioStorageCleanupPolicy::PROTECT_SOURCE_TAKE
-            if storage_path_matches(entry.original_path, session_path) or storage_path_matches(entry.original_path, export_path) or storage_path_matches(entry.original_path, STORAGE_MANIFEST_PATH) or storage_path_matches(entry.original_path, STORAGE_PREFERENCES_PATH) or storage_path_matches(entry.original_path, STORAGE_EXEMPTIONS_PATH):
+            if storage_path_matches(entry.original_path, session_path) or storage_path_matches(entry.original_path, export_path) or storage_path_matches(entry.original_path, STORAGE_MANIFEST_PATH) or storage_path_matches(entry.original_path, STORAGE_PREFERENCES_PATH) or storage_path_matches(entry.original_path, STORAGE_EXEMPTIONS_PATH) or storage_path_matches(entry.original_path, STORAGE_LOCK_PATH):
                 return StudioStorageCleanupPolicy::PROTECT_OPEN_DOCUMENT
             return StudioStorageCleanupPolicy::PROTECT_USER_EXEMPTION if storage_user_exempt(entry)
             for referenced in storage_current_reports |referenced, entry|:
@@ -1695,6 +1751,7 @@ module Studio:
             false
 
         def storage_row_eligible(index: i64) -> bool:
+            return false if storage_release_uncertain or storage_manifest_state != 1
             return false if not storage_preferences_valid or not storage_exemptions_valid
             return false if storage_manifest_state != 1 or storage_message == 1 or storage_message == 2 or storage_message == 5
             return false if index < 0 or index >= storage_visible_entries.count.i64() or index >= storage_visible_reasons.count.i64()
@@ -1749,6 +1806,12 @@ module Studio:
         # refresh checks live filesystem identity and reconciles interrupted
         # Trash moves before displaying an entry as verified.
         def refresh_storage_inventory() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            refresh_storage_inventory_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def refresh_storage_inventory_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             previous_cleanup_selection: darray[StudioStorageManifest::Entry] = storage_cleanup_selection
             storage_cleanup_selection <- []
             storage_selection_bytes <- 0
@@ -1915,6 +1978,7 @@ module Studio:
             touch()
 
         def storage_restore_available() -> bool:
+            return false if storage_release_uncertain
             return false if storage_message == 1 or storage_message == 2 or storage_message == 5
             return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64() or storage_selected >= storage_visible_statuses.count.i64()
             entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
@@ -1931,6 +1995,7 @@ module Studio:
             counts[StudioStorageOverviewPolicy::CATEGORY_ELIGIBLE.usize()] == 0
 
         def storage_exemption_available() -> bool:
+            return false if storage_release_uncertain or storage_manifest_state != 1
             return false if not storage_preferences_valid or not storage_exemptions_valid
             return false if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING or storage_move_review or storage_restore_review
             return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64() or storage_selected >= storage_visible_statuses.count.i64() or storage_selected >= storage_visible_reasons.count.i64()
@@ -1949,12 +2014,18 @@ module Studio:
             storage_user_exempt(entries[storage_selected])
 
         def toggle_storage_exemption() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            toggle_storage_exemption_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def toggle_storage_exemption_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return if not storage_exemption_available()
             entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
             expected: StudioStorageManifest::Entry = entries[storage_selected]
             refresh_storage_inventory()
             if not storage_exemption_available():
-                storage_message <- 9 if storage_message != 1 and storage_message != 2 and storage_message != 5 and storage_message != 16 and storage_message != 18
+                storage_message <- 9 if storage_message != 1 and storage_message != 2 and storage_message != 5 and storage_message != 16 and storage_message != 18 and storage_message != 21 and storage_message != 22
                 touch()
                 return
             fresh: darray[StudioStorageManifest::Entry] = storage_visible_entries
@@ -1973,12 +2044,19 @@ module Studio:
             touch()
 
         def storage_trash_available() -> bool:
+            return false if storage_release_uncertain or storage_manifest_state != 1
             return false if not storage_preferences_valid or not storage_exemptions_valid
             return false if not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome)
             return false if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
             storage_cleanup_selection.count > 0 and storage_cleanup_selection.count.i64() <= StudioStorageBatchPolicy::MAX_ITEMS
 
         def restore_storage_entry() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            restore_storage_entry_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def restore_storage_entry_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             expected: StudioStorageManifest::Entry = storage_restore_entry
             refresh_storage_inventory()
             # Reload the manifest before mutating it, and require the reviewed
@@ -2029,6 +2107,12 @@ module Studio:
         # The reviewed identity is already durable before the native move.
         # Engine reconciliation can recover it after a crash before receipt save.
         def move_storage_reviewed_entry(expected: StudioStorageManifest::Entry, confirmed: bool) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            move_storage_reviewed_entry_locked(expected, confirmed)
+            _ = end_storage_transaction(descriptor)
+
+        def move_storage_reviewed_entry_locked(expected: StudioStorageManifest::Entry, confirmed: bool) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             refresh_storage_inventory()
             if not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome):
                 storage_message <- 15
@@ -2176,6 +2260,16 @@ module Studio:
             true
 
         def advance_storage_batch() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if storage_batch_state != StudioStorageBatchPolicy::STATE_RUNNING
+            descriptor: i32 = begin_storage_transaction()
+            if descriptor == -1:
+                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+                touch()
+                return
+            advance_storage_batch_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def advance_storage_batch_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return if storage_batch_state != StudioStorageBatchPolicy::STATE_RUNNING
             entries: darray[StudioStorageManifest::Entry] = storage_batch_entries
             total: i64 = entries.count.i64()
