@@ -466,3 +466,33 @@ laws were added, its current law report produces 17/22, with 17 certificates
 replayed and five unknown obligations. This agrees with the latest full root
 record; 14/14 and 11/14 were from an older law snapshot. Existing laws and
 source bounds remain intact; no baseline was weakened.
+
+## G99: bounded producer goal recursion and duration arithmetic (2026-10-06)
+
+The journal proof previously exhausted the native stack inside
+`proof_goal_depth`; recursive producer calls could revisit nested goals without
+increasing the depth argument. Prover commit `4da37c97` increments depth on
+every recursive goal descent and refuses with `exhausted=true` at
+`PROOF_KERNEL_REPLAY_DEPTH_LIMIT`. This matches the independent replay depth
+boundary and leaves replay rules unchanged. A separate clean comparison build
+against Stage1 `720896f4` retains the fix and uses an isolated binary at
+`elisa-proof-goaldepth-720`; the earlier `4da/453` binary and manifest remain
+unchanged.
+
+On that 720 comparison binary, `export_report_policy.elisa` proves 23/23 with
+no findings. Its laws report 48/51, with all 48 certificates replayed and no
+replay gaps. The same three duration laws remain unknown at the signed
+`wrap-guard-goal` check:
+one minute at 30 fps, flooring 31/30 seconds to 1033 ms, and the documented
+maximum frame count at 1000 fps. Caller facts include the exact frame value,
+the duration call summary, a nonnegative result and its signed type bound.
+This confirms that the goal-depth fix does not resolve the arithmetic range
+inference. A diagnostic-only 720 build split the wrapper refusal label and
+confirmed that the signed guard refuses all three laws; it changed no proof
+admission or replay path. The direct journal source report on the isolated
+4da/453 binary was still active after 44 minutes with no JSON output at the
+time of this record;
+samples no longer showed `proof_goal_depth` on the stack and instead showed
+linear-certificate and context construction. The full corpus comparison on
+that older binary was also running. These are diagnostic runs only; the 720
+candidate is not the default prover and no baseline was reduced.
