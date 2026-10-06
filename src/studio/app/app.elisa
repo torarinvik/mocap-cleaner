@@ -14,6 +14,7 @@ include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 include "../io/file_trash.elisa"
 include "../storage_restore_policy.elisa"
 include "../storage_identity_policy.elisa"
+include "../storage_totals_kernel.elisa"
 include "../io/storage_manifest_file.elisa"
 include "scene.elisa"
 include "character.elisa"
@@ -108,6 +109,8 @@ module Studio:
         global mutable storage_message: i64 = 0
         global mutable storage_protected_records: i64 = 0
         global mutable storage_unverified_records: i64 = 0
+        global mutable storage_present_bytes: i64 = 0
+        global mutable storage_trash_bytes: i64 = 0
         const REPLACE_TAKE: i64 = 1
         const REPLACE_SESSION: i64 = 2
         const REPLACE_CLOSE: i64 = 3
@@ -1517,6 +1520,8 @@ module Studio:
             storage_visible_statuses <- []
             storage_protected_records <- 0
             storage_unverified_records <- 0
+            storage_present_bytes <- 0
+            storage_trash_bytes <- 0
             storage_manifest_state <- 0
             if not storage_manifest_ready():
                 storage_message <- 1
@@ -1588,6 +1593,18 @@ module Studio:
                                     if statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH:
                                         statuses[index] <- StudioPanels::STORAGE_STATUS_UNVERIFIED
                                         unverified <- unverified + 1
+                        mutable present_bytes: i64 = 0
+                        mutable trash_bytes: i64 = 0
+                        for index in 0..<visible.count |visible, statuses, present_bytes, trash_bytes|:
+                            entry: StudioStorageManifest::Entry = visible[index]
+                            if statuses[index] == StudioPanels::STORAGE_STATUS_PRESENT:
+                                if StudioStorageTotalsKernel::add_allowed(index.i64(), present_bytes, entry.size_bytes):
+                                    present_bytes <- StudioStorageTotalsKernel::next_total(present_bytes, entry.size_bytes)
+                            elif statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH:
+                                if StudioStorageTotalsKernel::add_allowed(index.i64(), trash_bytes, entry.size_bytes):
+                                    trash_bytes <- StudioStorageTotalsKernel::next_total(trash_bytes, entry.size_bytes)
+                        storage_present_bytes <- present_bytes
+                        storage_trash_bytes <- trash_bytes
                         storage_visible_entries <- visible
                         storage_visible_statuses <- statuses
                         storage_protected_records <- protected
@@ -2816,7 +2833,8 @@ module Studio:
                 storage_visible_entries, storage_visible_statuses,
                 storage_selected, storage_focus, storage_message,
                 storage_protected_records, storage_unverified_records,
-                storage_restore_available(), storage_restore_review)
+                storage_restore_available(), storage_restore_review,
+                storage_present_bytes, storage_trash_bytes)
             StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
