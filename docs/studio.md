@@ -80,7 +80,9 @@ native qualification. Unsupported insertions retain the prior complete draft.
 Loaded Studio playback, stepping and seconds entry now use the validated captured
 output timestamps. The status bar shows clip-relative sample time to six decimal
 places and labels the estimated average key rate with `~`. Unsupported grids
-refuse playback and seconds entry with an explanation. Seconds entry still has
+refuse playback and seconds entry with an explanation. Play dims and its native
+accessibility element disables when captured timing is unavailable; Stop remains
+available during playback. Integrated/native acceptance is pending. Seconds entry still has
 millisecond precision; copying every displayed microsecond value back into that
 field is not yet supported. Current proof replay, integrated compilation, native
 playback and timing consistency in curves/reports remain acceptance gaps.

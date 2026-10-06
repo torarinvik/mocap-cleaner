@@ -226,7 +226,7 @@ single-key channels remain constant, with finite valid times. Cubic interpolatio
 empty/oversized grids and mismatched channel grids return typed unavailable
 states rather than a guessed exact clock. Nonuniform increasing grids are
 supported. The capture module and updated model compile at O0 to retained
-objects; scalar timestamp policy now has fourteen accompanying laws. Playback,
+objects; scalar timestamp and playback admission policy now has eighteen accompanying laws. Playback,
 stepping and seconds entry use this clock, and the status bar shows the actual
 sample timestamp with six decimal places. Unsupported clocks explain refusal.
 Current proof/replay, integrated app compilation and native playback acceptance
@@ -236,9 +236,11 @@ remain open; export reports and curve timing still need consistent integration.
       timestamps can be entered without truncation. Keep one capacity policy for
       typed input, committed text, accessibility replacement and parser; add the
       matching contracts/laws and qualify boundary/clamp behavior.
-- [ ] Make pointer and accessibility Play enablement share the captured-clock
-      readiness/count predicate used by the playback handler. Preserve Stop when
-      playback is already active; explain unavailable timing consistently.
+- [ ] Qualify shared Play availability through pointer, keyboard and native
+      accessibility routes. The toolbar and accessibility enablement now share
+      the handler's captured-clock readiness/count predicate, with Stop admitted
+      during playback. Four matching admission laws compile to retained symbols;
+      current proof replay and integrated/native acceptance remain pending.
 
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
