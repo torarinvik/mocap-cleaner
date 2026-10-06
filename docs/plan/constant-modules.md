@@ -233,3 +233,11 @@ execution. Current compile, replay and session/filter qualification remain open.
 retain codes 0/1/2 at existing integer routing boundaries, with an encoding law.
 Source, laws and existing fixtures use the scoped facts; current compile and
 replay qualification remain open.
+
+Finding-filter `Disposition` now represents Unresolved/Ignored/Any as a const
+enum with preserved codes 0/1/2. The raw filter-validation interface retains
+integer status so malformed stored values can be refused explicitly. Consumers
+convert the named alternatives at that boundary. The encoding law and existing
+fixture emitted fresh diagnostic objects in `build/filter-disposition-compile.QbizwZ`
+and `build/filter-disposition-compile.RQTe4c`. Replay, fixture execution and full
+application qualification remain pending.
