@@ -70,8 +70,8 @@ foundations still need behavioral, proof and rendered qualification; compilation
 does not close the review workflow. Historical proof/check evidence belongs in
 `docs/acceptance/` and `docs/proof-gaps/`, rather than completed plan items.
 
-- [ ] **Metric compatibility:** declare each supported metric's units, direction,
-  numeric type and availability semantics. Compare matching provenance/schema
+- [ ] **Metric compatibility:** qualify supported metric units, direction and
+  numeric type; supply missing sample/availability semantics. Compare matching provenance/schema
   versions, detector thresholds and units. Reject incompatible dimensions with
   a specific explanation; do not infer compatibility from equal key names.
 - [ ] **Exact numeric qualification:** verify signed values, equivalent decimal
@@ -114,80 +114,55 @@ unsupported inputs receive explicit unavailable/error states; the review view
 and exported HTML remain usable and truthful; complete proof replay and the
 full product check qualify the same snapshot.
 
-Current metadata implementation: CLI reports declare `mocap-cleaner-report-v1`,
-known comparison metric units, and the spike threshold from the actual preset
-used for evaluation. The reader rejects declared schema/unit mismatches and
-malformed declarations; unknown/legacy metadata is explicitly unqualified in
-console and HTML. Unit metadata is capped at 128 declarations by a contracted
-budget. Exact unit conversion, full detector-setting/provenance compatibility,
-qualification of the strict unknown-metadata gate, metadata traversal proof replay
-and native edge-case qualification remain required. The compatibility policy
-has source contracts and schema/unit laws; current Stage1 compilation succeeds.
+### Remaining durable export recovery work
 
-Metric dimensions now have a typed policy: supported count, frame-count and
-distance metric names require matching declared dimensions; equal declarations
-with a known wrong dimension are rejected. Unknown metric names remain
-unqualified. Current compiler builds the reader and laws. The default prover
-reports source 4/4 and laws 9/12, with three laws still unknown; independent
-replay and behavior qualification remain open.
+Existing integration freezes JSON/text bytes before GLB publication, distinguishes
+individual sidecar outcomes, attempts parent-directory sync and presents partial
+or uncertain results in the result dialog and accessibility text. A create-only
+sidecar publisher exists. These foundations still need recovery integration and
+qualification; current evidence is in [integration observations](../acceptance/m6-integration-observations-2026-10-06.md)
+and [publication proof gaps](../proof-gaps/export-publication-outcomes.md).
 
-Unknown schema, unit or required detector declarations now force an unavailable
-exit verdict; numeric rows remain available for inspection. The metadata
-admission policy reports 3/3 and its laws 11/11 on the default prover; reader
-and updated existing fixtures compile. Independent replay and behavioral
-qualification remain required. These checks do not supply missing immutable
-provenance or the other detector settings still listed above.
-
-Unit-object and member lookup now use explicit `Missing`, `Invalid` and
-`Present(index)` algebraic states rather than negative index sentinels. Reader
-and declaration-state laws compile on the current compiler. State-law proof
-checking remains incomplete; token traversal bounds and malformed/duplicate declaration
-behavior still require full qualification.
-
-Lower-is-better admission now uses supported metric definitions rather than
-trusting `_after` suffixes. Unsupported quality names are unavailable, and
-quality values must be nonnegative; counts/frame-counts must be whole numbers.
-The typed policy reports 14/14, its expanded laws 25/32. Reader and laws compile;
-seven law obligations, replay and behavioral qualification remain open.
-
-HTML tables now show expected units and Boolean status words, with metric
-direction and exact decimal notation explained. Compilation succeeds. A fresh
-pre-presentation-change artifact was generated successfully; local-file browser
-opening was blocked by protocol security policy, so rendered layout, keyboard
-and screen-reader qualification remain open (see the HTML review evidence).
-
-Studio report fields are now serialized to an owned JSON/text byte snapshot
-while the validated GLB staging path and its identity still exist, before the
-second confirmation and publication. Later sidecar writes consume those frozen
-bytes. Compile-only integration currently stops on unrelated in-progress
-suggestion mutability and workspace native-effect diagnostics; these owners
-are repairing them. Publication-stage durability, snapshot-bound retry and
-semantic/crash qualification remain open.
-
-Export sidecar writes now yield typed GLB-only, GLB-plus-JSON, GLB-plus-text
-or complete outcomes; status text identifies which report was not saved.
-These are in-memory write outcomes, not crash-durability evidence or motion
-quality approval. Policy proof is 14/20 and laws 21/38 on the current default
-prover; compile-only Studio build succeeds with Stage1 f292cbe0. Durable journaling,
-owned snapshot retention, create-only missing-sidecar retry and result-dialog
-keyboard/accessibility integration remain required.
-
-The integrated Studio compile subsequently succeeded after the suggestion and
-workspace owners repaired their in-progress diagnostics. This qualifies
-compilation of the report freeze/outcome integration; it does not qualify
-publication failure recovery, source immutability or native interaction.
-
-The export result dialog and accessibility description now consume the typed
-publication outcome directly and identify the missing current sidecar, including
-the possibility of stale old reports. The redundant Boolean report-success
-flag was removed. Integrated Studio compilation succeeds with f292cbe0; native
-visual/keyboard/accessibility and sidecar failure-path qualification remain open.
-
-The native publisher now attempts parent-directory sync after GLB and report
-renames, preserving published-with-durability-unknown as a distinct outcome
-rather than treating it as rollback. The export result shows this uncertainty
-visually and in accessibility text. Integrated Studio compilation succeeds with
-f292cbe0. Policy proof is 6/9 and laws 10/20 on default 5776350b; replay and
-injected native failure qualification remain open. These trusted native facts
-do not prove crash persistence, race-free publication or Storage tracking
-durability; durable journals and immutable retry ownership are still required.
+- [ ] **Owned recovery record:** give each export an immutable transaction ID
+  and keep the GLB identity, exact frozen report bytes, source/animation/stack
+  revisions, final paths and stage outcomes together. Preserve multiple pending
+  records without silently replacing an earlier export. Store derived recovery
+  artifacts under the selected workspace's `build/`; block publication if the
+  required recovery record cannot be established. Bound memory and disk usage,
+  disclose capacity exhaustion and retain recoverable evidence.
+- [ ] **Exact result binding:** retain a byte-for-byte output snapshot or a
+  qualified cryptographic digest of the actual staged bytes. Before completing
+  reports, verify the published GLB against that identity. Refuse missing,
+  replaced, modified or ambiguous outputs. A non-cryptographic residue is not
+  sufficient to authorize snapshot-bound recovery. Never reevaluate the live
+  stack or later source take to reconstruct an old report.
+- [ ] **Durable journal:** persist prepared, GLB-published, JSON-published and
+  text-published stages using a versioned, bounded, validated record. Distinguish
+  observed publication from file/directory durability. Recover conservative
+  states after crashes between every pair of writes. A journal failure after
+  publication leaves an inspectable partial result; it must not cause rollback
+  messaging or deletion of published files. Reject corrupt/unknown records
+  without treating them as owned cleanup candidates.
+- [ ] **Missing-sidecar completion:** retry only absent current reports using
+  the frozen bytes and atomic create-only publication. Never overwrite an
+  existing sidecar or the GLB. When a sidecar already exists, verify exact bytes
+  and binding before recognizing completion; conflicting or stale content
+  requires an explicit resolution flow. Preserve successful stages after another
+  failure, including failure to update the journal or Storage tracking.
+- [ ] **Recovery UI:** expose pending exports, exact stage status, destination,
+  unavailable reasons, retry eligibility and copyable diagnostics. Add keyboard
+  and accessibility support, focus restoration and per-item retry feedback.
+  Separate motion-quality review from file publication and durability. Keep
+  completed GLBs usable while reports remain pending; do not lose recovery
+  ownership merely because the result dialog closes or another take loads.
+- [ ] **Cleanup ownership:** record private staging paths and account for failed
+  unlink after successful hard-link publication. Delete only demonstrably owned
+  unpublished staging/recovery files after explicit resolution. Preserve final
+  outputs, current sidecars and unknown records. Show estimated reclaimed space,
+  failures and remaining recovery evidence. Qualify cleanup after crash,
+  cancellation, root change and partially completed recovery.
+- [ ] **Native qualification:** cover failed create/write/flush/file-sync/close,
+  reload mismatch, rename/link failure, destination races, parent sync failure,
+  journal failure and staging unlink failure. Establish that source takes and
+  approved outputs remain unchanged. Compile success and Boolean IO wrappers
+  do not prove crash durability or atomic recovery semantics.
