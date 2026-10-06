@@ -40,6 +40,14 @@ object without diagnostics in `build/constructor-owner.IzGtYg`. Integrated
 Studio compilation remains pending.
 No executable tests were added or run for this repair.
 
+Integrated compilation then exposed a separate lookup in match patterns:
+`enum_tail_variant_index` still selected the first same-named variant across
+modules. The extended `build/repro/pattern-enum-owner.elisa` reproduces the
+wrong two/three-field arity with `3c72f59f` in `build/pattern-owner.LaUJrv`.
+Compiler `720896f4` applies the same lexical module filter to this lookup.
+Its normal seed is running (`build/pattern-owner-compiler-seed.log`); source
+adoption is not yet reproduction or integrated qualification.
+
 ## Current global container lowering gap
 
 Compiler `04b384ec` declines direct mutation of a mutable global darray,
