@@ -1,0 +1,89 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def load_character(p: cstr) -> void:
+            loaded: StudioCharacter::Model? = StudioCharacter::load(p)
+            if loaded is m:
+                character <- m
+                character_binding <- null
+                character_take <- -1
+                skinned <- null
+                skinned_frame <- -1
+                skinned_revision <- -1
+                if not StudioScene::on(flags, StudioScene::MESH):
+                    flags <- StudioScene::toggle(flags, StudioScene::MESH)
+                say_file("character model loaded from", p)
+            else:
+                say_file("no skinned mesh could be read from", p)
+            touch()
+
+        def open_character() -> void:
+            if FilePanel::open("glb", "Open a character model") is chosen:
+                load_character(chosen)
+
+        # Bind the character to `c` once per opened take; the bound share
+        # goes to the status line.
+        def bind_character(c: StudioModel::Clip&) -> void:
+            return if character_take == take_serial
+            if character is m:
+                b: StudioCharacter::Binding = StudioCharacter::bind(m, c)
+                ok: bool = StudioCharacter::drawable(&b)
+                status <- StudioText::number("character joints bound (permille): ", b.coverage) if ok else StudioText::number("character: too few joints match this rig (permille): ", b.coverage)
+                nudged_row <- -1
+                status_file <- null
+                character_binding <- move b
+                character_take <- take_serial
+                skinned <- null
+                skinned_frame <- -1
+
+        # The character is bound well enough to draw.
+        def character_ready() -> bool:
+            if character_binding is b:
+                return character != null and StudioCharacter::drawable(b)
+            return false
+
+        # ---- per-view globals ------------------------------------------
+        def put_view(i: i64, vp: Viewport::Viewport) -> void:
+            if i == 0:
+                view0 <- vp
+            elif i == 1:
+                view1 <- vp
+            else:
+                view2 <- vp
+
+        def view(i: i64) -> Viewport::Viewport?:
+            return view0 if i == 0
+            return view1 if i == 1
+            view2
+
+        def seen(i: i64) -> i64:
+            return seen0 if i == 0
+            return seen1 if i == 1
+            seen2
+
+        def put_seen(i: i64, r: i64) -> void:
+            if i == 0:
+                seen0 <- r
+            elif i == 1:
+                seen1 <- r
+            else:
+                seen2 <- r
+
+        def open_view(i: i64) -> Viewport::Viewport?:
+            mutable vp: Viewport::Viewport = catch Viewport::create(320, 240):
+                value: value
+                error failure: return null
+            if i == 1:
+                vp.camera <- ViewportCamera::create_ortho(320, 240, ViewportCamera::FRONT)
+            if i == 2:
+                vp.camera <- ViewportCamera::create_ortho(320, 240, ViewportCamera::SIDE)
+            return move vp
+
+        def rect_of(b: StudioPanels::Box) -> UiHostedSurface::Rect:
+            UiHostedSurface::Rect{x: b.x, y: b.y, width: b.w, height: b.h}
+
+        def view_box(i: i64) -> StudioPanels::Box:
+            StudioPanels::view_box(i.usize(), UiCore::viewport_width(), UiCore::viewport_height())
+
+        # ---- state helpers -----------------------------------------------

@@ -1,0 +1,318 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def escape() -> void:
+            if reset_menu_open:
+                reset_menu_open <- false
+                touch()
+                return
+            s: StackState::Stack = current_stack()
+            layer: i64 = StudioChrome::escape_layer(help_open, gizmo_view >= 0, FootState::active(&foot_press), gizmo_mode >= 0, StackState::valid(s, s.selected))
+            if layer == StudioChrome::ESC_HELP:
+                help_open <- false
+            elif layer == StudioChrome::ESC_DRAG:
+                gizmo_cancel()
+            elif layer == StudioChrome::ESC_PRESS:
+                foot_press <- FootState::idle()
+                status <- "contact edit cancelled"
+                nudged_row <- -1
+                status_file <- null
+            elif layer == StudioChrome::ESC_GIZMO:
+                set_gizmo(gizmo_mode)
+            elif layer == StudioChrome::ESC_SELECT:
+                select_row(-1)
+                status <- "selection cleared"
+                nudged_row <- -1
+                status_file <- null
+            touch()
+
+        def key(code: UiCore::Key) -> void:
+            if reset_menu_open:
+                reset_menu_open <- false
+                touch()
+                return
+            if typing and code == UiCore::Key.Enter:
+                if contact_draft_target >= 0:
+                    contact_commit_frame_draft()
+                else:
+                    typing <- false
+                    v: i64 = typed_speed()
+                    if v > 0:
+                        retime_to(v)
+                    else:
+                        status <- "speed must be 0.1 to 4"
+                touch()
+            elif typing and code == UiCore::Key.Backspace:
+                typed_len <- typed_len - 1 if typed_len > 0 else 0
+                touch()
+            elif typing and code == UiCore::Key.Escape and contact_draft_target >= 0:
+                contact_cancel_frame_draft()
+            elif typing and code != UiCore::Key.Escape:
+                pass
+            elif code == UiCore::Key.Equal:
+                typing <- true
+                typed_len <- 0
+                touch()
+            elif StudioShortcuts::shift(modifiers) and preset_key(code) >= 0:
+                retime_to(RetimeState::preset(preset_key(code)))
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.P:
+                contact_apply(StudioContactEditor::PLANT)
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.L:
+                contact_apply(StudioContactEditor::LIFT)
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.U:
+                contact_apply(StudioContactEditor::RESET)
+            elif StudioShortcuts::shift(modifiers) and code == UiCore::Key.Delete:
+                contact_apply(StudioContactEditor::DELETE)
+            elif band_focus >= 0 and (code == UiCore::Key.Delete or code == UiCore::Key.Backspace):
+                remove_band()
+            elif code == UiCore::Key.R:
+                set_gizmo(GizmoPolicy::ROTATE)
+            elif code == UiCore::Key.V:
+                set_gizmo(GizmoPolicy::TRANSLATE)
+            elif code == UiCore::Key.Escape and not help_open and (typing or selection.active):
+                typing <- false
+                selection <- RetimeState::none()
+                status <- "retime selection cancelled"
+                touch()
+            elif code == UiCore::Key.Escape:
+                escape()
+            elif code == UiCore::Key.A:
+                clean_with_preset()
+            elif code == UiCore::Key.Space:
+                toggle_play()
+            elif code == UiCore::Key.Left:
+                step_frames(-1)
+            elif code == UiCore::Key.Right:
+                step_frames(1)
+            elif code == UiCore::Key.Z:
+                undo()
+            elif code == UiCore::Key.Y:
+                redo()
+            elif code == UiCore::Key.L:
+                toggle_loop()
+            elif code == UiCore::Key.S:
+                cycle_speed()
+            elif code == UiCore::Key.T:
+                toggle_flag(StudioScene::TRAILS)
+            elif code == UiCore::Key.C:
+                toggle_flag(StudioScene::CONTACTS)
+            elif code == UiCore::Key.H:
+                toggle_flag(StudioScene::HEAT)
+            elif code == UiCore::Key.N:
+                toggle_flag(StudioScene::ONION)
+            elif code == UiCore::Key.G:
+                toggle_flag(StudioScene::GHOST)
+            elif code == UiCore::Key.X:
+                toggle_flag(StudioScene::XRAY)
+            elif code == UiCore::Key.Q:
+                toolbar_action(StudioPanels::A_BALANCE)
+            elif code == UiCore::Key.P:
+                curve_mode <- StudioOverlay::next_mode(curve_mode)
+                status <- "curves: position" if curve_mode == StudioOverlay::POSITION else "curves: rotation"
+                nudged_row <- -1
+                status_file <- null
+                touch()
+            elif code == UiCore::Key.K:
+                toggle_feet()
+            elif code == UiCore::Key.J:
+                toggle_hands()
+            elif code == UiCore::Key.W:
+                jump_worst()
+            elif code == UiCore::Key.Comma:
+                nudge_blend(false)
+            elif code == UiCore::Key.Period:
+                nudge_blend(true)
+            elif code == UiCore::Key.M and StudioShortcuts::shift(modifiers):
+                open_character()
+            elif code == UiCore::Key.M:
+                toggle_action_mesh()
+            elif code == UiCore::Key.F and StudioShortcuts::shift(modifiers):
+                perf_overlay <- not perf_overlay
+                status <- "frame times on" if perf_overlay else "frame times off"
+                nudged_row <- -1
+                status_file <- null
+                touch()
+            elif code == UiCore::Key.F:
+                frame_all()
+            elif code == UiCore::Key.E:
+                request_export(export_path, false)
+            elif code == UiCore::Key.LeftBracket:
+                edit_selected(7, -1)
+            elif code == UiCore::Key.RightBracket:
+                edit_selected(7, 1)
+            elif code == UiCore::Key.B:
+                edit_selected(8, 0)
+            elif code == UiCore::Key.I:
+                edit_selected(9, 0)
+            elif code == UiCore::Key.O:
+                edit_selected(10, 0)
+            elif code == UiCore::Key.D:
+                edit_selected(StudioPanels::HIT_TOGGLE, 0)
+            elif code == UiCore::Key.Delete or code == UiCore::Key.Backspace:
+                edit_selected(StudioPanels::HIT_REMOVE, 0)
+            elif code == UiCore::Key.PageUp:
+                edit_selected(StudioPanels::HIT_UP, 0)
+            elif code == UiCore::Key.PageDown:
+                edit_selected(StudioPanels::HIT_DOWN, 0)
+            elif code == UiCore::Key.Up:
+                s: StackState::Stack = current_stack()
+                select_row(s.selected - 1) if s.selected > 0
+            elif code == UiCore::Key.Down:
+                s: StackState::Stack = current_stack()
+                select_row(s.selected + 1) if s.selected + 1 < s.count
+            elif code == UiCore::Key.Digit1:
+                add_op(0)
+            elif code == UiCore::Key.Digit2:
+                add_op(1)
+            elif code == UiCore::Key.Digit3:
+                add_op(2)
+            elif code == UiCore::Key.Digit4:
+                add_op(3)
+            elif code == UiCore::Key.Digit5:
+                add_op(4)
+
+        # Track Cmd/Ctrl and Shift; true when `code` was a modifier.
+        def modifier(code: UiCore::Key, down: bool) -> bool:
+            command: bool = code == UiCore::Key.LeftSuper or code == UiCore::Key.RightSuper or code == UiCore::Key.LeftControl or code == UiCore::Key.RightControl
+            shift: bool = code == UiCore::Key.LeftShift or code == UiCore::Key.RightShift
+            if command:
+                modifiers <- StudioShortcuts::command_down(modifiers) if down else StudioShortcuts::command_up(modifiers)
+            elif shift:
+                modifiers <- StudioShortcuts::shift_down(modifiers) if down else StudioShortcuts::shift_up(modifiers)
+            return command or shift
+
+        # Cmd-Z undoes, Cmd-Shift-Z redoes, and Cmd-D duplicates the selected
+        # operation; unsupported command chords do not reach plain bindings.
+        def key_down(code: UiCore::Key) -> void:
+            if reset_menu_open:
+                reset_menu_open <- false
+                touch()
+                return
+            return if modifier(code, true)
+            if storage_screen_open:
+                storage_key(code)
+                return
+            if export_warning_detail_open:
+                export_warning_detail_key(code)
+                return
+            if export_path_inspector_open:
+                export_path_inspector_key(code)
+                return
+            if export_result_open:
+                export_result_key(code)
+                return
+            if export_review_open:
+                export_review_key(code)
+                return
+            if legacy_prompt_open:
+                if code == UiCore::Key.Escape:
+                    resolve_legacy_session(StudioLegacyPrompt::CANCEL)
+                elif code == UiCore::Key.L and not StudioShortcuts::command(modifiers):
+                    resolve_legacy_session(StudioLegacyPrompt::LOAD)
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    legacy_prompt_focus <- StudioLegacyPrompt::move_focus(legacy_prompt_focus, -1)
+                    touch()
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    legacy_prompt_focus <- StudioLegacyPrompt::move_focus(legacy_prompt_focus, 1)
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    resolve_legacy_session(StudioLegacyPrompt::LOAD if legacy_prompt_focus == StudioLegacyPrompt::FOCUS_LOAD else StudioLegacyPrompt::CANCEL)
+                return
+            if replacement_prompt_open:
+                replacement_prompt_key(code)
+                return
+            if typing:
+                if code == UiCore::Key.Enter or code == UiCore::Key.Backspace or code == UiCore::Key.Escape:
+                    key(code)
+                else:
+                    append_typed_key(code)
+                return
+            command: bool = StudioShortcuts::command(modifiers)
+            mutable file: i64 = StudioShortcuts::FILE_NONE
+            if code == UiCore::Key.O:
+                file <- StudioShortcuts::o_chord(modifiers)
+            elif code == UiCore::Key.S:
+                file <- StudioShortcuts::s_chord(modifiers)
+            elif code == UiCore::Key.E:
+                file <- StudioShortcuts::e_chord(modifiers)
+            file <- StudioShortcuts::text_file_route(typing, file)
+            if file != StudioShortcuts::FILE_NONE:
+                modifiers <- 0
+                dispatch_file_action(StudioFilePolicy::OPEN_TAKE) if file == StudioShortcuts::OPEN_TAKE
+                dispatch_file_action(StudioFilePolicy::OPEN_SESSION) if file == StudioShortcuts::OPEN_SESSION
+                dispatch_file_action(StudioFilePolicy::SAVE) if file == StudioShortcuts::SAVE
+                dispatch_file_action(StudioFilePolicy::SAVE_AS) if file == StudioShortcuts::SAVE_AS
+                dispatch_file_action(StudioFilePolicy::EXPORT_AS) if file == StudioShortcuts::EXPORT_AS
+                return
+            if file_menu_open:
+                file_menu_key(code)
+                return
+            if code == UiCore::Key.Slash and not command:
+                help_open <- StudioChrome::help_after(help_open, true, false)
+                touch()
+                return
+            if help_open and code != UiCore::Key.Escape:
+                return
+            if code == UiCore::Key.D and modifiers == StudioShortcuts::COMMAND:
+                duplicate_selected()
+                modifiers <- 0
+                return
+            # Shift is a useful modifier for contact editing, so handle its
+            # supported bindings before other_chord classifies it as a chord
+            # with no binding. This also keeps existing Shift contact actions
+            # and speed/viewport shortcuts reachable.
+            if modifiers == StudioShortcuts::SHIFT:
+                if code == UiCore::Key.Left:
+                    contact_nudge(StudioContactEditor::NUDGE_INTERVAL, -1)
+                elif code == UiCore::Key.Right:
+                    contact_nudge(StudioContactEditor::NUDGE_INTERVAL, 1)
+                elif code == UiCore::Key.Up:
+                    contact_nudge(StudioContactEditor::NUDGE_LAST, 1)
+                elif code == UiCore::Key.Down:
+                    contact_nudge(StudioContactEditor::NUDGE_LAST, -1)
+                elif code == UiCore::Key.LeftBracket:
+                    contact_nudge(StudioContactEditor::NUDGE_FIRST, -1)
+                elif code == UiCore::Key.RightBracket:
+                    contact_nudge(StudioContactEditor::NUDGE_FIRST, 1)
+                elif code == UiCore::Key.P or code == UiCore::Key.L or code == UiCore::Key.U or code == UiCore::Key.Delete or code == UiCore::Key.M or code == UiCore::Key.F or preset_key(code) >= 0:
+                    key(code)
+                return
+            mutable action: i64 = StudioShortcuts::z_chord(modifiers) if code == UiCore::Key.Z else StudioShortcuts::other_chord(modifiers)
+            action <- StudioShortcuts::text_key_route(typing, action)
+            if action == StudioShortcuts::UNDO:
+                undo()
+            elif action == StudioShortcuts::REDO:
+                redo()
+            elif action == StudioShortcuts::PLAIN:
+                key(code)
+
+        def toggle_action_mesh() -> void:
+            toolbar_action(StudioPanels::A_MESH)
+
+    public:
+        def event(incoming: UiCore::Event) -> void:
+            match incoming:
+                UiCore::Event.Quit:
+                    request_window_close()
+                UiCore::PointerEvent.Down(at, button):
+                    pointer_down(at.x, at.y, button)
+                UiCore::PointerEvent.Up(at, button):
+                    pointer_up(at.x, at.y)
+                UiCore::PointerEvent.Move(at):
+                    pointer_move(at.x, at.y)
+                UiCore::PointerEvent.Scroll(at, delta):
+                    if not export_result_open and not export_review_open and not legacy_prompt_open and not replacement_prompt_open:
+                        v: i64 = view_at(at.x, at.y)
+                        if v >= 0:
+                            zoom(v, 1 if delta.y > 0.0 else (-1 if delta.y < 0.0 else 0))
+                UiCore::KeyEvent.Down(code):
+                    key_down(code)
+                UiCore::KeyEvent.Up(code):
+                    modifier(code, false)
+                UiCore::Event.FocusLost:
+                    focus_lost()
+                _:
+                    pass
+            UiCore::request_frame_after(0.001)
+

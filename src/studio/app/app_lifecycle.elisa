@@ -1,0 +1,222 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+    public:
+        def init() -> void:
+            UiHandles::reset()
+            # The AppKit host asks UiBack before forwarding Escape. Keep the
+            # Studio workspace on the shared back stack so its own ordered
+            # escape layers (help, gestures, popovers, selection) get first
+            # refusal instead of an unhandled Escape closing the window.
+            _ = UiNavigation::push(1, UiNavigation::BackPolicy.Allow, false)
+            init_accessibility_toolbar()
+            initial: StackState::Stack = StudioModel::initial_stack()
+            HistoryState::reset(&history, initial)
+            history_ready <- true
+            if path_slot >= 0:
+                loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
+                    value: value
+                    error failure: GlbSkinMesh::empty()
+                if GlbSkinMesh::vertex_count(&loaded) > 0:
+                    mesh <- loaded
+            if model_requested:
+                load_character(model_path)
+            rebuild()
+            if clip is c:
+                timeline <- TimelineState::create(c.frames)
+                bone <- StudioModel::default_bone(c)
+                _ = puts("studio: clip loaded")
+            else:
+                timeline <- TimelineState::create(1)
+                if path_slot >= 0:
+                    _ = puts("studio: clip not found; tried path / animation:")
+                    _ = puts(path)
+                    _ = puts(anim_name)
+                    _ = puts("studio: quote a path that contains spaces")
+            view0 <- open_view(0)
+            view1 <- open_view(1)
+            view2 <- open_view(2)
+            if view0 == null:
+                status <- "no Metal device"
+                nudged_row <- -1
+                status_file <- null
+            last_time <- UiAppKitCanvas::monotonic_time()
+
+    private:
+        def advance() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            advance_storage_batch()
+            now: f64 = UiAppKitCanvas::monotonic_time()
+            elapsed: f64 = now - last_time
+            last_time <- now
+            if timeline is t:
+                if t.playing:
+                    # The timeline kernels count frames at Timeline::RATE;
+                    # scale wall time so the clip plays at its own rate.
+                    us: i64 = (elapsed * 1000000.0 * rate().f64() / Timeline::RATE.f64()).i64()
+                    n: TimelineState::State = TimelineState::tick(t, us)
+                    timeline <- n
+                    if n.frame != drawn_frame:
+                        revision <- revision + 1
+                    UiCore::request_frame_after(0.008)
+
+        # Shift-F overlay: the last rebuild's stage times and the last draw.
+        def perf_panel(c: StudioModel::Clip&) -> void:
+            x: f32 = 16.0
+            y: f32 = 44.0
+            StudioDraw::rect(x - 6.0, y - 4.0, 250.0, 96.0, StudioDraw::color(10, 12, 16))
+            StudioDraw::text(x, y, 12.0, StudioText::number("evaluate us ", c.evaluate_us), StudioDraw::ink())
+            StudioDraw::text(x, y + 15.0, 12.0, StudioText::number("detectors us ", c.detect_us), StudioDraw::ink())
+            StudioDraw::text(x, y + 30.0, 12.0, StudioText::number("draw us ", draw_us), StudioDraw::ink())
+            StudioDraw::text(x, y + 45.0, 12.0, StudioText::number("poses evaluated ", c.poses), StudioDraw::muted())
+            StudioDraw::text(x, y + 60.0, 12.0, StudioText::number("ops rerun ", c.ops_run), StudioDraw::muted())
+            StudioDraw::text(x, y + 75.0, 12.0, StudioText::number("drag bones moved ", preview_moved), StudioDraw::muted())
+
+    public:
+        def frame() -> void:
+            draw_start: f64 = UiAppKitCanvas::monotonic_time()
+            advance()
+            if not framed and clip != null:
+                framed <- true
+                frame_all()
+            w: f32 = UiCore::viewport_width()
+            h: f32 = UiCore::viewport_height()
+            UiCore::clear(StudioDraw::color(17, 20, 27))
+            s: StackState::Stack = current_stack()
+            mutable cursor: i64 = 0
+            mutable count: i64 = 1
+            mutable can_undo: bool = false
+            mutable can_redo: bool = false
+            mutable is_dirty: bool = false
+            if history_ready:
+                cursor <- history.cursor
+                count <- history.count
+                can_undo <- HistoryPolicy::can_undo(history.cursor)
+                can_redo <- HistoryPolicy::can_redo(history.cursor, history.count)
+                is_dirty <- HistoryState::dirty(&history)
+            screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
+            if timeline is t:
+                StudioPanels::toolbar(t, flags, can_undo, can_redo)
+                StudioDraw::text(StudioPanels::button_x(StudioPanels::BUTTONS) + 8.0, 16.0, 12.0, "?  shortcuts", StudioDraw::muted())
+                for i in 0..<3 |i|:
+                    b: StudioPanels::Box = view_box(i)
+                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(38, 40, 46))
+                if clip is c:
+                    first: i64 = -1
+                    last: i64 = -1
+                    if StackState::valid(s, s.selected):
+                        op: Ops::Operation = s.ops[s.selected]
+                        StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, op.first, op.last if op.last < c.frames else c.frames - 1)
+                    else:
+                        StudioPanels::timeline(StudioPanels::timeline_box(w, h), c, t, first, last)
+                    StudioPanels::curves(StudioPanels::curve_box(w, h), c, bone, t.frame, curve_mode, &curve_memo, built)
+                    perf_panel(c) if perf_overlay
+                    StudioPanels::stack_panel(StudioPanels::sidebar_box(w, h), s, c, cursor, count)
+                    StudioPanels::reset_menu_panel(StudioPanels::sidebar_box(w, h), s, reset_menu_open)
+                    contact_valid: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, c.frames)
+                    contact_edit_index: i64 = StackState::edit_index_at(s, contact_selected_side, contact_selected_frame) if contact_valid else -1
+                    mutable contact_edit_first: i64 = -1
+                    mutable contact_edit_last: i64 = -1
+                    if contact_edit_index >= 0:
+                        selected_edit: StackState::FootEdit = s.edits[contact_edit_index]
+                        contact_edit_first <- selected_edit.first
+                        contact_edit_last <- selected_edit.last
+                    contact_reset_available: bool = contact_edit_index >= 0
+                    contact_merge_available: bool = StackState::can_merge_edit_at(s, contact_selected_side, contact_selected_frame)
+                    contact_split_available: bool = StackState::can_split_edit_at(s, contact_selected_side, contact_selected_frame)
+                    StudioPanels::contact_editor_panel(StudioPanels::timeline_box(w, h),
+                        contact_selected_side, contact_selected_frame, c.frames,
+                        contact_reset_available, contact_edit_first, contact_edit_last,
+                        contact_merge_available, contact_split_available,
+                        contact_draft_target, contact_draft_value())
+                    StudioPanels::foot_marks(StudioPanels::timeline_box(w, h), c, hover_row)
+                    StudioPanels::contact_selection_marker(StudioPanels::timeline_box(w, h),
+                        contact_selected_side, contact_selected_frame, c.frames)
+                    StudioRetime::overlay(StudioPanels::timeline_box(w, h), c, &s, &selection, t.frame)
+                    StudioRetime::controls(StudioPanels::curve_box(w, h), RetimeState::ready(&selection) or band_focus >= 0, retime_speed, typing, typed_view())
+                    StudioPanels::cleanup_readout(StudioPanels::sidebar_box(w, h), c, readout_value(shown_slide, c.slide_after), readout_value(shown_sink, c.sink_after), readout_value(shown_hand_slide, c.hand_slide_after), s.blend)
+                else:
+                    UiCore::request_frame_after(0.016) if readout_progress() < StudioFoot::FULL
+                    drawn_frame <- t.frame
+            if screen == StudioChrome::SCREEN_EDIT:
+                draw_issue_browser(w, h, issues_revision != built, false)
+            if screen != StudioChrome::SCREEN_EDIT:
+                StudioPanels::guide(w, h, screen)
+            StudioPanels::file_menu_panel(StudioPanels::sidebar_box(w, h),
+                file_menu_open and not storage_screen_open, clip != null,
+                file_menu_focus, file_menu_hover)
+            StudioPanels::storage_panel(w, h, storage_screen_open,
+                storage_visible_entries, storage_visible_statuses, storage_visible_reasons, storage_cleanup_selection,
+                storage_selected, storage_focus, storage_message,
+                storage_protected_records, storage_unverified_records,
+                storage_restore_available(), storage_restore_review, storage_trash_available(), storage_move_review, storage_exemption_available(), storage_inspected_exempt(),
+                storage_overview_counts, storage_overview_bytes, storage_scan_seconds,
+                StudioStorageSelectionPolicy::retention_days(storage_retention_preset), storage_selection_bytes, storage_selection_removed,
+                storage_batch_state, storage_batch_completed, storage_batch_failed, storage_batch_untouched,
+                storage_batch_entries, storage_batch_items)
+            StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
+            StudioPanels::tooltip(hover_button)
+            StudioPanels::help_sheet(w, h) if help_open
+            StudioPanels::replacement_prompt_panel(w, h, replacement_prompt_open, replacement_focus, replacement_save_failed, replacement_is_close, replacement_is_termination)
+            StudioPanels::legacy_session_prompt_panel(w, h, legacy_prompt_open, legacy_prompt_focus)
+            if export_review_open and clip is c:
+                StudioPanels::export_review_panel(w, h, true, export_review_path, anim_name, c, s,
+                    current_export_warnings(), export_review_acknowledged, export_review_focus,
+                    export_review_warning_selected)
+            if export_warning_detail_open and clip is c:
+                StudioPanels::export_warning_detail_panel(w, h, true, c,
+                    current_export_warning_kind(export_warning_detail_index),
+                    export_warning_detail_index, current_export_warnings(),
+                    export_warning_detail_focus)
+            if export_path_inspector_open:
+                StudioPanels::export_path_inspector_panel(w, h, true, export_review_path,
+                    export_path_inspector_page, export_path_inspector_focus)
+            if export_result_open:
+                StudioPanels::export_result_panel(w, h, true, export_result_path, export_result_focus, export_report_saved)
+            if storage_screen_open:
+                publish_storage_accessibility(w, h)
+            elif screen == StudioChrome::SCREEN_EDIT and not help_open and not replacement_prompt_open and not legacy_prompt_open:
+                if timeline is current_timeline:
+                    publish_accessibility(w, h, s, current_timeline)
+            elif screen != StudioChrome::SCREEN_EDIT and not help_open and not replacement_prompt_open and not legacy_prompt_open:
+                publish_file_accessibility(w, h, true)
+            scale: f32 = UiAppKitCanvas::backing_scale()
+            sync_view(0, scale)
+            sync_view(1, scale)
+            sync_view(2, scale)
+            draw_us <- ((UiAppKitCanvas::monotonic_time() - draw_start) * 1000000.0).i64()
+
+        # Status message, with the live value of a running drag or the
+        # parameter just nudged, in its unit.
+    private:
+        def message(s: StackState::Stack&) -> sview:
+            if gizmo_drag != null and readout_angle >= 0:
+                StudioText::begin()
+                StudioText::put("rotate ")
+                StudioText::put_i(readout_angle / 10)
+                StudioText::put(".")
+                StudioText::put_i(readout_angle % 10)
+                StudioText::put("°   move ")
+                StudioText::put_i(readout_mm)
+                StudioText::put(" mm   (Esc cancels)")
+                return StudioText::view()
+            if nudged_row == -2:
+                StudioText::begin()
+                StudioText::put("blend ")
+                StudioPanels::frames_put(s.blend)
+                return StudioText::view()
+            if nudged_row >= 0 and StackState::valid(s, nudged_row):
+                op: Ops::Operation = s.ops[nudged_row]
+                StudioText::begin()
+                StudioText::put(StackState::kind_label(op.kind))
+                StudioText::put(": ")
+                StudioPanels::param_put(op)
+                return StudioText::view()
+            if status_file is file:
+                StudioText::begin()
+                StudioText::put(status)
+                StudioText::put(" ")
+                StudioPanels::file_name_put(file)
+                return StudioText::view()
+            return status
+

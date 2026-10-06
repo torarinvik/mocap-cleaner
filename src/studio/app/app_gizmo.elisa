@@ -1,0 +1,151 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def active_handle() -> i64:
+            if gizmo_drag is d:
+                return d.handle
+            GizmoPolicy::NONE
+
+        def set_gizmo(mode: i64) -> void:
+            gizmo_mode <- -1 if gizmo_mode == mode else mode
+            gizmo_view <- -1
+            gizmo_drag <- null
+            status <- ("gizmo: rotate (drag a ring)" if gizmo_mode == GizmoPolicy::ROTATE else "gizmo: translate (drag an arrow)") if gizmo_mode >= 0 else "gizmo off"
+            nudged_row <- -1
+            status_file <- null
+            touch()
+
+        # Pixel of window point (x, y) in view `i`.
+        def view_px(i: i64, x: f32) -> f32:
+            b: StudioPanels::Box = view_box(i)
+            (x - b.x) * UiAppKitCanvas::backing_scale()
+
+        def view_py(i: i64, y: f32) -> f32:
+            b: StudioPanels::Box = view_box(i)
+            (y - b.y) * UiAppKitCanvas::backing_scale()
+
+        # Start a gizmo drag when (x, y) hits a handle of the selected bone.
+        def gizmo_press(i: i64, x: f32, y: f32) -> bool:
+            if view(i) is opened:
+                if clip is c:
+                    return false if bone < 0
+                    g: ViewportGizmo::Gizmo = StudioScene::gizmo_for(c, frame_now(), bone, gizmo_mode)
+                    handle: i64 = ViewportGizmo::pick(&opened.camera, &g, view_px(i, x), view_py(i, y))
+                    return false if handle == GizmoPolicy::NONE
+                    r: PoseOverride::Rig = StudioModel::rig(c)
+                    held: PoseOverride::Overrides = PoseOverride::overrides(&r)
+                    mutable d: ViewportGizmo::Drag = ViewportGizmo::idle()
+                    ok: bool = catch ViewportGizmo::begin(&d, &opened.camera, &g, handle, view_px(i, x), view_py(i, y), &held, &r, bone.usize(), StudioScene::bone_model(c, frame_now(), bone)):
+                        value: value
+                        error failure: false
+                    return false if not ok
+                    gizmo_drag <- d
+                    gizmo_view <- i
+                    status <- "gizmo drag"
+                    nudged_row <- -1
+                    status_file <- null
+                    touch()
+                    return true
+            false
+
+        # Track the drag goal so the scene draws the live preview.
+        def gizmo_preview(x: f32, y: f32) -> void:
+            i: i64 = gizmo_view
+            if gizmo_drag is d:
+                if view(i) is opened:
+                    goal: Geometry::Transform = ViewportGizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
+                    gizmo_goal <- goal
+                    if clip is c:
+                        r: PoseOverride::Rig = StudioModel::rig(c)
+                        fix: Corrections::Correction = StudioModel::correction_for(c, r, bone, frame_now(), goal)
+                        readout_angle <- StudioReadout::angle_tenths(fix.rotation)
+                        readout_mm <- StudioReadout::millimetres(fix.translation)
+                    touch()
+
+        # Key the dragged pose at the current frame as a correction.
+        def gizmo_release(x: f32, y: f32) -> void:
+            i: i64 = gizmo_view
+            gizmo_view <- -1
+            if gizmo_drag is d:
+                if view(i) is opened:
+                    if clip is c:
+                        goal: Geometry::Transform = ViewportGizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
+                        r: PoseOverride::Rig = StudioModel::rig(c)
+                        fix: Corrections::Correction = StudioModel::correction_for(c, r, bone, frame_now(), goal)
+                        mutable s: StackState::Stack = current_stack()
+                        if StackState::add_fix(&s, fix):
+                            commit(s, true)
+                            status <- "correction keyed"
+                            nudged_row <- -1
+                            status_file <- null
+                        else:
+                            status <- "corrections full (16)"
+                            nudged_row <- -1
+                            status_file <- null
+            gizmo_drag <- null
+            gizmo_goal <- null
+            readout_angle <- -1
+            readout_mm <- -1
+            touch()
+
+        def gizmo_cancel() -> void:
+            readout_angle <- -1
+            readout_mm <- -1
+            gizmo_view <- -1
+            gizmo_drag <- null
+            gizmo_goal <- null
+            status <- "gizmo drag cancelled"
+            nudged_row <- -1
+            status_file <- null
+            touch()
+
+        # A native focus loss may suppress the matching pointer-up. Cancel
+        # every unfinished gesture so it cannot commit when focus returns.
+        def focus_lost() -> void:
+            contact_cancel_frame_draft() if contact_draft_target >= 0
+            was_gizmo: bool = gizmo_view >= 0
+            mutable f: StudioFocus::Interaction = StudioFocus::Interaction{
+                modifiers: modifiers,
+                drag_view: drag_view,
+                drag_button: drag_button.i64(),
+                scrubbing: scrubbing,
+                selecting: selecting,
+                slider_drag: slider_drag,
+                retime_speed: retime_speed,
+                slider_start_speed: slider_start_speed,
+                edge_drag_band: edge_drag.band,
+                contact_press: FootState::active(&foot_press),
+                gizmo_view: gizmo_view,
+                typing: typing,
+                selection_active: selection.active,
+                gizmo_mode: gizmo_mode
+            }
+            f <- StudioFocus::after_focus_lost(f)
+            file_menu_open <- false
+            file_menu_hover <- -1
+            reset_menu_open <- false
+            modifiers <- f.modifiers
+            drag_view <- f.drag_view
+            drag_button <- f.drag_button.i32()
+            scrubbing <- f.scrubbing
+            selecting <- f.selecting
+            slider_drag <- f.slider_drag
+            retime_speed <- f.retime_speed
+            edge_drag <- RetimeState::no_drag()
+            foot_press <- FootState::idle()
+            gizmo_view <- f.gizmo_view
+            typing <- f.typing
+            typed_len <- 0
+            selection <- RetimeState::none() if not f.selection_active else selection
+            if was_gizmo:
+                gizmo_cancel()
+            else:
+                gizmo_drag <- null
+                gizmo_goal <- null
+                readout_angle <- -1
+                readout_mm <- -1
+            touch()
+
+        # Escape peels one layer: the sheet, a drag, a contact press, the
+        # gizmo, then the selection (StudioChrome::escape_layer).

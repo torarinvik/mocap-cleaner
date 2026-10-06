@@ -1,0 +1,77 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def spare_path_slot() -> i64:
+            return 0 if path_slot == 1
+            1
+
+        def copy_path(p: cstr, slot: i64) -> bool can Unsafe.PointerCast:
+            return false if slot != 0 and slot != 1
+            mutable i: usize = 0
+            while i < PATH_CAPACITY:
+                c: u8 = p[i]
+                if c == 0:
+                    if slot == 0:
+                        path_bytes0[i] <- 0
+                    else:
+                        path_bytes1[i] <- 0
+                    return true
+                return false if i == PATH_CAPACITY - 1
+                if slot == 0:
+                    path_bytes0[i] <- c
+                else:
+                    path_bytes1[i] <- c
+                i <- i + 1
+            false
+
+        def stored_path(slot: i64) -> cstr can Unsafe.PointerCast:
+            return (&path_bytes0[0]).cast[cstr] if slot == 0
+            (&path_bytes1[0]).cast[cstr]
+
+        def stage_pending_path(p: cstr) -> bool can Unsafe.PointerCast:
+            mutable i: usize = 0
+            while i < PATH_CAPACITY:
+                c: u8 = p[i]
+                if c == 0:
+                    pending_path_bytes[i] <- 0
+                    return true
+                return false if i == PATH_CAPACITY - 1
+                pending_path_bytes[i] <- c
+                i <- i + 1
+            false
+
+        def pending_path() -> cstr can Unsafe.PointerCast:
+            (&pending_path_bytes[0]).cast[cstr]
+
+        def set_session_path(p: cstr) -> bool can Unsafe.PointerCast:
+            mutable i: usize = 0
+            while i < PATH_CAPACITY and p[i] != 0:
+                i <- i + 1
+            return false if i == PATH_CAPACITY
+            mutable copied: usize = 0
+            while copied <= i:
+                session_path_bytes[copied] <- p[copied]
+                copied <- copied + 1
+            session_path <- (&session_path_bytes[0]).cast[cstr]
+            true
+
+    public:
+        def set_path(p: cstr) -> void can Unsafe.PointerCast:
+            slot: i64 = spare_path_slot()
+            if copy_path(p, slot):
+                path_slot <- slot
+                path <- stored_path(slot)
+            else:
+                status <- "take path exceeds 4095 bytes"
+                status_file <- null
+
+        def set_anim(a: cstr) -> void:
+            anim_name <- a
+
+        def set_model(p: cstr) -> void:
+            model_path <- p
+            model_requested <- true
+
+        # Load the character model in `p`; the current one stays when `p`
+        # holds no skinned mesh. Turns the mesh view on.

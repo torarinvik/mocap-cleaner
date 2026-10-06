@@ -1,0 +1,125 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def frame_all() -> void:
+            if clip is c:
+                pts: darray[Geometry::Vec3] = StudioScene::points(c, frame_now())
+                for i in 0..<3 |i, pts|:
+                    if view(i) is opened:
+                        mutable vp: Viewport::Viewport = opened
+                        _ = ViewportCamera::frame_points(&vp.camera, &pts, 1.15)
+                        Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                        put_view(i, vp)
+                touch()
+
+        def view_at(x: f32, y: f32) -> i64:
+            for i in 0..<3 |i, x, y|:
+                return i if StudioPanels::inside(view_box(i), x, y)
+            -1
+
+        def modal_overlay_active() -> bool:
+            StudioModalPolicy::hides_viewports(help_open, replacement_prompt_open,
+                legacy_prompt_open, export_review_open, export_warning_detail_open,
+                export_path_inspector_open, export_result_open) or storage_screen_open
+
+        def sync_view(i: i64, scale: f32) -> void:
+            if modal_overlay_active():
+                # Native hosted surfaces render above canvas overlays. Remove
+                # them while a blocking sheet is drawn; the next normal sync
+                # presents them again after the sheet closes.
+                if i == 0 and shown0.surface != 0:
+                    UiAppKitCanvas::remove_hosted(&shown0, 0)
+                elif i == 1 and shown1.surface != 0:
+                    UiAppKitCanvas::remove_hosted(&shown1, 1)
+                elif i == 2 and shown2.surface != 0:
+                    UiAppKitCanvas::remove_hosted(&shown2, 2)
+                return
+            if view(i) is opened:
+                mutable vp: Viewport::Viewport = opened
+                rect: UiHostedSurface::Rect = rect_of(view_box(i))
+                _ = catch Viewport::resize(&vp, UiHostedSurface::pixel_extent(rect.width, scale), UiHostedSurface::pixel_extent(rect.height, scale)):
+                    value: value
+                    error failure: false
+                if seen(i) != revision:
+                    Viewport::invalidate(&vp, ViewportPolicy::DIRTY_SCENE)
+                    put_seen(i, revision)
+                if clip is c:
+                    refresh_skin(c)
+                    empty_mesh: GlbSkinMesh::Mesh = GlbSkinMesh::empty()
+                    no_points: darray[Geometry::Vec3] = []
+                    mutable list: ViewportDraw::List = draw_list(&vp.camera, c, &empty_mesh, &no_points)
+                    if gizmo_mode >= 0 and bone >= 0:
+                        g: ViewportGizmo::Gizmo = StudioScene::gizmo_for(c, frame_now(), bone, gizmo_mode)
+                        _ = catch ViewportGizmo::draw(&list, &vp.camera, &g, GizmoPolicy::NONE, active_handle()):
+                            value: value
+                            error failure: 0
+                    _ = catch Viewport::tick(&vp, &list):
+                        value: value
+                        error failure: false
+                action: i32 = present(i, vp, rect)
+                if action == UiHostedSurface::APPLY:
+                    _ = Viewport::acknowledge(&vp, vp.published_frame)
+                if vp.dirty != 0:
+                    UiCore::request_frame_after(0.016)
+                put_view(i, vp)
+
+        # Re-skin the mesh when the frame or the clip changed (MESH on only).
+        # A drawable character model wins over the take's own mesh.
+        def refresh_skin(c: StudioModel::Clip&) -> void:
+            return if not StudioScene::on(flags, StudioScene::MESH)
+            bind_character(c)
+            return if skinned_frame == frame_now() and skinned_revision == revision
+            if character_ready():
+                if character is ch:
+                    if character_binding is b:
+                        posed_character: darray[Geometry::Vec3] = StudioCharacter::pose(ch, b, c, frame_now())
+                        skinned <- posed_character
+                        skinned_frame <- frame_now()
+                        skinned_revision <- revision
+                return
+            if mesh is m:
+                posed: darray[Geometry::Vec3] = StudioScene::pose_mesh(c, m, frame_now())
+                skinned <- posed
+                skinned_frame <- frame_now()
+                skinned_revision <- revision
+
+        # Refreshes the cached base pose and solves the gizmo chain preview. It reads and
+        # writes heap globals, so its allocations live in the never-freed static region;
+        # keeping it out of draw_list confines that to frames with an active gizmo goal.
+        def chain_preview_of(c: StudioModel::Clip&, goal: Geometry::Transform) -> darray[Geometry::Transform]:
+            r: PoseOverride::Rig = StudioModel::rig(c)
+            if base_frame != frame_now() or base_built != built:
+                base_models <- StudioModel::models(c, r, frame_now(), false)
+                base_locals <- StudioClip::locals_at(c.cleaned, c.anim, frame_now(), c.nodes, c.slot)
+                base_frame <- frame_now()
+                base_built <- built
+            p: StudioPerf::Preview = StudioPerf::chain_preview(r, base_models, base_locals, bone, goal)
+            preview_moved <- p.moved
+            return move p.models
+
+        def draw_list(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, empty_mesh: GlbSkinMesh::Mesh&, no_points: darray[Geometry::Vec3]&) -> ViewportDraw::List:
+            mutable preview: darray[Geometry::Transform] = []
+            if StudioOverlay::preview(gizmo_view, gizmo_drag != null, bone):
+                if gizmo_goal is goal:
+                    preview <- chain_preview_of(c, goal)
+            if character_ready():
+                if character is ch:
+                    if skinned is p:
+                        return StudioScene::build_with(cam, c, &ch.mesh, p, frame_now(), flags, bone, &preview)
+                return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
+            if mesh is m:
+                if skinned is p:
+                    return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
+            return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
+
+        def present(i: i64, vp: Viewport::Viewport&, rect: UiHostedSurface::Rect) -> i32:
+            w: f32 = UiCore::viewport_width()
+            h: f32 = UiCore::viewport_height()
+            if i == 0:
+                return UiAppKitCanvas::present_hosted(&shown0, 0, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+            if i == 1:
+                return UiAppKitCanvas::present_hosted(&shown1, 1, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+            UiAppKitCanvas::present_hosted(&shown2, 2, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+
+        # ---- lifecycle -------------------------------------------------

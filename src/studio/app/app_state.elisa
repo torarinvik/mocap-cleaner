@@ -1,0 +1,344 @@
+# The studio window: three hosted engine viewports (perspective, front,
+# side), the curve view, the timeline and the operation stack, wired to the
+# state modules. Every stack edit is recorded in history and rebuilds the
+# cleaned clip (live preview through the same clean_animation the CLI
+# exports with, posed with PoseOverride).
+#
+# Heap values stored in module globals must outlive the updating function.
+# Current stage1 rehomes supported globals into owned generations and uses a
+# static region for types it cannot clone. test/studio_global_lifetime.elisa
+# checks the runtime boundary with arrays, nested records and optional records.
+include "../../../../elisa-ui/src/platform/appkit/ui_appkit_canvas_flat.elisa"
+include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
+include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
+include "../io/file_trash.elisa"
+include "../storage_restore_policy.elisa"
+include "../storage_move_policy.elisa"
+include "../storage_selection_policy.elisa"
+include "../storage_batch_policy.elisa"
+include "../storage_identity_policy.elisa"
+include "../storage_totals_kernel.elisa"
+include "../storage_overview_policy.elisa"
+include "../storage_registration_policy.elisa"
+include "../io/storage_clock.elisa"
+include "../storage_accessibility_policy.elisa"
+include "../io/storage_manifest_file.elisa"
+include "../io/storage_manifest_lock_file.elisa"
+include "../io/storage_artifact_destination.elisa"
+include "../io/storage_manifest_version.elisa"
+include "../io/storage_preferences_file.elisa"
+include "../io/storage_exemptions_file.elisa"
+include "scene.elisa"
+include "character.elisa"
+include "panels.elisa"
+include "../issues.elisa"
+include "../issue_annotation.elisa"
+include "../contact_frame_policy.elisa"
+include "../text_entry_policy.elisa"
+include "../modal_policy.elisa"
+include "retime_panel.elisa"
+include "../shortcuts.elisa"
+include "../focus.elisa"
+include "../replacement.elisa"
+include "../accessibility.elisa"
+include "../export_policy.elisa"
+include "../export_review.elisa"
+include "../export_result.elisa"
+include "../export_report.elisa"
+include "export_publisher.elisa"
+include "storage_accessibility_copy.elisa"
+include "../state/session_state.elisa"
+include "../state/readout.elisa"
+
+extern puts(text: cstr) -> i64
+
+module Studio:
+    private:
+        const EXPORT_PATH: cstr = "build/studio_export.glb"
+        const SESSION_PATH: cstr = "build/studio_session.txt"
+        const STORAGE_MANIFEST_PATH: cstr = "build/studio_storage_manifest.txt"
+        const STORAGE_LOCK_PATH: cstr = "build/studio_storage_manifest.lock"
+        global mutable storage_transaction_active: bool = false
+        global mutable storage_release_uncertain: bool = false
+        const STORAGE_PREFERENCES_PATH: cstr = "build/studio_storage_preferences.txt"
+        const STORAGE_EXEMPTIONS_PATH: cstr = "build/studio_storage_exemptions.txt"
+        const PATH_CAPACITY: usize = 4096
+
+        global mutable path: cstr = ""
+        # The native file-drop callback borrows its UTF-8 path only until it
+        # returns. Two fixed buffers let us stage a new path and keep the
+        # current take's path intact if loading the new take fails.
+        global mutable path_bytes0: u8[4096] = zeroed
+        global mutable path_bytes1: u8[4096] = zeroed
+        # Replacement prompts outlive native chooser callbacks; session paths
+        # need storage independent of both the take and pending file buffers.
+        global mutable pending_path_bytes: u8[4096] = zeroed
+        global mutable session_path_bytes: u8[4096] = zeroed
+        global mutable path_slot: i64 = -1
+        global mutable anim_name: cstr = "jab"
+        global mutable clip: StudioModel::Clip? = null
+        global mutable history: HistoryState::History = zeroed
+        global mutable history_ready: bool = false
+        global mutable timeline: TimelineState::State? = null
+        global mutable flags: i64 = StudioScene::DEFAULT_FLAGS
+        global mutable bone: i64 = 0
+        global mutable last_time: f64 = 0.0
+        global mutable drawn_frame: i64 = -1
+        global mutable revision: i64 = 0
+        # Findings are snapshotted from the last completed clip build. A row
+        # carries that build's revision so navigation can reject stale data.
+        global mutable issues: darray[StudioIssues::Issue] = zeroed
+        global mutable issues_revision: i64 = -1
+        global mutable issue_selected: i64 = 0
+        global mutable filtered_issues: darray[StudioIssues::Issue] = zeroed
+        global mutable issue_filter: StudioIssueFilterPolicy::Filter = zeroed
+        global mutable issue_filter_ready: bool = false
+        global mutable issue_annotations: StudioIssueAnnotation::Store = zeroed
+        global mutable pending_session_annotations: darray[SessionIssueAnnotationPolicy::Stored] = zeroed
+        global mutable pending_session_annotation_restore: bool = false
+        global mutable session_annotations_expired: i64 = 0
+
+        def clear_pending_session_annotations() -> void:
+            pending_session_annotations <- zeroed
+            pending_session_annotation_restore <- false
+        global mutable status: sview = "ready"
+        # Live drag readouts: gizmo angle (tenths of a degree) and offset
+        # (mm), -1 when no gizmo drag is running; and the stack row whose
+        # strength was just nudged, -1 for none.
+        global mutable readout_angle: i64 = -1
+        global mutable readout_mm: i64 = -1
+        global mutable nudged_row: i64 = -1
+        # File the status line names (appended after `status`), or null.
+        global mutable status_file: cstr? = null
+        # Where Cmd-S saves the session and E exports; Save As / Export As
+        # (native panels) change them.
+        global mutable session_path: cstr = "build/studio_session.txt"
+        global mutable export_path: cstr = "build/studio_export.glb"
+        global mutable storage_manifest_state: i64 = 0
+        global mutable storage_entries: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_visible_entries: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_visible_statuses: darray[i64] = zeroed
+        global mutable storage_visible_reasons: darray[i64] = zeroed
+        global mutable storage_cleanup_selection: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_selection_bytes: i64 = 0
+        global mutable storage_selection_removed: i64 = 0
+        global mutable storage_current_reports: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_tracking_failed: bool = false
+        global mutable storage_screen_open: bool = false
+        global mutable storage_focus: i64 = -1
+        global mutable storage_selected: i64 = -1
+        global mutable storage_restore_review: bool = false
+        global mutable storage_move_review: bool = false
+        global mutable storage_move_entry: StudioStorageManifest::Entry = zeroed
+        global mutable storage_review_manifest_version: darray[u8] = zeroed
+        global mutable storage_batch_manifest_version: darray[u8] = zeroed
+        global mutable storage_restore_manifest_version: darray[u8] = zeroed
+        global mutable storage_review_selection: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_review_retention: i64 = StudioStorageSelectionPolicy::RETENTION_PRESET_DEFAULT
+        global mutable storage_batch_entries: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_batch_items: darray[i64] = zeroed
+        global mutable storage_batch_state: i64 = StudioStorageBatchPolicy::STATE_IDLE
+        global mutable storage_batch_index: i64 = 0
+        global mutable storage_batch_completed: i64 = 0
+        global mutable storage_batch_failed: i64 = 0
+        global mutable storage_batch_untouched: i64 = 0
+        global mutable storage_batch_cancel: bool = false
+        global mutable storage_exemptions_valid: bool = false
+        global mutable storage_exemptions: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_preferences_valid: bool = false
+        global mutable storage_retention_preset: i64 = StudioStorageSelectionPolicy::RETENTION_PRESET_DEFAULT
+        global mutable storage_restore_entry: StudioStorageManifest::Entry = zeroed
+        global mutable storage_move_outcome: i64 = StudioStorageMovePolicy::OUTCOME_NOT_STARTED
+        global mutable storage_retained_receipt: StudioStorageManifest::Entry? = null
+        global mutable storage_message: i64 = 0
+        global mutable storage_scan_seconds: i64 = -1
+        global mutable storage_protected_records: i64 = 0
+        global mutable storage_unverified_records: i64 = 0
+        global mutable storage_overview_counts: darray[i64] = zeroed
+        global mutable storage_overview_bytes: darray[i64] = zeroed
+        const REPLACE_TAKE: i64 = 1
+        const REPLACE_SESSION: i64 = 2
+        const REPLACE_CLOSE: i64 = 3
+        global mutable pending_replacement: i64 = 0
+        global mutable pending_replacement_allows_legacy: bool = false
+        global mutable pending_session_stack: StackState::Stack = zeroed
+        global mutable pending_session_ready: bool = false
+        # Chrome: the "?" sheet, whether the take failed to load, and the
+        # toolbar button under the pointer (for its tooltip).
+        global mutable help_open: bool = false
+        global mutable load_failed: bool = false
+        global mutable hover_button: i64 = -1
+        # The sidebar File menu is keyboard navigable as well as clickable.
+        global mutable file_menu_open: bool = false
+        global mutable file_menu_focus: i64 = 0
+        global mutable file_menu_hover: i64 = -1
+        global mutable reset_menu_open: bool = false
+        global mutable export_review_open: bool = false
+        global mutable export_review_acknowledged: bool = false
+        global mutable export_review_focus: i64 = StudioExportReview::EXPORT
+        global mutable export_review_path: cstr = ""
+        global mutable export_review_overwrite: bool = false
+        global mutable export_review_warning_selected: i64 = 0
+        global mutable export_warning_detail_open: bool = false
+        global mutable export_warning_detail_index: i64 = 0
+        global mutable export_warning_detail_focus: i64 = StudioExportPathReview::DONE
+        global mutable export_path_inspector_open: bool = false
+        global mutable export_path_inspector_page: i64 = 0
+        global mutable export_path_inspector_focus: i64 = StudioExportPathReview::DONE
+        global mutable export_result_open: bool = false
+        global mutable export_report_saved: bool = false
+        global mutable export_result_path: cstr = ""
+        global mutable export_result_focus: i64 = StudioExportResult::OPEN
+        global mutable replacement_prompt_open: bool = false
+        global mutable replacement_is_close: bool = false
+        global mutable replacement_is_termination: bool = false
+        global mutable replacement_focus: i64 = StudioReplacement::FOCUS_SAVE
+        global mutable replacement_save_failed: bool = false
+        global mutable legacy_prompt_open: bool = false
+        global mutable legacy_prompt_focus: i64 = StudioLegacyPrompt::FOCUS_CANCEL
+        # One-shot authorization consumed by the synchronous native close
+        # callback after Save or Discard is chosen in the confirmation panel.
+        global mutable close_authorized: bool = false
+        global mutable termination_authorized: bool = false
+        # Last one-click clean: permille of slide and spikes removed, or -1.
+        global mutable gain_slide: i64 = -1
+        global mutable gain_spikes: i64 = -1
+        # Skinned mesh of the clip's character, loaded once, and its pose
+        # cached per (frame, revision).
+        global mutable mesh: GlbSkinMesh::Mesh? = null
+        global mutable skinned: darray[Geometry::Vec3]? = null
+        global mutable skinned_frame: i64 = -1
+        global mutable skinned_revision: i64 = -1
+        # A separate character model (Shift-M, or the third command-line
+        # argument), bound to the take's rig by joint name; it is drawn
+        # instead of the take's own mesh while its binding is drawable.
+        # `take_serial` counts takes opened so the binding follows them.
+        global mutable model_path: cstr = ""
+        global mutable model_requested: bool = false
+        global mutable character: StudioCharacter::Model? = null
+        global mutable character_binding: StudioCharacter::Binding? = null
+        global mutable character_take: i64 = -1
+        global mutable take_serial: i64 = 0
+        # Gizmo: GizmoPolicy mode, or -1 when hidden; the drag and its view.
+        global mutable gizmo_mode: i64 = -1
+        global mutable gizmo_drag: ViewportGizmo::Drag? = null
+        global mutable gizmo_view: i64 = -1
+        # Pose goal of the running gizmo drag, for the live preview.
+        global mutable gizmo_goal: Geometry::Transform? = null
+        # Curve view channel (StudioOverlay::ROTATION or POSITION).
+        global mutable curve_mode: i64 = 0
+        # Held modifiers (StudioShortcuts mask).
+        global mutable modifiers: i64 = 0
+        # Phase 6 caches: the loaded take and op caches, the stack the clip
+        # was built from, a counter bumped per rebuild, the curve memo, the
+        # drag preview's base pose (per frame and build), and the Shift-F
+        # frame-time overlay with the last draw time.
+        global mutable memo: StudioModel::Memo? = null
+        global mutable built_stack: StackState::Stack? = null
+        global mutable built: i64 = 0
+        global mutable rig_source_revision: i64 = 0
+        global mutable curve_memo: StudioPerf::Curves = zeroed
+        global mutable base_models: darray[Geometry::Transform] = zeroed
+        global mutable base_locals: darray[Geometry::Transform] = zeroed
+        global mutable base_frame: i64 = -1
+        global mutable base_built: i64 = -1
+        global mutable perf_overlay: bool = false
+        global mutable draw_us: i64 = 0
+        global mutable preview_moved: i64 = 0
+
+        global mutable view0: Viewport::Viewport? = null
+        global mutable view1: Viewport::Viewport? = null
+        global mutable view2: Viewport::Viewport? = null
+        global mutable seen0: i64 = -1
+        global mutable seen1: i64 = -1
+        global mutable seen2: i64 = -1
+        global mutable shown0: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
+        global mutable shown1: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
+        global mutable shown2: UiHostedSurface::Shown = UiHostedSurface::Shown{surface: 0, generation: 0, frame: -1, rect: UiHostedSurface::Rect{x: 0.0, y: 0.0, width: 0.0, height: 0.0}}
+        global mutable framed: bool = false
+        global mutable accessibility_toolbar_widgets: usize[StudioPanels::BUTTONS.usize()] = zeroed
+        global mutable accessibility_toolbar_ready: bool = false
+        global mutable accessibility_file_trigger_widget: usize = 0
+        global mutable accessibility_file_menu_widgets: usize[StudioFilePolicy::ROWS.usize()] = zeroed
+        global mutable accessibility_file_ready: bool = false
+        global mutable accessibility_storage_action_widgets: usize[StudioPanels::STORAGE_ACTION_COUNT.usize()] = zeroed
+        global mutable accessibility_storage_row_widgets: usize[StudioStorageAccessibilityPolicy::ROW_COUNT.usize()] = zeroed
+        global mutable accessibility_storage_row_indices: i64[StudioStorageAccessibilityPolicy::ROW_COUNT.usize()] = zeroed
+        global mutable accessibility_storage_ready: bool = false
+        global mutable accessibility_review_ack_widget: usize = 0
+        global mutable accessibility_review_destination_widget: usize = 0
+        global mutable accessibility_review_cancel_widget: usize = 0
+        global mutable accessibility_review_export_widget: usize = 0
+        global mutable accessibility_review_warning_widgets: usize[StudioExportReview::MAX_WARNINGS.usize()] = zeroed
+        global mutable accessibility_review_ready: bool = false
+        global mutable accessibility_warning_previous_widget: usize = 0
+        global mutable accessibility_warning_next_widget: usize = 0
+        global mutable accessibility_warning_done_widget: usize = 0
+        global mutable accessibility_warning_ready: bool = false
+        global mutable accessibility_path_previous_widget: usize = 0
+        global mutable accessibility_path_next_widget: usize = 0
+        global mutable accessibility_path_done_widget: usize = 0
+        global mutable accessibility_path_ready: bool = false
+        global mutable accessibility_result_open_widget: usize = 0
+        global mutable accessibility_result_folder_widget: usize = 0
+        global mutable accessibility_result_done_widget: usize = 0
+        global mutable accessibility_result_ready: bool = false
+        global mutable accessibility_contact_plant_widget: usize = 0
+        global mutable accessibility_contact_lift_widget: usize = 0
+        global mutable accessibility_contact_reset_widget: usize = 0
+        global mutable accessibility_contact_delete_widget: usize = 0
+        global mutable accessibility_contact_merge_widget: usize = 0
+        global mutable accessibility_contact_split_widget: usize = 0
+        global mutable accessibility_contact_ready: bool = false
+        global mutable accessibility_reset_trigger_widget: usize = 0
+        global mutable accessibility_reset_contacts_widget: usize = 0
+        global mutable accessibility_reset_corrections_widget: usize = 0
+        global mutable accessibility_reset_source_widget: usize = 0
+        global mutable accessibility_reset_ready: bool = false
+        global mutable accessibility_stack_duplicate_widget: usize = 0
+        global mutable accessibility_stack_ready: bool = false
+        global mutable accessibility_issue_previous_widget: usize = 0
+        global mutable accessibility_issue_next_widget: usize = 0
+        global mutable accessibility_issue_worst_widget: usize = 0
+        global mutable accessibility_issue_filter_widgets: usize[4] = zeroed
+        global mutable accessibility_issue_filter_reset_widget: usize = 0
+        global mutable accessibility_issue_intent_widget: usize = 0
+        global mutable accessibility_issue_filter_ready: bool = false
+        global mutable accessibility_issue_row_widgets: usize[StudioPanels::ISSUE_FILTERED_ROWS.usize()] = zeroed
+        global mutable accessibility_issue_ready: bool = false
+
+        global mutable drag_view: i64 = -1
+        global mutable drag_button: i32 = -1
+        global mutable scrubbing: bool = false
+        global mutable last_x: f32 = 0.0
+        global mutable last_y: f32 = 0.0
+        global mutable down_x: f32 = 0.0
+        global mutable down_y: f32 = 0.0
+        # Foot cleanup: the contact-bar press in progress, the hovered
+        # contact row (StackState::LEFT/RIGHT or -1), and the readout
+        # transition (values shown before the last rebuild, and its start).
+        global mutable foot_press: FootState::Press = FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
+        global mutable contact_selected_side: i64 = StudioContactEditor::NO_SIDE
+        global mutable contact_selected_frame: i64 = -1
+        global mutable contact_draft_target: i64 = -1
+        global mutable contact_draft_side: i64 = StudioContactEditor::NO_SIDE
+        global mutable contact_draft_frame: i64 = -1
+        global mutable hover_row: i64 = -1
+        global mutable shown_slide: i64 = 0
+        global mutable shown_sink: i64 = 0
+        global mutable shown_hand_slide: i64 = 0
+        global mutable readout_start: f64 = 0.0
+        # Retiming: Shift-drag selection (output frames), band edge drag,
+        # focused band (Delete removes it), slider and typed speed.
+        global mutable selection: RetimeState::Selection = RetimeState::Selection{active: false, anchor: -1, head: -1}
+        global mutable selecting: bool = false
+        global mutable edge_drag: RetimeState::EdgeDrag = RetimeState::EdgeDrag{band: -1, last_edge: false}
+        global mutable band_focus: i64 = -1
+        global mutable slider_drag: bool = false
+        global mutable retime_speed: i64 = 1000
+        global mutable slider_start_speed: i64 = 1000
+        global mutable typing: bool = false
+        global mutable typed: u8[8] = zeroed
+        global mutable typed_len: i64 = 0
+        const READOUT_MS: i64 = 250
+

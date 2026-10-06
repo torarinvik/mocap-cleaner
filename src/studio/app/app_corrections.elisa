@@ -1,0 +1,242 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def rebuild() -> void:
+            if path_slot < 0:
+                load_failed <- false
+                return
+            s: StackState::Stack = current_stack()
+            if clip is old:
+                shown_slide <- readout_value(shown_slide, old.slide_after)
+                shown_sink <- readout_value(shown_sink, old.sink_after)
+                shown_hand_slide <- readout_value(shown_hand_slide, old.hand_slide_after)
+            readout_start <- UiAppKitCanvas::monotonic_time()
+            if memo == null:
+                memo <- StudioModel::load(path, anim_name)
+            mutable result: StudioModel::Clip? = null
+            if memo is held:
+                mutable m: StudioModel::Memo = held
+                memo <- null
+                if built_stack is prior:
+                    rig_source_revision <- rig_source_revision + 1 if not StackState::same_rig_source(prior, s)
+                else:
+                    rig_source_revision <- rig_source_revision + 1
+                w: mutable StudioPerf::Window = StudioPerf::full(m.frames)
+                if clip is c:
+                    if built_stack is old:
+                        w <- StudioPerf::edit_window(old, s, m.frames, m.shortest)
+                    result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w, rig_source_revision)
+                else:
+                    none_p: darray[Geometry::Vec3] = []
+                    none_i: darray[i64] = []
+                    result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w, rig_source_revision)
+                memo <- move m
+            if result == null:
+                status <- "clip failed to load"
+                nudged_row <- -1
+                status_file <- null
+                load_failed <- true
+                return
+            load_failed <- false
+            clip <- move result
+            StudioPanels::set_rate(rate())
+            sync_count()
+            built_stack <- s
+            built <- built + 1
+            if clip is c:
+                collect_issues(c)
+            touch()
+
+        # A retime changes the clip length: keep the playhead on the same
+        # source frame.
+        def sync_count() -> void:
+            if timeline is t:
+                n: i64 = frames()
+                if t.count != n:
+                    mutable u: TimelineState::State = TimelineState::create(n)
+                    u.looping <- t.looping
+                    u.divisor <- t.divisor
+                    set_timeline(TimelineState::scrub(u, t.frame * n / t.count))
+                    contact_cancel_frame_draft() if contact_draft_target >= 0
+                    contact_selected_side <- StudioContactEditor::NO_SIDE
+                    contact_selected_frame <- -1
+
+        # ---- retiming ------------------------------------------------------
+        # Speed for the selection (a new band or the band under it), else for
+        # the focused band.
+        def retime_to(speed: i64) -> void:
+            retime_speed <- Retime::clamp_speed(speed)
+            if clip is c:
+                mutable s: StackState::Stack = current_stack()
+                mutable ok: bool = false
+                if RetimeState::ready(&selection):
+                    first: i64 = StudioModel::source_frame(c, RetimeState::lo(&selection))
+                    last: i64 = StudioModel::source_frame(c, RetimeState::hi(&selection))
+                    ok <- RetimeState::apply_speed(&s, first, last, retime_speed, c.source_frames)
+                    band_focus <- StackState::band_at(&s, first)
+                elif band_focus >= 0:
+                    ok <- StackState::set_band_speed(&s, band_focus, retime_speed)
+                if ok:
+                    selection <- RetimeState::none()
+                    commit(s, true)
+                    status <- StudioText::number("retime permille ", retime_speed)
+                else:
+                    status <- "retime: Shift-drag a range (no overlap with a band)"
+                touch()
+
+        def typed_view() -> sview can Unsafe.PointerCast:
+            StudioText::begin()
+            StudioText::put("speed: ")
+            for i in 0..<typed_len.usize():
+                StudioText::byte(typed[i])
+            StudioText::byte(95)
+            return StudioText::view()
+
+        def typed_speed() -> i64:
+            StudioText::begin()
+            for i in 0..<typed_len.usize():
+                StudioText::byte(typed[i])
+            return RetimeState::parse_speed(StudioText::view())
+
+    public:
+        def text_input(text: sview) -> void:
+            return if not typing or text.len <= 0 or text.data == null
+            for i in 0..<text.len.usize():
+                append_typed_character(text.data[i].i64())
+
+        # AppKit's immediate-mode numeric fields do not own a native text
+        # widget. Their custom view receives physical key events, so accept
+        # printable characters through the same whitelist as committed text.
+    private:
+        def append_typed_key(code: UiCore::Key) -> void:
+            return if modifiers != 0
+            mutable character: i64 = StudioTextEntryPolicy::REJECT
+            character <- StudioTextEntryPolicy::ASCII_ZERO if code == UiCore::Key.Digit0
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 1 if code == UiCore::Key.Digit1
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 2 if code == UiCore::Key.Digit2
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 3 if code == UiCore::Key.Digit3
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 4 if code == UiCore::Key.Digit4
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 5 if code == UiCore::Key.Digit5
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 6 if code == UiCore::Key.Digit6
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 7 if code == UiCore::Key.Digit7
+            character <- StudioTextEntryPolicy::ASCII_ZERO + 8 if code == UiCore::Key.Digit8
+            character <- StudioTextEntryPolicy::ASCII_NINE if code == UiCore::Key.Digit9
+            if contact_draft_target < 0:
+                character <- StudioTextEntryPolicy::ASCII_DOT if code == UiCore::Key.Period
+                character <- StudioTextEntryPolicy::ASCII_UPPER_X if code == UiCore::Key.X
+                character <- StudioTextEntryPolicy::ASCII_SPACE if code == UiCore::Key.Space
+            append_typed_character(character) if character != StudioTextEntryPolicy::REJECT
+
+        def append_typed_character(character: i64) -> void:
+            return if not typing or typed_len >= 8
+            accepted: i64 = StudioTextEntryPolicy::route(true, character, contact_draft_target >= 0)
+            return if accepted == StudioTextEntryPolicy::REJECT
+            typed[typed_len.usize()] <- accepted.u8()
+            typed_len <- typed_len + 1
+            touch()
+
+        # Shift-1..7: speed presets 0.5x .. 2x.
+        def preset_key(code: UiCore::Key) -> i64:
+            return 0 if code == UiCore::Key.Digit1
+            return 1 if code == UiCore::Key.Digit2
+            return 2 if code == UiCore::Key.Digit3
+            return 3 if code == UiCore::Key.Digit4
+            return 4 if code == UiCore::Key.Digit5
+            return 5 if code == UiCore::Key.Digit6
+            return 6 if code == UiCore::Key.Digit7
+            return -1
+
+        def remove_band() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::remove_band(&s, band_focus):
+                band_focus <- -1
+                commit(s, true)
+                status <- "retime band removed"
+
+        # Record an edited stack and preview it; selection-only edits are
+        # recorded too so undo restores the row the user was on.
+        def commit(s: StackState::Stack, preview: bool) -> void:
+            if history_ready:
+                changed: bool = HistoryState::record(&history, s)
+                if changed and preview:
+                    rebuild()
+                touch()
+
+        def undo() -> void:
+            if history_ready:
+                if HistoryState::undo(&history):
+                    rebuild()
+                    status <- "undo"
+                    nudged_row <- -1
+                    status_file <- null
+
+        def redo() -> void:
+            if history_ready:
+                if HistoryState::redo(&history):
+                    rebuild()
+                    status <- "redo"
+                    nudged_row <- -1
+                    status_file <- null
+
+        # ---- foot cleanup ------------------------------------------------
+        # Readout transition progress (StudioFoot::FULL when settled).
+        def readout_progress() -> i64:
+            ms: f64 = (UiAppKitCanvas::monotonic_time() - readout_start) * 1000.0
+            elapsed: i64 = 0 if ms < 0.0 else (READOUT_MS if ms > READOUT_MS.f64() else ms.i64())
+            return StudioFoot::progress(elapsed, READOUT_MS)
+
+        def readout_value(shown: i64, target: i64) -> i64:
+            return target if target < -StudioFoot::LIMIT or target > StudioFoot::LIMIT
+            return target if shown < -StudioFoot::LIMIT or shown > StudioFoot::LIMIT
+            return StudioFoot::mix(shown, target, readout_progress())
+
+        # K: foot cleanup on/off, recorded in history.
+        def toggle_feet() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::set_feet(&s, not s.feet):
+                commit(s, true)
+                status <- "feet fixed" if s.feet else "feet off"
+                nudged_row <- -1
+                status_file <- null
+
+        # J: opt-in hand contact cleanup, recorded in history.
+        def toggle_hands() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::set_hands(&s, not s.hands):
+                commit(s, true)
+                status <- "hands fixed" if s.hands else "hands off"
+                nudged_row <- -1
+                status_file <- null
+
+        # , and .: shorter or longer carry blend.
+        def nudge_blend(up: bool) -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::nudge_blend(&s, up):
+                commit(s, true)
+                status <- "blend"
+                nudged_row <- -2
+
+        # W: scrub to the worst planted slide, select that foot and frame it.
+        def jump_worst() -> void:
+            if clip is c:
+                return if c.worst_frame < 0 or c.worst_frame >= c.frames
+                scrub_to(c.worst_frame)
+                role: i64 = Roles::LEFT_FOOT if c.worst_side == StackState::LEFT else Roles::RIGHT_FOOT
+                bone <- StudioClip::slot_of_role(c.cleaned, c.slot, role)
+                track: darray[Geometry::Vec3] = c.left_foot if c.worst_side == StackState::LEFT else c.right_foot
+                if c.worst_frame < track.count.i64():
+                    p: Geometry::Vec3 = track[c.worst_frame.usize()]
+                    pts: darray[Geometry::Vec3] = [Geometry::vec3_add(p, Geometry::Vec3{x: -0.25, y: -0.05, z: -0.25}), Geometry::vec3_add(p, Geometry::Vec3{x: 0.25, y: 0.35, z: 0.25})]
+                    for i in 0..<3 |i, pts|:
+                        if view(i) is opened:
+                            mutable vp: Viewport::Viewport = opened
+                            _ = ViewportCamera::frame_points(&vp.camera, &pts, 1.15)
+                            Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                            put_view(i, vp)
+                status <- "worst slide"
+                nudged_row <- -1
+                status_file <- null
+                touch()
+
+        # A press on a contact row; true when it was one.

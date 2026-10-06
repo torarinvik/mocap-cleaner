@@ -1,0 +1,344 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def save_session_as() -> void:
+            if FilePanel::save("txt", session_path, "Save the operation stack and contacts as a session") is chosen:
+                if set_session_path(chosen):
+                    save_session()
+                else:
+                    say_file("session path exceeds 4095 bytes", chosen)
+                    touch()
+
+        def open_session() -> void:
+            if clip == null:
+                status <- "open a take before loading a session"
+                status_file <- null
+                touch()
+                return
+            if FilePanel::open("txt", "Open a saved session for this take") is chosen:
+                request_replacement(chosen, REPLACE_SESSION, false)
+
+        def export_as() -> void:
+            return if clip == null
+            if FilePanel::save("glb", export_path, "Export the cleaned take") is chosen:
+                request_export(chosen, true)
+
+        def dispatch_file_action(action: i64) -> void:
+            if action == StudioFilePolicy::OPEN_TAKE:
+                open_take()
+            elif action == StudioFilePolicy::OPEN_SESSION:
+                open_session()
+            elif action == StudioFilePolicy::SAVE:
+                save_session()
+            elif action == StudioFilePolicy::SAVE_AS:
+                save_session_as()
+            elif action == StudioFilePolicy::EXPORT_CURRENT:
+                request_export(export_path, false)
+            elif action == StudioFilePolicy::EXPORT_AS:
+                export_as()
+            elif action == StudioFilePolicy::OPEN_STORAGE:
+                open_storage_screen()
+
+        def activate_file_menu(row: i64) -> void:
+            return if row < 0 or row >= StudioFilePolicy::ROWS
+            action: i64 = StudioFilePolicy::activate(row, clip != null)
+            return if action == StudioFilePolicy::NONE
+            file_menu_open <- false
+            file_menu_hover <- -1
+            touch()
+            dispatch_file_action(action)
+
+        def file_menu_key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Escape:
+                file_menu_open <- false
+                file_menu_hover <- -1
+                touch()
+            elif code == UiCore::Key.Up:
+                file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, -1, clip != null)
+                touch()
+            elif code == UiCore::Key.Down:
+                file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, 1, clip != null)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                activate_file_menu(file_menu_focus)
+
+        def replacement_action_for_focus() -> i64:
+            return StudioReplacement::SAVE if replacement_focus == StudioReplacement::FOCUS_SAVE
+            return StudioReplacement::DISCARD if replacement_focus == StudioReplacement::FOCUS_DISCARD
+            StudioReplacement::CANCEL
+
+        def finish_close() -> void can[Ui.Window]:
+            replacement_prompt_open <- false
+            replacement_is_close <- false
+            replacement_save_failed <- false
+            pending_replacement <- 0
+            pending_replacement_allows_legacy <- false
+            pending_session_ready <- false
+            clear_pending_session_annotations()
+            touch()
+            if replacement_is_termination:
+                termination_authorized <- true
+                UiAppKitCanvas::terminate()
+            else:
+                close_authorized <- true
+                UiAppKitCanvas::close()
+
+        def perform_replacement(kind: i64, p: cstr, allow_legacy: bool) -> void can Unsafe.PointerCast:
+            replacement_prompt_open <- false
+            legacy_prompt_open <- false
+            replacement_is_close <- false
+            replacement_is_termination <- false
+            replacement_save_failed <- false
+            file_menu_open <- false
+            pending_replacement <- 0
+            pending_replacement_allows_legacy <- false
+            touch()
+            if kind == REPLACE_TAKE:
+                pending_session_ready <- false
+                clear_pending_session_annotations()
+                load_take_now(p)
+            elif kind == REPLACE_SESSION:
+                if pending_session_ready:
+                    loaded: StackState::Stack = pending_session_stack
+                    pending_session_ready <- false
+                    install_session(p, loaded, allow_legacy)
+                else:
+                    say_file("session validation expired; open it again", p)
+                    touch()
+
+        def request_replacement(p: cstr, kind: i64, allow_legacy: bool) -> void can Unsafe.PointerCast:
+            return if kind != REPLACE_TAKE and kind != REPLACE_SESSION
+            cancel_export_result() if export_result_open
+            cancel_export_review() if export_review_open
+            if replacement_prompt_open or legacy_prompt_open:
+                status <- "finish or cancel the pending replacement first"
+                status_file <- null
+                touch()
+                return
+            if not stage_pending_path(p):
+                status <- "file path exceeds 4095 bytes"
+                status_file <- null
+                touch()
+                return
+            pending_session_ready <- false
+            clear_pending_session_annotations()
+            if kind == REPLACE_SESSION:
+                if clip is c:
+                    mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
+                    if SessionState::load_session_with_annotations(p, frames(), node_total(), session_identity(c), allow_legacy, &decoded_annotations) is prepared:
+                        pending_session_stack <- prepared
+                        pending_session_annotations <- move decoded_annotations
+                        pending_session_ready <- true
+                    else:
+                        if not allow_legacy and SessionState::load_error() == SessionState::LOAD_ERROR_LEGACY:
+                            legacy_prompt_open <- true
+                            legacy_prompt_focus <- StudioLegacyPrompt::initial_focus()
+                            file_menu_open <- false
+                            help_open <- false
+                            touch()
+                            return
+                        mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
+                        failure <- "session source, animation or rig does not match this take" if SessionState::load_error() == SessionState::LOAD_ERROR_SOURCE
+                        failure <- "session file could not be read" if SessionState::load_error() == SessionState::LOAD_ERROR_READ
+                        failure <- "session contains too many finding annotations" if SessionState::load_error() == SessionState::LOAD_ERROR_ANNOTATIONS
+                        say_file(failure, p)
+                        touch()
+                        return
+                else:
+                    say_file("open a take before loading a session", p)
+                    touch()
+                    return
+            pending_replacement <- kind
+            pending_replacement_allows_legacy <- allow_legacy
+            replacement_is_close <- false
+            replacement_is_termination <- false
+            mutable dirty: bool = false
+            if history_ready:
+                dirty <- HistoryState::dirty(&history)
+            if StudioReplacement::needs_prompt(clip != null, dirty):
+                replacement_prompt_open <- true
+                replacement_focus <- StudioReplacement::initial_focus()
+                replacement_save_failed <- false
+                file_menu_open <- false
+                help_open <- false
+                touch()
+                return
+            perform_replacement(kind, pending_path(), allow_legacy)
+
+        def resolve_replacement(choice: i64) -> void:
+            action: i64 = StudioReplacement::resolve(replacement_prompt_open, choice)
+            return if action == StudioReplacement::NONE
+            if action == StudioReplacement::CANCEL:
+                mutable cancelled: sview = "replacement cancelled; session unchanged"
+                cancelled <- "close cancelled; session unchanged" if replacement_is_close
+                cancelled <- "quit cancelled; session unchanged" if replacement_is_termination
+                replacement_prompt_open <- false
+                replacement_is_close <- false
+                replacement_is_termination <- false
+                replacement_save_failed <- false
+                pending_replacement <- 0
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
+                clear_pending_session_annotations()
+                say_file(cancelled, path)
+                touch()
+                return
+            pending: cstr = pending_path()
+            kind: i64 = pending_replacement
+            allow_legacy: bool = pending_replacement_allows_legacy
+            if action == StudioReplacement::SAVE:
+                if not save_session_to_current_path():
+                    replacement_save_failed <- true
+                    touch()
+                    return
+            if kind == REPLACE_CLOSE:
+                finish_close()
+                return
+            perform_replacement(kind, pending, allow_legacy)
+
+        def request_window_close() -> void can[Ui.Window]:
+            # AppKit may ask once for application termination and again for the
+            # owned window close. Keep this authorization live through both.
+            if termination_authorized:
+                return
+            # This bit is set only for the second, programmatic close request
+            # made after the user chooses Save or Discard in the prompt.
+            if close_authorized:
+                close_authorized <- false
+                return
+            cancel_export_result() if export_result_open
+            cancel_export_review() if export_review_open
+            if legacy_prompt_open:
+                legacy_prompt_open <- false
+                pending_replacement <- 0
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
+                clear_pending_session_annotations()
+                UiAppKitCanvas::veto_close()
+                say_file("legacy session cancelled; current cleanup unchanged", pending_path())
+                touch()
+                return
+            if replacement_prompt_open:
+                pending_replacement <- REPLACE_CLOSE
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
+                clear_pending_session_annotations()
+                replacement_is_close <- true
+                replacement_is_termination <- UiAppKitCanvas::is_termination_request()
+                UiAppKitCanvas::veto_close()
+                touch()
+                return
+            mutable dirty: bool = false
+            if history_ready:
+                dirty <- HistoryState::dirty(&history)
+            if StudioReplacement::needs_prompt(clip != null, dirty):
+                pending_replacement <- REPLACE_CLOSE
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
+                clear_pending_session_annotations()
+                replacement_prompt_open <- true
+                replacement_is_close <- true
+                replacement_is_termination <- UiAppKitCanvas::is_termination_request()
+                replacement_focus <- StudioReplacement::initial_focus()
+                replacement_save_failed <- false
+                file_menu_open <- false
+                help_open <- false
+                UiAppKitCanvas::veto_close()
+                touch()
+
+        def replacement_prompt_key(code: UiCore::Key) -> void:
+            if code == UiCore::Key.Escape:
+                resolve_replacement(StudioReplacement::CANCEL)
+            elif code == UiCore::Key.S:
+                resolve_replacement(StudioReplacement::SAVE)
+            elif code == UiCore::Key.D:
+                resolve_replacement(StudioReplacement::DISCARD)
+            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                replacement_focus <- StudioReplacement::move_focus(replacement_focus, -1)
+                touch()
+            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                replacement_focus <- StudioReplacement::move_focus(replacement_focus, 1)
+                touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                resolve_replacement(replacement_action_for_focus())
+
+        def open_take() -> void:
+            if FilePanel::open("glb", "Open a motion-capture take") is chosen:
+                load_take(chosen)
+
+        # Swap in another take. The file is read first; if it holds no
+        # usable animation the current take stays untouched. Otherwise every
+        # per-take cache, the playhead, the gizmo and the undo history start
+        # fresh (undo never reaches back into a different take).
+    public:
+        def load_take(p: cstr) -> void can Unsafe.PointerCast:
+            request_replacement(p, REPLACE_TAKE, false)
+
+    private:
+        def load_take_now(p: cstr) -> void can Unsafe.PointerCast:
+            candidate_slot: i64 = spare_path_slot()
+            if not copy_path(p, candidate_slot):
+                status <- "take path exceeds 4095 bytes"
+                status_file <- null
+                touch()
+                return
+            candidate_path: cstr = stored_path(candidate_slot)
+            fresh: StudioModel::Memo? = StudioModel::load(candidate_path, anim_name)
+            if fresh == null:
+                say_file("no animation could be read from", candidate_path)
+                touch()
+                return
+            path_slot <- candidate_slot
+            path <- candidate_path
+            memo <- move fresh
+            contact_cancel_frame_draft() if contact_draft_target >= 0
+            clip <- null
+            contact_selected_side <- StudioContactEditor::NO_SIDE
+            contact_selected_frame <- -1
+            built_stack <- null
+            shown_slide <- 0
+            shown_sink <- 0
+            shown_hand_slide <- 0
+            built <- built + 1
+            curve_memo <- zeroed
+            base_frame <- -1
+            base_built <- -1
+            skinned <- null
+            skinned_frame <- -1
+            skinned_revision <- -1
+            mesh <- null
+            take_serial <- take_serial + 1
+            if path_slot >= 0:
+                loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
+                    value: value
+                    error failure: GlbSkinMesh::empty()
+                if GlbSkinMesh::vertex_count(&loaded) > 0:
+                    mesh <- loaded
+            gizmo_drag <- null
+            gizmo_goal <- null
+            gizmo_view <- -1
+            readout_angle <- -1
+            readout_mm <- -1
+            gain_slide <- -1
+            gain_spikes <- -1
+            drag_view <- -1
+            drag_button <- -1
+            scrubbing <- false
+            foot_press <- FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
+            hover_row <- -1
+            drawn_frame <- -1
+            HistoryState::reset(&history, StudioModel::initial_stack())
+            history_ready <- true
+            rebuild()
+            if clip is c:
+                timeline <- TimelineState::create(c.frames)
+                bone <- StudioModel::default_bone(c)
+                framed <- false
+                say_file("opened (undo history starts fresh)", path)
+                FilePanel::note_recent(path)
+            else:
+                timeline <- TimelineState::create(1)
+            touch()
+
+        # ---- views -----------------------------------------------------

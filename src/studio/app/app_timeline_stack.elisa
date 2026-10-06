@@ -1,0 +1,144 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def set_timeline(t: TimelineState::State) -> void:
+            timeline <- t
+            touch()
+
+        def scrub_to(f: i64) -> void:
+            if timeline is t:
+                set_timeline(TimelineState::scrub(t, f))
+
+        def step_frames(d: i64) -> void:
+            if timeline is t:
+                set_timeline(TimelineState::step_by(t, d))
+
+        def toggle_play() -> void:
+            if timeline is t:
+                last_time <- UiAppKitCanvas::monotonic_time()
+                set_timeline(TimelineState::toggle_play(t))
+
+        def cycle_speed() -> void:
+            if timeline is t:
+                set_timeline(TimelineState::cycle_speed(t))
+
+        def toggle_loop() -> void:
+            if timeline is t:
+                mutable n: TimelineState::State = t
+                n.looping <- not n.looping
+                set_timeline(n)
+
+        def toggle_flag(bit: i64) -> void:
+            flags <- StudioScene::toggle(flags, bit)
+            touch()
+
+        # ---- stack edits -----------------------------------------------
+        def add_op(k: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            if StackState::add(&s, StudioModel::new_operation(k, frames())):
+                StackState::select(&s, s.count - 1)
+                commit(s, true)
+                status <- "operation added"
+                nudged_row <- -1
+                status_file <- null
+
+        def reset_cleanup(action: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            return if not StudioResetScope::enabled(action, StackState::valid(s, s.selected), s.edit_count, s.fix_count, StackState::has_cleanup(s))
+            mutable changed: bool = false
+            if action == StudioResetScope::CLEAR_CONTACTS:
+                changed <- StackState::clear_edits(&s)
+            elif action == StudioResetScope::CLEAR_CORRECTIONS:
+                changed <- StackState::clear_fixes(&s)
+            elif action == StudioResetScope::RESTORE_SOURCE:
+                changed <- StackState::reset_to_source(&s)
+            return if not changed
+            reset_menu_open <- false
+            nudged_row <- -1
+            status_file <- null
+            status <- "All contact overrides cleared (Cmd-Z)" if action == StudioResetScope::CLEAR_CONTACTS
+            status <- "All local corrections cleared (Cmd-Z)" if action == StudioResetScope::CLEAR_CORRECTIONS
+            status <- "Source restored; all cleanup removed (Cmd-Z)" if action == StudioResetScope::RESTORE_SOURCE
+            commit(s, true)
+
+        def duplicate_selected() -> void:
+            mutable s: StackState::Stack = current_stack()
+            if not StudioOperationDuplicatePolicy::available(s.count, s.selected):
+                status <- "Stack is full (16 of 16)" if s.count >= StudioOperationDuplicatePolicy::MAX_OPS else "Select an operation to duplicate"
+                nudged_row <- -1
+                status_file <- null
+                touch()
+                return
+            if StackState::duplicate_selected(&s):
+                status <- "Operation duplicated; copy selected (Cmd-Z to undo)"
+                nudged_row <- -1
+                status_file <- null
+                commit(s, true)
+
+        def edit_selected(kind: i64, amount: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            at: i64 = s.selected
+            return if not StackState::valid(s, at)
+            mutable ok: bool = false
+            if kind == StudioPanels::HIT_TOGGLE:
+                ok <- StackState::toggle(&s, at)
+            elif kind == StudioPanels::HIT_REMOVE:
+                ok <- StackState::remove(&s, at)
+            elif kind == StudioPanels::HIT_UP:
+                ok <- StackState::move(&s, at, -1)
+            elif kind == StudioPanels::HIT_DOWN:
+                ok <- StackState::move(&s, at, 1)
+            elif kind == 7:
+                ok <- StudioModel::nudge(&s, at, amount)
+                nudged_row <- at if ok else -1
+            elif kind == 8:
+                ok <- StackState::cycle_bones(&s, at)
+            elif kind == 9:
+                op: Ops::Operation = s.ops[at]
+                ok <- StackState::set_scope(&s, at, frame_now(), op.last, frames())
+            elif kind == 10:
+                op: Ops::Operation = s.ops[at]
+                ok <- StackState::set_scope(&s, at, op.first, frame_now(), frames())
+            if ok:
+                commit(s, true)
+
+        def select_row(i: i64) -> void:
+            mutable s: StackState::Stack = current_stack()
+            StackState::select(&s, i)
+            commit(s, false)
+
+        def row_action(hit: i64) -> void:
+            kind: i64 = hit / 100
+            row: i64 = hit % 100
+            if kind == StudioPanels::HIT_ADD:
+                add_op(row)
+                return
+            if kind == StudioPanels::HIT_DUPLICATE:
+                duplicate_selected()
+                return
+            select_row(row)
+            edit_selected(kind, 0) if kind != StudioPanels::HIT_SELECT
+
+        # One click Fix all: the boxing preset plus foot and hand locks as one
+        # undoable edit; the sidebar shows every detector's before/after.
+        def clean_with_preset() -> void:
+            commit(StudioModel::fix_all_stack(), true)
+            if clip is c:
+                gain_slide <- gain(c.slide_before, c.slide_after)
+                gain_spikes <- gain(c.spikes_before, c.spikes_after)
+            status <- "Fix all applied (Cmd-Z to undo)"
+            nudged_row <- -1
+            status_file <- null
+            touch()
+
+        def gain(before: i64, after: i64) -> i64:
+            return 0 if before < 0 or after < 0 or before > StudioChrome::CHROME_SIZE or after > StudioChrome::CHROME_SIZE
+            StudioChrome::clean_gain(before, after)
+
+        # Status line naming a file: "<s> <file name>".
+        def say_file(s: sview, file: cstr) -> void:
+            status <- s
+            nudged_row <- -1
+            status_file <- file
+

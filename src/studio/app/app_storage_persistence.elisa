@@ -1,0 +1,209 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def begin_storage_transaction() -> i32 can[Unsafe.PointerCast, Blocking.IO]:
+            return -2 if storage_transaction_active
+            if storage_release_uncertain:
+                storage_message <- 22
+                touch()
+                return -1
+            if export_reason(STORAGE_LOCK_PATH, true) != StudioExportPolicy::ALLOW:
+                storage_manifest_state <- 2
+                storage_message <- 21
+                touch()
+                return -1
+            mutable descriptor: i32 = -1
+            outcome: i64 = StudioStorageManifestLockFile::try_acquire(STORAGE_LOCK_PATH, &descriptor)
+            if not StudioStorageManifestLockPolicy::may_read_modify_write(outcome) or descriptor < 0:
+                storage_manifest_state <- 2
+                storage_message <- 21
+                touch()
+                return -1
+            storage_transaction_active <- true
+            descriptor
+
+        def end_storage_transaction(descriptor: i32) -> bool can Blocking.IO:
+            return true if descriptor == -2
+            return false if descriptor < 0
+            released: bool = StudioStorageManifestLockFile::release(descriptor)
+            storage_transaction_active <- false
+            if not released:
+                storage_release_uncertain <- true
+                storage_manifest_state <- 2
+                storage_message <- 22
+                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
+                touch()
+            released
+
+        def storage_manifest_ready() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return true if storage_manifest_state == 1
+            return false if storage_manifest_state == 2
+            facts: i64 = FilePanel::path_facts(STORAGE_MANIFEST_PATH)
+            if facts < 0:
+                storage_manifest_state <- 2
+                return false
+            if facts == 0:
+                storage_entries <- []
+                storage_manifest_state <- 1
+                return true
+            if (facts & FilePanel::PATH_SYMLINK) != 0 or (facts & FilePanel::PATH_REGULAR) == 0:
+                storage_manifest_state <- 2
+                return false
+            return false if export_reason(STORAGE_MANIFEST_PATH, true) != StudioExportPolicy::ALLOW
+            mutable loaded: darray[StudioStorageManifest::Entry] = []
+            if not StudioStorageManifestFile::load(STORAGE_MANIFEST_PATH, &loaded):
+                storage_manifest_state <- 2
+                return false
+            storage_entries <- loaded
+            storage_manifest_state <- 1
+            true
+
+        # Re-read on every inventory refresh so externally changed settings
+        # invalidate reviewed candidates. Missing is first use; invalid existing
+        # settings are never replaced with a more permissive default.
+        def load_storage_preferences() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            storage_preferences_valid <- false
+            facts: i64 = FilePanel::path_facts(STORAGE_PREFERENCES_PATH)
+            return false if facts < 0
+            return false if export_reason(STORAGE_PREFERENCES_PATH, true) != StudioExportPolicy::ALLOW
+            mutable loaded: i64 = StudioStoragePreferencesPolicy::DEFAULT_PRESET
+            if facts != 0:
+                return false if (facts & FilePanel::PATH_SYMLINK) != 0 or (facts & FilePanel::PATH_REGULAR) == 0
+                return false if not StudioStoragePreferencesFile::load(STORAGE_PREFERENCES_PATH, &loaded)
+            storage_retention_preset <- loaded
+            storage_preferences_valid <- true
+            true
+
+        def load_storage_exemptions() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            storage_exemptions_valid <- false
+            facts: i64 = FilePanel::path_facts(STORAGE_EXEMPTIONS_PATH)
+            return false if facts < 0
+            return false if export_reason(STORAGE_EXEMPTIONS_PATH, true) != StudioExportPolicy::ALLOW
+            mutable loaded: darray[StudioStorageManifest::Entry] = []
+            if facts != 0:
+                return false if (facts & FilePanel::PATH_SYMLINK) != 0 or (facts & FilePanel::PATH_REGULAR) == 0
+                return false if not StudioStorageExemptionsFile::load(STORAGE_EXEMPTIONS_PATH, &loaded)
+            storage_exemptions <- loaded
+            storage_exemptions_valid <- true
+            true
+
+        def storage_user_exempt(entry: StudioStorageManifest::Entry) -> bool:
+            return false if not storage_exemptions_valid
+            for saved in storage_exemptions |saved, entry|:
+                return true if StudioStorageExemptionPolicy::identity_matches(
+                    StudioStorageManifest::valid(saved), StudioStorageManifest::valid(entry),
+                    saved.device, entry.device, saved.inode, entry.inode,
+                    saved.size_bytes, entry.size_bytes,
+                    saved.modified_seconds, entry.modified_seconds,
+                    saved.modified_nanoseconds, entry.modified_nanoseconds,
+                    StudioStorageManifest::same_path(saved.original_path, entry.original_path))
+            false
+
+        def persist_storage_exemptions(entries: darray[StudioStorageManifest::Entry]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not storage_transaction_active or storage_release_uncertain
+            return false if not storage_exemptions_valid
+            return false if export_reason(STORAGE_EXEMPTIONS_PATH, true) != StudioExportPolicy::ALLOW
+            mutable bytes: darray[u8] = []
+            return false if not StudioStorageExemptionsCodec::encode(entries, &bytes)
+            return false if not StudioExportPublisher::write_sidecar(STORAGE_EXEMPTIONS_PATH, bytes)
+            load_storage_exemptions()
+
+        def save_storage_retention(preset: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return false if descriptor == -1
+            succeeded: bool = save_storage_retention_locked(preset)
+            released: bool = end_storage_transaction(descriptor)
+            succeeded and released
+
+        def save_storage_retention_locked(preset: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not load_storage_preferences()
+            verified: bool = export_reason(STORAGE_PREFERENCES_PATH, true) == StudioExportPolicy::ALLOW
+            return false if not StudioStoragePreferencesPolicy::may_publish(storage_preferences_valid, verified, preset)
+            mutable bytes: darray[u8] = []
+            return false if not StudioStoragePreferencesCodec::encode(preset, &bytes)
+            return false if not StudioExportPublisher::write_sidecar(STORAGE_PREFERENCES_PATH, bytes)
+            storage_retention_preset <- preset
+            true
+
+        def persist_storage_manifest(entries: darray[StudioStorageManifest::Entry]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not storage_transaction_active or storage_release_uncertain
+            mutable bytes: darray[u8] = []
+            return false if not StudioStorageManifest::encode(entries, &bytes)
+            return false if export_reason(STORAGE_MANIFEST_PATH, true) != StudioExportPolicy::ALLOW
+            StudioExportPublisher::write_sidecar(STORAGE_MANIFEST_PATH, bytes)
+
+        # Persist a just-created artifact only after taking fresh filesystem
+        # identity under build/. A hard link already registered at another
+        # path remains ineligible so the same file cannot appear twice.
+        def register_storage_artifact(path: cstr, kind: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return false if descriptor == -1
+            succeeded: bool = register_storage_artifact_locked(path, kind)
+            released: bool = end_storage_transaction(descriptor)
+            succeeded and released
+
+        def register_storage_artifact_locked(path: cstr, kind: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            # Reuse canonical build-root, regular-file and source-alias guards.
+            # A creation call alone never makes a source take Studio-managed.
+            return false if export_reason(path, true) != StudioExportPolicy::ALLOW
+            # Preserve records published since our last inventory read.
+            # The transaction lock must additionally cover this read and write.
+            storage_manifest_state <- 0
+            return false if not storage_manifest_ready()
+            mutable entry: StudioStorageManifest::Entry = zeroed
+            mutable message: darray[u8] = []
+            return false if not StudioFileTrash::snapshot("build", path, kind, &entry, &message)
+            # Native snapshot verifies canonical root, regular type and identity.
+            artifact: i64 = StudioStorageRegistrationPolicy::ARTIFACT_SESSION if kind == StudioStorageCleanupPolicy::RECOVERY else StudioStorageRegistrationPolicy::ARTIFACT_EXPORT_REPORT if kind == StudioStorageCleanupPolicy::GENERATED_REPORT else -1
+            return false if not StudioStorageRegistrationPolicy::may_register(artifact, true, true, true, StudioStorageManifest::valid(entry), true, false)
+            mutable updated: darray[StudioStorageManifest::Entry] = []
+            for previous in storage_entries:
+                updated.push(previous)
+            mutable found_path: bool = false
+            for index in 0..<updated.count |updated, entry, found_path|:
+                existing: StudioStorageManifest::Entry = updated[index]
+                if existing.state == StudioStorageManifest::REGISTERED and StudioStorageManifest::same_path(existing.original_path, entry.original_path):
+                    updated[index] <- entry
+                    found_path <- true
+                elif existing.state == StudioStorageManifest::REGISTERED and existing.device == entry.device and existing.inode == entry.inode:
+                    return false
+            if not found_path:
+                return false if updated.count.i64() >= StudioStorageManifest::MAX_ENTRIES
+                updated.push(entry)
+            return false if not persist_storage_manifest(updated)
+            storage_entries <- updated
+            if kind == StudioStorageCleanupPolicy::GENERATED_REPORT:
+                mutable referenced: darray[StudioStorageManifest::Entry] = []
+                for previous in storage_current_reports |previous, referenced, entry|:
+                    if not StudioStorageManifest::same_path(previous.original_path, entry.original_path):
+                        referenced.push(previous)
+                if referenced.count.i64() < StudioStorageManifest::MAX_ENTRIES:
+                    referenced.push(entry)
+                storage_current_reports <- referenced
+            true
+
+        def storage_identity_matches(expected: StudioStorageManifest::Entry,
+                                     current: StudioStorageManifest::Entry) -> bool:
+            StudioStorageIdentityPolicy::matches(expected.device, current.device,
+                expected.inode, current.inode, expected.size_bytes, current.size_bytes,
+                expected.modified_seconds, current.modified_seconds,
+                expected.modified_nanoseconds, current.modified_nanoseconds,
+                StudioStorageManifest::same_path(expected.original_path, current.original_path))
+
+        # Native identity comparison also protects hard links and aliases of
+        # the active source, whose canonical spelling may differ from a record.
+        def storage_path_is_source(bytes: darray[u8]&) -> bool can Unsafe.PointerCast:
+            storage_path_matches(bytes, path)
+
+        def storage_path_matches(bytes: darray[u8]&, protected_path: cstr) -> bool can Unsafe.PointerCast:
+            return false if bytes.count == 0 or bytes.count >= PATH_CAPACITY
+            mutable candidate: u8[4096] = zeroed
+            for index in 0..<bytes.count |bytes, candidate|:
+                candidate[index] <- bytes[index]
+            candidate[bytes.count] <- 0
+            candidate_path: cstr = (&candidate[0]).cast[cstr] can Unsafe.PointerCast
+            FilePanel::same_identity(protected_path, candidate_path)
+
+        # Convert fresh filesystem evidence into the cleanup policy's stable
+        # protection reasons. Unknown age or file facts never qualify an item.

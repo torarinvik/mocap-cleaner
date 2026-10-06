@@ -1,0 +1,56 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def path_bytes(p: cstr) -> darray[u8] can Unsafe.PointerCast:
+            mutable out: darray[u8] = []
+            mutable i: usize = 0
+            while i < PATH_CAPACITY:
+                c: u8 = p[i]
+                return out if c == 0
+                out.push(c)
+                i <- i + 1
+            []
+
+        def export_reason(destination: cstr, overwrite_confirmed: bool) -> i64 can Unsafe.PointerCast:
+            mutable reason: i64 = StudioExportPolicy::PATH_UNRESOLVED
+            if FilePanel::resolve_path("build") is root_path:
+                if FilePanel::resolve_path(destination) is target_path:
+                    root_facts: i64 = FilePanel::path_facts(root_path)
+                    target_facts: i64 = FilePanel::path_facts(target_path)
+                    if root_facts >= 0 and target_facts >= 0:
+                        if (root_facts & FilePanel::PATH_DIRECTORY) == 0:
+                            reason <- StudioExportPolicy::OUTSIDE_BUILD
+                        else:
+                            root_bytes: darray[u8] = path_bytes(root_path)
+                            target_bytes: darray[u8] = path_bytes(target_path)
+                            if root_bytes.count > 0 and target_bytes.count > 0:
+                                reason <- StudioExportPolicy::decision(
+                                    true,
+                                    StudioExportPolicy::inside_build(root_bytes, target_bytes),
+                                    FilePanel::same_identity(path, target_path),
+                                    (target_facts & FilePanel::PATH_EXISTS) != 0,
+                                    (target_facts & FilePanel::PATH_SYMLINK) != 0,
+                                    (target_facts & FilePanel::PATH_REGULAR) != 0,
+                                    overwrite_confirmed)
+                    FilePanel::release_path(target_path)
+                FilePanel::release_path(root_path)
+            reason
+
+        def artifact_destination_allowed(destination: cstr) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            StudioStorageArtifactDestination::allowed(destination, STORAGE_MANIFEST_PATH,
+                STORAGE_PREFERENCES_PATH, STORAGE_EXEMPTIONS_PATH, STORAGE_LOCK_PATH)
+
+        def export_error(reason: i64) -> sview:
+            return "Export blocked: destination could not be resolved" if reason == StudioExportPolicy::PATH_UNRESOLVED
+            return "Export blocked: choose a file inside the build folder" if reason == StudioExportPolicy::OUTSIDE_BUILD
+            return "Export blocked: destination is the source take" if reason == StudioExportPolicy::SOURCE_COLLISION
+            return "Export blocked: destination is a symbolic link" if reason == StudioExportPolicy::SYMBOLIC_LINK
+            return "Export blocked: destination is not a regular file" if reason == StudioExportPolicy::NOT_REGULAR_FILE
+            return "Export blocked: replace confirmation is required"
+
+        # Storage manifests are loaded once and fail closed on path, type,
+        # permission, size or format errors. A missing manifest is a new empty
+        # inventory; malformed data is never silently replaced.
+        # Synchronous nested refreshes reuse the outer transaction. The outer
+        # wrapper always releases its local descriptor after its inner call.

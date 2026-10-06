@@ -1,0 +1,83 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def save_session_to_current_path() -> bool:
+            mutable destination_reason: i64 = StudioExportPolicy::PATH_UNRESOLVED
+            can Unsafe.PointerCast:
+                destination_reason <- export_reason(session_path, true)
+            if destination_reason != StudioExportPolicy::ALLOW:
+                mutable explanation: sview = "Session save blocked: destination could not be verified. Choose a regular file inside build/."
+                explanation <- "Session save blocked: destination is the source take or its alias. Choose another file inside build/." if destination_reason == StudioExportPolicy::SOURCE_COLLISION
+                explanation <- "Session save blocked: choose a file inside build/." if destination_reason == StudioExportPolicy::OUTSIDE_BUILD
+                explanation <- "Session save blocked: destination is a symbolic link. Choose a regular file inside build/." if destination_reason == StudioExportPolicy::SYMBOLIC_LINK
+                say_file(explanation, session_path)
+                touch()
+                return false
+            mutable artifact_allowed: bool = false
+            can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+                artifact_allowed <- artifact_destination_allowed(session_path)
+            if not artifact_allowed:
+                say_file("Session save blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", session_path)
+                touch()
+                return false
+            mutable ok: bool = false
+            if clip is c:
+                mutable records: darray[SessionIssueAnnotationPolicy::Stored] = []
+                if issues_revision == built:
+                    for issue in issues |issue, issue_annotations, records|:
+                        if StudioIssueAnnotation::disposition(issue_annotations, issue) == StudioIssueAnnotation::IGNORED:
+                            records.push(SessionIssueAnnotationPolicy::stored_from_issue(issue, frames()))
+                ok <- SessionState::save_session_with_annotations(current_stack(), session_identity(c), records, session_path)
+            if ok:
+                HistoryState::mark_saved(&history)
+                mutable tracked: bool = false
+                can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+                    tracked <- register_storage_artifact(session_path, StudioStorageRegistrationPolicy::receipt_kind(StudioStorageRegistrationPolicy::ARTIFACT_SESSION))
+                say_file("session saved to", session_path) if tracked
+                say_file("Session saved; Storage registration could not be saved. Recovery file remains protected", session_path) if not tracked
+                FilePanel::note_recent(session_path)
+            else:
+                mutable failure: sview = "session save failed; check path, permissions or disk space"
+                failure <- "session save failed; too many or invalid finding annotations" if SessionState::save_error() == SessionState::SAVE_ERROR_ANNOTATIONS
+                say_file(failure, session_path)
+            touch()
+            ok
+
+        def save_session() -> void:
+            _ = save_session_to_current_path()
+
+        def install_session(p: cstr, loaded: StackState::Stack, allow_legacy: bool) -> void:
+            issue_annotations <- zeroed
+            pending_session_annotation_restore <- true
+            session_annotations_expired <- 0
+            commit(loaded, true)
+            if issues_revision == built:
+                reconcile_pending_session_annotations(issues)
+            HistoryState::mark_saved(&history)
+            _ = set_session_path(p)
+            mutable loaded_message: sview = "session loaded (Cmd-Z to undo) from"
+            loaded_message <- "legacy session loaded; verify joints (Cmd-Z to undo) from" if allow_legacy
+            if session_annotations_expired > 0:
+                loaded_message <- "session loaded; finding annotations expired after analysis changed from"
+            say_file(loaded_message, session_path)
+            FilePanel::note_recent(session_path)
+            touch()
+
+        def resolve_legacy_session(choice: i64) -> void can Unsafe.PointerCast:
+            action: i64 = StudioLegacyPrompt::resolve(legacy_prompt_open, choice)
+            return if action == StudioLegacyPrompt::NONE
+            if action == StudioLegacyPrompt::CANCEL:
+                legacy_prompt_open <- false
+                pending_replacement <- 0
+                pending_replacement_allows_legacy <- false
+                pending_session_ready <- false
+                clear_pending_session_annotations()
+                say_file("legacy session cancelled; current cleanup unchanged", pending_path())
+                touch()
+                return
+            p: cstr = pending_path()
+            legacy_prompt_open <- false
+            touch()
+            request_replacement(p, REPLACE_SESSION, true)
+

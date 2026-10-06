@@ -1,0 +1,249 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def refresh_storage_inventory() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            refresh_storage_inventory_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def refresh_storage_inventory_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            previous_cleanup_selection: darray[StudioStorageManifest::Entry] = storage_cleanup_selection
+            storage_cleanup_selection <- []
+            storage_selection_bytes <- 0
+            storage_selection_removed <- previous_cleanup_selection.count.i64()
+            preferences_ok: bool = load_storage_preferences()
+            exemptions_ok: bool = load_storage_exemptions()
+            storage_scan_seconds <- StudioStorageClock::unix_seconds()
+            mutable previous_selection: StudioStorageManifest::Entry? = null
+            if storage_selected >= 0 and storage_selected < storage_visible_entries.count.i64():
+                previous_entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+                previous_selection <- previous_entries[storage_selected]
+            storage_restore_review <- false
+            storage_move_review <- false
+            storage_selected <- -1
+            storage_visible_entries <- []
+            storage_visible_statuses <- []
+            storage_visible_reasons <- []
+            storage_protected_records <- 0
+            storage_unverified_records <- 0
+            storage_overview_counts <- [0, 0, 0, 0]
+            storage_overview_bytes <- [0, 0, 0, 0]
+            storage_manifest_state <- 0
+            if not storage_manifest_ready():
+                storage_message <- 1
+                return
+            if FilePanel::resolve_path("build") is root_path:
+                facts: i64 = FilePanel::path_facts(root_path)
+                if facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0:
+                    root_bytes: darray[u8] = path_bytes(root_path)
+                    if root_bytes.count > 0:
+                        mutable active_source: darray[u8] = []
+                        if FilePanel::resolve_path(path) is source_path:
+                            active_source <- path_bytes(source_path)
+                        mutable updated: darray[StudioStorageManifest::Entry] = []
+                        mutable visible: darray[StudioStorageManifest::Entry] = []
+                        mutable statuses: darray[i64] = []
+                        mutable protected: i64 = 0
+                        mutable unverified: i64 = 0
+                        mutable manifest_changed: bool = false
+                        for entry in storage_entries |entry, root_bytes, active_source, updated, visible, statuses, protected, unverified, manifest_changed|:
+                            is_active_source: bool = (active_source.count > 0 and StudioStorageManifest::same_path(entry.original_path, active_source)) or storage_path_is_source(entry.original_path) or storage_path_is_source(entry.trashed_path)
+                            if not StudioExportPolicy::inside_build(root_bytes, entry.original_path) or is_active_source:
+                                updated.push(entry)
+                                protected <- protected + 1
+                            else:
+                                mutable current: StudioStorageManifest::Entry = zeroed
+                                mutable io_message: darray[u8] = []
+                                current_exists: bool = StudioFileTrash::snapshot_path("build", entry.original_path, entry.kind, &current, &io_message)
+                                if current_exists and storage_identity_matches(entry, current):
+                                    if entry.state == StudioStorageManifest::IN_TRASH:
+                                        restored: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
+                                            state: StudioStorageManifest::REGISTERED,
+                                            kind: entry.kind, device: entry.device,
+                                            inode: entry.inode, size_bytes: entry.size_bytes,
+                                            modified_seconds: entry.modified_seconds,
+                                            modified_nanoseconds: entry.modified_nanoseconds,
+                                            original_path: entry.original_path, trashed_path: []}
+                                        updated.push(restored)
+                                        visible.push(restored)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_PRESENT)
+                                        manifest_changed <- true
+                                    else:
+                                        updated.push(entry)
+                                        visible.push(entry)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_PRESENT)
+                                elif current_exists:
+                                    updated.push(entry)
+                                    visible.push(entry)
+                                    statuses.push(StudioPanels::STORAGE_STATUS_CHANGED)
+                                    unverified <- unverified + 1
+                                else:
+                                    mutable recovered: StudioStorageManifest::Entry = zeroed
+                                    if StudioFileTrash::reconcile("build", entry, &recovered, &io_message):
+                                        updated.push(recovered)
+                                        visible.push(recovered)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_IN_TRASH)
+                                        manifest_changed <- true
+                                    else:
+                                        updated.push(entry)
+                                        visible.push(entry)
+                                        statuses.push(StudioPanels::STORAGE_STATUS_UNVERIFIED)
+                                        unverified <- unverified + 1
+                        mutable manifest_ok: bool = true
+                        if manifest_changed:
+                            manifest_ok <- persist_storage_manifest(updated)
+                            if manifest_ok:
+                                storage_entries <- updated
+                            else:
+                                for index in 0..<statuses.count |statuses, unverified|:
+                                    if statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH:
+                                        statuses[index] <- StudioPanels::STORAGE_STATUS_UNVERIFIED
+                                        unverified <- unverified + 1
+                        mutable reasons: darray[i64] = []
+                        for index in 0..<visible.count |visible, statuses, reasons|:
+                            reasons.push(storage_cleanup_reason(visible[index], statuses[index]))
+                        mutable overview_counts: darray[i64] = [0, 0, 0, 0]
+                        mutable overview_bytes: darray[i64] = [0, 0, 0, 0]
+                        for index in 0..<visible.count |visible, statuses, reasons, overview_counts, overview_bytes|:
+                            entry: StudioStorageManifest::Entry = visible[index]
+                            category: i64 = StudioStorageOverviewPolicy::category(
+                                statuses[index] == StudioPanels::STORAGE_STATUS_PRESENT,
+                                statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH,
+                                entry.kind == StudioStorageCleanupPolicy::RECOVERY,
+                                reasons[index] == StudioStorageCleanupPolicy::PROTECT_NONE)
+                            if category >= 0 and category < StudioStorageOverviewPolicy::CATEGORY_COUNT:
+                                slot: usize = category.usize()
+                                if StudioStorageTotalsKernel::add_allowed(overview_counts[slot], overview_bytes[slot], entry.size_bytes):
+                                    overview_bytes[slot] <- StudioStorageTotalsKernel::next_total(overview_bytes[slot], entry.size_bytes)
+                                    overview_counts[slot] <- StudioStorageTotalsKernel::next_count(overview_counts[slot])
+                        storage_overview_counts <- overview_counts
+                        storage_overview_bytes <- overview_bytes
+                        storage_visible_reasons <- reasons
+                        storage_visible_entries <- visible
+                        storage_visible_statuses <- statuses
+                        storage_protected_records <- protected
+                        storage_unverified_records <- unverified
+                        if previous_selection is previous:
+                            for index in 0..<visible.count |visible, previous|:
+                                if storage_identity_matches(previous, visible[index]):
+                                    storage_selected <- index.i64()
+                        storage_message <- 5 if not manifest_ok else 16 if not preferences_ok else 18 if not exemptions_ok else 4 if unverified > 0 else 3
+                        set_storage_cleanup_selection(previous_cleanup_selection)
+                        if manifest_ok:
+                            had_verified_receipt: bool = storage_retained_receipt != null
+                            mutable pending: StudioStorageManifest::Entry? = storage_retained_receipt
+                            if pending == null and storage_move_outcome == StudioStorageMovePolicy::OUTCOME_MOVE_UNKNOWN:
+                                pending <- storage_move_entry
+                            if pending is expected:
+                                for index in 0..<visible.count |visible, statuses, expected|:
+                                    entry: StudioStorageManifest::Entry = visible[index]
+                                    if storage_identity_matches(expected, entry):
+                                        if statuses[index] == StudioPanels::STORAGE_STATUS_PRESENT:
+                                            storage_retained_receipt <- null
+                                            storage_move_outcome <- StudioStorageMovePolicy::OUTCOME_ORIGINAL_RESTORED if had_verified_receipt else StudioStorageMovePolicy::OUTCOME_MOVE_FAILED_ORIGINAL
+                                            reconcile_storage_batch_item(entry, StudioPanels::STORAGE_STATUS_PRESENT, had_verified_receipt)
+                                        elif statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH:
+                                            storage_retained_receipt <- null
+                                            storage_move_outcome <- StudioStorageMovePolicy::OUTCOME_RECORDED
+                                            reconcile_storage_batch_item(entry, StudioPanels::STORAGE_STATUS_IN_TRASH, had_verified_receipt)
+                        return
+            storage_message <- 2
+
+        def open_storage_screen() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            file_menu_open <- false
+            file_menu_hover <- -1
+            reset_menu_open <- false
+            help_open <- false
+            storage_screen_open <- true
+            storage_focus <- -1
+            storage_selected <- -1
+            refresh_storage_inventory()
+            touch()
+
+        def close_storage_screen() -> void:
+            if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING:
+                storage_batch_cancel <- true
+                touch()
+                return
+            return if not storage_screen_open
+            storage_screen_open <- false
+            storage_restore_review <- false
+            storage_move_review <- false
+            storage_focus <- -1
+            touch()
+
+        def storage_restore_available() -> bool:
+            return false if storage_release_uncertain
+            return false if storage_message == 1 or storage_message == 2 or storage_message == 5
+            return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64() or storage_selected >= storage_visible_statuses.count.i64()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            statuses: darray[i64] = storage_visible_statuses
+            entry: StudioStorageManifest::Entry = entries[storage_selected]
+            StudioStorageRestorePolicy::eligible(entry.state,
+                StudioStorageManifest::valid(entry), storage_manifest_state == 1,
+                statuses[storage_selected] == StudioPanels::STORAGE_STATUS_IN_TRASH,
+                true, false)
+
+        def storage_has_no_eligible() -> bool:
+            counts: darray[i64] = storage_overview_counts
+            return false if counts.count != StudioStorageOverviewPolicy::CATEGORY_COUNT.usize()
+            counts[StudioStorageOverviewPolicy::CATEGORY_ELIGIBLE.usize()] == 0
+
+        def storage_exemption_available() -> bool:
+            return false if storage_release_uncertain or storage_manifest_state != 1
+            return false if not storage_preferences_valid or not storage_exemptions_valid
+            return false if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING or storage_move_review or storage_restore_review
+            return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64() or storage_selected >= storage_visible_statuses.count.i64() or storage_selected >= storage_visible_reasons.count.i64()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            statuses: darray[i64] = storage_visible_statuses
+            reasons: darray[i64] = storage_visible_reasons
+            entry: StudioStorageManifest::Entry = entries[storage_selected]
+            reason: i64 = reasons[storage_selected]
+            return false if entry.state != StudioStorageManifest::REGISTERED or entry.kind == StudioStorageCleanupPolicy::RECOVERY or statuses[storage_selected] != StudioPanels::STORAGE_STATUS_PRESENT
+            return false if reason != StudioStorageCleanupPolicy::PROTECT_NONE and reason != StudioStorageCleanupPolicy::PROTECT_RETENTION and reason != StudioStorageCleanupPolicy::PROTECT_USER_EXEMPTION
+            storage_user_exempt(entry) or StudioStorageExemptionPolicy::may_add(storage_exemptions.count.i64(), true, true, true, false, false, StudioStorageManifest::valid(entry))
+
+        def storage_inspected_exempt() -> bool:
+            return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            storage_user_exempt(entries[storage_selected])
+
+        def toggle_storage_exemption() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            toggle_storage_exemption_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def toggle_storage_exemption_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if not storage_exemption_available()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            expected: StudioStorageManifest::Entry = entries[storage_selected]
+            refresh_storage_inventory()
+            if not storage_exemption_available():
+                storage_message <- 9 if storage_message != 1 and storage_message != 2 and storage_message != 5 and storage_message != 16 and storage_message != 18 and storage_message != 21 and storage_message != 22
+                touch()
+                return
+            fresh: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            if not storage_identity_matches(expected, fresh[storage_selected]):
+                storage_message <- 9
+                touch()
+                return
+            removing: bool = storage_user_exempt(expected)
+            mutable next: darray[StudioStorageManifest::Entry] = []
+            for saved in storage_exemptions |saved, next, expected, removing|:
+                next.push(saved) if not removing or not storage_identity_matches(saved, expected)
+            next.push(expected) if not removing
+            saved: bool = persist_storage_exemptions(next)
+            refresh_storage_inventory()
+            storage_message <- 20 if saved else 19 if storage_exemptions_valid else 18
+            touch()
+
+        def storage_trash_available() -> bool:
+            return false if storage_release_uncertain or storage_manifest_state != 1
+            return false if not storage_preferences_valid or not storage_exemptions_valid
+            return false if not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome)
+            return false if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
+            storage_cleanup_selection.count > 0 and storage_cleanup_selection.count.i64() <= StudioStorageBatchPolicy::MAX_ITEMS
+

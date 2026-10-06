@@ -1,0 +1,213 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def publish_toolbar_accessibility(t: TimelineState::State&, can_undo: bool, can_redo: bool) -> void:
+            return if not accessibility_toolbar_ready
+            none: usize = StudioAccessibility::NO_NODE
+            for i in 0..<StudioPanels::BUTTONS |i, t|:
+                widget: usize = accessibility_toolbar_widgets[i.usize()]
+                enabled: bool = toolbar_accessibility_enabled(i, can_undo, can_redo)
+                UiFlat::set_enabled(widget, enabled)
+                id: usize = StudioAccessibility::toolbar_control_id(i)
+                next: usize = StudioAccessibility::next_sibling(id)
+                role: UiCore::AccessibilityRole = toolbar_accessibility_role(i)
+                accessibility_node(role, StudioPanels::tip_of(i),
+                    "Activate this toolbar action.", StudioPanels::button_box(i),
+                    id, StudioAccessibility::TOOLBAR, none, next, widget,
+                    enabled, toolbar_accessibility_selected(i, flags, t),
+                    toolbar_accessibility_value(i, t))
+
+        def issue_filter_accessibility_value(field: i64) -> sview:
+            StudioText::begin()
+            if field == StudioPanels::ISSUE_FILTER_DETECTOR:
+                if issue_filter.detector == StudioIssueFilterPolicy::ANY_DETECTOR:
+                    StudioText::put("All detectors")
+                elif issue_filter.detector == 0:
+                    StudioText::put("Spike")
+                else:
+                    StudioText::put("Detector ")
+                    StudioText::put_i(issue_filter.detector)
+            elif field == StudioPanels::ISSUE_FILTER_SUBJECT:
+                if issue_filter.subject == StudioIssueFilterPolicy::ANY_SUBJECT:
+                    StudioText::put("All subjects")
+                elif issue_filter.subject == -1:
+                    StudioText::put("Aggregate findings")
+                else:
+                    StudioText::put("Subject ")
+                    StudioText::put_i(issue_filter.subject)
+            elif field == StudioPanels::ISSUE_FILTER_SEVERITY:
+                StudioText::put("At least ")
+                StudioText::put_i(issue_filter.minimum_severity)
+                StudioText::put(" per mille")
+            else:
+                if issue_filter.status == StudioIssueFilterPolicy::ANY_STATUS:
+                    StudioText::put("All statuses")
+                elif issue_filter.status == StudioIssueFilterPolicy::UNRESOLVED:
+                    StudioText::put("Unresolved")
+                else:
+                    StudioText::put("Ignored")
+            StudioText::view()
+
+        def publish_accessibility(w: f32, h: f32, s: StackState::Stack&, t: TimelineState::State&) -> void:
+            none: usize = StudioAccessibility::NO_NODE
+            return if not accessibility_toolbar_ready
+            if export_warning_detail_open:
+                publish_export_warning_detail_accessibility(w, h)
+                return
+            if export_path_inspector_open:
+                publish_export_path_inspector_accessibility(w, h)
+                return
+            if export_result_open:
+                publish_export_result_accessibility(w, h)
+                return
+            if export_review_open:
+                publish_export_review_accessibility(w, h)
+                return
+            if file_menu_open:
+                publish_file_accessibility(w, h, true)
+                return
+            workspace: StudioPanels::Box = StudioPanels::box(0.0, 0.0, w, h)
+            views: StudioPanels::Box = StudioPanels::box(StudioPanels::GAP,
+                StudioPanels::TOOLBAR, StudioPanels::main_width(w),
+                StudioPanels::views_height(h))
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Mocap Studio workspace",
+                "Editing regions for inspecting and cleaning character motion.",
+                workspace, StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::TOOLBAR, none, none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Playback and editing toolbar",
+                "Playback, undo, file, display, and cleanup actions.",
+                StudioPanels::box(0.0, 0.0, w, StudioPanels::TOOLBAR),
+                StudioAccessibility::TOOLBAR, StudioAccessibility::WORKSPACE,
+                StudioAccessibility::toolbar_control_id(0),
+                StudioAccessibility::VIEWPORTS, none, true, false, "")
+            publish_toolbar_accessibility(t, HistoryPolicy::can_undo(history.cursor), HistoryPolicy::can_redo(history.cursor, history.count))
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Character views",
+                "Perspective, front, and side views of the character.",
+                views, StudioAccessibility::VIEWPORTS,
+                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::CURVES, none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Motion curves",
+                "Animation curves for the selected joint.",
+                StudioPanels::curve_box(w, h), StudioAccessibility::CURVES,
+                StudioAccessibility::WORKSPACE, none,
+                StudioAccessibility::TIMELINE, none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Timeline and foot contacts",
+                "Animation timeline, operation range, and foot contact markers.",
+                StudioPanels::timeline_box(w, h), StudioAccessibility::TIMELINE,
+                StudioAccessibility::WORKSPACE, StudioAccessibility::CONTACT_EDITOR_PLANT,
+                StudioAccessibility::SIDEBAR, none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Cleanup operations",
+                "Operation stack, cleanup settings, and parameters.",
+                StudioPanels::sidebar_box(w, h), StudioAccessibility::SIDEBAR,
+                StudioAccessibility::WORKSPACE, StudioPanels::ISSUE_GROUP_ID,
+                StudioAccessibility::STATUS, none, true, false, "")
+            issue_controls: bool = issues_revision == built and filtered_issues.count > 0
+            shown_issues: i64 = filtered_issues.count.i64() if filtered_issues.count.i64() < StudioPanels::ISSUE_FILTERED_ROWS else StudioPanels::ISSUE_FILTERED_ROWS
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Ranked motion findings",
+                "Findings ordered by severity. Each row exposes its exact peak frame, value, threshold, detector type and known subject.",
+                StudioPanels::sidebar_box(w, h),
+                StudioPanels::ISSUE_GROUP_ID, StudioAccessibility::SIDEBAR,
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID, StudioAccessibility::RESET_GROUP, none, true, false,
+                "Findings updating or current; rows show exact peak evidence.")
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Finding filters and intent",
+                "Filter by detector, subject, minimum severity and review status. Intent annotations apply only to the current analysis.",
+                StudioPanels::issue_area_box(StudioPanels::sidebar_box(w, h)),
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID,
+                StudioPanels::ISSUE_GROUP_ID,
+                StudioIssueBrowserPolicy::FILTER_DETECTOR_ID,
+                StudioPanels::ISSUE_PREVIOUS_ID, none, true, false, "")
+            for field in 0..<4 |field, w, h|:
+                mutable id: usize = StudioIssueBrowserPolicy::FILTER_DETECTOR_ID
+                id <- StudioIssueBrowserPolicy::FILTER_SUBJECT_ID if field == StudioPanels::ISSUE_FILTER_SUBJECT
+                id <- StudioIssueBrowserPolicy::FILTER_SEVERITY_ID if field == StudioPanels::ISSUE_FILTER_SEVERITY
+                id <- StudioIssueBrowserPolicy::FILTER_STATUS_ID if field == StudioPanels::ISSUE_FILTER_STATUS
+                mutable label: sview = "Filter findings by detector"
+                label <- "Filter findings by subject" if field == StudioPanels::ISSUE_FILTER_SUBJECT
+                label <- "Set minimum finding severity" if field == StudioPanels::ISSUE_FILTER_SEVERITY
+                label <- "Filter by review status" if field == StudioPanels::ISSUE_FILTER_STATUS
+                mutable help_text: sview = "Cycles through detector types present in the current analysis."
+                help_text <- "Cycles through aggregate and known subject IDs in the current findings." if field == StudioPanels::ISSUE_FILTER_SUBJECT
+                help_text <- "Cycles the inclusive severity threshold in permille." if field == StudioPanels::ISSUE_FILTER_SEVERITY
+                help_text <- "Cycles all, unresolved and ignored findings." if field == StudioPanels::ISSUE_FILTER_STATUS
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    label, help_text,
+                    StudioPanels::issue_filter_box(StudioPanels::sidebar_box(w, h), field),
+                    id, StudioIssueBrowserPolicy::FILTER_GROUP_ID, none,
+                    StudioIssueBrowserPolicy::filter_next_sibling(id, none),
+                    accessibility_issue_filter_widgets[field.usize()], true,
+                    false, issue_filter_accessibility_value(field))
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Reset finding filters",
+                "Return detector, subject, severity and status filters to their defaults.",
+                StudioPanels::issue_filter_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_FILTER_RESET),
+                StudioIssueBrowserPolicy::FILTER_RESET_ID,
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID, none,
+                StudioIssueBrowserPolicy::FINDING_INTENT_ID,
+                accessibility_issue_filter_reset_widget,
+                StudioPanels::issue_filter_active(issue_filter), false, "Reset filters")
+            mutable intent_value: sview = "No selected finding"
+            mutable intent_selected: bool = false
+            intent_enabled: bool = issue_controls
+            if intent_enabled:
+                selected_finding: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+                intent_selected <- StudioIssueAnnotation::disposition(issue_annotations, selected_finding) == StudioIssueAnnotation::IGNORED
+                intent_value <- "Ignored for this analysis" if intent_selected else "Unresolved"
+            accessibility_node(UiCore::AccessibilityRole.CheckBox,
+                "Mark selected finding intentional",
+                "Ignore or restore this exact finding for the current analysis. This annotation does not change the take and is cleared when findings are rebuilt.",
+                StudioPanels::issue_disposition_box(StudioPanels::sidebar_box(w, h)),
+                StudioIssueBrowserPolicy::FINDING_INTENT_ID,
+                StudioIssueBrowserPolicy::FILTER_GROUP_ID, none, none,
+                accessibility_issue_intent_widget, intent_enabled,
+                intent_selected, intent_value)
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Previous finding", "Navigate to the previous ranked motion finding.",
+                StudioPanels::issue_nav_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_PREVIOUS),
+                StudioPanels::ISSUE_PREVIOUS_ID, StudioPanels::ISSUE_GROUP_ID, none, StudioPanels::ISSUE_NEXT_ID,
+                accessibility_issue_previous_widget, issue_controls, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Next finding", "Navigate to the next ranked motion finding.",
+                StudioPanels::issue_nav_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_NEXT),
+                StudioPanels::ISSUE_NEXT_ID, StudioPanels::ISSUE_GROUP_ID, none, StudioPanels::ISSUE_WORST_ID,
+                accessibility_issue_next_widget, issue_controls, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Worst finding", "Navigate to the highest ranked finding.",
+                StudioPanels::issue_nav_box(StudioPanels::sidebar_box(w, h), StudioPanels::ISSUE_WORST),
+                StudioPanels::ISSUE_WORST_ID, StudioPanels::ISSUE_GROUP_ID, none,
+                StudioPanels::issue_node_next_sibling(StudioPanels::ISSUE_WORST_ID, shown_issues),
+                accessibility_issue_worst_widget, issue_controls, false, "")
+            first_issue: i64 = visible_issue_first()
+            for index in 0..<StudioPanels::ISSUE_FILTERED_ROWS |index, shown_issues, w, h, filtered_issues, first_issue|:
+                issue_index: i64 = first_issue + index
+                issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_index) if index < shown_issues else zeroed
+                id: usize = StudioPanels::issue_row_id(index)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    StudioPanels::issue_row_text(issue) if index < shown_issues else "No finding",
+                    "Select this finding to scrub to its exact peak frame and focus its subject when known.",
+                    StudioPanels::issue_row_box(StudioPanels::sidebar_box(w, h), index),
+                    id, StudioPanels::ISSUE_GROUP_ID, none,
+                    StudioPanels::issue_node_next_sibling(id, shown_issues),
+                    accessibility_issue_row_widgets[index.usize()],
+                    index < shown_issues and issue_controls,
+                    issue_index == issue_selected, "")
+            publish_contact_editor_accessibility(w, h)
+            mutable reset_stack: StackState::Stack = current_stack()
+            publish_reset_accessibility(w, h, reset_stack)
+            publish_stack_accessibility(w, h, reset_stack)
+            accessibility_node(UiCore::AccessibilityRole.Status,
+                "Studio status",
+                "Current editing, cleanup, and playback status.",
+                StudioPanels::status_box(w, h), StudioAccessibility::STATUS,
+                StudioAccessibility::WORKSPACE, none, StudioStorageAccessibilityPolicy::FILE_TRIGGER, none, true, false,
+                message(s))
+            publish_file_accessibility(w, h, false)
+

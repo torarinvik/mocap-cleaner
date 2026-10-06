@@ -1,0 +1,214 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def frame_now() -> i64:
+            if timeline is t:
+                return t.frame
+            0
+
+        def frames() -> i64:
+            if clip is c:
+                return c.frames
+            1
+
+        # Frames per second of the loaded clip, from its key times.
+        def rate() -> i64:
+            if clip is c:
+                return c.rate if c.rate >= 1 else Timeline::RATE
+            Timeline::RATE
+
+        # Document nodes of the loaded take (gizmo corrections name them).
+        def node_total() -> i64:
+            if clip is c:
+                return GlbDocument::node_count(&c.source).i64()
+            0
+
+        def current_stack() -> StackState::Stack:
+            if history_ready:
+                return HistoryState::current(&history)
+            StackState::empty()
+
+        def session_identity(c: StudioModel::Clip) -> SessionState::SourceIdentity:
+            SessionState::SourceIdentity{first: c.source_fingerprint.first, second: c.source_fingerprint.second, animation: c.anim.i64(), frames: c.source_frames, nodes: GlbDocument::node_count(&c.source).i64()}
+
+        def touch() -> void:
+            revision <- revision + 1
+            UiCore::request_frame_after(0.001)
+
+        def ensure_issue_filter() -> void:
+            if not issue_filter_ready:
+                issue_filter <- StudioIssueFilterPolicy::Filter{
+                    detector: StudioIssueFilterPolicy::ANY_DETECTOR,
+                    subject: StudioIssueFilterPolicy::ANY_SUBJECT,
+                    minimum_severity: 0,
+                    status: StudioIssueFilterPolicy::ANY_STATUS}
+                issue_filter_ready <- true
+
+        def rebuild_filtered_issues() -> void:
+            ensure_issue_filter()
+            mutable filtered: darray[StudioIssues::Issue] = []
+            for issue in issues |issue_filter, issue_annotations, filtered|:
+                disposition: i64 = StudioIssueAnnotation::disposition(issue_annotations, issue)
+                if StudioIssueFilterPolicy::matches(issue, issue_filter, disposition):
+                    filtered.push(issue)
+            filtered_issues <- move filtered
+            issue_selected <- 0 if filtered_issues.count == 0 or issue_selected >= filtered_issues.count.i64()
+
+        def reconcile_pending_session_annotations(fresh: darray[StudioIssues::Issue]&) -> void:
+            return if not pending_session_annotation_restore
+            mutable restored: i64 = 0
+            for record in pending_session_annotations |record, fresh, issue_annotations, restored|:
+                for issue in fresh |issue, record, issue_annotations, restored|:
+                    if SessionIssueAnnotationPolicy::matches_issue(record, issue, frames()):
+                        if StudioIssueAnnotation::ignore(&issue_annotations, issue):
+                            restored <- restored + 1
+            session_annotations_expired <- pending_session_annotations.count.i64() - restored
+            pending_session_annotations <- zeroed
+            pending_session_annotation_restore <- false
+
+        def collect_issues(c: StudioModel::Clip&) -> void:
+            mutable samples: darray[StudioIssues::Sample] = []
+            for frame in 0..<c.frames |frame, c|:
+                if frame < c.problems.count.i64() and c.problems[frame.usize()] > 0:
+                    value: i64 = c.peaks[frame.usize()]
+                    if value >= c.threshold and c.threshold > 0:
+                        mutable severity: i64 = value * 1000 / c.threshold
+                        severity <- StudioIssues::MAX_SEVERITY if severity > StudioIssues::MAX_SEVERITY else severity
+                        samples.push(StudioIssues::Sample{frame: frame, issue_type: 0, subject_id: -1, source_revision: built, severity: severity, value: value, threshold: c.threshold})
+            mutable ranked: darray[StudioIssues::Issue] = StudioIssues::group(&samples)
+            # Stable descending severity, then descending peak excess. The
+            # grouping kernel has already made each row's peak deterministic.
+            if ranked.count > 1:
+                for index in 1..<ranked.count |index, ranked|:
+                    mutable cursor: usize = index
+                    while cursor > 0:
+                        current: StudioIssues::Issue = ranked[cursor]
+                        previous: StudioIssues::Issue = ranked[cursor - 1]
+                        current_margin: i64 = current.peak_value - current.threshold
+                        previous_margin: i64 = previous.peak_value - previous.threshold
+                        wins: bool = current.severity > previous.severity or (current.severity == previous.severity and current_margin > previous_margin)
+                        if wins:
+                            ranked[cursor] <- previous
+                            ranked[cursor - 1] <- current
+                            cursor <- cursor - 1
+                        else:
+                            break
+            reconcile_pending_session_annotations(ranked)
+            issues <- move ranked
+            issues_revision <- built
+            _ = StudioIssueAnnotation::prune_revisions(&issue_annotations, built)
+            issue_selected <- 0
+            rebuild_filtered_issues()
+
+        def navigate_issue(index: i64) -> void:
+            if issues_revision != built:
+                status <- "findings updating; navigation unavailable"
+                touch()
+                return
+            return if filtered_issues.count == 0 or index < 0 or index >= filtered_issues.count.i64()
+            issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, index)
+            if not issue.selectable or issue.source_revision != issues_revision:
+                status <- "finding is stale; wait for update"
+                touch()
+                return
+            issue_selected <- index
+            if timeline is t and issue.peak_frame >= 0 and issue.peak_frame < t.count:
+                timeline <- TimelineState::scrub(t, issue.peak_frame)
+            if clip is c and issue.subject_id >= 0 and issue.subject_id < c.nodes.count.i64():
+                bone <- issue.subject_id
+            status <- "finding selected"
+            touch()
+
+        def issue_navigation(action: i64) -> void:
+            return if filtered_issues.count == 0 or filtered_issues.count.i64() > StudioIssueBrowserPolicy::MAX_FINDINGS
+            if action == StudioPanels::ISSUE_WORST:
+                navigate_issue(0)
+            else:
+                navigate_issue(StudioPanels::issue_navigation_target(issue_selected,
+                    filtered_issues.count.i64(), action))
+
+        def visible_issue_first() -> i64:
+            issue_selected if issue_selected >= 0 and issue_selected < filtered_issues.count.i64() else 0
+
+        def next_issue_value(current: i64, detector: bool) -> i64:
+            mutable next: i64 = 9223372036854775807
+            for issue in issues |issue, current, detector, next|:
+                value: i64 = issue.issue_type if detector else issue.subject_id
+                next <- value if value > current and value < next
+            return next if next < 9223372036854775807
+            StudioIssueFilterPolicy::ANY_DETECTOR if detector else StudioIssueFilterPolicy::ANY_SUBJECT
+
+        def reset_issue_filters() -> void:
+            ensure_issue_filter()
+            issue_filter <- StudioIssueFilterPolicy::Filter{
+                detector: StudioIssueFilterPolicy::ANY_DETECTOR,
+                subject: StudioIssueFilterPolicy::ANY_SUBJECT,
+                minimum_severity: 0,
+                status: StudioIssueFilterPolicy::ANY_STATUS}
+            issue_selected <- 0
+            rebuild_filtered_issues()
+            status <- "finding filters cleared"
+            touch()
+
+        def cycle_issue_filter(field: i64) -> void:
+            ensure_issue_filter()
+            if field == StudioPanels::ISSUE_FILTER_DETECTOR:
+                issue_filter.detector <- next_issue_value(issue_filter.detector, true)
+            elif field == StudioPanels::ISSUE_FILTER_SUBJECT:
+                issue_filter.subject <- next_issue_value(issue_filter.subject, false)
+            elif field == StudioPanels::ISSUE_FILTER_SEVERITY:
+                if issue_filter.minimum_severity == 0:
+                    issue_filter.minimum_severity <- 250
+                elif issue_filter.minimum_severity == 250:
+                    issue_filter.minimum_severity <- 500
+                elif issue_filter.minimum_severity == 500:
+                    issue_filter.minimum_severity <- 750
+                elif issue_filter.minimum_severity == 750:
+                    issue_filter.minimum_severity <- 900
+                else:
+                    issue_filter.minimum_severity <- 0
+            elif field == StudioPanels::ISSUE_FILTER_STATUS:
+                if issue_filter.status == StudioIssueFilterPolicy::ANY_STATUS:
+                    issue_filter.status <- StudioIssueFilterPolicy::UNRESOLVED
+                elif issue_filter.status == StudioIssueFilterPolicy::UNRESOLVED:
+                    issue_filter.status <- StudioIssueFilterPolicy::IGNORED
+                else:
+                    issue_filter.status <- StudioIssueFilterPolicy::ANY_STATUS
+            else:
+                return
+            issue_selected <- 0
+            rebuild_filtered_issues()
+            status <- "finding filters updated"
+            touch()
+
+        def toggle_issue_intent() -> void:
+            return if issues_revision != built
+            return if filtered_issues.count == 0 or issue_selected < 0 or issue_selected >= filtered_issues.count.i64()
+            issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+            disposition: i64 = StudioIssueAnnotation::disposition(issue_annotations, issue)
+            if disposition == StudioIssueAnnotation::IGNORED:
+                if StudioIssueAnnotation::restore(&issue_annotations, issue):
+                    status <- "finding restored for this analysis"
+            elif StudioIssueAnnotation::ignore(&issue_annotations, issue):
+                status <- "finding marked intentional for this analysis"
+            else:
+                status <- "intent list is full; restore a finding before adding another"
+            rebuild_filtered_issues()
+            touch()
+
+        def draw_issue_browser(w: f32, h: f32, stale: bool, loading: bool) -> void:
+            ensure_issue_filter()
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            StudioPanels::issue_browser(sb, filtered_issues, visible_issue_first(),
+                issue_selected, stale, loading,
+                StudioPanels::issue_filter_active(issue_filter))
+            StudioPanels::issue_filter_controls(sb, issue_filter)
+            selection_valid: bool = not stale and filtered_issues.count > 0 and issue_selected >= 0 and issue_selected < filtered_issues.count.i64()
+            mutable ignored: bool = false
+            if selection_valid:
+                selected_issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+                ignored <- StudioIssueAnnotation::disposition(issue_annotations, selected_issue) == StudioIssueAnnotation::IGNORED
+            StudioPanels::issue_disposition_control(sb, selection_valid, ignored)
+
+        # Rebuild the cleaned clip from the current stack (live preview).

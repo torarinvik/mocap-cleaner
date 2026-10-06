@@ -1,0 +1,172 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def restore_storage_entry() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            restore_storage_entry_locked()
+            _ = end_storage_transaction(descriptor)
+
+        def restore_storage_entry_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            expected: StudioStorageManifest::Entry = storage_restore_entry
+            refresh_storage_inventory()
+            # Reload the manifest before mutating it, and require the reviewed
+            # receipt to remain visible and durable after fresh source checks.
+            mutable still_available: bool = false
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            statuses: darray[i64] = storage_visible_statuses
+            if storage_message != 1 and storage_message != 2 and storage_message != 5:
+                for index in 0..<entries.count |entries, statuses, expected, still_available|:
+                    entry: StudioStorageManifest::Entry = entries[index]
+                    if index < statuses.count and statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH and storage_identity_matches(expected, entry) and StudioStorageManifest::same_path(expected.trashed_path, entry.trashed_path):
+                        still_available <- true
+            lock_outcome: i64 = StudioStorageManifestLockPolicy::OUTCOME_ACQUIRED if storage_transaction_active and not storage_release_uncertain else StudioStorageManifestLockPolicy::OUTCOME_INVALID
+            exact_version: bool = StudioStorageManifestVersion::matches(storage_restore_manifest_version, storage_entries, storage_manifest_state == 1)
+            if not StudioStorageManifestLockPolicy::may_publish(lock_outcome, storage_manifest_state == 1, exact_version, still_available):
+                storage_message <- 9
+                touch()
+                return
+            mutable recovered: StudioStorageManifest::Entry = zeroed
+            mutable explanation: darray[u8] = []
+            if not StudioFileTrash::reconcile("build", expected, &recovered, &explanation):
+                refresh_storage_inventory()
+                storage_message <- 7
+                touch()
+                return
+            if not storage_identity_matches(expected, recovered) or not StudioStorageManifest::same_path(expected.trashed_path, recovered.trashed_path):
+                refresh_storage_inventory()
+                storage_message <- 9
+                touch()
+                return
+            if not StudioFileTrash::restore("build", recovered, &explanation):
+                refresh_storage_inventory()
+                storage_message <- 7
+                touch()
+                return
+            # Refresh recognizes the exact original identity and atomically
+            # changes its receipt back to REGISTERED. A failed save retains
+            # the on-disk receipt so another refresh can finish recovery.
+            refresh_storage_inventory()
+            storage_message <- 8 if storage_message == 5 or storage_message == 1 else 6
+            touch()
+
+        def storage_receipt_is_durable(receipt: StudioStorageManifest::Entry) -> bool:
+            return false if storage_manifest_state != 1
+            for entry in storage_entries |entry, receipt|:
+                if entry.state == StudioStorageManifest::IN_TRASH and storage_identity_matches(receipt, entry) and StudioStorageManifest::same_path(receipt.trashed_path, entry.trashed_path):
+                    return true
+            false
+
+        # The reviewed identity is already durable before the native move.
+        # Engine reconciliation can recover it after a crash before receipt save.
+        def move_storage_reviewed_entry(expected: StudioStorageManifest::Entry, confirmed: bool) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            descriptor: i32 = begin_storage_transaction()
+            return if descriptor == -1
+            move_storage_reviewed_entry_locked(expected, confirmed)
+            _ = end_storage_transaction(descriptor)
+
+        def move_storage_reviewed_entry_locked(expected: StudioStorageManifest::Entry, confirmed: bool) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            refresh_storage_inventory()
+            if not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome):
+                storage_message <- 15
+                touch()
+                return
+            mutable fresh_matches: bool = false
+            mutable fresh_eligible: bool = false
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            reasons: darray[i64] = storage_visible_reasons
+            for index in 0..<entries.count |entries, reasons, expected, fresh_matches, fresh_eligible|:
+                entry: StudioStorageManifest::Entry = entries[index]
+                if entry.state == StudioStorageManifest::REGISTERED and storage_identity_matches(expected, entry):
+                    fresh_matches <- true
+                    fresh_eligible <- index < reasons.count and reasons[index] == StudioStorageCleanupPolicy::PROTECT_NONE
+            lock_outcome: i64 = StudioStorageManifestLockPolicy::OUTCOME_ACQUIRED if storage_transaction_active and not storage_release_uncertain else StudioStorageManifestLockPolicy::OUTCOME_INVALID
+            exact_version: bool = StudioStorageManifestVersion::matches(storage_batch_manifest_version, storage_entries, storage_manifest_state == 1)
+            if not StudioStorageManifestLockPolicy::may_move(lock_outcome, storage_manifest_state == 1, exact_version, fresh_matches) or not StudioStorageMovePolicy::may_move(storage_manifest_state == 1 and storage_message != 5,
+                    StudioStorageManifest::valid(expected) and expected.state == StudioStorageManifest::REGISTERED,
+                    fresh_matches, fresh_eligible, confirmed):
+                storage_move_outcome <- StudioStorageMovePolicy::OUTCOME_NOT_STARTED
+                storage_message <- 9
+                touch()
+                return
+            mutable receipt: StudioStorageManifest::Entry = zeroed
+            mutable explanation: darray[u8] = []
+            mutable moved: bool = StudioFileTrash::move_entry("build", expected, &receipt, &explanation)
+            if not moved:
+                # A native failure can follow a move and failed internal rollback.
+                # A verified recovery lookup is stronger evidence than its code.
+                moved <- StudioFileTrash::reconcile("build", expected, &receipt, &explanation)
+            if not moved:
+                mutable original: StudioStorageManifest::Entry = zeroed
+                original_known: bool = StudioFileTrash::snapshot_path("build", expected.original_path, expected.kind, &original, &explanation) and storage_identity_matches(expected, original)
+                storage_move_outcome <- StudioStorageMovePolicy::outcome(
+                    StudioStorageMovePolicy::MOVE_FAILED_ORIGINAL_KNOWN if original_known else StudioStorageMovePolicy::MOVE_UNKNOWN_AFTER_FAILURE,
+                    StudioStorageMovePolicy::WRITE_NOT_ATTEMPTED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
+                refresh_storage_inventory()
+                storage_message <- 11 if original_known else 15
+                touch()
+                return
+            storage_retained_receipt <- receipt
+            mutable updated: darray[StudioStorageManifest::Entry] = []
+            for entry in storage_entries |entry, updated, expected, receipt|:
+                updated.push(receipt if storage_identity_matches(expected, entry) else entry)
+            if StudioStorageManifestLockPolicy::may_publish(lock_outcome, storage_manifest_state == 1, exact_version, storage_identity_matches(expected, receipt)) and persist_storage_manifest(updated):
+                storage_entries <- updated
+                storage_batch_manifest_version <- StudioStorageManifestVersion::capture(updated, true)
+                storage_retained_receipt <- null
+                storage_move_outcome <- StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED,
+                    StudioStorageMovePolicy::WRITE_SUCCEEDED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
+                refresh_storage_inventory()
+                storage_message <- 10
+                touch()
+                return
+            # Preserve the verified receipt until a fresh original snapshot
+            # proves rollback, or an atomic save makes the receipt durable.
+            _ = StudioFileTrash::restore("build", receipt, &explanation)
+            mutable original: StudioStorageManifest::Entry = zeroed
+            original_restored: bool = StudioFileTrash::snapshot_path("build", expected.original_path, expected.kind, &original, &explanation) and storage_identity_matches(expected, original)
+            mutable rollback: i64 = StudioStorageMovePolicy::ROLLBACK_SUCCEEDED if original_restored else StudioStorageMovePolicy::ROLLBACK_UNKNOWN
+            if not original_restored:
+                mutable still_in_trash: StudioStorageManifest::Entry = zeroed
+                if StudioFileTrash::reconcile("build", receipt, &still_in_trash, &explanation):
+                    storage_retained_receipt <- still_in_trash
+                    rollback <- StudioStorageMovePolicy::ROLLBACK_FAILED
+            else:
+                storage_retained_receipt <- null
+            storage_move_outcome <- StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED,
+                StudioStorageMovePolicy::WRITE_FAILED, rollback)
+            refresh_storage_inventory()
+            storage_message <- 12 if original_restored else 13 if rollback == StudioStorageMovePolicy::ROLLBACK_FAILED else 15
+            if not original_restored and storage_receipt_is_durable(receipt):
+                # Refresh may have completed the failed atomic receipt save.
+                storage_retained_receipt <- null
+                storage_move_outcome <- StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED,
+                    StudioStorageMovePolicy::WRITE_SUCCEEDED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
+                storage_message <- 10
+            touch()
+
+        def reconcile_storage_batch_item(entry: StudioStorageManifest::Entry, verified_status: i64, had_verified_receipt: bool) -> void:
+            return if storage_batch_state != StudioStorageBatchPolicy::STATE_STOP_UNKNOWN and storage_batch_state != StudioStorageBatchPolicy::STATE_STOP_RECOVERY_REQUIRED
+            mutable index: i64 = storage_batch_index
+            index <- index - 1 if storage_batch_state == StudioStorageBatchPolicy::STATE_STOP_RECOVERY_REQUIRED
+            reviewed: darray[StudioStorageManifest::Entry] = storage_batch_entries
+            mutable items: darray[i64] = storage_batch_items
+            total: i64 = reviewed.count.i64()
+            return if total < 1 or total > StudioStorageBatchPolicy::MAX_ITEMS or index < 0 or index >= total or index >= items.count.i64()
+            return if not storage_identity_matches(reviewed[index], entry)
+            old_item: i64 = items[index]
+            return if old_item != StudioStorageBatchPolicy::ITEM_UNKNOWN and old_item != StudioStorageBatchPolicy::ITEM_RECOVERY_REQUIRED
+            item: i64 = StudioStorageBatchPolicy::ITEM_RECORDED if verified_status == StudioPanels::STORAGE_STATUS_IN_TRASH else StudioStorageBatchPolicy::ITEM_RESTORED if had_verified_receipt else StudioStorageBatchPolicy::ITEM_KNOWN_FAILED
+            return if storage_batch_completed < 0 or storage_batch_completed >= StudioStorageBatchPolicy::MAX_ITEMS or storage_batch_failed < 0 or storage_batch_failed > StudioStorageBatchPolicy::MAX_ITEMS
+            if old_item == StudioStorageBatchPolicy::ITEM_RECOVERY_REQUIRED:
+                return if storage_batch_failed < 1
+                storage_batch_failed <- storage_batch_failed - 1
+            return if storage_batch_failed >= StudioStorageBatchPolicy::MAX_ITEMS
+            storage_batch_completed <- StudioStorageBatchPolicy::next_completed(storage_batch_completed, item)
+            storage_batch_failed <- StudioStorageBatchPolicy::next_failed(storage_batch_failed, item)
+            items[index] <- item
+            storage_batch_items <- items
+            storage_batch_index <- StudioStorageBatchPolicy::next_index(index, total, item)
+            storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, storage_batch_index)
+

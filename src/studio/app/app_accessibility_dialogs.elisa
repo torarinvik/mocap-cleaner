@@ -1,0 +1,365 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def publish_export_review_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_review_ready
+            if clip is c:
+                none: usize = StudioAccessibility::NO_NODE
+                warnings: i64 = current_export_warnings()
+                dialog: StudioPanels::Box = StudioPanels::export_review_dialog_box(w, h)
+                accessibility_node(UiCore::AccessibilityRole.Dialog,
+                    "Review cleaned export",
+                    "Review the destination, retained animation details, cleanup steps, and quality notes before exporting.",
+                    dialog, StudioAccessibility::EXPORT_REVIEW, none,
+                    StudioAccessibility::export_review_first_child(warnings), none,
+                    none, true, false, "")
+                if warnings > 0:
+                    mutable acknowledgement: sview = "Not acknowledged"
+                    acknowledgement <- "Acknowledged" if export_review_acknowledged
+                    accessibility_node(UiCore::AccessibilityRole.CheckBox,
+                        "I reviewed the quality notes",
+                        "Required before exporting while quality warnings are present.",
+                        StudioPanels::export_review_ack_box(w, h),
+                        StudioAccessibility::REVIEW_ACKNOWLEDGEMENT,
+                        StudioAccessibility::EXPORT_REVIEW,
+                        none, StudioAccessibility::export_review_next_sibling(
+                            StudioAccessibility::REVIEW_ACKNOWLEDGEMENT, warnings),
+                        accessibility_review_ack_widget, true,
+                        export_review_acknowledged, acknowledgement)
+                for index in 0..<warnings |index, w, h, warnings|:
+                    kind: i64 = current_export_warning_kind(index)
+                    id: usize = StudioAccessibility::export_review_warning_id(index)
+                    accessibility_node(UiCore::AccessibilityRole.Button,
+                        StudioPanels::export_warning_detail_title(kind),
+                        "Open the before/after metric and available frame evidence for this warning.",
+                        StudioPanels::export_review_warning_box(w, h, index),
+                        id, StudioAccessibility::EXPORT_REVIEW, none,
+                        StudioAccessibility::export_review_next_sibling(id, warnings),
+                        accessibility_review_warning_widgets[index.usize()], true,
+                        false, StudioPanels::export_warning_detail_metric(c, kind))
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Inspect full destination path",
+                    "Open a read-only view of the entire export destination.",
+                    StudioPanels::export_review_destination_box(w, h),
+                    StudioAccessibility::REVIEW_DESTINATION,
+                    StudioAccessibility::EXPORT_REVIEW,
+                    none, StudioAccessibility::export_review_next_sibling(
+                        StudioAccessibility::REVIEW_DESTINATION, warnings),
+                    accessibility_review_destination_widget, true, false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Cancel export review", "Close this review without writing a file.",
+                    StudioPanels::export_review_button_box(w, h, StudioExportReview::CANCEL),
+                    StudioAccessibility::REVIEW_CANCEL, StudioAccessibility::EXPORT_REVIEW,
+                    none, StudioAccessibility::REVIEW_EXPORT,
+                    accessibility_review_cancel_widget, true, false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Export GLB", "Write and validate the cleaned GLB at the displayed destination.",
+                    StudioPanels::export_review_button_box(w, h, StudioExportReview::EXPORT),
+                    StudioAccessibility::REVIEW_EXPORT, StudioAccessibility::EXPORT_REVIEW,
+                    none, none, accessibility_review_export_widget,
+                    StudioExportReview::export_enabled(warnings, export_review_acknowledged),
+                    false, "")
+
+        def publish_contact_editor_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_contact_ready
+            if clip is c:
+                valid: bool = StudioContactEditor::selection_valid(
+                    contact_selected_side, contact_selected_frame, c.frames)
+                UiFlat::set_enabled(accessibility_contact_plant_widget, valid)
+                UiFlat::set_enabled(accessibility_contact_lift_widget, valid)
+                mutable current: StackState::Stack = current_stack()
+                reset_enabled: bool = valid and StackState::has_edit_at(current, contact_selected_side, contact_selected_frame)
+                UiFlat::set_enabled(accessibility_contact_reset_widget, reset_enabled)
+                UiFlat::set_enabled(accessibility_contact_delete_widget, reset_enabled)
+                merge_enabled: bool = valid and StackState::can_merge_edit_at(current, contact_selected_side, contact_selected_frame)
+                UiFlat::set_enabled(accessibility_contact_merge_widget, merge_enabled)
+                split_enabled: bool = valid and StackState::can_split_edit_at(current, contact_selected_side, contact_selected_frame)
+                UiFlat::set_enabled(accessibility_contact_split_widget, split_enabled)
+                none: usize = StudioAccessibility::NO_NODE
+                next: usize = StudioAccessibility::CONTACT_EDITOR_LIFT
+                mutable value: sview = "Select a contact row and frame first"
+                if valid:
+                    StudioText::begin()
+                    StudioText::put(StudioPanels::contact_side_label(contact_selected_side))
+                    StudioText::put(" frame ")
+                    StudioText::put_i(contact_selected_frame + 1)
+                    selected_index: i64 = StackState::edit_index_at(current, contact_selected_side, contact_selected_frame)
+                    if selected_index >= 0:
+                        selected_edit: StackState::FootEdit = current.edits[selected_index]
+                        StudioText::put(" · interval ")
+                        StudioText::put_i(selected_edit.first + 1)
+                        StudioText::put(" to ")
+                        StudioText::put_i(selected_edit.last + 1)
+                    value <- StudioText::view()
+                tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Plant selected contact frame",
+                    "Override automatic contact detection as planted on the selected frame. This edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::PLANT),
+                    StudioAccessibility::CONTACT_EDITOR_PLANT,
+                    StudioAccessibility::TIMELINE, none, next,
+                    accessibility_contact_plant_widget, valid, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Lift selected contact frame",
+                    "Override automatic contact detection as lifted on the selected frame. This edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::LIFT),
+                    StudioAccessibility::CONTACT_EDITOR_LIFT,
+                    StudioAccessibility::TIMELINE, none, StudioAccessibility::CONTACT_EDITOR_RESET,
+                    accessibility_contact_lift_widget, valid, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Reset selected contact frame to automatic detection",
+                    "Remove authored contact overrides from only this output frame so the detector's result is used. The edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::RESET),
+                    StudioAccessibility::CONTACT_EDITOR_RESET,
+                    StudioAccessibility::TIMELINE, none, StudioAccessibility::CONTACT_EDITOR_DELETE,
+                    accessibility_contact_reset_widget, reset_enabled, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Delete selected contact interval",
+                    "Remove the newest authored contact interval covering the selected frame. Earlier overrides or automatic detection become visible again. The edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::DELETE),
+                    StudioAccessibility::CONTACT_EDITOR_DELETE,
+                    StudioAccessibility::TIMELINE, none, StudioAccessibility::CONTACT_EDITOR_MERGE,
+                    accessibility_contact_delete_widget, reset_enabled, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Merge adjacent contact interval",
+                    "Merge the selected interval with a directly adjacent interval only when both have the same side and planted or lifted state. The resulting contact track is unchanged. The edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::MERGE),
+                    StudioAccessibility::CONTACT_EDITOR_MERGE,
+                    StudioAccessibility::TIMELINE, none, StudioAccessibility::CONTACT_EDITOR_SPLIT,
+                    accessibility_contact_merge_widget, merge_enabled, false, value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Split selected contact interval before selected frame",
+                    "Split the newest authored interval immediately before the selected frame. The selected frame begins the right interval; both intervals keep the same planted or lifted state. Contact output is unchanged. The edit is undoable and saved with the session.",
+                    StudioPanels::contact_editor_button_box(tb, StudioContactEditor::SPLIT),
+                    StudioAccessibility::CONTACT_EDITOR_SPLIT,
+                    StudioAccessibility::TIMELINE, none, none,
+                    accessibility_contact_split_widget, split_enabled, false, value)
+
+        def publish_reset_accessibility(w: f32, h: f32, s: StackState::Stack&) -> void:
+            return if not accessibility_reset_ready
+            none: usize = StudioAccessibility::NO_NODE
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            contacts_enabled: bool = s.edit_count > 0
+            corrections_enabled: bool = s.fix_count > 0
+            source_enabled: bool = StackState::has_cleanup(s)
+            UiFlat::set_enabled(accessibility_reset_trigger_widget, true)
+            UiFlat::set_enabled(accessibility_reset_contacts_widget, contacts_enabled)
+            UiFlat::set_enabled(accessibility_reset_corrections_widget, corrections_enabled)
+            UiFlat::set_enabled(accessibility_reset_source_widget, source_enabled)
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Cleanup reset actions",
+                "Clear cleanup by scope. Each action is one undoable change.",
+                StudioPanels::reset_menu_button_box(sb), StudioAccessibility::RESET_GROUP,
+                StudioAccessibility::SIDEBAR, StudioAccessibility::RESET_TRIGGER,
+                none, none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Reset cleanup menu",
+                "Open or close actions to clear contacts, clear local corrections, or restore the source result.",
+                StudioPanels::reset_menu_button_box(sb), StudioAccessibility::RESET_TRIGGER,
+                StudioAccessibility::RESET_GROUP,
+                StudioAccessibility::reset_next_sibling(StudioAccessibility::RESET_TRIGGER, reset_menu_open),
+                none, accessibility_reset_trigger_widget, true, reset_menu_open,
+                "Open" if not reset_menu_open else "Close")
+            if reset_menu_open:
+                mutable contacts_value: sview = "No contact overrides to clear"
+                if contacts_enabled:
+                    StudioText::begin()
+                    StudioText::put_i(s.edit_count)
+                    StudioText::put(" authored contact overrides")
+                    contacts_value <- StudioText::view()
+                mutable corrections_value: sview = "No local corrections to clear"
+                if corrections_enabled:
+                    StudioText::begin()
+                    StudioText::put_i(s.fix_count)
+                    StudioText::put(" local corrections")
+                    corrections_value <- StudioText::view()
+                mutable source_value: sview = "No cleanup to remove"
+                if source_enabled:
+                    source_value <- "Removes all cleanup and retiming"
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Clear contacts",
+                    "Remove authored contact overrides. Automatic contact detection becomes visible again. One undo step.",
+                    StudioPanels::reset_menu_item_box(sb, 0), StudioAccessibility::RESET_CLEAR_CONTACTS,
+                    StudioAccessibility::RESET_GROUP,
+                    none, StudioAccessibility::RESET_CLEAR_CORRECTIONS,
+                    accessibility_reset_contacts_widget, contacts_enabled, false, contacts_value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Clear local corrections",
+                    "Remove local pose corrections while keeping cleanup operations and contact overrides. One undo step.",
+                    StudioPanels::reset_menu_item_box(sb, 1), StudioAccessibility::RESET_CLEAR_CORRECTIONS,
+                    StudioAccessibility::RESET_GROUP,
+                    none, StudioAccessibility::RESET_SOURCE_RESULT,
+                    accessibility_reset_corrections_widget, corrections_enabled, false, corrections_value)
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Restore source result",
+                    "Remove cleanup operations, retiming, contact overrides, locks, blend settings, and local corrections. One undo step.",
+                    StudioPanels::reset_menu_item_box(sb, 2), StudioAccessibility::RESET_SOURCE_RESULT,
+                    StudioAccessibility::RESET_GROUP,
+                    none, none, accessibility_reset_source_widget, source_enabled, false, source_value)
+
+        def publish_stack_accessibility(w: f32, h: f32, s: StackState::Stack&) -> void:
+            return if not accessibility_stack_ready
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            none: usize = StudioAccessibility::NO_NODE
+            duplicate_enabled: bool = StudioOperationDuplicatePolicy::available(s.count, s.selected)
+            UiFlat::set_enabled(accessibility_stack_duplicate_widget, duplicate_enabled)
+            mutable value: sview = "Select an operation before duplicating"
+            value <- "Stack is full (16 of 16)" if s.count >= StudioOperationDuplicatePolicy::MAX_OPS
+            value <- "Copy is inserted after the selected step" if duplicate_enabled
+            accessibility_node(UiCore::AccessibilityRole.Group,
+                "Cleanup stack actions",
+                "Actions for the selected cleanup operation.",
+                StudioPanels::duplicate_button_box(sb), StudioAccessibility::STACK_GROUP,
+                StudioAccessibility::SIDEBAR, StudioAccessibility::STACK_DUPLICATE,
+                none, none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Duplicate selected operation",
+                "Insert an exact copy after the selected operation and select the copy. Cmd-D. One undo step.",
+                StudioPanels::duplicate_button_box(sb), StudioAccessibility::STACK_DUPLICATE,
+                StudioAccessibility::STACK_GROUP, none, none,
+                accessibility_stack_duplicate_widget, duplicate_enabled, false, value)
+
+        def publish_export_warning_detail_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_warning_ready
+            if clip is c:
+                none: usize = StudioAccessibility::NO_NODE
+                dialog: StudioPanels::Box = StudioPanels::export_warning_detail_dialog_box(w, h)
+                kind: i64 = current_export_warning_kind(export_warning_detail_index)
+                StudioText::begin()
+                StudioText::put("Details for ")
+                StudioText::put(StudioPanels::export_warning_detail_title(kind))
+                accessibility_node(UiCore::AccessibilityRole.Dialog,
+                    StudioText::view(),
+                    "The export review stays open behind this read-only metric detail.",
+                    dialog, StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_first_child(), none,
+                    none, true, false, "")
+                accessibility_node(UiCore::AccessibilityRole.Label,
+                    "Before and after metric", "The warning's matching export metric.",
+                    StudioPanels::box(dialog.x + 24.0, dialog.y + 56.0, dialog.w - 48.0, 28.0),
+                    StudioAccessibility::WARNING_DETAIL_METRIC,
+                    StudioAccessibility::WARNING_DETAIL,
+                    none, StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_METRIC),
+                    none, true, false, StudioPanels::export_warning_detail_metric(c, kind))
+                accessibility_node(UiCore::AccessibilityRole.Label,
+                    "Available frame evidence",
+                    "Frame evidence is shown only when the retained data supports it.",
+                    StudioPanels::box(dialog.x + 24.0, dialog.y + 96.0, dialog.w - 48.0, 42.0),
+                    StudioAccessibility::WARNING_DETAIL_EVIDENCE,
+                    StudioAccessibility::WARNING_DETAIL,
+                    none, StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_EVIDENCE),
+                    none, true, false, StudioPanels::export_warning_detail_evidence(c, kind))
+                previous_enabled: bool = StudioExportPathReview::enabled(
+                    StudioExportPathReview::PREVIOUS, export_warning_detail_index,
+                    current_export_warnings())
+                next_enabled: bool = StudioExportPathReview::enabled(
+                    StudioExportPathReview::NEXT, export_warning_detail_index,
+                    current_export_warnings())
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Previous warning", "Show the previous export warning.",
+                    StudioPanels::export_warning_detail_button_box(w, h,
+                        StudioExportPathReview::PREVIOUS),
+                    StudioAccessibility::WARNING_DETAIL_PREVIOUS,
+                    StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_PREVIOUS),
+                    accessibility_warning_previous_widget, previous_enabled,
+                    false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Next warning", "Show the next export warning.",
+                    StudioPanels::export_warning_detail_button_box(w, h,
+                        StudioExportPathReview::NEXT),
+                    StudioAccessibility::WARNING_DETAIL_NEXT,
+                    StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_NEXT),
+                    accessibility_warning_next_widget, next_enabled,
+                    false, "")
+                accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Return to export review",
+                    "Close warning details while preserving the destination and acknowledgement.",
+                    StudioPanels::export_warning_detail_button_box(w, h,
+                        StudioExportPathReview::DONE),
+                    StudioAccessibility::WARNING_DETAIL_DONE,
+                    StudioAccessibility::WARNING_DETAIL, none,
+                    StudioAccessibility::warning_detail_next_sibling(
+                        StudioAccessibility::WARNING_DETAIL_DONE),
+                    accessibility_warning_done_widget, true, false, "")
+
+        def publish_export_path_inspector_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_path_ready
+            none: usize = StudioAccessibility::NO_NODE
+            pages: i64 = StudioPanels::export_path_pages(export_review_path)
+            visible_lines: i64 = StudioPanels::export_path_visible_lines(
+                export_review_path, export_path_inspector_page)
+            dialog: StudioPanels::Box = StudioPanels::export_path_inspector_dialog_box(w, h)
+            accessibility_node(UiCore::AccessibilityRole.Dialog,
+                "Full export destination",
+                "Read the complete destination path across the displayed path lines. Previous and Next show the adjacent page.",
+                dialog, StudioAccessibility::EXPORT_REVIEW, none,
+                StudioAccessibility::export_path_inspector_first_child(), none,
+                none, true, false, "")
+            for row in 0..<visible_lines |row, w, h, dialog, export_path_inspector_page, export_review_path, visible_lines|:
+                id: usize = StudioAccessibility::PATH_LINE_FIRST + row.usize()
+                next: usize = StudioAccessibility::export_path_inspector_next_sibling(id, visible_lines)
+                line_box: StudioPanels::Box = StudioPanels::box(dialog.x + 24.0,
+                    dialog.y + 76.0 + row.f32() * 49.0, dialog.w - 48.0, 38.0)
+                label: sview = StudioText::number("Path line ", row + 1)
+                accessibility_node(UiCore::AccessibilityRole.Label, label,
+                    "Read-only exact segment of the export destination.", line_box,
+                    id, StudioAccessibility::EXPORT_REVIEW, none, next, none,
+                    true, false, StudioPanels::export_path_line(export_review_path,
+                        export_path_inspector_page, row))
+            prev_enabled: bool = StudioExportPathReview::enabled(
+                StudioExportPathReview::PREVIOUS, export_path_inspector_page, pages)
+            next_enabled: bool = StudioExportPathReview::enabled(
+                StudioExportPathReview::NEXT, export_path_inspector_page, pages)
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Previous path page", "Show the previous destination path page.",
+                StudioPanels::export_path_inspector_button_box(w, h, StudioExportPathReview::PREVIOUS),
+                StudioAccessibility::PATH_PREVIOUS, StudioAccessibility::EXPORT_REVIEW,
+                none, StudioAccessibility::PATH_NEXT, accessibility_path_previous_widget,
+                prev_enabled, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Next path page", "Show the next destination path page.",
+                StudioPanels::export_path_inspector_button_box(w, h, StudioExportPathReview::NEXT),
+                StudioAccessibility::PATH_NEXT, StudioAccessibility::EXPORT_REVIEW,
+                none, StudioAccessibility::PATH_DONE, accessibility_path_next_widget,
+                next_enabled, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Done", "Return to the export review without changing its destination or acknowledgement.",
+                StudioPanels::export_path_inspector_button_box(w, h, StudioExportPathReview::DONE),
+                StudioAccessibility::PATH_DONE, StudioAccessibility::EXPORT_REVIEW,
+                none, none, accessibility_path_done_widget, true, false, "")
+
+        def publish_export_result_accessibility(w: f32, h: f32) -> void:
+            return if not accessibility_result_ready
+            none: usize = StudioAccessibility::NO_NODE
+            dialog: StudioPanels::Box = StudioPanels::export_result_dialog_box(w, h)
+            accessibility_node(UiCore::AccessibilityRole.Dialog,
+                "Export complete",
+                "The cleaned GLB was published and validated. Choose Open Result, Show in Folder, or Done.",
+                dialog, StudioAccessibility::EXPORT_RESULT, none,
+                StudioAccessibility::export_result_first_child(), none,
+                none, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Open Result", "Open the committed GLB in your default application.",
+                StudioPanels::export_result_button_box(w, h, StudioExportResult::OPEN),
+                StudioAccessibility::RESULT_OPEN, StudioAccessibility::EXPORT_RESULT,
+                none, StudioAccessibility::RESULT_SHOW_IN_FOLDER,
+                accessibility_result_open_widget, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Show in Folder", "Reveal the committed GLB in Finder.",
+                StudioPanels::export_result_button_box(w, h, StudioExportResult::SHOW_IN_FOLDER),
+                StudioAccessibility::RESULT_SHOW_IN_FOLDER, StudioAccessibility::EXPORT_RESULT,
+                none, StudioAccessibility::RESULT_DONE,
+                accessibility_result_folder_widget, true, false, "")
+            accessibility_node(UiCore::AccessibilityRole.Button,
+                "Done", "Close the result panel and return to Studio.",
+                StudioPanels::export_result_button_box(w, h, StudioExportResult::DONE),
+                StudioAccessibility::RESULT_DONE, StudioAccessibility::EXPORT_RESULT,
+                none, none, accessibility_result_done_widget, true, false, "")
+

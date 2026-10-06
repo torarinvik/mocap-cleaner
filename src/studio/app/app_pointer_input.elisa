@@ -1,0 +1,416 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def camera_input(i: i64, dx: f32, dy: f32) -> void:
+            if view(i) is opened:
+                mutable vp: Viewport::Viewport = opened
+                scale: f32 = UiAppKitCanvas::backing_scale()
+                if drag_button == 0:
+                    _ = ViewportCamera::orbit(&vp.camera, (dx * scale).i64(), (dy * scale).i64())
+                else:
+                    _ = ViewportCamera::pan(&vp.camera, dx * scale, dy * scale)
+                Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                put_view(i, vp)
+                UiCore::request_frame_after(0.001)
+
+        def zoom(i: i64, notches: i64) -> void:
+            if view(i) is opened:
+                mutable vp: Viewport::Viewport = opened
+                _ = ViewportCamera::zoom(&vp.camera, notches)
+                Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                put_view(i, vp)
+                UiCore::request_frame_after(0.001)
+
+        # A click (no drag) in a view picks the joint under it.
+        def pick(i: i64, x: f32, y: f32) -> void:
+            if view(i) is opened:
+                if clip is c:
+                    b: StudioPanels::Box = view_box(i)
+                    scale: f32 = UiAppKitCanvas::backing_scale()
+                    hit: i64 = StudioScene::pick(opened.camera, c, frame_now(), flags, (x - b.x) * scale, (y - b.y) * scale)
+                    if hit >= 0:
+                        bone <- hit
+                        status <- "bone selected"
+                        nudged_row <- -1
+                        status_file <- null
+                        touch()
+
+        def toolbar_action(a: i64) -> void:
+            if a == StudioPanels::A_PLAY:
+                toggle_play()
+            elif a == StudioPanels::A_BACK:
+                step_frames(-1)
+            elif a == StudioPanels::A_FORWARD:
+                step_frames(1)
+            elif a == StudioPanels::A_SPEED:
+                cycle_speed()
+            elif a == StudioPanels::A_LOOP:
+                toggle_loop()
+            elif a == StudioPanels::A_UNDO:
+                undo()
+            elif a == StudioPanels::A_REDO:
+                redo()
+            elif a == StudioPanels::A_TRAILS:
+                toggle_flag(StudioScene::TRAILS)
+            elif a == StudioPanels::A_CONTACTS:
+                toggle_flag(StudioScene::CONTACTS)
+            elif a == StudioPanels::A_HEAT:
+                toggle_flag(StudioScene::HEAT)
+            elif a == StudioPanels::A_ONION:
+                toggle_flag(StudioScene::ONION)
+            elif a == StudioPanels::A_GHOST:
+                toggle_flag(StudioScene::GHOST)
+            elif a == StudioPanels::A_XRAY:
+                toggle_flag(StudioScene::XRAY)
+            elif a == StudioPanels::A_MESH:
+                toggle_flag(StudioScene::MESH)
+                status <- ("mesh on" if StudioScene::on(flags, StudioScene::MESH) else "mesh off") if mesh != null or character_ready() else "mesh: no skinned mesh in this file (Shift-M loads a character model)"
+                nudged_row <- -1
+                status_file <- null
+            elif a == StudioPanels::A_FRAME:
+                frame_all()
+            elif a == StudioPanels::A_OPEN:
+                open_take()
+            elif a == StudioPanels::A_EXPORT:
+                request_export(export_path, false)
+            elif a == StudioPanels::A_BALANCE:
+                toggle_flag(StudioScene::BALANCE)
+                if clip is c:
+                    status <- StudioText::number("balance impossible frames: ", c.impossible_frames)
+                    nudged_row <- -1
+                    status_file <- null
+
+        def pointer_down(x: f32, y: f32, button: i32) -> void:
+            w: f32 = UiCore::viewport_width()
+            h: f32 = UiCore::viewport_height()
+            down_x <- x
+            down_y <- y
+            last_x <- x
+            last_y <- y
+            if storage_screen_open:
+                storage_pointer_down(w, h, x, y, button)
+                return
+            if contact_draft_target >= 0:
+                draft_tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+                draft_stack: StackState::Stack = current_stack()
+                draft_valid: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, frames()) and StackState::edit_index_at(draft_stack, contact_selected_side, contact_selected_frame) >= 0
+                draft_hit: i64 = StudioPanels::contact_editor_hit(draft_tb, x, y, draft_valid)
+                if draft_hit != StudioPanels::CONTACT_EDIT_FIRST and draft_hit != StudioPanels::CONTACT_EDIT_LAST:
+                    contact_cancel_frame_draft()
+            if export_warning_detail_open:
+                hit: i64 = StudioPanels::export_warning_detail_hit(w, h, x, y)
+                warnings: i64 = current_export_warnings()
+                if button == 0 and hit >= 0 and StudioExportPathReview::enabled(
+                    hit, export_warning_detail_index, warnings):
+                    export_warning_detail_focus <- hit
+                    activate_export_warning_detail(hit)
+                return
+            if export_path_inspector_open:
+                hit: i64 = StudioPanels::export_path_inspector_hit(w, h, x, y)
+                pages: i64 = StudioPanels::export_path_pages(export_review_path)
+                if button == 0 and hit >= 0 and StudioExportPathReview::enabled(hit, export_path_inspector_page, pages):
+                    export_path_inspector_focus <- hit
+                    activate_export_path_inspector(hit)
+                return
+            if export_result_open:
+                hit: i64 = StudioPanels::export_result_hit(w, h, x, y)
+                if button == 0 and hit >= 0:
+                    export_result_focus <- hit
+                    activate_export_result(hit)
+                return
+            if export_review_open:
+                warning_index: i64 = StudioPanels::export_review_warning_index_at(
+                    w, h, x, y, current_export_warnings())
+                if button == 0 and warning_index >= 0:
+                    open_export_warning_detail(warning_index)
+                    return
+                hit: i64 = StudioPanels::export_review_hit(w, h, x, y, current_export_warnings())
+                if button == 0 and hit >= 0:
+                    export_review_focus <- hit
+                    activate_export_review(hit)
+                return
+            if legacy_prompt_open:
+                index: i64 = StudioPanels::legacy_session_button_hit(w, h, x, y)
+                if button == 0 and index >= 0:
+                    resolve_legacy_session(StudioLegacyPrompt::LOAD if index == StudioLegacyPrompt::FOCUS_LOAD else StudioLegacyPrompt::CANCEL)
+                return
+            if replacement_prompt_open:
+                index: i64 = StudioPanels::replacement_button_hit(w, h, x, y)
+                if button == 0 and index >= 0:
+                    mutable choice: i64 = StudioReplacement::SAVE
+                    choice <- StudioReplacement::DISCARD if index == StudioReplacement::FOCUS_DISCARD
+                    choice <- StudioReplacement::CANCEL if index == StudioReplacement::FOCUS_CANCEL
+                    resolve_replacement(choice)
+                return
+            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+            if file_menu_open:
+                if StudioPanels::inside(StudioPanels::file_button_box(sb), x, y):
+                    file_menu_open <- false
+                    file_menu_hover <- -1
+                    touch()
+                    return
+                if StudioPanels::file_popup_contains(sb, x, y):
+                    activate_file_menu(StudioPanels::file_popup_row(sb, x, y)) if button == 0
+                    return
+                file_menu_open <- false
+                file_menu_hover <- -1
+                touch()
+            if reset_menu_open:
+                if StudioPanels::inside(StudioPanels::reset_menu_button_box(sb), x, y):
+                    reset_menu_open <- false
+                    touch()
+                    return
+                if StudioPanels::reset_menu_contains(sb, x, y):
+                    current: StackState::Stack = current_stack()
+                    action: i64 = StudioPanels::reset_menu_hit(sb, current, x, y)
+                    reset_menu_open <- false
+                    touch()
+                    reset_cleanup(action) if button == 0 and action >= 0
+                    return
+                reset_menu_open <- false
+                touch()
+            if clip != null and button == 0 and StudioPanels::inside(StudioPanels::reset_menu_button_box(sb), x, y):
+                reset_menu_open <- true
+                file_menu_open <- false
+                help_open <- false
+                touch()
+                return
+            if StudioPanels::inside(sb, x, y):
+                filter_action: i64 = StudioPanels::issue_filter_hit(sb, x, y)
+                if button == 0 and filter_action >= 0:
+                    if filter_action == StudioPanels::ISSUE_FILTER_RESET:
+                        reset_issue_filters()
+                    else:
+                        cycle_issue_filter(StudioPanels::issue_filter_action(filter_action))
+                    return
+                selected_valid: bool = issues_revision == built and filtered_issues.count > 0 and issue_selected >= 0 and issue_selected < filtered_issues.count.i64()
+                intent_action: i64 = StudioPanels::issue_disposition_hit(sb, x, y, selected_valid)
+                if button == 0 and intent_action >= 0:
+                    toggle_issue_intent()
+                    return
+                issue_nav: i64 = StudioPanels::issue_nav_hit(sb, x, y)
+                if button == 0 and issue_nav >= 0:
+                    issue_navigation(issue_nav)
+                    return
+                issue_row: i64 = StudioPanels::issue_row_hit(sb, filtered_issues.count.i64(), x, y)
+                if button == 0 and StudioPanels::issue_row_route_enabled(issue_row, StudioPanels::ISSUE_FILTERED_ROWS, issues_revision == built):
+                    navigate_issue(visible_issue_first() + issue_row)
+                    return
+            a: i64 = StudioPanels::toolbar_hit(x, y)
+            if a >= 0:
+                toolbar_action(a)
+                return
+            tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
+            if StudioPanels::inside(tb, x, y) and StudioPanels::contact_editor_contains(tb, x, y):
+                mutable s: StackState::Stack = current_stack()
+                authored: bool = StudioContactEditor::selection_valid(contact_selected_side, contact_selected_frame, frames()) and StackState::edit_index_at(s, contact_selected_side, contact_selected_frame) >= 0
+                contact_action: i64 = StudioPanels::contact_editor_hit(tb, x, y, authored)
+                if button == 0:
+                    if contact_action == StudioPanels::CONTACT_EDIT_FIRST:
+                        contact_begin_frame_draft(StudioContactEditor::NUDGE_FIRST)
+                    elif contact_action == StudioPanels::CONTACT_EDIT_LAST:
+                        contact_begin_frame_draft(StudioContactEditor::NUDGE_LAST)
+                    elif contact_action >= 0:
+                        contact_cancel_frame_draft() if contact_draft_target >= 0
+                        contact_apply(contact_action)
+                return
+            if button == 0:
+                return if retime_down(tb, StudioPanels::curve_box(w, h), x, y)
+            if StudioPanels::inside(tb, x, y) and button == 0:
+                return if contact_down(x, y)
+            if StudioPanels::inside(tb, x, y) or StudioPanels::inside(StudioPanels::curve_box(w, h), x, y):
+                scrubbing <- true
+                scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
+                return
+            if StudioPanels::inside(sb, x, y):
+                if StudioPanels::inside(StudioPanels::file_button_box(sb), x, y) and button == 0:
+                    file_menu_open <- true
+                    file_menu_focus <- 0
+                    file_menu_hover <- -1
+                    help_open <- false
+                    touch()
+                    return
+                s: StackState::Stack = current_stack()
+                hit: i64 = StudioPanels::stack_hit(sb, s, x, y)
+                if hit >= 0:
+                    row_action(hit)
+                return
+            v: i64 = view_at(x, y)
+            if v >= 0 and button == 0 and gizmo_mode >= 0:
+                return if gizmo_press(v, x, y)
+            if v >= 0:
+                drag_view <- v
+                drag_button <- button
+
+        # Shift-drag selects, a band edge drags, a band click focuses it,
+        # presets and the slider set the speed.
+        def retime_down(tb: StudioPanels::Box, cb: StudioPanels::Box, x: f32, y: f32) -> bool:
+            k: i64 = StudioRetime::preset_hit(cb, x, y)
+            if k >= 0:
+                retime_to(RetimeState::preset(k))
+                return true
+            if StudioPanels::inside(StudioRetime::slider_box(cb), x, y):
+                slider_drag <- true
+                slider_start_speed <- retime_speed
+                retime_speed <- StudioRetime::slider_speed(cb, x)
+                touch()
+                return true
+            return false if not StudioPanels::inside(tb, x, y)
+            f: i64 = StudioPanels::timeline_frame(tb, x, frames())
+            if StudioShortcuts::shift(modifiers):
+                selection <- RetimeState::begin(f)
+                selecting <- true
+                touch()
+                return true
+            if clip is c:
+                if StudioRetime::band_row(tb, y):
+                    s: StackState::Stack = current_stack()
+                    src: i64 = StudioModel::source_frame(c, f)
+                    reach: i64 = 1 + c.source_frames / 200
+                    edge_drag <- RetimeState::edge_near(&s, src, reach)
+                    band_focus <- edge_drag.band if edge_drag.band >= 0 else StackState::band_at(&s, src)
+                    if band_focus >= 0:
+                        retime_speed <- s.bands[band_focus].speed
+                        status <- "retime band (Del removes, presets set speed)"
+                        touch()
+                        return true
+            return false
+
+        def pointer_move(x: f32, y: f32) -> void:
+            if storage_screen_open:
+                hit: i64 = StudioPanels::storage_hit(
+                    UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if hit >= 0 and hit != storage_focus:
+                    storage_focus <- hit
+                    touch()
+                return
+            if export_warning_detail_open:
+                hit: i64 = StudioPanels::export_warning_detail_hit(
+                    UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                warnings: i64 = current_export_warnings()
+                if hit >= 0 and StudioExportPathReview::enabled(
+                    hit, export_warning_detail_index, warnings) and hit != export_warning_detail_focus:
+                    export_warning_detail_focus <- hit
+                    touch()
+                return
+            if export_path_inspector_open:
+                hit: i64 = StudioPanels::export_path_inspector_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                pages: i64 = StudioPanels::export_path_pages(export_review_path)
+                if hit >= 0 and StudioExportPathReview::enabled(hit, export_path_inspector_page, pages) and hit != export_path_inspector_focus:
+                    export_path_inspector_focus <- hit
+                    touch()
+                return
+            if export_result_open:
+                hit: i64 = StudioPanels::export_result_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if hit >= 0 and hit != export_result_focus:
+                    export_result_focus <- hit
+                    touch()
+                return
+            if export_review_open:
+                w: f32 = UiCore::viewport_width()
+                h: f32 = UiCore::viewport_height()
+                warning_index: i64 = StudioPanels::export_review_warning_index_at(
+                    w, h, x, y, current_export_warnings())
+                if warning_index >= 0 and (warning_index != export_review_warning_selected or export_review_focus != StudioExportReview::INSPECT_WARNINGS):
+                    export_review_warning_selected <- warning_index
+                    export_review_focus <- StudioExportReview::INSPECT_WARNINGS
+                    touch()
+                else:
+                    hit: i64 = StudioPanels::export_review_hit(w, h, x, y, current_export_warnings())
+                    if hit >= 0 and hit != export_review_focus:
+                        export_review_focus <- hit
+                        touch()
+                return
+            if legacy_prompt_open:
+                index: i64 = StudioPanels::legacy_session_button_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if index >= 0 and index != legacy_prompt_focus:
+                    legacy_prompt_focus <- index
+                    touch()
+                return
+            if replacement_prompt_open:
+                index: i64 = StudioPanels::replacement_button_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if index >= 0 and index != replacement_focus:
+                    replacement_focus <- index
+                    touch()
+                return
+            if file_menu_open:
+                sb: StudioPanels::Box = StudioPanels::sidebar_box(UiCore::viewport_width(), UiCore::viewport_height())
+                row: i64 = StudioPanels::file_popup_row(sb, x, y)
+                if row != file_menu_hover:
+                    file_menu_hover <- row
+                    if row >= 0 and StudioFilePolicy::enabled(StudioFilePolicy::action(row), clip != null):
+                        file_menu_focus <- row
+                    touch()
+                return
+            over: i64 = StudioPanels::toolbar_hit(x, y)
+            if over != hover_button:
+                hover_button <- over
+                touch()
+            if selecting or slider_drag:
+                w: f32 = UiCore::viewport_width()
+                h: f32 = UiCore::viewport_height()
+                if selecting:
+                    selection <- RetimeState::drag(selection, StudioPanels::timeline_frame(StudioPanels::timeline_box(w, h), x, frames()))
+                else:
+                    retime_speed <- StudioRetime::slider_speed(StudioPanels::curve_box(w, h), x)
+                touch()
+                return
+            tbh: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+            timeline_strip: StudioPanels::Box = StudioPanels::strip(tbh)
+            row: i64 = StudioPanels::contact_row(tbh, y) if StudioPanels::inside(timeline_strip, x, y) else -1
+            if row != hover_row:
+                hover_row <- row
+                touch()
+            if gizmo_view >= 0:
+                gizmo_preview(x, y)
+                last_x <- x
+                last_y <- y
+                return
+            if scrubbing:
+                tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+                scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
+            elif drag_view >= 0:
+                camera_input(drag_view, x - last_x, y - last_y)
+            last_x <- x
+            last_y <- y
+
+        def pointer_up(x: f32, y: f32) -> void:
+            return if export_result_open
+            return if export_review_open
+            return if legacy_prompt_open
+            if selecting:
+                selecting <- false
+                selection <- RetimeState::none() if not RetimeState::ready(&selection) else selection
+                status <- "range selected: preset, slider or = to set speed, Esc cancels" if selection.active else status
+                touch()
+                return
+            if slider_drag:
+                slider_drag <- false
+                retime_to(retime_speed)
+                return
+            if edge_drag.band >= 0:
+                if clip is c:
+                    tb: StudioPanels::Box = StudioPanels::timeline_box(UiCore::viewport_width(), UiCore::viewport_height())
+                    src: i64 = StudioModel::source_frame(c, StudioPanels::timeline_frame(tb, x, frames()))
+                    mutable s: StackState::Stack = current_stack()
+                    if StackState::move_band_edge(&s, edge_drag.band, edge_drag.last_edge, src, c.source_frames):
+                        commit(s, true)
+                        status <- "retime band edge moved"
+                edge_drag <- RetimeState::no_drag()
+                return
+            if FootState::active(&foot_press):
+                contact_up(x)
+                return
+            if gizmo_view >= 0:
+                gizmo_release(x, y)
+                return
+            if drag_view >= 0 and drag_button == 0:
+                moved: f32 = (x - down_x) * (x - down_x) + (y - down_y) * (y - down_y)
+                if moved < 9.0:
+                    pick(drag_view, x, y)
+            drag_view <- -1
+            drag_button <- -1
+            scrubbing <- false
+
+        # ---- gizmo (Phase 3 corrections) ---------------------------------
