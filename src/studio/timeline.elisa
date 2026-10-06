@@ -9,43 +9,48 @@
 # divisor, and the frame is that time at the clip rate.
 module Timeline:
     public:
-        const MAX_FRAMES: i64 = 10000000
-        const RATE: i64 = 120
-        const MICROS: i64 = 1000000
-        # Longest wall-clock step one tick may add (a stalled frame does not
-        # jump the playhead by seconds).
-        const MAX_STEP_US: i64 = 250000
+        const module Domain:
+            MAX_FRAMES: i64 = 10000000
+            MAX_PIXELS: i64 = 100000
+
+        const module Clock:
+            RATE: i64 = 120
+            MICROS: i64 = 1000000
+
+        # Longest wall-clock tick and clip duration bounds, in microseconds.
+        const module Duration:
+            MAX_STEP_US: i64 = 250000
+            MAX_TIME_US: i64 = 100000000000
+
         # Speed divisors: 1 = 1x, 2 = 1/2x, 4 = 1/4x.
-        const FULL: i64 = 1
-        const HALF: i64 = 2
-        const QUARTER: i64 = 4
-        const MAX_PIXELS: i64 = 100000
-        # Longest clip time (MAX_FRAMES at RATE, in microseconds, rounded up).
-        const MAX_TIME_US: i64 = 100000000000
+        const enum Speed of i64:
+            Full = 1
+            Half = 2
+            Quarter = 4
 
         def valid_divisor(d: i64) -> bool:
             ensure not result or d == 1 or d == 2 or d == 4
             ensure d < 1 or d > 1 or result
             ensure d < 2 or d > 2 or result
             ensure d < 4 or d > 4 or result
-            return true if d == FULL
-            return true if d == HALF
-            return true if d == QUARTER
+            return true if d == Speed.Full.i64()
+            return true if d == Speed.Half.i64()
+            return true if d == Speed.Quarter.i64()
             return false
 
         # The next speed in the cycle 1x -> 1/2x -> 1/4x -> 1x.
         def next_divisor(d: i64) -> i64:
-            ensure result == FULL or result == HALF or result == QUARTER
-            ensure d < FULL or d > FULL or result == HALF
-            ensure d < HALF or d > HALF or result == QUARTER
-            ensure d == FULL or d == HALF or result == FULL
-            return HALF if d == FULL
-            return QUARTER if d == HALF
-            return FULL
+            ensure result == Speed.Full.i64() or result == Speed.Half.i64() or result == Speed.Quarter.i64()
+            ensure d < Speed.Full.i64() or d > Speed.Full.i64() or result == Speed.Half.i64()
+            ensure d < Speed.Half.i64() or d > Speed.Half.i64() or result == Speed.Quarter.i64()
+            ensure d == Speed.Full.i64() or d == Speed.Half.i64() or result == Speed.Full.i64()
+            return Speed.Half.i64() if d == Speed.Full.i64()
+            return Speed.Quarter.i64() if d == Speed.Half.i64()
+            return Speed.Full.i64()
 
         def clamp(frame: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             ensure result >= 0
             ensure result < count
             ensure frame < 0 or frame >= count or result == frame
@@ -59,7 +64,7 @@ module Timeline:
         # either side of it).
         def wrap(frame: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             requires frame >= -count
             requires frame < 2 * count
             ensure result >= 0
@@ -74,7 +79,7 @@ module Timeline:
         # Step by `delta` frames (|delta| <= count), holding the clip ends.
         def step_clamped(frame: i64, delta: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             requires frame >= 0
             requires frame < count
             requires delta >= -count
@@ -89,7 +94,7 @@ module Timeline:
         # Step by `delta` frames (|delta| <= count), wrapping around the loop.
         def step_looped(frame: i64, delta: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             requires frame >= 0
             requires frame < count
             requires delta >= -count
@@ -103,7 +108,7 @@ module Timeline:
 
         def step(frame: i64, delta: i64, count: i64, looping: bool) -> i64:
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             requires frame >= 0
             requires frame < count
             requires delta >= -count
@@ -118,13 +123,13 @@ module Timeline:
             requires d >= 1
             requires d <= 4
             ensure result >= 0
-            ensure result <= MAX_STEP_US
+            ensure result <= Duration::MAX_STEP_US
             ensure elapsed_us >= 0 or result == 0
-            ensure elapsed_us < 0 or elapsed_us > MAX_STEP_US or result <= elapsed_us
-            ensure d < 1 or d > 1 or elapsed_us < 0 or elapsed_us > MAX_STEP_US or result == elapsed_us
-            ensure d < 1 or d > 1 or elapsed_us <= MAX_STEP_US or result == MAX_STEP_US
+            ensure elapsed_us < 0 or elapsed_us > Duration::MAX_STEP_US or result <= elapsed_us
+            ensure d < 1 or d > 1 or elapsed_us < 0 or elapsed_us > Duration::MAX_STEP_US or result == elapsed_us
+            ensure d < 1 or d > 1 or elapsed_us <= Duration::MAX_STEP_US or result == Duration::MAX_STEP_US
             return 0 if elapsed_us < 0
-            e: i64 = MAX_STEP_US if elapsed_us > MAX_STEP_US else elapsed_us
+            e: i64 = Duration::MAX_STEP_US if elapsed_us > Duration::MAX_STEP_US else elapsed_us
             return e if d <= 1
             return e / 2 if d <= 2
             return e / 4 if d <= 3
@@ -133,40 +138,40 @@ module Timeline:
         # Clip length in microseconds.
         def duration_us(count: i64) -> i64:
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             ensure result >= 1
-            return count * MICROS / RATE + 1
+            return count * Clock::MICROS / Clock::RATE + 1
 
         # Frame shown at clip time `t` (0 <= t).
         def frame_at_time(t: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             requires t >= 0
-            requires t <= MAX_TIME_US
+            requires t <= Duration::MAX_TIME_US
             ensure result >= 0
             ensure result < count
             ensure t < 0 or t > 0 or result == 0
             return 0 if t == 0
-            return clamp(t * RATE / MICROS, count)
+            return clamp(t * Clock::RATE / Clock::MICROS, count)
 
         # Start time of a frame, rounded up so frame_at_time maps it back to
         # the same frame.
         def time_of_frame(frame: i64) -> i64:
             requires frame >= 0
-            requires frame < MAX_FRAMES
+            requires frame < Domain::MAX_FRAMES
             ensure result >= 0
-            ensure result <= MAX_TIME_US
-            v: i64 = (frame * MICROS + RATE - 1) / RATE
+            ensure result <= Duration::MAX_TIME_US
+            v: i64 = (frame * Clock::MICROS + Clock::RATE - 1) / Clock::RATE
             return 0 if v < 0
-            return MAX_TIME_US if v > MAX_TIME_US
+            return Duration::MAX_TIME_US if v > Duration::MAX_TIME_US
             return v
 
         # Frame under pixel column `x` of a strip `width` pixels wide.
         def frame_at_x(x: i64, width: i64, count: i64) -> i64:
             requires width >= 1
-            requires width <= MAX_PIXELS
+            requires width <= Domain::MAX_PIXELS
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             ensure result >= 0
             ensure result < count
             ensure x > 0 or result == 0
@@ -181,9 +186,9 @@ module Timeline:
         # Left pixel of frame `frame` in a strip `width` pixels wide.
         def x_of_frame(frame: i64, width: i64, count: i64) -> i64:
             requires width >= 1
-            requires width <= MAX_PIXELS
+            requires width <= Domain::MAX_PIXELS
             requires count >= 1
-            requires count <= MAX_FRAMES
+            requires count <= Domain::MAX_FRAMES
             requires frame >= 0
             requires frame < count
             ensure result >= 0
