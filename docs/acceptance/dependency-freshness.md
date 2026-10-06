@@ -1,5 +1,28 @@
 # Dependency freshness audit — 2026-10-06
 
+## Latest observed checkout state
+
+Fetched the four currently available origins on 2026-10-06 after the dependency
+instructions changed. Earlier sections below are historical observations.
+
+| Dependency | Local HEAD | Fetched `origin/main` | Ahead / behind |
+| --- | --- | --- | --- |
+| Compiler | `23a0e16a` | `23a0e16a` | 0 / 0 |
+| Primary proof assistant | `01c953c6` | `2610ddb6` | 115 / 0 |
+| Mocap engine | `01f5aec7` | `7699ec52` | 20 / 0 |
+| Elisa UI | `8ab2eb39` | `dc6cd397` | 6 / 0 |
+
+The required `../elisa-proof-mocap` checkout is absent. The primary prover is on
+`integrate/proof-tips-20261006`; its availability does not establish preservation
+or qualification of the mocap-specific repairs. Resolve their location and
+verify linked provenance before selecting a replacement. The existing check
+script still defaults to the missing mocap checkout and must fail closed.
+
+The compiler manifest declares source `23a0e16a`; independently checking its
+source-tree and product hashes remains required before qualification. Compiler
+remote-gate scripts have local changes, which are preserved. No new product
+acceptance is claimed from this fetch or manifest inspection.
+
 Fetched `origin` in all five checkouts before comparing `HEAD...origin/main`.
 All adopted dependency branches contain every fetched upstream commit.
 
