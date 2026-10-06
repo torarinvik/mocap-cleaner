@@ -1,0 +1,89 @@
+# Native boundary for canonical workspace selection and persistence.
+# Filesystem facts themselves are implemented by the AppKit host; the policy
+# consumes their explicit fact bits and keeps setup separate from document IO.
+include "workspace_root_policy.elisa"
+include "../../../elisa-engine-mocap/src/ui/workspace_root.elisa"
+
+module StudioWorkspaceRootAdapter:
+    private:
+        def path_length(path: cstr) -> i64 can[Unsafe.PointerCast]:
+            mutable length: usize = 0
+            while length <= 4095 and path[length] != 0:
+                length <- length + 1
+            return -1 if length > 4095
+            i64(length)
+
+        def same_path(first: cstr, second: cstr) -> bool can[Unsafe.PointerCast]:
+            mutable index: usize = 0
+            while index <= 4095:
+                return false if first[index] != second[index]
+                return true if first[index] == 0
+                index <- index + 1
+            false
+
+        def from_facts(path_bytes: i64, canonical: bool, facts: i64,
+                       create_requested: bool, cancelled: bool) -> StudioWorkspaceRootPolicy::Decision:
+            StudioWorkspaceRootPolicy::decision(
+                path_bytes, canonical,
+                facts >= 0 and (facts & WorkspaceRootHost::Fact::ROOT_DIRECTORY) != 0,
+                facts >= 0 and (facts & WorkspaceRootHost::Fact::BUILD_PRESENT) != 0,
+                facts >= 0 and (facts & WorkspaceRootHost::Fact::BUILD_DIRECTORY) != 0,
+                facts >= 0 and (facts & WorkspaceRootHost::Fact::BUILD_WRITABLE) != 0,
+                facts >= 0 and (facts & WorkspaceRootHost::Fact::BUILD_SYMLINK) != 0,
+                create_requested, cancelled)
+
+    public:
+        def load() -> cstr? can[Blocking.IO, Memory.Allocate]:
+            WorkspaceRootHost::load()
+
+        def choose(current: cstr?) -> cstr? can[Blocking.IO, Memory.Allocate]:
+            WorkspaceRootHost::choose(current)
+
+        # Caller supplies true only after an explicit Create build/ choice.
+        def inspect(path: cstr?, create_requested: bool,
+                    cancelled: bool) -> StudioWorkspaceRootPolicy::Decision can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return from_facts(0, false, -1, create_requested, true) if cancelled
+            if path is candidate:
+                bytes: i64 = path_length(candidate)
+                return from_facts(0, false, -1, create_requested, false) if bytes < 1
+                if WorkspaceRootHost::canonicalize(candidate) is canonical:
+                    facts: i64 = WorkspaceRootHost::facts(canonical)
+                    decision: StudioWorkspaceRootPolicy::Decision = from_facts(bytes, same_path(candidate, canonical), facts,
+                        create_requested, false)
+                    WorkspaceRootHost::release(canonical)
+                    return decision
+                return from_facts(bytes, false, -1, create_requested, false)
+            from_facts(0, false, -1, create_requested, false)
+
+        # Separate action for an explicit missing-build confirmation. The
+        # active document is untouched; callers re-inspect before persisting.
+        def create_build(path: cstr?, decision: StudioWorkspaceRootPolicy::Decision) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if decision != StudioWorkspaceRootPolicy::Decision.CREATE_BUILD
+            if path is candidate:
+                if WorkspaceRootHost::canonicalize(candidate) is canonical:
+                    exact: bool = same_path(candidate, canonical)
+                    created: bool = exact and WorkspaceRootHost::create_build(canonical)
+                    mutable verified: StudioWorkspaceRootPolicy::Decision = StudioWorkspaceRootPolicy::Decision.INVALID
+                    if created:
+                        verified <- from_facts(path_length(candidate), exact,
+                            WorkspaceRootHost::facts(canonical), false, false)
+                    stored: bool = created and verified == StudioWorkspaceRootPolicy::Decision.READY and WorkspaceRootHost::store(canonical)
+                    WorkspaceRootHost::release(canonical)
+                    return stored
+            false
+
+        # Persist only an already validated root. Never persist a cancelled,
+        # unavailable, read-only or build-creation-pending choice.
+        def persist(path: cstr?, decision: StudioWorkspaceRootPolicy::Decision) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if decision != StudioWorkspaceRootPolicy::Decision.READY
+            if path is candidate:
+                if WorkspaceRootHost::canonicalize(candidate) is canonical:
+                    valid: i64 = from_facts(path_length(candidate), same_path(candidate, canonical),
+                        WorkspaceRootHost::facts(canonical), false, false)
+                    stored: bool = valid == StudioWorkspaceRootPolicy::Decision.READY and WorkspaceRootHost::store(canonical)
+                    WorkspaceRootHost::release(canonical)
+                    return stored
+            false
+
+        def release(path: cstr) -> void can[Memory.Release]:
+            WorkspaceRootHost::release(path)

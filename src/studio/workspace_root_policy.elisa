@@ -1,0 +1,39 @@
+# Pure D01 admission for choosing the persistent workspace used by derived
+# sessions, recovery, Storage and export. Native path facts are supplied by
+# WorkspaceRootAdapter; no decision depends on process working directory.
+module StudioWorkspaceRootPolicy:
+    public:
+        const enum Decision of i64:
+            INVALID = 0
+            CANCELLED = 1
+            NEEDS_BUILD = 2
+            CREATE_BUILD = 3
+            UNWRITABLE = 4
+            READY = 5
+
+        const module Limit:
+            MAX_PATH_BYTES: i64 = 4095
+
+        def decision(path_bytes: i64, canonical: bool, root_directory: bool,
+                     build_present: bool, build_directory: bool,
+                     build_writable: bool, build_symlink: bool,
+                     create_requested: bool, cancelled: bool) -> Decision:
+            ensure cancelled implies result == Decision.CANCELLED
+            ensure not cancelled and (path_bytes < 1 or path_bytes > Limit::MAX_PATH_BYTES or not canonical or not root_directory or build_symlink or (build_present and not build_directory)) implies result == Decision.INVALID
+            ensure not cancelled and path_bytes >= 1 and path_bytes <= Limit::MAX_PATH_BYTES and canonical and root_directory and not build_symlink and (not build_present or build_directory) and build_present and build_writable implies result == Decision.READY
+            ensure not cancelled and path_bytes >= 1 and path_bytes <= Limit::MAX_PATH_BYTES and canonical and root_directory and not build_symlink and build_present and build_directory and not build_writable implies result == Decision.UNWRITABLE
+            ensure not cancelled and path_bytes >= 1 and path_bytes <= Limit::MAX_PATH_BYTES and canonical and root_directory and not build_symlink and not build_present and create_requested implies result == Decision.CREATE_BUILD
+            ensure not cancelled and path_bytes >= 1 and path_bytes <= Limit::MAX_PATH_BYTES and canonical and root_directory and not build_symlink and not build_present and not create_requested implies result == Decision.NEEDS_BUILD
+            return Decision.CANCELLED if cancelled
+            return Decision.INVALID if path_bytes < 1 or path_bytes > Limit::MAX_PATH_BYTES or not canonical or not root_directory or build_symlink or (build_present and not build_directory)
+            return Decision.READY if build_present and build_directory and build_writable
+            return Decision.UNWRITABLE if build_present and build_directory
+            return Decision.CREATE_BUILD if create_requested
+            Decision.NEEDS_BUILD
+
+        # The UI may replace the active document only after a fully admitted
+        # workspace is available. Cancellation and setup failures are inert.
+        def may_adopt(decision: Decision) -> bool:
+            ensure result implies decision == Decision.READY
+            return true if decision == Decision.READY
+            false
