@@ -1,0 +1,62 @@
+include "../src/studio/storage_move_policy.elisa"
+
+extern puts(text: cstr) -> i64
+
+def expected_outcome(move_state: i64, write_state: i64, rollback_state: i64) -> i64:
+    if move_state < StudioStorageMovePolicy::MOVE_NOT_ATTEMPTED or move_state > StudioStorageMovePolicy::MOVE_UNKNOWN_AFTER_FAILURE:
+        return StudioStorageMovePolicy::OUTCOME_INVALID
+    if write_state < StudioStorageMovePolicy::WRITE_NOT_ATTEMPTED or write_state > StudioStorageMovePolicy::WRITE_UNKNOWN:
+        return StudioStorageMovePolicy::OUTCOME_INVALID
+    if rollback_state < StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED or rollback_state > StudioStorageMovePolicy::ROLLBACK_UNKNOWN:
+        return StudioStorageMovePolicy::OUTCOME_INVALID
+    if move_state != StudioStorageMovePolicy::MOVE_VERIFIED:
+        return StudioStorageMovePolicy::OUTCOME_INVALID if write_state != StudioStorageMovePolicy::WRITE_NOT_ATTEMPTED or rollback_state != StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED
+        return StudioStorageMovePolicy::OUTCOME_NOT_STARTED if move_state == StudioStorageMovePolicy::MOVE_NOT_ATTEMPTED
+        return StudioStorageMovePolicy::OUTCOME_MOVE_FAILED_ORIGINAL if move_state == StudioStorageMovePolicy::MOVE_FAILED_ORIGINAL_KNOWN
+        return StudioStorageMovePolicy::OUTCOME_MOVE_UNKNOWN
+    if write_state == StudioStorageMovePolicy::WRITE_NOT_ATTEMPTED:
+        return StudioStorageMovePolicy::OUTCOME_RECEIPT_PENDING if rollback_state == StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED
+        return StudioStorageMovePolicy::OUTCOME_INVALID
+    if write_state == StudioStorageMovePolicy::WRITE_UNKNOWN:
+        return StudioStorageMovePolicy::OUTCOME_DURABILITY_UNKNOWN if rollback_state == StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED
+        return StudioStorageMovePolicy::OUTCOME_INVALID
+    if write_state == StudioStorageMovePolicy::WRITE_SUCCEEDED:
+        return StudioStorageMovePolicy::OUTCOME_RECORDED if rollback_state == StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED
+        return StudioStorageMovePolicy::OUTCOME_INVALID
+    return StudioStorageMovePolicy::OUTCOME_ROLLBACK_REQUIRED if rollback_state == StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED
+    return StudioStorageMovePolicy::OUTCOME_ORIGINAL_RESTORED if rollback_state == StudioStorageMovePolicy::ROLLBACK_SUCCEEDED
+    return StudioStorageMovePolicy::OUTCOME_RECOVERY_RECEIPT_RETAINED if rollback_state == StudioStorageMovePolicy::ROLLBACK_FAILED
+    StudioStorageMovePolicy::OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED
+
+def main() -> i32:
+    mutable mask: i64 = 0
+    while mask < 32:
+        durable: bool = mask % 2 == 1
+        identity_valid: bool = (mask / 2) % 2 == 1
+        fresh_match: bool = (mask / 4) % 2 == 1
+        fresh_eligible: bool = (mask / 8) % 2 == 1
+        confirmed: bool = (mask / 16) % 2 == 1
+        return 1 if StudioStorageMovePolicy::may_move(durable, identity_valid, fresh_match, fresh_eligible, confirmed) != (mask == 31)
+        mask <- mask + 1
+
+    mutable move_state: i64 = 0
+    while move_state < 4:
+        mutable write_state: i64 = 0
+        while write_state < 4:
+            mutable rollback_state: i64 = 0
+            while rollback_state < 4:
+                expected: i64 = expected_outcome(move_state, write_state, rollback_state)
+                actual: i64 = StudioStorageMovePolicy::outcome(move_state, write_state, rollback_state)
+                return 2 if actual != expected
+                rollback_state <- rollback_state + 1
+            write_state <- write_state + 1
+        move_state <- move_state + 1
+
+    return 3 if StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED, StudioStorageMovePolicy::WRITE_FAILED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED) != StudioStorageMovePolicy::OUTCOME_ROLLBACK_REQUIRED
+    return 4 if StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED, StudioStorageMovePolicy::WRITE_FAILED, StudioStorageMovePolicy::ROLLBACK_SUCCEEDED) != StudioStorageMovePolicy::OUTCOME_ORIGINAL_RESTORED
+    return 5 if StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED, StudioStorageMovePolicy::WRITE_FAILED, StudioStorageMovePolicy::ROLLBACK_FAILED) != StudioStorageMovePolicy::OUTCOME_RECOVERY_RECEIPT_RETAINED
+    return 6 if StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_VERIFIED, StudioStorageMovePolicy::WRITE_FAILED, StudioStorageMovePolicy::ROLLBACK_UNKNOWN) != StudioStorageMovePolicy::OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED
+    return 7 if StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_FAILED_ORIGINAL_KNOWN, StudioStorageMovePolicy::WRITE_NOT_ATTEMPTED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED) == StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_UNKNOWN_AFTER_FAILURE, StudioStorageMovePolicy::WRITE_NOT_ATTEMPTED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED)
+    return 8 if StudioStorageMovePolicy::outcome(StudioStorageMovePolicy::MOVE_NOT_ATTEMPTED, StudioStorageMovePolicy::WRITE_FAILED, StudioStorageMovePolicy::ROLLBACK_NOT_ATTEMPTED) != StudioStorageMovePolicy::OUTCOME_INVALID
+    _ = puts("studio storage move policy: gate and 64 transaction states pass")
+    return 0
