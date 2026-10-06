@@ -17,6 +17,7 @@ Existing baselines must not be weakened to admit the edits.
 | Cache arithmetic extraction | `core/cache_budget_arithmetic`, matching laws | Current replay, inherited remaining refusals resolved without lowering baseline |
 | Issue explanations | `issue_explanation`, policy and record laws | Typed category/strength and rounded-threshold replay; negative revision refusal; overflow-safe exact frame display replay; full UI compile |
 | Finding navigation availability | `issue_browser_policy`, matching browser laws | Fresh/count/action admission replay; stale and empty disabled appearance; pointer/key/AX refusal; invalid selection fallback |
+| Typed finding intent | `issue_annotation`, matching annotation laws | Const enum encoding replay; existing fixture compile/run; filter, session save and accessibility integration |
 | Proof supervisor/cache | `scripts/prove.py` | Timeout, bad exits, partial/corrupt summaries, changed source, replaced/missing prover binary and parallel progress |
 
 The full proof corpus glob includes new direct source files and all `proof/`

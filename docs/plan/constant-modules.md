@@ -221,3 +221,9 @@ explanation record carries these types. Existing discriminant values remain
 unknown detector codes still produce the generic category. Matching laws and
 fixture consumers were migrated, with mild/strong threshold laws added.
 Current compiler/replay qualification remains pending.
+
+Finding intent now uses `StudioIssueAnnotation::Disposition` with Unresolved
+and Ignored alternatives. The filter's integer interface receives an explicit
+conversion; discriminants remain 0/1, covered by two encoding laws. `Capacity`
+owns the annotation bound. Existing fixture consumers were migrated without
+execution. Current compile, replay and session/filter qualification remain open.
