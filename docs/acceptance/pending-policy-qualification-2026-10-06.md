@@ -22,6 +22,8 @@ Existing baselines must not be weakened to admit the edits.
 | Export formatted-field capacity | `report_text_policy`, matching text laws and `app/report_text` | Byte/view boundary replay; oversized field or exhausted slots invalidate complete snapshot before GLB publication; no earlier view overwritten; normal full-stack report preserved |
 | Batch dry-run admission | `export_batch_preflight_policy`, matching preflight laws | Current replay; native exact path/source/report collision checks; animation/recipe/rig fact capture; queue and UI integration |
 | Batch queue lifecycle | `export_batch_queue_policy`, matching queue laws | Current replay; bounded workers and running-count consistency; cancellation drain and explicit resume/retry; exact staged-result review preserved through publication; native create-only outputs and complete manifests; queue UI integration |
+| Queue records and transitions | `export_batch_queue`, item/resume policies and matching laws | Replay of validity preservation, item counts, private snapshots, retry/resume and approval retention; native facts bound to exact inputs/results |
+| Typed job decisions | `job_policy`, matching job laws | Preserved enum encoding replay; existing fixture through authorized check; actual asynchronous worker commit integration |
 | Proof supervisor/cache | `scripts/prove.py` | Timeout, bad exits, partial/corrupt summaries, changed source including cache-only runs, replaced/missing prover binary and parallel progress |
 
 The full proof corpus glob includes new direct source files and all `proof/`

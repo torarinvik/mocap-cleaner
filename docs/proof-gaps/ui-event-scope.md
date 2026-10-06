@@ -127,3 +127,21 @@ diagnostic compile exits 0 and emits the nonempty object
 the UI-first reduction, this rules out those two declarations' simple include
 order as a sufficient reproduction. It does not rule out registration timing
 or another collision in the complete graph. No runtime was executed.
+
+## Recheck with refreshed upstream compiler
+
+Fetched compiler `origin` and verified normal Stage1 provenance at `23a0e16a`.
+The full Studio compile in `build/studio-upstream-current.zMhkk4/compile.log`
+still refuses the same 24 function bodies, exits 2 and writes no object. The
+upstream update therefore does not establish resolution of the integrated
+failure. Its preceding compile exposed engine tokenizer fields declared
+immutable despite mutation; engine commit `ada26e9c` fixes those declarations,
+and the tokenizer alone emits a fresh object at
+`build/current-glb-tokenizer.ESCx7N/tokenizer.o`.
+
+A separate compiler worktree at `build/compiler-event-resolution-23a0`, branch
+`codex/studio-event-resolution-23a0`, contains opt-in parameter/match diagnostics
+at `2bba123d`. It records kind, bits, enum identity and both relevant registry
+slots to distinguish missing expression types from wrong annotation resolution.
+The seed build is pending. This diagnostic worktree is not the selected normal
+compiler and cannot qualify the application as released.
