@@ -238,3 +238,14 @@ review still cancels when its inspected receipt changes. Inspection uses a
 bounded total navigation policy; exact next/previous helper contracts and
 wrapper bounds are proved, with the independent composed step replay gap
 recorded as G92. Native review interaction acceptance remains open.
+
+Saved exemptions in `build/studio_storage_exemptions.txt` now load on every
+inventory refresh. They use a distinct versioned header and registered
+non-recovery records. Matching uses the complete reviewed identity and
+canonical path; a stale exemption cannot silently match a replacement file.
+A matched file is protected and excluded from selection. Source, recovery,
+active-output and metadata protections continue independently. Unreadable,
+unsupported or unsafe exemption files block cleanup and produce an alert.
+Atomic exemption publication reloads the saved file before accepting its
+state. The pointer/keyboard/accessibility control to add and remove exemptions
+is not yet implemented; this is the data and eligibility integration only.
