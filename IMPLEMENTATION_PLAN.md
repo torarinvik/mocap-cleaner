@@ -291,12 +291,12 @@ selection, retention presets, reviewed batch move, receipt reconciliation and
 Restore implementation. Current implementation and evidence are recorded in
 `docs/studio-ux.md`; running-window and failure-path acceptance remains open.
 
-- [ ] Add a visible last-scan timestamp and inspectable hard-link accounting
-      to the overview. Provide separately labeled recoverable-disk-space
+- [ ] Add inspectable hard-link accounting to the overview and qualify
+      timestamp presentation through native input/accessibility acceptance. Provide separately labeled recoverable-disk-space
       estimates only when allocation and link facts are verified; otherwise
       show that the estimate is unknown. Verify the current category totals
       and no-eligible explanation at all supported inventory sizes.
-- [ ] Extend artifact metadata and registration to recovery snapshots and
+- [ ] Extend artifact metadata to saved recovery sessions and register
       interrupted/temporary exports at their actual creation sites. Record
       creation time, session/recovery dependencies and build-relative location
       alongside the canonical identity. Migrate older manifests explicitly;
