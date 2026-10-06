@@ -636,3 +636,24 @@ new rows after the prover/replay products are rebuilt from matching sources.
   gaps from 53 to 42 and `proof/retime_laws.elisa` gaps from 83 to 39; those
   remaining gaps are still under investigation. Established baselines remain
   unchanged until the remaining reports are fully replayed.
+
+## Issue browser and accessibility policies (2026-10-06)
+
+- The nested conditional in `node_parent`'s result contract was unsupported.
+  `node_parent` now states equality with the executable `parent_for_id` mapping,
+  whose per-ID guarantees cover the issue group, all six filter controls, the
+  navigation controls, and both visible finding rows. The two filter-control
+  laws are expanded into six exact cases; this preserves the original finite
+  predicate domain without relying on the prover to unfold a symbolic predicate
+  through the parent call.
+- G90: `navigation_target` calling `previous_target` or `next_target` from a
+  conditional return did not transfer the callees' result bounds into the
+  caller, leaving four obligations open and four replay gaps. The caller now
+  spells out the same scalar wrap cases directly. The helper kernels retain
+  their independent contracts and proofs; this caller workaround is documented
+  until branch-return call-summary propagation is proved end to end.
+- `StudioAccessibility::next_sibling` exceeded the control-flow step budget by
+  one step. Its existing relationships are split across toolbar, contact,
+  sidebar, and workspace helpers. Current source and law reports are fully
+  proved: issue browser 255/255, issue laws 311/311, accessibility 290/290, and
+  accessibility laws 334/334; all certificates replay.
