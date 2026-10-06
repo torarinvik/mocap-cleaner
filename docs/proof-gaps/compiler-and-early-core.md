@@ -228,3 +228,22 @@ before receiver lowering, even with a single module or distinct names.
 Using `zeroed`, as Studio's retained payload does, isolates the receiver
 operations. Empty-array global literal initialization remains unsupported;
 it was not silently accepted as a successful reproduction.
+
+## Nested parser storage paths block prover candidate compilation
+
+An immutable diagnostic compiler snapshot at `e6127530`, with its matching
+fresh Stage1, reaches semantic checking when building the prover candidate
+but rejects `parser_protocol_parameters.elisa` at the uses of `parameter_name`
+after growth of `parser.generic_param_lines`. No candidate prover was linked.
+The parameter name comes from `NameStore::append` into
+`parser.handler_name_store.current`; the source then grows sibling arrays of
+lines and names, not that backing byte array.
+
+Read-only investigation points to loss of nested field-path type information:
+the checker retains the struct field `handler_name_store`, but its element
+classifier handles directly typed darray fields and cannot establish the nested
+backing array's separation from those siblings. This diagnosis still requires
+minimal positive sibling-growth and negative backing-array-growth reproductions.
+The repair must retain conservative rejection for unmodeled alias paths.
+The original `e6127530` snapshot and failed build evidence remain immutable;
+repair work uses a separate snapshot and requires a matching rebuild.
