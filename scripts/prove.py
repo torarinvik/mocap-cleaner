@@ -45,7 +45,7 @@ CACHE = os.path.join(OUT, "cache")
 DURATIONS = os.path.join(CACHE, "durations.json")
 KEEP = re.compile(r"verification state|obligations:|proven:|failed:|unproven:")
 # Bump when the key layout or the cached line format changes.
-KEY_VERSION = b"prove-cache-v5"
+KEY_VERSION = b"prove-cache-v6"
 # The prover is run as `PROVER <absolute file>`; part of the key so a change
 # here cannot reuse results produced by another invocation.
 INVOCATION = b"argv:PROVER,ABSFILE"
@@ -244,19 +244,29 @@ def main():
         f, out, cached, old = item
         start = time.monotonic()
         timed_out = False
+        expected_key = os.path.basename(cached)[:-4]
+        source_changed = digest(f, revision) != expected_key
         try:
-            run = subprocess.run([prover, os.path.abspath(f)], capture_output=True,
-                                 text=True, timeout=args.file_timeout)
+            if source_changed:
+                run = subprocess.CompletedProcess([prover, os.path.abspath(f)], 125,
+                    stdout="", stderr="source/include snapshot changed while queued; fresh verification required")
+            else:
+                run = subprocess.run([prover, os.path.abspath(f)], capture_output=True,
+                                     text=True, timeout=args.file_timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
             run = subprocess.CompletedProcess([prover, os.path.abspath(f)], 124,
                 stdout="", stderr=f"proof file exceeded {args.file_timeout:g}s wall-time limit; partial output discarded")
         took = time.monotonic() - start
+        if not source_changed and digest(f, revision) != expected_key:
+            source_changed = True
+            run = subprocess.CompletedProcess(run.args, 125, stdout="",
+                stderr="source/include snapshot changed during verification; result discarded")
         line = summary(run.stdout)
         # The current CLI returns 0 for complete source verification and 1
         # for a completed report with unresolved obligations. Other exits are
         # invocation/internal failures, even if a report marker was printed.
-        invalid = timed_out or not complete_report(run.stdout) or run.returncode not in (0, 1)
+        invalid = timed_out or source_changed or not complete_report(run.stdout) or run.returncode not in (0, 1)
         if invalid:
             line = ""
         if old is not None and line != old:

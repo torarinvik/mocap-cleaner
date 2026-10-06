@@ -94,3 +94,10 @@ state/counters again when reading a cache hit. Incomplete or inconsistent
 entries lose their cached marker and are scheduled for fresh verification.
 Counter text length is bounded before integer parsing so corrupt oversized
 values cannot abort the entire run at Python's integer-string limit.
+
+Cache format v6 rehashes each file and its transitive includes before starting
+and after finishing verification. A changed queued/running source snapshot
+produces an explicit invalid-run diagnostic and discards the result. This
+prevents storing observed changed-source evidence under the earlier cache key.
+It does not substitute for an immutable qualification checkout: changes that
+are made and reverted between observations remain outside this detection.
