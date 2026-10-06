@@ -168,3 +168,13 @@ positives before enabling recommendations.
 suggestion preserves the stack; applying and undoing restores exact prior
 state. No recommendation passes solely on aggregate improvement.
 
+
+### Guided action dispatch qualification
+
+The common suggestion action handler now checks the same action availability
+predicate used by focus/accessibility before changing focus or dispatching.
+This covers adjustment-page actions, lock prerequisites and impact annotation
+capacity as well as the existing Apply admission checks. Qualify disabled
+pointer/key/AX activation, especially inactive-page Back/Adjust and exhausted
+impact capacity; no state or history changes may result from refused actions.
+Current compilation and native acceptance remain open.
