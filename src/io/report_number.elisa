@@ -1,0 +1,65 @@
+include "../core/report_decimal.elisa"
+
+# Parse an already validated JSON number token into an exact canonical value.
+# Trailing zeroes are held separately so equivalent spellings share a value.
+module ReportNumber:
+    public:
+        enum Result:
+            Unavailable
+            Exact(coefficient: i64, exponent: i64)
+
+        def parse(text: darray[u8]&, start: usize, stop: usize) -> Result:
+            requires start <= stop and stop <= text.count
+            return Result.Unavailable if start == stop
+            mutable at: usize = start
+            negative: bool = text[at] == 45
+            at <- at + 1 if negative
+            return Result.Unavailable if at == stop
+            mutable coefficient: i64 = 0
+            mutable zeroes: i64 = 0
+            mutable fraction: i64 = 0
+            mutable fractional: bool = false
+            mutable saw_digit: bool = false
+            mutable fraction_digit: bool = false
+            while at < stop:
+                byte: u8 = text[at]
+                if byte == 101 or byte == 69:
+                    break
+                if byte == 46:
+                    return Result.Unavailable if fractional or not saw_digit
+                    fractional <- true
+                    at <- at + 1
+                    continue
+                return Result.Unavailable if byte < 48 or byte > 57
+                saw_digit <- true
+                fraction_digit <- true if fractional
+                fraction <- fraction + 1 if fractional
+                digit: i64 = (byte - 48).i64()
+                if digit == 0:
+                    zeroes <- zeroes + 1 if coefficient != 0
+                else:
+                    while zeroes > 0:
+                        return Result.Unavailable if not ReportDecimal::can_append_digit(coefficient, 0)
+                        coefficient <- ReportDecimal::append_digit(coefficient, 0)
+                        zeroes <- zeroes - 1
+                    return Result.Unavailable if not ReportDecimal::can_append_digit(coefficient, digit)
+                    coefficient <- ReportDecimal::append_digit(coefficient, digit)
+                at <- at + 1
+            return Result.Unavailable if not saw_digit or (fractional and not fraction_digit)
+            mutable explicit_exponent: i64 = 0
+            if at < stop:
+                at <- at + 1
+                return Result.Unavailable if at == stop
+                exponent_negative: bool = text[at] == 45
+                at <- at + 1 if exponent_negative or text[at] == 43
+                return Result.Unavailable if at == stop
+                while at < stop:
+                    byte: u8 = text[at]
+                    return Result.Unavailable if byte < 48 or byte > 57
+                    return Result.Unavailable if explicit_exponent > 1000000
+                    explicit_exponent <- explicit_exponent * 10 + (byte - 48).i64()
+                    at <- at + 1
+                explicit_exponent <- -explicit_exponent if exponent_negative
+            return Result.Exact(coefficient: 0, exponent: 0) if coefficient == 0
+            coefficient <- -coefficient if negative
+            Result.Exact(coefficient: coefficient, exponent: explicit_exponent - fraction + zeroes)
