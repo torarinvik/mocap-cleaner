@@ -49,7 +49,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `CliOutputGuardPolicy` | 8 | `src/cli/output_guard_policy.elisa` |
 | `CliOutputPublisher` | 3 | `src/cli/output_publisher.elisa` |
 | `GlbTracks` | 4 | `src/io/glb_tracks.elisa` |
-| `Hand` | 4 | `src/core/hand.elisa` |
 | `Knee` | 9 | `src/core/knee.elisa` |
 | `Physics` | 7 | `src/physics/rig_physics.elisa` |
 | `Pivot` | 3 | `src/core/pivot.elisa` |
@@ -189,3 +188,9 @@ source, law and existing fixture consumers use qualified names; values and
 visibility are preserved. Compiler `720896f4` emits the combined performance
 fixture at `build/retime-domains.epX7Rj/fixture.o`. Proof replay and runtime
 qualification remain open; existing baselines were not changed.
+
+`Hand::Domain` holds its geometry bound and `Defaults` its minimum run.
+`Role.Left` / `Role.Right` are a closed const enum with preserved integer
+values 9 / 13; existing integer role boundaries use explicit `.i64()`
+conversions. All source, law and fixture consumers were migrated. Current
+compiler and proof qualification remain pending.
