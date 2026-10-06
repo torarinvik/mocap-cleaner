@@ -15,6 +15,7 @@ module StudioExportBatchReviewBinding:
         struct ReviewToken:
             private:
                 identity: StudioExportBatchIdentity::Identity
+                attempt: i64
                 issued: bool
 
         struct WorkerClaim:
@@ -115,6 +116,12 @@ module StudioExportBatchReviewBinding:
                            running: bool) -> bool:
             ensure result == (claim_issued and claim_attempt == current_attempt and identity_matches and running)
             claim_issued and claim_attempt == current_attempt and identity_matches and running
+
+        def review_ack_admitted(token_issued: bool, token_attempt: i64,
+                current_attempt: i64, identity_matches: bool,
+                explicit_review: bool, recovered_warning: bool) -> bool:
+            ensure result == (token_issued and token_attempt == current_attempt and identity_matches and explicit_review and recovered_warning)
+            token_issued and token_attempt == current_attempt and identity_matches and explicit_review and recovered_warning
 
         def claim_identity(claim: WorkerClaim) -> StudioExportBatchIdentity::Identity:
             requires claim.issued
@@ -347,8 +354,28 @@ module StudioExportBatchReviewBinding:
             requires index >= 0 and index < queue.identities.count.i64()
             ensure result.issued implies explicit_review
             ensure result.issued implies StudioExportBatchIdentity::equal(result.identity, current)
-            ensure not result.issued or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
-            ReviewToken{identity: queue.identities[index.usize()], issued: explicit_review and StudioExportBatchIdentity::valid(current) and StudioExportBatchIdentity::equal(queue.identities[index.usize()], current) and StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview}
+            ensure result.issued implies result.attempt == queue.attempts[index.usize()]
+            ensure not result.issued or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Warning
+            ReviewToken{identity: queue.identities[index.usize()], attempt: queue.attempts[index.usize()], issued: explicit_review and StudioExportBatchIdentity::valid(current) and StudioExportBatchIdentity::equal(queue.identities[index.usize()], current) and (StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Warning)}
+
+        # Recovered warnings require a new explicit acknowledgement. Reopen
+        # does not restore approval, and the acknowledgement is only in memory.
+        def acknowledge_recovered_warning[@r](queue: mutable BoundQueue&, index: i64,
+                current: StudioExportBatchIdentity::Identity, token: ReviewToken,
+                explicit_review: bool) -> bool @r can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
+            requires valid(queue)
+            requires index >= 0 and index < queue.identities.count.i64()
+            ensure valid(queue)
+            ensure not result or StudioExportBatchQueue::item(queue.queue, index).approved
+            identity_matches: bool = StudioExportBatchIdentity::equal(token.identity, queue.identities[index.usize()]) and StudioExportBatchIdentity::equal(current, queue.identities[index.usize()])
+            recovered_warning: bool = StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Warning
+            return false if not queue.durable or not review_ack_admitted(token.issued, token.attempt, queue.attempts[index.usize()], identity_matches, explicit_review, recovered_warning)
+            mutable checked_identity: StudioExportBatchIdentity::Identity @r = zeroed
+            mutable checked_item: StudioExportBatchQueue::Item @r = zeroed
+            return false if not StudioExportBatchQueueStore::recover_item(queue.recovery_directories[index.usize()], queue.lock_descriptor, queue.journals[index.usize()], &checked_identity, &checked_item)
+            return false if checked_item.state != StudioExportBatchQueuePolicy::ItemState.Warning or checked_item.approved
+            return false if not StudioExportBatchIdentity::equal(checked_identity, current)
+            StudioExportBatchQueue::approve_warning(&queue.queue, index, true)
 
         # The only publication entry point invokes the native create-only
         # publisher. Its receipt cannot be constructed by queue callers.
@@ -362,6 +389,7 @@ module StudioExportBatchReviewBinding:
             ensure not result or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Warning or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Passed
             return false if StudioExportBatchQueue::cancelled(queue.queue)
             return false if not token.issued or not explicit_review
+            return false if token.attempt != queue.attempts[index.usize()]
             return false if StudioExportBatchQueue::item(queue.queue, index).state != StudioExportBatchQueuePolicy::ItemState.AwaitingReview
             return false if not StudioExportBatchIdentity::equal(token.identity, queue.identities[index.usize()])
             return false if not StudioExportBatchIdentity::equal(current, queue.identities[index.usize()])

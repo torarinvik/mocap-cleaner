@@ -66,10 +66,13 @@ snapshot paths, reloads exact snapshot bytes, compares staged/final GLB and
 report files byte-for-byte, and checks the stored publication stage facts.
 Interrupted Running records are atomically rewritten to Recoverable before the
 queue is returned. Serialized approval is not stored or restored. The report
-warning list does not yet have an independent parser, so reopened items remain
-Recoverable even when final bytes match; they never regain Passed/Warning from
-the journal's state or warning count. Empty durable queues and the batch UI
-entry point are not yet wired into Studio.
+warning list is independently counted from both matching report snapshots
+using a strict parser for the stable Studio JSON and text suffixes. Unknown or
+malformed report formats remain Recoverable. Reopened clean completed outputs
+may regain Passed and warning outputs regain Warning, always unapproved. A
+recovered warning requires a fresh explicit acknowledgement bound to retained
+identity and attempt; it is memory-only and must be repeated after reopen.
+Empty durable queues and the batch UI entry point are not yet wired into Studio.
 
 Compile-only qualification used the provenance-checked normal Stage1 product
 (`bb1f4095`) with `-emit obj -O0`; O2 dead-stripped these proof/module-only
@@ -87,3 +90,11 @@ Root subsequently ran `clang -fsyntax-only -fobjc-arc` on the current engine
 `native/file_trash_appkit.m`; it exited 0 without diagnostics. This establishes
 native source syntax only, not a linked adapter, file identity behavior or race
 qualification. No native executable was run.
+
+Warning recovery and acknowledgement changes were separately compile-qualified
+with the same provenance-checked compiler at O0: report warning parser 13,328
+bytes, parser laws 18,024 bytes, queue store 686,376 bytes, review binding
+848,984 bytes, review-binding laws 874,640 bytes, and recovery-policy laws
+186,384 bytes. These objects establish compiler acceptance only. No executable
+report samples or native acknowledgement flow were run; report syntax support
+is limited to the current Studio serializer format.

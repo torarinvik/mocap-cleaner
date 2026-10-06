@@ -161,9 +161,11 @@ The batch review binding now has a durable per-item journal/store path and a
 reopen classifier that checks source identity, snapshots, staged/final/report
 bytes and recorded publication stages. Interrupted workers become Recoverable;
 serialized approval and success flags do not restore terminal state. Warning
-facts still lack an independent report parser, the durable constructor is not
-yet wired into the Studio UI, and native filesystem durability/race behavior
-remains unqualified. Compile-only evidence and exact limits are recorded in
+warning facts are derived independently from matching JSON and text report
+snapshots, and recovered warnings require a fresh identity and attempt-bound
+acknowledgement. The durable constructor is not yet wired into the Studio UI,
+and native filesystem durability/race behavior remains unqualified.
+Compile-only evidence and exact limits are recorded in
 [batch review binding](../acceptance/batch-review-binding-2026-10-07.md).
 
 - [ ] **Owned recovery record:** give each export an immutable transaction ID

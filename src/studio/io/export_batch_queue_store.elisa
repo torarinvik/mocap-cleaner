@@ -4,6 +4,7 @@ include "../export_batch_journal.elisa"
 include "../export_batch_recovery_capacity_policy.elisa"
 include "../export_batch_identity.elisa"
 include "../export_batch_recovery_policy.elisa"
+include "../export_report_warning_parser.elisa"
 include "export_batch_source_identity.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 
@@ -128,8 +129,7 @@ module StudioExportBatchQueueStore:
                 false
 
         # Reopen derives a conservative lifecycle item from fresh native path
-        # facts and exact bytes. Warning data has no independent parser yet, so
-        # terminal success is never restored from the serialized count/state.
+        # facts, exact bytes and independently parsed matching warning reports.
         def recover_item[@r](directory: darray[u8]& @r, lock_descriptor: i32,
                 record: StudioExportBatchJournal::Record&,
                 out_identity: mutable StudioExportBatchIdentity::Identity& @r,
@@ -137,7 +137,6 @@ module StudioExportBatchQueueStore:
             requires lock_descriptor >= 0
             requires StudioExportBatchJournal::valid(record)
             ensure not result or not out_item.approved
-            ensure not result or out_item.state == StudioExportBatchQueuePolicy::ItemState.Recoverable
             mutable identity: StudioExportBatchIdentity::Identity @r = zeroed
             return false if not load_identity(directory, lock_descriptor, record, &identity)
             identity_exact: bool = StudioExportBatchJournal::matches_identity(record, identity)
@@ -152,7 +151,9 @@ module StudioExportBatchQueueStore:
             text_exact: bool = exact_file(identity.report_text_path, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
             destinations_absent: bool = path_absent(identity.output_path) and path_absent(identity.report_json_path) and path_absent(identity.report_text_path)
             receipt_consistent: bool = stage_consistent(record.glb_stage, glb_exact) and stage_consistent(record.json_stage, json_exact) and stage_consistent(record.text_stage, text_exact) and record.staging_disposition >= 0 and record.staging_disposition <= 3
-            mutable item: StudioExportBatchQueue::Item @r = StudioExportBatchRecoveryPolicy::item_after_reopen(record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64(), identity_exact, source_matches, paths_ok, true, receipt_consistent, staged_exact, glb_exact, json_exact, text_exact, destinations_absent, false, 0)
+            mutable warning_count: i64 = 0
+            warning_facts_verified: bool = StudioExportReportWarningParser::warning_count(identity.report_json_bytes, identity.report_text_bytes, &warning_count)
+            mutable item: StudioExportBatchQueue::Item @r = StudioExportBatchRecoveryPolicy::item_after_reopen(record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64(), identity_exact, source_matches, paths_ok, true, receipt_consistent, staged_exact, glb_exact, json_exact, text_exact, destinations_absent, warning_facts_verified, warning_count)
             out_identity <- identity
             out_item <- item
             true

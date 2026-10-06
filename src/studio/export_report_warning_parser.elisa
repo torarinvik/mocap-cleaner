@@ -1,0 +1,172 @@
+include "export_recovery_budget_policy.elisa"
+
+# Strictly count the warning entries emitted by StudioExportReport. These
+# readers intentionally accept the formatter's stable suffix, not arbitrary
+# JSON or free-form text; malformed or unknown formats remain unverified.
+module StudioExportReportWarningParser:
+    private:
+        const module Format:
+            JSON_MARKER: sview = "\n  \"warnings\": ["
+            TEXT_MARKER: sview = "\n\nWarnings (categorized):\n"
+            JSON_TAIL: sview = "\n}\n"
+            EMPTY_TEXT: sview = "- None\n"
+
+    public:
+        def warning_count(json: darray[u8]&, text: darray[u8]&, out: mutable i64&) -> bool:
+            mutable json_count: i64 = 0
+            mutable text_count: i64 = 0
+            return false if not json_warning_count(json, &json_count)
+            return false if not text_warning_count(text, &text_count)
+            return false if json_count != text_count
+            out <- json_count
+            true
+
+        def json_warning_count(bytes: darray[u8]&, out: mutable i64&) -> bool:
+            requires bytes.count.i64() <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+            mutable marker: usize = 0
+            return false if not unique_marker(bytes, Format::JSON_MARKER, &marker)
+            mutable cursor: usize = marker + Format::JSON_MARKER.len.usize()
+            mutable count: i64 = 0
+            skip_space(bytes, &cursor)
+            if byte_at(bytes, cursor) == 93:
+                cursor <- cursor + 1
+                return false if not has_suffix(bytes, cursor, Format::JSON_TAIL)
+                out <- 0
+                return true
+            while cursor < bytes.count:
+                skip_space(bytes, &cursor)
+                return false if byte_at(bytes, cursor) != 123
+                cursor <- cursor + 1
+                return false if not expect(bytes, &cursor, "\"category\": ")
+                mutable ignored_length: usize = 0
+                return false if not parse_string(bytes, &cursor, &ignored_length) or ignored_length == 0
+                return false if not expect(bytes, &cursor, ", \"severity\": ")
+                mutable severity_start: usize = 0
+                mutable severity_length: usize = 0
+                return false if not parse_string(bytes, &cursor, &severity_length)
+                severity_start <- cursor - severity_length - 2
+                return false if not severity_valid(bytes, severity_start, severity_length)
+                return false if not expect(bytes, &cursor, ", \"message\": ")
+                return false if not parse_string(bytes, &cursor, &ignored_length) or ignored_length == 0
+                return false if byte_at(bytes, cursor) != 125
+                cursor <- cursor + 1
+                count <- count + 1
+                return false if count > 64
+                skip_space(bytes, &cursor)
+                if byte_at(bytes, cursor) == 44:
+                    cursor <- cursor + 1
+                    continue
+                return false if byte_at(bytes, cursor) != 93
+                cursor <- cursor + 1
+                return false if not has_suffix(bytes, cursor, Format::JSON_TAIL)
+                out <- count
+                return true
+            false
+
+        def text_warning_count(bytes: darray[u8]&, out: mutable i64&) -> bool:
+            requires bytes.count.i64() <= StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES
+            mutable marker: usize = 0
+            return false if not unique_marker(bytes, Format::TEXT_MARKER, &marker)
+            mutable cursor: usize = marker + Format::TEXT_MARKER.len.usize()
+            if literal_at(bytes, cursor, Format::EMPTY_TEXT):
+                cursor <- cursor + Format::EMPTY_TEXT.len.usize()
+                return false if cursor != bytes.count
+                out <- 0
+                return true
+            mutable count: i64 = 0
+            while cursor < bytes.count:
+                return false if not expect(bytes, &cursor, "- [")
+                mutable ignored_length: usize = 0
+                return false if not parse_string(bytes, &cursor, &ignored_length) or ignored_length == 0
+                return false if byte_at(bytes, cursor) != 47
+                cursor <- cursor + 1
+                severity_start: usize = cursor
+                while cursor < bytes.count and byte_at(bytes, cursor) != 93:
+                    cursor <- cursor + 1
+                severity_length: usize = cursor - severity_start
+                return false if not severity_valid(bytes, severity_start, severity_length)
+                return false if not expect(bytes, &cursor, "] ")
+                return false if not parse_string(bytes, &cursor, &ignored_length) or ignored_length == 0
+                return false if byte_at(bytes, cursor) != 10
+                cursor <- cursor + 1
+                count <- count + 1
+                return false if count > 64
+            return false if count == 0
+            out <- count
+            true
+
+    private:
+        def unique_marker(bytes: darray[u8]&, marker: sview, out: mutable usize&) -> bool:
+            mutable found: usize = 0
+            mutable matches: i64 = 0
+            for start in 0..<bytes.count |bytes, marker, start, found, matches|:
+                if literal_at(bytes, start, marker):
+                    found <- start
+                    matches <- matches + 1
+            return false if matches != 1
+            out <- found
+            true
+
+        def literal_at(bytes: darray[u8]&, start: usize, literal: sview) -> bool:
+            return false if start + literal.len.usize() > bytes.count
+            for offset in 0..<literal.len.usize() |bytes, literal, start|:
+                return false if bytes[start + offset] != literal[offset]
+            true
+
+        def expect(bytes: darray[u8]&, cursor: mutable usize&, literal: sview) -> bool:
+            return false if not literal_at(bytes, cursor, literal)
+            cursor <- cursor + literal.len.usize()
+            true
+
+        def parse_string(bytes: darray[u8]&, cursor: mutable usize&, out_length: mutable usize&) -> bool:
+            return false if byte_at(bytes, cursor) != 34
+            cursor <- cursor + 1
+            start: usize = cursor
+            while cursor < bytes.count:
+                byte: u8 = bytes[cursor]
+                if byte == 34:
+                    out_length <- cursor - start
+                    cursor <- cursor + 1
+                    return true
+                return false if byte < 32
+                if byte == 92:
+                    cursor <- cursor + 1
+                    return false if cursor >= bytes.count
+                    escape: u8 = bytes[cursor]
+                    if escape == 117:
+                        return false if cursor + 4 >= bytes.count
+                        for digit in 1..<5 |bytes, cursor|:
+                            return false if not hex_digit(bytes[cursor + digit])
+                        cursor <- cursor + 5
+                    else:
+                        return false if not (escape == 34 or escape == 47 or escape == 92 or escape == 98 or escape == 102 or escape == 110 or escape == 114 or escape == 116)
+                        cursor <- cursor + 1
+                else:
+                    cursor <- cursor + 1
+            false
+
+        def severity_valid(bytes: darray[u8]&, start: usize, length: usize) -> bool:
+            length == 4 and literal_slice(bytes, start, "info") or length == 7 and literal_slice(bytes, start, "warning") or length == 5 and literal_slice(bytes, start, "error")
+
+        def literal_slice(bytes: darray[u8]&, start: usize, literal: sview) -> bool:
+            return false if start + literal.len.usize() > bytes.count or length_mismatch(literal, start, bytes)
+            for index in 0..<literal.len.usize() |bytes, literal, start|:
+                return false if bytes[start + index] != literal[index]
+            true
+
+        def length_mismatch(literal: sview, start: usize, bytes: darray[u8]&) -> bool:
+            start > bytes.count or literal.len.usize() > bytes.count - start
+
+        def hex_digit(byte: u8) -> bool:
+            byte >= 48 and byte <= 57 or byte >= 65 and byte <= 70 or byte >= 97 and byte <= 102
+
+        def byte_at(bytes: darray[u8]&, index: usize) -> u8:
+            return 0 if index >= bytes.count
+            bytes[index]
+
+        def skip_space(bytes: darray[u8]&, cursor: mutable usize&) -> void:
+            while cursor < bytes.count and (bytes[cursor] == 10 or bytes[cursor] == 13 or bytes[cursor] == 32):
+                cursor <- cursor + 1
+
+        def has_suffix(bytes: darray[u8]&, start: usize, suffix: sview) -> bool:
+            start + suffix.len.usize() == bytes.count and literal_at(bytes, start, suffix)
