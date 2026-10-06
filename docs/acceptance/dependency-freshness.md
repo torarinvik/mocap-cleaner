@@ -12,14 +12,16 @@ instructions changed. Earlier sections below are historical observations.
 | Mocap engine | `01f5aec7` | `7699ec52` | 20 / 0 |
 | Elisa UI | `8ab2eb39` | `dc6cd397` | 6 / 0 |
 
-The required `../elisa-proof-mocap` checkout is absent. The primary prover is on
-`integrate/proof-tips-20261006`; its availability does not establish preservation
-or qualification of the mocap-specific repairs. Resolve their location and
-verify linked provenance before selecting a replacement. The existing check
-script still defaults to the missing mocap checkout and must fail closed.
+The required `../elisa-proof-mocap` checkout was absent at this fetch. It has
+subsequently been restored on `mocap-cleaner-proofs` at the primary integration
+source `01c953c6`. Its history contains earlier mocap commit `6ebc2a81`, verified
+by `git merge-base --is-ancestor`. The clean rebuild of prover and replay checker
+is in progress; qualification still requires matching manifests and reviewed
+replay. This ancestry check does not establish preservation of earlier
+uncommitted diagnostic patches.
 
-The compiler manifest declares source `23a0e16a`; independently checking its
-source-tree and product hashes remains required before qualification. Compiler
+The compiler manifest declares source `23a0e16a`; its normal provenance checker
+passed the source-tree and product checks. Compiler
 remote-gate scripts have local changes, which are preserved. No new product
 acceptance is claimed from this fetch or manifest inspection.
 

@@ -56,6 +56,10 @@ review and final publication, with drain-cancellation and recovery guidance.
 Its fresh diagnostic object is `build/batch-queue-copy.dpWquy/copy.o`; native
 queue wiring must establish the lifecycle facts before presenting these labels.
 Compilation does not qualify publication, review binding or the UI workflow.
+The bounded in-memory queue now implements draining cancellation, individual
+retry and explicit resume, with item-validity and lifecycle laws. Current
+evidence and remaining work are recorded in
+[batch queue compilation](../acceptance/batch-queue-compile-2026-10-06.md).
 
 - [ ] Wrap the existing batch/parallel/report capabilities in a queue UI:
       input list, animation selection, compatible recipe, output naming,
