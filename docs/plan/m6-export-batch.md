@@ -6,6 +6,15 @@
 
 ### 11.1 Reviewed export (P0)
 
+- [ ] Define export/report publication as one revision-bound transaction with
+      durable, inspectable stage outcomes. Cover crash/failure before staging,
+      after GLB publication and between JSON/text report publication. A valid
+      published GLB with failed reports is a partial result, not complete
+      success. Offer report completion from the exact immutable snapshot;
+      retries never overwrite an approved output or silently reevaluate it.
+      Clean only owned unpublished staging files; preserve published artifacts
+      and unknown recovery evidence. Qualify flush/close/directory durability
+      failures separately from reload/byte integrity.
 Do not offer root extraction/in-place conversion or key reduction until that
 semantics has its own implementation, review fields and quality validation.
 - [ ] Add semantic round-trip fixtures for animation selection, evaluated
@@ -40,4 +49,3 @@ semantics has its own implementation, review fields and quality validation.
 **Exit:** exported poses match the reviewed revision; failures leave no
 misleading partial deliverable; source files remain unchanged. Batch and
 single-take output agree for identical settings.
-

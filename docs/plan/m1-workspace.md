@@ -58,6 +58,12 @@
 
 ### 6.3 Document lifecycle and recovery
 
+- [ ] Establish an explicit canonical workspace root with a writable `build/`
+      directory. Persist its location separately from source/session contents;
+      show it and offer Locate workspace when unavailable. Finder launch,
+      changed working directories, read-only/removable volumes and cancelled
+      setup must preserve the document and resolve artifacts consistently.
+      Never fall back silently to `/build` or the source-take directory.
 - [ ] Exercise replacement, window-close and Cmd-Q prompts on screen,
       including Save/Discard/Cancel, Escape, repeated close requests and save
       failures. Confirm that unreadable, damaged and mismatched sessions are
@@ -86,10 +92,13 @@ selection, retention presets, reviewed batch move, receipt reconciliation and
 Restore implementation. Current implementation and evidence are recorded in
 `docs/studio-ux.md`; running-window and failure-path acceptance remains open.
 
-- [ ] Add inspectable hard-link accounting to the overview and qualify
-      timestamp presentation through native input/accessibility acceptance. Provide separately labeled recoverable-disk-space
-      estimates only when allocation and link facts are verified; otherwise
-      show that the estimate is unknown. Verify the current category totals
+- [ ] Add inspectable hard-link/allocation accounting to the overview and
+      qualify timestamp presentation through native inputs. Label logical
+      bytes, allocated bytes reported and unknown measurements separately.
+      A verified link count of one does not establish reclaimable space on
+      APFS: clones and snapshots can retain extents. Keep recoverable space
+      unknown unless exclusive extent/snapshot ownership is established.
+      Moving to Trash must never claim space has been freed. Verify totals
       and no-eligible explanation at all supported inventory sizes.
 - [ ] Extend artifact metadata to saved recovery sessions and register
       interrupted/temporary exports at their actual creation sites. Record
@@ -143,6 +152,11 @@ Restore implementation. Current implementation and evidence are recorded in
       and successful moves stay out of subsequent retries. Validate cancellation at
       every item boundary, terminal unknown/recovery stops, duplicate activation,
       maximum batch size and refreshed per-item accounting.
+- [ ] Qualify ancestor-directory replacement, root relocation/remount and
+      source aliases between validation and mutation. Prefer descriptor-bound
+      native operations where supported; document remaining race boundaries
+      and refuse uncertain mutations. Distinguish atomic namespace publication
+      from crash durability, including directory synchronization failures.
 - [ ] Add a dedicated **Recently moved to Trash** view with original location,
       recorded move date and Restore. Extend/migrate the receipt schema for
       move timestamps; do not substitute file modification time for move date.
@@ -171,4 +185,3 @@ failed item. Source-take hashes remain unchanged in all fixtures.
 **Exit:** keyboard-only and pointer-only import/save/restore/export paths;
 all dirty-close and failure branches exercised; no clipped controls at the
 agreed minimum window size. Sources unchanged.
-

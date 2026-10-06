@@ -6,6 +6,13 @@
 
 ### Evidence and automation
 
+- [ ] Establish the acceptance index and per-slice records described in
+      [shared acceptance requirements](acceptance-and-dependencies.md). Record
+      exact source/dependency snapshots and separate compile, runtime, proof,
+      native interaction, motion-quality and external usability evidence.
+- [ ] Add mechanical checks for the 600-line maximum and remaining ungrouped
+      constants, including proof/test owners and extension modules. Validate
+      public/private APIs and callers without suppressing failing proof gates.
 - [ ] Extend focused state tests for command enablement, focus/text input,
       transactional drafts, dirty state, migration, capacities and job revisions.
 - [ ] Add numerical regressions for the expanded motion corpus, including
@@ -53,4 +60,3 @@
 
 **Exit:** all P0 gates have recorded evidence. Unresolved lower-priority gaps
 are explicit release notes; no build-only check closes a user journey.
-

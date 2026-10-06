@@ -30,6 +30,7 @@ change, while retaining the 600-line maximum. See the
 
 ## Detailed roadmap
 
+- [Acceptance, dependencies and unresolved decisions](docs/plan/acceptance-and-dependencies.md)
 - [Product goals, user journeys and baseline](docs/plan/product-and-m0.md)
 - [M1: workspace, storage and recovery](docs/plan/m1-workspace.md)
 - [M2–M3: diagnosis, guided cleanup and comparison](docs/plan/m2-m3-diagnosis-review.md)
@@ -47,3 +48,5 @@ change, while retaining the 600-line maximum. See the
 - Enforce the mandatory 600-line file limit on every change; see
   [module extraction details](docs/module-refactor.md).
 - Record unresolved evidence in [proof gaps](docs/proof-gaps.md).
+- Apply the shared evidence and dependency requirements before closing any
+  milestone; distinguish implementation from native and user acceptance.
