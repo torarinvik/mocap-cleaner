@@ -6,15 +6,16 @@ extend ReportDiff:
             return true if is_text(pool, metric.key_at, metric.key_len, "pole_after")
             is_text(pool, metric.key_at, metric.key_len, "pelvis_after")
 
-        def spike_setting(text: darray[u8]&, tokens: darray[GlbJson::Token]&) -> i64:
-            return -2 if member_count(text, tokens, 0, "detector_settings") > 1
+        def spike_setting(text: darray[u8]&, tokens: darray[GlbJson::Token]&) -> MetadataDeclaration:
+            return MetadataDeclaration.Invalid if member_count(text, tokens, 0, "detector_settings") > 1
             object: i64 = decoded_member(text, tokens, 0, "detector_settings")
-            return -1 if object < 0
-            return -2 if tokens[object.usize()].kind != GlbJson::KIND_OBJECT
-            return -2 if member_count(text, tokens, object.usize(), "spike_threshold_fixed_point") > 1
+            return MetadataDeclaration.Missing if object < 0
+            return MetadataDeclaration.Invalid if tokens[object.usize()].kind != GlbJson::KIND_OBJECT
+            return MetadataDeclaration.Invalid if member_count(text, tokens, object.usize(), "spike_threshold_fixed_point") > 1
             value: i64 = decoded_member(text, tokens, object.usize(), "spike_threshold_fixed_point")
-            return -2 if value >= 0 and tokens[value.usize()].kind != GlbJson::KIND_PRIMITIVE
-            value
+            return MetadataDeclaration.Missing if value < 0
+            return MetadataDeclaration.Invalid if tokens[value.usize()].kind != GlbJson::KIND_PRIMITIVE
+            MetadataDeclaration.Present(value.usize())
 
         def threshold_admitted(coefficient: i64, exponent: i64) -> bool:
             ensure not result or coefficient >= 0 and coefficient <= Regress::Domain::MAGNITUDE
@@ -26,13 +27,23 @@ extend ReportDiff:
             return false if exponent < 0 or exponent > ReportDecimal::Capacity::DIGITS
             ReportDecimal::can_scale(coefficient, ReportDecimal::factor(exponent))
 
-        def declared_spike_status(left: darray[u8]&, left_tokens: darray[GlbJson::Token]&, left_setting: i64,
-                                  right: darray[u8]&, right_tokens: darray[GlbJson::Token]&, right_setting: i64) -> ReportCompatibility::Status:
-            return ReportCompatibility::Status.Invalid if left_setting == -2 or right_setting == -2
-            if left_setting < 0 or right_setting < 0:
-                return ReportCompatibility::declaration_status(left_setting >= 0, right_setting >= 0, true, false, false)
-            left_token: GlbJson::Token = left_tokens[left_setting.usize()]
-            right_token: GlbJson::Token = right_tokens[right_setting.usize()]
+        def declared_spike_status(left: darray[u8]&, left_tokens: darray[GlbJson::Token]&, left_setting: MetadataDeclaration,
+                                  right: darray[u8]&, right_tokens: darray[GlbJson::Token]&, right_setting: MetadataDeclaration) -> ReportCompatibility::Status:
+            return ReportCompatibility::Status.Invalid if declaration_invalid(left_setting) or declaration_invalid(right_setting)
+            if not declaration_present(left_setting) or not declaration_present(right_setting):
+                return ReportCompatibility::declaration_status(declaration_present(left_setting), declaration_present(right_setting), true, false, false)
+            match left_setting:
+                MetadataDeclaration.Present(left_index):
+                    match right_setting:
+                        MetadataDeclaration.Present(right_index):
+                            return compare_spike_values(left, left_tokens[left_index], right, right_tokens[right_index])
+                        _:
+                            return ReportCompatibility::Status.Invalid
+                _:
+                    return ReportCompatibility::Status.Invalid
+
+        def compare_spike_values(left: darray[u8]&, left_token: GlbJson::Token,
+                                 right: darray[u8]&, right_token: GlbJson::Token) -> ReportCompatibility::Status:
             match ReportNumber::parse(left, left_token.start, left_token.stop):
                 ReportNumber::Result.Unavailable:
                     return ReportCompatibility::Status.Invalid
