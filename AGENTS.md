@@ -5,3 +5,4 @@
 - Proof-critical logic uses integer fixed point: weights in permille and lengths in 0.1 mm.
 - Fix prover gaps in `../elisa-proof-mocap` (branch `mocap-cleaner-proofs`) and record them in `docs/proof-gaps.md`.
 - Never modify source takes. Derived files go in `build/`.
+- Always use current compiler, proof assistant, UI and engine dependencies. Fetch upstream before qualification, preserve project-specific repairs, and verify that selected binaries match their source and linked dependencies. Historical binaries may only supply explicitly labelled comparison evidence; they cannot qualify the current implementation.
