@@ -190,8 +190,8 @@ committed-text/paste routing, exact refused-draft preservation and playing-state
 transitions in the integrated window.
 
 - [ ] Qualify time conversion against the timeline clock and evaluated sample
-      times. The current playback kernels use a fixed 120 fps while the displayed
-      clip rate is estimated from the longest channel's key count and duration.
+      times. Loaded Studio playback now uses captured output timestamps; the
+      displayed average key rate remains an estimate.
       Use one validated time basis for playback, time entry, stepping, display,
       curves and reports; describe any rounding. Detect nonuniform key spacing
       and distinguish authored keys from evaluated review samples. Never present
@@ -214,9 +214,9 @@ The clock arithmetic now also represents bounded rational rates, including
 direct maximum-time × numerator product. The integer-rate entry points delegate
 to that same arithmetic. Nine rational-clock laws compile at O0 with retained
 symbols, including fractional-frame boundaries and maximum-duration cases.
-This has not changed the application's fixed-rate playback clock: the evaluated
-grid still needs validated numerator/denominator ownership, source-key admission,
-UI/report labels, integration and current proof/runtime qualification.
+The rational policy remains a separate arithmetic foundation. Loaded Studio now
+uses captured sample timestamps; current proof/runtime qualification and consistent
+curve/report timing remain required.
 
 Each evaluated Clip now captures an owned, privately represented sample clock
 from its actual cleaned GLB input timestamps. Times round to the nearest
@@ -226,10 +226,19 @@ single-key channels remain constant, with finite valid times. Cubic interpolatio
 empty/oversized grids and mismatched channel grids return typed unavailable
 states rather than a guessed exact clock. Nonuniform increasing grids are
 supported. The capture module and updated model compile at O0 to retained
-objects; scalar timestamp admission has nine accompanying laws. Playback,
-time entry, labels and export reports still need this captured clock wired in,
-with source/corrected grid provenance and actionable unavailable-state messages.
-Current proof/replay and native playback acceptance remain open.
+objects; scalar timestamp policy now has fourteen accompanying laws. Playback,
+stepping and seconds entry use this clock, and the status bar shows the actual
+sample timestamp with six decimal places. Unsupported clocks explain refusal.
+Current proof/replay, integrated app compilation and native playback acceptance
+remain open; export reports and curve timing still need consistent integration.
+
+- [ ] Extend seconds entry to captured microsecond precision so displayed sample
+      timestamps can be entered without truncation. Keep one capacity policy for
+      typed input, committed text, accessibility replacement and parser; add the
+      matching contracts/laws and qualify boundary/clamp behavior.
+- [ ] Make pointer and accessibility Play enablement share the captured-clock
+      readiness/count predicate used by the playback handler. Preserve Stop when
+      playback is already active; explain unavailable timing consistently.
 
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.

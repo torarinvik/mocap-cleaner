@@ -77,9 +77,13 @@ Apply/Cancel, stale-target checks and mode-specific accessibility labels. Its
 new time integration awaits full compilation and native input qualification;
 committed-text insertion and navigation pause behavior are implemented but need
 native qualification. Unsupported insertions retain the prior complete draft.
-The displayed clip rate is estimated from key count and duration, while playback
-currently uses a fixed 120 fps clock. Consistency across rates and nonuniform
-key times remains an explicit acceptance gap.
+Loaded Studio playback, stepping and seconds entry now use the validated captured
+output timestamps. The status bar shows clip-relative sample time to six decimal
+places and labels the estimated average key rate with `~`. Unsupported grids
+refuse playback and seconds entry with an explanation. Seconds entry still has
+millisecond precision; copying every displayed microsecond value back into that
+field is not yet supported. Current proof replay, integrated compilation, native
+playback and timing consistency in curves/reports remain acceptance gaps.
 
 The keys include Space, Left/Right, S, L, Z/Y, T C H N G X M, F, E, 1-5, D, Delete, PageUp/PageDown, Up/Down, `[` `]`, B, and I/O, plus K (foot cleanup), J (hand cleanup), W (worst foot slide), **Shift-P** (plant selected contact frame), **Shift-L** (lift selected contact frame), **Shift-U** (restore automatic detection at the selected frame), **Shift-Delete** (remove the authored interval covering the selected frame), and `,` `.` (contact blend). **Cmd-Z** undoes and **Cmd-Shift-Z** redoes; plain Z/Y also work. File commands are available from the labelled File menu and as shortcuts: **Cmd-O** open take, **Cmd-Shift-O** open session, **Cmd-S** save session, **Cmd-Shift-S** save as, **E** export to the current path, and **Cmd-E** export as. Press `?` for the full shortcut sheet. Contact-row clicks select and scrub; Plant/Lift set a one-frame override, Reset removes only that frame from authored overrides, Delete removes the newest full interval covering it, Merge joins eligible adjacent intervals without changing contact output, Split divides the selected interval immediately before the selected frame, and dragging a run endpoint changes its extent. See `docs/foot-workflow.md`. Shift-F toggles the frame-time overlay; plain F frames the views.
 
