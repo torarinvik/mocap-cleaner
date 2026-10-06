@@ -16,6 +16,8 @@ The following files now assert `ensure result`, retaining their preconditions:
 - Reset scope: one undo entry, enablement and isolated cleanup scopes.
 - Export review: keyboard reachability and warning acknowledgement gates.
 - Export path review: enabled focus choices and bounded page movement.
+- Job lifecycle: cancellation, stale revision/generation and prior value retention.
+- Legacy session prompt: Cancel default, focus movement and closed-prompt refusal.
 
 Current Stage1 `812c0547` compiled the report, reset, export review and path
 review law files to objects without a stale override. Compilation checks source
@@ -27,7 +29,11 @@ baselines are retained and must not be weakened to accommodate new failures.
 
 Review every Boolean law, including files that already contain some assertions.
 A file-level search for missing `ensure` finds candidates but cannot establish
-complete coverage. Job lifecycle, accessibility and legacy session prompt laws
-still need per-function review. Workspace root laws are being reviewed by their
+complete coverage. Accessibility laws still need per-function review; their unknown-identity law
+currently omits contact editor and issue nodes from its domain exclusions. Workspace root laws are being reviewed by their
 implementation owner. Confirm intended true/false semantics and preconditions
 before adding an assertion; never assume every Boolean return is intended true.
+
+Job and legacy session law compilation was attempted after the compiler advanced
+to `4c409da6`. The provenance gate rejected the preceding product as stale; no
+override was used. Their compilation and replay remain pending a current build.
