@@ -5,8 +5,8 @@ All adopted dependency branches contain every fetched upstream commit.
 
 | Dependency | Local HEAD | Fetched upstream | Ahead / behind |
 | --- | --- | --- | --- |
-| Compiler | `88ffc005` | `72a75282` | 36 / 0 |
-| Mocap proof assistant | `994f95be` | `151a2772` | 13 / 0 |
+| Compiler | `f292cbe0` | `72a75282` | 39 / 0 |
+| Mocap proof assistant | `5776350b` | `151a2772` | 14 / 0 |
 | Primary proof assistant | `151a2772` | `151a2772` | 0 / 0 |
 | Mocap engine | `01f5aec7` | `7699ec52` | 20 / 0 |
 | Elisa UI | `8ab2eb39` | `dc6cd397` | 6 / 0 |
@@ -17,20 +17,19 @@ checkout and is preserved; it is not a published upstream revision.
 
 ## Binary provenance
 
-The normal Stage1 compiler has been rebuilt at `88ffc005`. The default
+The normal Stage1 compiler has been rebuilt at `f292cbe0`. The default
 `../elisa-proof-mocap/build/elisa-proof` manifest identifies proof source
-`994f95be`, frontend and Stage1 compiler `88ffc005`, with both source trees
-clean. Its binary SHA-256 is
-`8c00afea0b6ebcd4da02966ff6e62a358c7d561c95a54dc69da1795852fbc2b6`.
+`5776350b`, frontend and Stage1 compiler `f292cbe0`, with both source trees
+clean. The manifest records the binary hash and source tree hashes.
 Build and check scripts select these default paths. Historical override builds
 must remain separate from current acceptance evidence.
 
-Freshness does not establish product correctness. Current compiler semantic
-scope repairs are qualified by focused compilation, while a UI payload-enum
-backend failure remains recorded in `docs/proof-gaps/ui-event-scope.md`.
-Focused export validation laws replay 11/14 certificates with zero replay gaps;
-three goals remain unproven. Earlier full-check runs used earlier binaries and
-do not qualify this snapshot.
+Freshness does not establish product correctness. The reproduced UI event
+scope collision now compiles successfully; integrated Studio qualification is
+separate. Export validation source proves/replays 6/6 and its laws 14/14 with
+zero gaps or findings. The full gate using these current default products is
+running, recorded in `build/current-indexed-decimal-check.log`. Source changes
+during a run prevent treating it as immutable snapshot acceptance.
 
 Repeat fetch, ancestry and manifest checks before final snapshot acceptance.
 Rebuild stale binaries and rerun affected verification after dependency changes.
