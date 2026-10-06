@@ -96,10 +96,17 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioStorageRegistrationPolicy` | 7 | `src/studio/storage_registration_policy.elisa` |
 | `StudioStorageReservedNamespace` | 3 | `src/studio/io/storage_reserved_namespace.elisa` |
 | `StudioStorageSelectionPolicy` | 9 | `src/studio/storage_selection_policy.elisa` |
-| `StudioText` | 3 | `src/studio/app/text.elisa` |
-| `StudioView` | 3 | `src/studio/view.elisa` |
 | `Timeline` | 9 | `src/studio/timeline.elisa` |
 | `Track` | 6 | `src/tools/track_support.elisa` |
+
+`StudioText::Buffer` now groups slots, width and capacity; its static buffer and
+fixed-view generic use the qualified capacity. `StudioView::Coordinate`,
+`Curve` and `Severity` separately group pixel bound, curve magnitude and
+level count. Source contracts, view laws, curve-panel consumers and the
+existing Studio fixture use qualified constants with unchanged values.
+No proof law or baseline was removed. These source migrations await the
+fresh normal compiler/prover products; native Studio qualification remains
+open.
 
 Export-result actions migrated to `StudioExportResult::Action`; policy/laws
 retain 7/7 and 16/16 proved results. Existing test compilation is pending a
