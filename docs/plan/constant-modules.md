@@ -57,7 +57,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StackState` | 8 | `src/studio/state/stack_state.elisa` |
 | `Studio` | 11 | `src/studio/app/app_state.elisa` |
 | `StudioAccessibility` | 46 | `src/studio/accessibility.elisa` |
-| `StudioCharacterBind` | 5 | `src/studio/character_bind_policy.elisa` |
 | `StudioContactEditor` | 15 | `src/studio/contact_editor.elisa` |
 | `StudioExportPathReview` | 5 | `src/studio/export_path_review.elisa` |
 | `StudioExportPolicy` | 7 | `src/studio/export_policy.elisa` |
@@ -66,7 +65,7 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `StudioIssueAnnotation` | 3 | `src/studio/issue_annotation.elisa` |
 | `StudioIssueBrowserPolicy` | 17 | `src/studio/issue_browser_policy.elisa` |
 | `StudioLegacyPrompt` | 6 | `src/studio/legacy_session_prompt.elisa` |
-| `StudioModel` | 9 | `src/studio/app/model.elisa` |
+| `StudioModel` | 5 | `src/studio/app/model.elisa` |
 | `StudioOverlay` | 7 | `src/studio/overlay_policy.elisa` |
 | `StudioPanels` | 47 | `src/studio/app/panels_geometry.elisa` |
 | `StudioReplacement` | 8 | `src/studio/replacement.elisa` |
@@ -276,3 +275,13 @@ object for the existing `studio_duplicate_operation` fixture in
 `build/stack-limit-compile.*`; source/law compilation also completed. These
 objects were not executed. Current proof/replay and full Studio qualification
 remain open.
+
+`StudioCharacterBind::Mode` now represents Direct, Inherited and Rest as a
+closed const enum throughout the binding arrays, consumer and existing fixture.
+`Coverage` groups the permille scale and minimum drawing coverage. Existing
+binding laws return the typed enum and compile at O0 to a fresh 37,152-byte
+object. The inherited pose consumer validates the ancestor index before
+indexing the public binding arrays. The existing fixture was updated for the
+API and was not executed. Current proof replay and integrated/native character
+qualification remain open. Four unused StudioModel track constants were removed;
+its remaining numeric groups are still in the inventory above.
