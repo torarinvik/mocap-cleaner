@@ -1,5 +1,6 @@
 include "../export_recovery_path_policy.elisa"
 include "export_recovery_bytes.elisa"
+include "export_recovery_journal.elisa"
 include "../app/export_publisher.elisa"
 
 # Native directory creation is trusted host IO. Callers supply the selected,
@@ -43,6 +44,33 @@ module StudioExportRecoveryStore:
             return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportRecoveryBytes::read(staging, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES, &bytes)
             return StudioPublicationDurabilityPolicy::Result.NotPublished if bytes.count == 0
             write_record(directory, Record.OutputSnapshot, bytes)
+
+        def write_prepared_journal(directory: cstr, record: StudioExportRecoveryJournal::Record&) -> StudioPublicationDurabilityPolicy::Result:
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if record.observed != StudioExportRecoveryStagePolicy::Stage.Prepared or record.durable != StudioExportRecoveryStagePolicy::Stage.Prepared
+            mutable bytes: darray[u8] = []
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportRecoveryJournal::encode(record, &bytes)
+            write_record(directory, Record.Journal, bytes)
+
+        # Only advances a strictly decoded journal of the same export. Never
+        # adopt an unknown/corrupt file or downgrade published stages. Caller
+        # provides observed native facts and guards owned-directory races.
+        def update_journal(directory: cstr, record: StudioExportRecoveryJournal::Record&) -> StudioPublicationDurabilityPolicy::Result:
+            mutable bytes: darray[u8] = []
+            return StudioPublicationDurabilityPolicy::Result.NotPublished if not StudioExportRecoveryJournal::encode(record, &bytes)
+            if record_path(directory, Record.Journal) is destination:
+                mutable previous_bytes: darray[u8] = []
+                mutable previous: StudioExportRecoveryJournal::Record = record
+                mutable admitted: bool = StudioExportRecoveryBytes::read(destination, StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES, &previous_bytes)
+                if admitted:
+                    admitted <- StudioExportRecoveryJournal::decode(previous_bytes, &previous)
+                if admitted:
+                    admitted <- StudioExportRecoveryJournal::same_binding(&previous, record) and StudioExportRecoveryStagePolicy::transition_admitted(previous.observed.i64(), record.observed.i64()) and StudioExportRecoveryStagePolicy::transition_admitted(previous.durable.i64(), record.durable.i64())
+                mutable status: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
+                if admitted:
+                    status <- StudioExportPublisher::write_sidecar_with_status(destination, bytes)
+                release_path(destination)
+                return status
+            StudioPublicationDurabilityPolicy::Result.NotPublished
 
         def record_path(directory: cstr, record: Record) -> cstr? can[Memory.Allocate, Unsafe.PointerCast]:
             leaf: cstr = record_name(record)
@@ -95,7 +123,7 @@ module StudioExportRecoveryStore:
         def record_name(record: Record) -> cstr:
             return "report.json" if record == Record.JsonReport
             return "report.txt" if record == Record.TextReport
-            return "journal.json" if record == Record.Journal
+            return "journal.txt" if record == Record.Journal
             return "output.glb" if record == Record.OutputSnapshot
             ""
 
