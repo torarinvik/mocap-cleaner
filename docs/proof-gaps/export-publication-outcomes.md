@@ -218,3 +218,16 @@ are unfinished. Candidate faabd1f7 emitted the object without diagnostics
 (`build/export-recovery-completion-build.log`). Report-stage laws were added;
 their direct prover run is still pending in session 3607. No closure baseline
 or native acceptance claim follows from compilation.
+
+The report-stage helper is now in a separate
+`StudioExportRecoveryReportStagePolicy` module, keeping its proof independent
+of the broader journal transition policy. Exact per-stage result contracts were
+added alongside the monotonicity and report-preservation contracts. Direct
+isolated output reports 99 obligations, 82 proven and independently replayed,
+zero replay gaps, 17 findings and two semantic normalization diagnostics. Three
+false-JSON source branches do not establish their ensures; the remaining 14
+findings concern seven calls whose executable summary therefore remains
+unverified. This is not proof closure. Evidence is
+`build/export-recovery-report-stage-isolated-laws.log`; the focused repro was
+sent to the prover repair agent. The original broader session 3607 is still
+live at the latest handle poll and is not restarted or declared terminal.
