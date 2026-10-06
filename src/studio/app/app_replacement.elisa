@@ -96,6 +96,16 @@ extend Studio:
             StudioReplacement::CANCEL
 
         def finish_close() -> void can[Ui.Window]:
+            if contact_preview_task != null:
+                contact_preview_close_pending <- true
+                contact_preview_close_approved <- true
+                contact_preview_close_termination <- replacement_is_termination
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, true)
+                UiAppKitCanvas::veto_close()
+                status <- "Finishing the background contact preview before closing. Current result remains visible."
+                status_file <- null
+                touch()
+                return
             replacement_prompt_open <- false
             replacement_is_close <- false
             replacement_save_failed <- false
@@ -112,6 +122,8 @@ extend Studio:
                 UiAppKitCanvas::close()
 
         def perform_replacement(kind: i64, p: cstr, allow_legacy: bool) -> void can Unsafe.PointerCast:
+            contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, contact_preview_task != null)
+            contact_preview_rebuild_pending <- false
             replacement_prompt_open <- false
             legacy_prompt_open <- false
             replacement_is_close <- false
@@ -239,8 +251,21 @@ extend Studio:
             if close_authorized:
                 close_authorized <- false
                 return
+            if contact_preview_task != null:
+                contact_preview_close_pending <- true
+                contact_preview_close_approved <- false
+                contact_preview_close_termination <- UiAppKitCanvas::is_termination_request()
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, true)
+                UiAppKitCanvas::veto_close()
+                status <- "Background contact preview is finishing; the normal close prompt will resume when it completes. Current result remains visible."
+                status_file <- null
+                touch()
+                return
             cancel_export_result() if export_result_open
             cancel_export_review() if export_review_open
+            resuming_worker_close: bool = contact_preview_close_pending
+            requested_termination: bool = contact_preview_close_termination if resuming_worker_close else UiAppKitCanvas::is_termination_request()
+            contact_preview_close_pending <- false
             if legacy_prompt_open:
                 legacy_prompt_open <- false
                 pending_replacement <- 0
@@ -257,7 +282,7 @@ extend Studio:
                 pending_session_ready <- false
                 clear_pending_session_annotations()
                 replacement_is_close <- true
-                replacement_is_termination <- UiAppKitCanvas::is_termination_request()
+                replacement_is_termination <- requested_termination
                 UiAppKitCanvas::veto_close()
                 touch()
                 return
@@ -271,13 +296,16 @@ extend Studio:
                 clear_pending_session_annotations()
                 replacement_prompt_open <- true
                 replacement_is_close <- true
-                replacement_is_termination <- UiAppKitCanvas::is_termination_request()
+                replacement_is_termination <- requested_termination
                 replacement_focus <- StudioReplacement::initial_focus()
                 replacement_save_failed <- false
                 file_menu_open <- false
                 help_open <- false
                 UiAppKitCanvas::veto_close()
                 touch()
+            elif resuming_worker_close:
+                replacement_is_termination <- requested_termination
+                finish_close()
 
         def replacement_prompt_key(code: UiCore::Key) -> void:
             if code == UiCore::Key.Escape:

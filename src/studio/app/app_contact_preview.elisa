@@ -12,17 +12,105 @@ extend Studio:
             contact_preview_candidate_frame <- -1
 
         def advance_contact_preview_request() -> void:
+            if contact_preview_task != null:
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, true)
             if contact_preview_request_generation == StudioContactPreviewPolicy::Generation::MAX:
                 contact_preview_request_generation <- StudioContactPreviewPolicy::next_generation(contact_preview_request_generation)
                 contact_preview_evaluated_generation <- 0
             else:
                 contact_preview_request_generation <- StudioContactPreviewPolicy::next_generation(contact_preview_request_generation)
 
-        # Rebuild an isolated copy of the exact release stack, at most four
-        # times per second. A candidate is display-only and tied to all source
-        # generations; the current evaluated result remains the fallback.
-        def evaluate_contact_preview_candidate(now_us: i64) -> void:
+        def contact_preview_identity(generation: i64) -> StudioJobIdentity::Identity:
+            StudioJobIdentity::Identity{
+                kind: StudioJobIdentity::Kind.Rebuild,
+                document_revision: built,
+                generation: generation,
+                take_serial: take_serial,
+                stack_generation: stack_generation,
+                first_frame: contact_preview_first,
+                last_frame: contact_preview_last,
+                playhead_frame: frame_now(),
+            }
+
+        # The worker owns its Memo and fixed-size Stack snapshot. At most one
+        # task is active; newer drags stay as scalar UI state until it returns.
+        def start_contact_preview_worker(proposed: StackState::Stack) -> void can Threads:
+            return if contact_preview_task != null or memo == null
+            if memo is held:
+                mutable owned_memo: StudioModel::Memo = held
+                memo <- null
+                identity: StudioJobIdentity::Identity = contact_preview_identity(contact_preview_request_generation)
+                job: StudioContactPreviewWorker::Job = StudioContactPreviewWorker::Job{
+                    identity: identity,
+                    memo: move owned_memo,
+                    stack_snapshot: proposed,
+                    source_revision: rig_source_revision,
+                }
+                contact_preview_running_identity <- identity
+                contact_preview_worker_cancelled <- false
+                contact_preview_task <- spawn1(StudioContactPreviewWorker::evaluate, move job)
+                contact_preview_evaluated_generation <- identity.generation
+                contact_preview_last_evaluation_us <- (UiAppKitCanvas::monotonic_time() * 1000000.0).i64()
+                status <- "Evaluating proposed contact pose; current result remains visible."
+                status_file <- null
+                touch()
+
+        # Poll is nonblocking. The affine thread handle is retained until ready,
+        # and join consumes it only after the acquired completion flag is set.
+        def poll_contact_preview_worker() -> void can Threads, Ui.Window:
+            if contact_preview_task is active_task:
+                contact_preview_task <- null
+                readiness: ThreadReadiness[StudioContactPreviewWorker::Result] = poll_ready(move active_task)
+                if not readiness.complete:
+                    contact_preview_task <- move readiness.thread
+                    return
+                completed: StudioContactPreviewWorker::Result = join(move readiness.thread)
+                source_now: StudioJobIdentity::Identity = contact_preview_identity(completed.identity.generation)
+                source_still_current: bool = StudioJobIdentity::same_source(completed.identity, source_now)
+                if source_still_current and memo == null:
+                    memo <- move completed.memo
+                current: StudioJobIdentity::Identity = contact_preview_identity(contact_preview_request_generation)
+                accept: bool = (StudioJobIdentity::may_publish(contact_preview_running_identity,
+                    completed.identity, contact_preview_worker_cancelled) and
+                    contact_preview_active and StudioJobIdentity::equal(current, completed.identity))
+                if accept:
+                    if completed.candidate is candidate:
+                        contact_preview_candidate <- move candidate
+                        contact_preview_candidate_first <- completed.identity.first_frame
+                        contact_preview_candidate_last <- completed.identity.last_frame
+                        contact_preview_candidate_take <- completed.identity.take_serial
+                        contact_preview_candidate_document <- completed.identity.document_revision
+                        contact_preview_candidate_stack <- completed.identity.stack_generation
+                        contact_preview_candidate_frame <- completed.identity.playhead_frame
+                        status <- "Evaluated proposed contact pose; release applies this range, Escape cancels."
+                        status_file <- null
+                    else:
+                        status <- "Contact pose preview failed; current result remains visible. Release still uses normal validation."
+                        status_file <- null
+                elif contact_preview_active:
+                    status <- "Contact pose preview was superseded; evaluating the latest range. Current result remains visible."
+                    status_file <- null
+                contact_preview_worker_cancelled <- false
+                touch()
+                if contact_preview_close_approved:
+                    contact_preview_close_approved <- false
+                    contact_preview_close_pending <- false
+                    replacement_is_termination <- contact_preview_close_termination
+                    finish_close()
+                elif contact_preview_close_pending:
+                    request_window_close()
+                elif contact_preview_rebuild_pending:
+                    contact_preview_rebuild_pending <- false
+                    rebuild()
+
+        # Rebuild an owned snapshot of the exact release stack off the UI event
+        # path. Rapid requests coalesce behind the one active worker.
+        def evaluate_contact_preview_candidate(now_us: i64) -> void can Threads:
+            # Once a close intent is captured, do not dispatch another job
+            # while the current affine thread is draining.
+            return if contact_preview_close_pending
             if timeline is playing_timeline and playing_timeline.playing:
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, contact_preview_task != null)
                 clear_contact_preview_candidate()
                 contact_preview_paused_for_playback <- true
                 status <- "Pause playback to evaluate the proposed contact pose; current result remains visible."
@@ -40,60 +128,32 @@ extend Studio:
                 touch()
                 return
             return if decision != StudioContactPreviewPolicy::Evaluation.Evaluate
-            contact_preview_last_evaluation_us <- now_us
-            contact_preview_evaluated_generation <- contact_preview_request_generation
-            clear_contact_preview_candidate()
-            if clip is current:
-                evaluate_contact_preview_for_clip(current)
-            else:
-                status <- "Contact pose preview unavailable; current result remains visible."
+            return if contact_preview_task != null
+            if memo == null:
+                contact_preview_evaluated_generation <- contact_preview_request_generation
+                contact_preview_last_evaluation_us <- now_us
+                status <- "Contact pose preview unavailable while its source cache is missing; current result remains visible."
                 status_file <- null
                 touch()
-
-        def evaluate_contact_preview_for_clip(current: StudioModel::Clip&) -> void:
-            if memo == null:
+                return
+            return if not StudioJobPolicy::may_start_worker(false, true, true)
+            if clip == null:
                 status <- "Contact pose preview unavailable; current result remains visible."
                 status_file <- null
                 touch()
                 return
+            clear_contact_preview_candidate()
             mutable p: FootState::Press = foot_press
             mutable proposed: StackState::Stack = current_stack()
             live: StackState::Stack = current_stack()
+            frame_count: i64 = frames()
             release_frame: i64 = contact_preview_first if p.part == StudioFoot::ContactPart::FIRST else contact_preview_last
-            if not FootState::release(&proposed, &p, release_frame, current.frames) or StackState::same(proposed, live):
+            if not FootState::release(&proposed, &p, release_frame, frame_count) or StackState::same(proposed, live):
                 status <- "Proposed contact range leaves the current result unchanged."
                 status_file <- null
                 touch()
                 return
-            candidate_take: i64 = take_serial
-            candidate_document: i64 = built
-            candidate_stack: i64 = stack_generation
-            candidate_frame: i64 = frame_now()
-            if memo is loaded_memo:
-                mutable m: StudioModel::Memo = loaded_memo
-                memo <- null
-                points: darray[Geometry::Vec3] = current.points
-                problems: darray[i64] = current.problems
-                peaks: darray[i64] = current.peaks
-                window: StudioPerf::Window = StudioPerf::full(current.frames)
-                result: StudioModel::Clip? = StudioModel::build_with(&m, proposed,
-                    points, problems, peaks, window, rig_source_revision)
-                memo <- move m
-                if result is candidate:
-                    if take_serial == candidate_take and built == candidate_document and stack_generation == candidate_stack and frame_now() == candidate_frame:
-                        contact_preview_candidate <- move candidate
-                        contact_preview_candidate_first <- contact_preview_first
-                        contact_preview_candidate_last <- contact_preview_last
-                        contact_preview_candidate_take <- candidate_take
-                        contact_preview_candidate_document <- candidate_document
-                        contact_preview_candidate_stack <- candidate_stack
-                        contact_preview_candidate_frame <- candidate_frame
-                        status <- "Evaluated proposed contact pose; release applies this range, Escape cancels."
-                        status_file <- null
-                else:
-                    status <- "Contact pose preview failed; current result remains visible. Release still uses normal validation."
-                    status_file <- null
-                touch()
+            start_contact_preview_worker(move proposed)
 
         def contact_preview_candidate_current() -> bool:
             if clip is c:
@@ -110,8 +170,13 @@ extend Studio:
         def contact_preview_drag_current() -> bool:
             take_serial >= 0 and take_serial == contact_preview_drag_take and built >= 0 and built == contact_preview_drag_document and stack_generation >= 0 and stack_generation == contact_preview_drag_stack
 
-        def update_contact_preview() -> void:
+        def update_contact_preview() -> void can Threads, Ui.Window:
+            poll_contact_preview_worker()
+            if contact_preview_task == null and contact_preview_rebuild_pending and not contact_preview_close_pending:
+                contact_preview_rebuild_pending <- false
+                rebuild()
             if not contact_preview_active:
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, contact_preview_task != null)
                 clear_contact_preview_candidate() if contact_preview_candidate != null
                 return
             if timeline is playing_timeline and playing_timeline.playing:
@@ -126,6 +191,7 @@ extend Studio:
                 contact_preview_paused_for_playback <- false
                 advance_contact_preview_request() if contact_preview_request_generation <= contact_preview_evaluated_generation
             if not contact_preview_drag_current():
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, contact_preview_task != null)
                 contact_preview_active <- false
                 foot_press <- FootState::idle()
                 clear_contact_preview_candidate()
@@ -133,6 +199,13 @@ extend Studio:
                 status_file <- null
                 touch()
                 return
+            if contact_preview_task != null:
+                running: StudioJobIdentity::Identity = contact_preview_running_identity
+                requested: StudioJobIdentity::Identity = contact_preview_identity(contact_preview_request_generation)
+                superseded: bool = not StudioJobIdentity::equal(running, requested)
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, superseded)
+                if superseded and running.generation == contact_preview_request_generation:
+                    advance_contact_preview_request()
             if contact_preview_candidate is candidate:
                 if contact_preview_candidate_take != take_serial or contact_preview_candidate_document != built or contact_preview_candidate_stack != stack_generation:
                     contact_preview_active <- false

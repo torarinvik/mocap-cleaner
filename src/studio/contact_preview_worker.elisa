@@ -1,0 +1,27 @@
+# Worker-owned contact preview input and output. The memo is moved across the
+# thread boundary; no mutable Studio state or Clip buffers are borrowed.
+module StudioContactPreviewWorker:
+    public:
+        affine struct Job:
+            identity: StudioJobIdentity::Identity
+            memo: StudioModel::Memo
+            stack_snapshot: StackState::Stack
+            source_revision: i64
+
+        affine struct Result:
+            identity: StudioJobIdentity::Identity
+            memo: StudioModel::Memo
+            candidate: StudioModel::Clip?
+
+        def evaluate(job: Job) -> Result:
+            mutable memo: StudioModel::Memo = move job.memo
+            # Empty previous arrays with a full window force every frame to be
+            # recomputed, matching the synchronous preview's full rebuild while
+            # avoiding any shared read of the currently displayed Clip.
+            no_points: darray[Geometry::Vec3] = []
+            no_frames: darray[i64] = []
+            window: StudioPerf::Window = StudioPerf::full(memo.frames)
+            candidate: StudioModel::Clip? = StudioModel::build_with(&memo,
+                job.stack_snapshot, no_points, no_frames, no_frames, window,
+                job.source_revision)
+            Result{identity: job.identity, memo: move memo, candidate: move candidate}
