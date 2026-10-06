@@ -19,7 +19,7 @@ Existing baselines must not be weakened to admit the edits.
 | Finding navigation availability | `issue_browser_policy`, matching browser laws | Fresh/count/action/frame admission replay; stale and empty disabled appearance; pointer/key/AX refusal; invalid selection fallback; final-window bounds; no success state without exact frame jump |
 | Typed finding intent | `issue_annotation`, matching annotation laws | Const enum encoding replay; existing fixture compile/run; filter, session save and accessibility integration |
 | Export formatted-field capacity | `report_text_policy`, matching text laws and `app/report_text` | Byte/view boundary replay; oversized field or exhausted slots invalidate complete snapshot before GLB publication; no earlier view overwritten; normal full-stack report preserved |
-| Proof supervisor/cache | `scripts/prove.py` | Timeout, bad exits, partial/corrupt summaries, changed source, replaced/missing prover binary and parallel progress |
+| Proof supervisor/cache | `scripts/prove.py` | Timeout, bad exits, partial/corrupt summaries, changed source including cache-only runs, replaced/missing prover binary and parallel progress |
 
 The full proof corpus glob includes new direct source files and all `proof/`
 files. New retime-draft, issue-explanation record and cache-arithmetic files currently have no reviewed
