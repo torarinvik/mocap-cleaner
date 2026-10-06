@@ -4,28 +4,32 @@ include "../timeline_goto_kernel.elisa"
 
 module StudioTimelineGotoPolicy:
     public:
-        const EMPTY: i64 = -2
-        const INVALID: i64 = -1
-        const EXACT: i64 = 0
-        const CLAMPED: i64 = 1
+        const enum Status of i64:
+            Empty = -2
+            Invalid = -1
+            Exact = 0
+            Clamped = 1
         const MAX_FRAMES: i64 = StudioTimelineGotoKernel::MAX_FRAMES
 
         struct Result:
-            status: mutable i64
-            frame: mutable i64
+            status: Status
+            frame: i64
 
         # Parse a frame number. Empty and malformed input do not move the
         # playhead; valid numbers above the clip length select its final frame.
         def parse(text: sview, count: i64) -> Result:
             requires count >= 1
             requires count <= MAX_FRAMES
-            return Result{status: EMPTY, frame: -1} if text.len <= 0 or text.data == null
+            ensure result.status == Status.Empty or result.status == Status.Invalid or result.frame >= 0 and result.frame < count
+            ensure result.status != Status.Clamped or result.frame == count - 1
+            ensure result.status != Status.Empty and result.status != Status.Invalid or result.frame == -1
+            return Result{status: Status.Empty, frame: -1} if text.len <= 0 or text.data == null
             mutable value: i64 = 0
             for i in 0..<text.len.usize() |i, text, value, count|:
                 c: u8 = text.data[i]
-                return Result{status: INVALID, frame: -1} if c < 48 or c > 57
+                return Result{status: Status.Invalid, frame: -1} if c < 48 or c > 57
                 digit: i64 = (c - 48).i64()
                 value <- StudioTimelineGotoKernel::digit_step(value, digit, count)
-            return Result{status: INVALID, frame: -1} if value == 0
-            return Result{status: CLAMPED, frame: StudioTimelineGotoKernel::bounded_frame(value, count)} if value > count
-            Result{status: EXACT, frame: StudioTimelineGotoKernel::bounded_frame(value, count)}
+            return Result{status: Status.Invalid, frame: -1} if value == 0
+            return Result{status: Status.Clamped, frame: StudioTimelineGotoKernel::bounded_frame(value, count)} if value > count
+            Result{status: Status.Exact, frame: StudioTimelineGotoKernel::bounded_frame(value, count)}
