@@ -1,0 +1,56 @@
+# Admission rules for adding completed Studio artifacts to the Storage inventory.
+# Filesystem identity and canonical build-root facts come from the caller.
+include "storage_receipt_policy.elisa"
+
+module StudioStorageRegistrationPolicy:
+    public:
+        const ARTIFACT_SESSION: i64 = 0
+        const ARTIFACT_FINAL_EXPORT: i64 = 1
+        const ARTIFACT_EXPORT_REPORT: i64 = 2
+        const ARTIFACT_COUNT: i64 = 3
+
+        const KIND_RECOVERY: i64 = StudioStorageReceiptPolicy::RECOVERY
+        const KIND_TEMP_EXPORT: i64 = StudioStorageReceiptPolicy::TEMP_EXPORT
+        const KIND_GENERATED_REPORT: i64 = StudioStorageReceiptPolicy::GENERATED_REPORT
+        const KIND_INVALID: i64 = -1
+
+        def artifact_valid(artifact: i64) -> bool:
+            ensure result == (artifact >= 0 and artifact < ARTIFACT_COUNT)
+            artifact >= 0 and artifact < ARTIFACT_COUNT
+
+        # Session snapshots and report sidecars have existing receipt kinds.
+        # A final GLB has no accurate kind in the current persisted schema.
+        def receipt_kind(artifact: i64) -> i64:
+            ensure artifact == ARTIFACT_SESSION implies result == KIND_RECOVERY
+            ensure artifact == ARTIFACT_EXPORT_REPORT implies result == KIND_GENERATED_REPORT
+            ensure (artifact < ARTIFACT_SESSION or artifact > ARTIFACT_SESSION) and (artifact < ARTIFACT_EXPORT_REPORT or artifact > ARTIFACT_EXPORT_REPORT) implies result == KIND_INVALID
+            if artifact == ARTIFACT_SESSION:
+                return KIND_RECOVERY
+            if artifact == ARTIFACT_EXPORT_REPORT:
+                return KIND_GENERATED_REPORT
+            KIND_INVALID
+
+        # Registration follows a successful save/publication result plus a
+        # fresh regular-file identity under build/. This does not assert that
+        # the containing directory was fsynced for crash durability.
+        def may_register(artifact: i64, write_succeeded: bool,
+                        publication_complete: bool, canonical_under_build: bool,
+                        identity_verified: bool, regular_file: bool,
+                        symlink: bool) -> bool:
+            ensure result implies artifact == ARTIFACT_SESSION or artifact == ARTIFACT_EXPORT_REPORT
+            ensure result implies write_succeeded
+            ensure result implies publication_complete
+            ensure result implies canonical_under_build
+            ensure result implies identity_verified
+            ensure result implies regular_file
+            ensure result implies not symlink
+            ensure (artifact == ARTIFACT_SESSION or artifact == ARTIFACT_EXPORT_REPORT) and write_succeeded and publication_complete and canonical_under_build and identity_verified and regular_file and not symlink implies result
+            return false if artifact < 0 or artifact >= ARTIFACT_COUNT
+            return false if artifact == ARTIFACT_FINAL_EXPORT
+            return false if not write_succeeded
+            return false if not publication_complete
+            return false if not canonical_under_build
+            return false if not identity_verified
+            return false if not regular_file
+            return false if symlink
+            true
