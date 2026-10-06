@@ -35,7 +35,7 @@ extracted solely for this rule. Group public and private constants separately
 when their visibility differs. Split values by purpose rather than collecting
 unrelated limits, actions and filesystem facts in one bag.
 
-Remaining source inventory: **75 owners, 705 ungrouped constants**.
+Remaining source inventory: **74 owners, 703 ungrouped constants**.
 File-level export publisher limits, outside this module-owner inventory, now
 use private `StudioExportPublisher::Capacity` (path and staging buffer sizes).
 Numeric capacities remain a const module; typed validation outcomes use an enum.
@@ -47,7 +47,6 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 | `CliOutputGuard` | 6 | `src/cli/output_guard.elisa` |
 | `CliOutputGuardPolicy` | 8 | `src/cli/output_guard_policy.elisa` |
 | `CliOutputPublisher` | 3 | `src/cli/output_publisher.elisa` |
-| `Codec` | 2 | `src/core/codec.elisa` |
 | `Fade` | 3 | `src/core/fade.elisa` |
 | `Folder` | 3 | `src/io/folder.elisa` |
 | `GlbTracks` | 4 | `src/io/glb_tracks.elisa` |
@@ -121,3 +120,8 @@ Numeric capacities remain a const module; typed validation outcomes use an enum.
 Export-result actions migrated to `StudioExportResult::Action`; policy/laws
 retain 7/7 and 16/16 proved results. Existing test compilation is pending a
 provenance-valid Stage1 product after the external compiler source edit.
+
+`Codec::Domain` holds decimal field magnitude and serialized operation-kind
+count. These numeric format bounds are not choices; operation variants remain
+the responsibility of the operation schema. Their values are unchanged.
+Compilation and proof replay await current toolchain products.
