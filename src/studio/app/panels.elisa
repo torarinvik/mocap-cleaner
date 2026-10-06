@@ -10,6 +10,7 @@ include "../storage_age_policy.elisa"
 # elisa-ui records at most UiCore::MAX_COMMANDS (1024) draw commands a
 # frame, so curves and markers are binned to a fixed number of segments.
 include "text.elisa"
+include "storage_accessibility_copy.elisa"
 include "scene.elisa"
 include "../chrome.elisa"
 include "../contact_editor.elisa"
@@ -1032,7 +1033,9 @@ module StudioPanels:
         const STORAGE_REFRESH: i64 = 0
         const STORAGE_DONE: i64 = 1
         const STORAGE_RESTORE: i64 = 2
-        const STORAGE_ACTION_COUNT: i64 = 3
+        const STORAGE_TRASH: i64 = 3
+        const STORAGE_RETENTION: i64 = 4
+        const STORAGE_ACTION_COUNT: i64 = 5
         const STORAGE_STATUS_PRESENT: i64 = 0
         const STORAGE_STATUS_IN_TRASH: i64 = 1
         const STORAGE_STATUS_CHANGED: i64 = 2
@@ -1113,7 +1116,7 @@ module StudioPanels:
             return "Eligible after review" if reason == StudioStorageCleanupPolicy::PROTECT_NONE
             return "Protected: current document" if reason == StudioStorageCleanupPolicy::PROTECT_OPEN_DOCUMENT
             return "Protected: recovery needs verification" if reason == StudioStorageCleanupPolicy::PROTECT_SESSION_REFERENCE
-            return "Protected: less than 30 days old" if reason == StudioStorageCleanupPolicy::PROTECT_RETENTION
+            return "Protected: below retention age" if reason == StudioStorageCleanupPolicy::PROTECT_RETENTION
             return "Protected: source take" if reason == StudioStorageCleanupPolicy::PROTECT_SOURCE_TAKE
             return "Protected: symbolic link" if reason == StudioStorageCleanupPolicy::PROTECT_SYMLINK
             return "Protected: identity changed" if reason == StudioStorageCleanupPolicy::PROTECT_IDENTITY_CHANGED
@@ -1125,8 +1128,8 @@ module StudioPanels:
                           statuses: darray[i64]&, reasons: darray[i64]&,
                           selected: i64, focus: i64, message: i64,
                           protected_records: i64, unverified_records: i64,
-                          restore_available: bool, restore_review: bool,
-                          present_bytes: i64, trash_bytes: i64, scan_seconds: i64) -> void:
+                          restore_available: bool, restore_review: bool, trash_available: bool, trash_review: bool,
+                          present_bytes: i64, trash_bytes: i64, scan_seconds: i64, retention_days: i64) -> void:
             return if not opened
             d: Box = storage_dialog_box(w, h)
             footer: f32 = d.y + d.h - 110.0
@@ -1140,7 +1143,7 @@ module StudioPanels:
             StudioDraw::text(d.x + 24.0, d.y + 52.0, 12.0,
                 "Studio records generated reports and recovery receipts under build/.", StudioDraw::ink())
             StudioDraw::text(d.x + 24.0, d.y + 72.0, 11.0,
-                "Source takes are protected. Refresh rereads the inventory; it does not delete files.", StudioDraw::muted())
+                "Source takes are protected. Retention changes eligibility; files move only after confirmation.", StudioDraw::muted())
             mutable tracked: i64 = 0
             mutable receipts: i64 = 0
             for entry in entries:
@@ -1194,15 +1197,35 @@ module StudioPanels:
             if entries.count == 0:
                 StudioDraw::text(d.x + 30.0, d.y + 198.0, 12.0,
                     "No Studio-managed files are registered yet.", StudioDraw::muted())
-            if not restore_review:
+            if not restore_review and not trash_review:
                 selected_reason: i64 = reasons[selected] if selected >= 0 and selected < reasons.count.i64() else StudioStorageCleanupPolicy::PROTECT_IDENTITY_UNVERIFIED
                 StudioDraw::text(d.x + 24.0, footer, 11.0,
                     storage_protection_label(selected_reason) if selected >= 0 else "Choose an inventory row to inspect its cleanup protection.", StudioDraw::muted())
-            if restore_review:
+            if trash_review:
+                StudioDraw::text(d.x + 24.0, footer, 11.0,
+                    "Move this one selected file to Finder Trash? Its original location is recorded for Restore.", StudioDraw::ink())
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
+                    "Trash still uses disk space until emptied in Finder. Confirm Trash proceeds; Esc cancels.", StudioDraw::accent())
+            elif restore_review:
                 StudioDraw::text(d.x + 24.0, footer, 11.0,
                     "Restore the selected file to its original build location? Existing files will not be overwritten.", StudioDraw::ink())
                 StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "Choose Confirm restore to proceed, or press Esc to cancel.", StudioDraw::accent())
+            elif message == 10:
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
+                    "File moved to Trash; its receipt is saved. Restore is available. Trash still uses disk space.", StudioDraw::color(150, 210, 160))
+            elif message == 11:
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
+                    "Move failed. A fresh check confirmed the original file remains in build/. Refresh to retry.", StudioDraw::color(240, 170, 110))
+            elif message == 12:
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
+                    "Receipt save failed; a fresh check confirmed the file was restored. Refresh to retry.", StudioDraw::color(240, 170, 110))
+            elif message == 13:
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
+                    "Receipt save and rollback failed. Receipt retained; Refresh to retry or recover in Finder Trash.", StudioDraw::color(240, 170, 110))
+            elif message == 15:
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
+                    "File location is uncertain. Refresh to verify; inspect build/ and Finder Trash before retrying.", StudioDraw::color(240, 170, 110))
             elif message == 6:
                 StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "File restored to its original location. The inventory is updated.", StudioDraw::color(150, 210, 160))
@@ -1239,13 +1262,13 @@ module StudioPanels:
                     "Inventory refreshed; all visible file identities are verified.", StudioDraw::color(150, 210, 160))
             StudioDraw::text(d.x + 24.0, footer + 46.0, 10.0,
                 "Up / Down selects   Tab moves to a button   Enter activates   Esc closes", StudioDraw::muted())
-            for action in 0..<STORAGE_ACTION_COUNT |action, w, h, focus, restore_available, restore_review|:
+            for action in 0..<STORAGE_ACTION_COUNT |action, w, h, focus, restore_available, restore_review, trash_available, trash_review, retention_days|:
                 b: Box = storage_button_box(w, h, action)
                 StudioDraw::rect(b.x, b.y, b.w, b.h,
                     StudioDraw::color(58, 52, 40) if focus == action else StudioDraw::panel())
                 StudioDraw::bold(b.x + 12.0, b.y + 11.0, 12.0,
-                    "Refresh" if action == STORAGE_REFRESH else "Done" if action == STORAGE_DONE else "Confirm restore" if restore_review else "Restore",
-                    StudioDraw::muted() if action == STORAGE_RESTORE and not restore_available else StudioDraw::ink())
+                    "Refresh" if action == STORAGE_REFRESH else "Done" if action == STORAGE_DONE else ("Confirm restore" if restore_review else "Restore") if action == STORAGE_RESTORE else ("Confirm Trash" if trash_review else "Move to Trash") if action == STORAGE_TRASH else StudioStorageAccessibilityCopy::retention_value(retention_days),
+                    StudioDraw::muted() if (action == STORAGE_RESTORE and not restore_available) or (action == STORAGE_TRASH and not trash_available) else StudioDraw::ink())
                 StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if focus == action
 
         def export_path_inspector_dialog_box(w: f32, h: f32) -> Box:

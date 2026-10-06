@@ -167,5 +167,16 @@ Verification: Studio builds, the identity/restore/totals/window policies have
 proved scalar boundaries, and disposable native fixtures exercise checked
 move rejection, restore, destination conflicts and reconciliation. The
 Storage dialog's pointer, keyboard and VoiceOver acceptance is still open.
-Cleanup selection, retention preview and Move to Trash are still being wired;
-the current UI exposes inventory and Restore.
+The single-file cleanup flow exposes Move to Trash review and explicit
+confirmation. No row is selected on first open. Retention cycles through 7,
+30 (default), 90 and 365 days and refreshes eligibility without moving files.
+Changing rows, refreshing, changing retention, or pressing Escape cancels an
+open review. A confirmed move checks the reviewed identity and eligibility
+again immediately before the native checked move. Receipt-save failure
+attempts restore; fresh checks distinguish verified restoration, a retained
+Trash receipt and an uncertain location. Unresolved recovery prevents another
+cleanup move from replacing its receipt. Refresh can finish reconciliation.
+
+Multi-selection, grouping/filtering, persistent retention preferences,
+exemptions and per-item batch progress remain to be implemented. The current
+workflow performs one reviewed move at a time.
