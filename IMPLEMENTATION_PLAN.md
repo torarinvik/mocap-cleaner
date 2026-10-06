@@ -342,8 +342,8 @@ Restore implementation. Current implementation and evidence are recorded in
       Explain unknown dates on older receipts. Distinguish missing, changed,
       expired and conflicting items, offer Refresh after conflict resolution,
       and remove expired metadata without deleting unrelated files.
-- [ ] Persist visible retention preferences and user exemptions. Show a
-      preview of what each preset makes eligible and explain the minimum age.
+- [ ] Persist user exemptions and show a preview of what each saved
+      retention preset makes eligible. Explain the minimum age.
       Preserve required recovery snapshots even under the shortest setting.
       Changing preferences or exemptions must only change the candidate set;
       movement still requires review and confirmation. Keep Studio retention

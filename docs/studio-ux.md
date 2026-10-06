@@ -199,7 +199,16 @@ Unknown locations and receipt recovery stop the batch. Refresh can reconcile
 an uncertain item and update its result without automatically resuming moves.
 Retry requires a new review and excludes files already recorded in Trash.
 
-Grouping/filtering, persistent retention preferences, exemptions, dedicated
-review scrolling and running-window/fault-injection acceptance remain open.
+Retention presets are saved atomically in
+`build/studio_storage_preferences.txt` and re-read on inventory refresh.
+First use defaults to 30 days. Existing unreadable, malformed, unsupported or
+unsafe settings block cleanup and show an alert; they are never silently
+replaced. Repair the named settings file and Refresh to resume review.
+A failed save preserves the previous setting. The settings file and its
+filesystem aliases are protected from cleanup. Changing retention only
+changes eligibility; every move still requires review and confirmation.
+
+Grouping/filtering, user exemptions, dedicated review scrolling and
+running-window/fault-injection acceptance remain open.
 A single native filesystem operation still runs on the UI thread; the batch
 returns to the event loop between files.
