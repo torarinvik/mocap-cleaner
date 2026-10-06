@@ -123,3 +123,10 @@ budget. Exact unit conversion, full detector-setting/provenance compatibility,
 strict acceptance gating for unknown metadata, metadata traversal proof replay
 and native edge-case qualification remain required. The compatibility policy
 has source contracts and schema/unit laws; current Stage1 compilation succeeds.
+
+Metric dimensions now have a typed policy: supported count, frame-count and
+distance metric names require matching declared dimensions; equal declarations
+with a known wrong dimension are rejected. Unknown metric names remain
+unqualified. Current compiler builds the reader and laws. The default prover
+reports source 4/4 and laws 9/12, with three laws still unknown; independent
+replay and behavior qualification remain open.
