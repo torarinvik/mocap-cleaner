@@ -1,6 +1,8 @@
 """Generate constant build-input provenance; never query Git during export."""
 import hashlib
+import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,10 +27,87 @@ def digest(path):
     return result.hexdigest()
 
 
-project, engine, ui, compiler, output = map(Path, sys.argv[1:])
+def snapshot(project, engine, ui, compiler):
+    # Reuse the maintained include reader. Missing or newly created includes
+    # must invalidate a build; they cannot silently disappear from its identity.
+    sys.path.insert(0, str(project / "scripts"))
+    from prove import include_target, sources
+
+    paths = []
+    sources(str(project / "src/studio/app/main.elisa"), paths)
+    paths.extend(str(path) for path in (
+        project / "scripts/build_studio.sh",
+        project / "scripts/prove.py",
+        Path(__file__).resolve(),
+        compiler / "bin/elisac-stage1",
+        compiler / "build/runtime/elisacore_runtime.o",
+        compiler / "scripts/elisac_stage1.sh",
+        compiler / "scripts/stage1_provenance.py",
+        project / "scripts/package_studio_app.sh",
+        ui / "src/platform/appkit/appkit_canvas_shim.m",
+        *(engine / "native" / name for name in (
+            "viewport_metal.m", "file_panel_appkit.m", "file_trash_appkit.m",
+            "file_path.c", "file_path_namespace_appkit.m",
+            "workspace_root_appkit.m", "storage_manifest_lock.c",
+            "elisa_native_fallbacks.cpp"))))
+    native_tools = {}
+    for name in ("clang", "clang++", "ld"):
+        selected = subprocess.check_output(["xcrun", "--find", name], text=True).strip()
+        native_tools[name] = selected
+        paths.append(selected)
+        command = shutil.which(name)
+        if command is None:
+            raise ValueError("missing native tool: " + name)
+        paths.append(command)
+    headers = re.compile(rb'^\s*#\s*(?:include|import)\s*"([^"]+)"')
+    pending = list(paths)
+    files = {}
+    while pending:
+        path = Path(pending.pop()).resolve(strict=True)
+        if str(path) in files:
+            continue
+        files[str(path)] = digest(path)
+        if path.suffix == ".elisa":
+            for number, line in enumerate(path.read_bytes().split(b"\n"), 1):
+                if re.match(rb"^\s*include(?:\s|$)", line) and include_target(line) is None:
+                    raise ValueError(f"unrecognized include directive: {path}:{number}")
+        if path.suffix in (".c", ".cpp", ".m", ".h", ".hpp"):
+            for line in path.read_bytes().splitlines():
+                match = headers.match(line)
+                if match:
+                    pending.append(path.parent / match[1].decode("utf-8"))
+    return {"schema": "mocap-studio-inputs-v1", "files": files,
+            "native_tools": native_tools,
+            "sdk": subprocess.check_output(["xcrun", "--show-sdk-path"], text=True).strip(),
+            "sdk_version": subprocess.check_output(["xcrun", "--show-sdk-version"], text=True).strip()}
+
+
+mode = "generate"
+arguments = sys.argv[1:]
+if arguments and arguments[0] in ("--snapshot", "--check-snapshot", "--seal-product"):
+    mode = arguments.pop(0)
+project, engine, ui, compiler, output = (path.resolve() for path in map(Path, arguments))
 subprocess.run([sys.executable, str(compiler / "scripts/stage1_provenance.py"),
                 "check", str(compiler), str(compiler / "bin/elisac-stage1")],
                check=True)
+if mode != "generate":
+    current = snapshot(project, engine, ui, compiler)
+    if mode == "--snapshot":
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
+    else:
+        recorded = json.loads(output.read_text())
+        product = recorded.pop("product", None)
+        if recorded != current:
+            raise SystemExit("Studio source or link inputs changed during the build; refusing publication")
+        if mode == "--seal-product":
+            current["product"] = {"filename": "mocap_studio",
+                                  "sha256": digest(output.parent / "mocap_studio")}
+            output.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
+        elif product is not None:
+            if product.get("filename") != "mocap_studio" or product.get("sha256") != digest(output.parent / "mocap_studio"):
+                raise SystemExit("Studio executable differs from its sealed input record")
+    raise SystemExit(0)
 values = []
 for label, root in (("PROJECT", project), ("ENGINE", engine),
                     ("UI", ui), ("COMPILER", compiler)):

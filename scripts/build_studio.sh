@@ -33,28 +33,40 @@ python3 "$ROOT/scripts/check_file_lengths.py"
 python3 "$ROOT/tools/svg_icons.py" "$OUT/generated/studio_icon_paths.elisa"
 python3 "$ROOT/tools/studio_build_identity.py" "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$OUT/generated/studio_build_identity.elisa"
 
-clang -c -fobjc-arc -O2 -o "$OUT/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
-clang -c -fobjc-arc -O2 -o "$OUT/studio_viewport_metal.o" "$ENGINE/native/viewport_metal.m"
-clang -c -fobjc-arc -O2 -o "$OUT/studio_file_panel.o" "$ENGINE/native/file_panel_appkit.m"
-clang -c -fobjc-arc -O2 -o "$OUT/studio_file_trash.o" "$ENGINE/native/file_trash_appkit.m"
-clang -std=c11 -O2 -c -o "$OUT/studio_file_path.o" "$ENGINE/native/file_path.c"
-clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$OUT/studio_file_path_namespace.o" "$ENGINE/native/file_path_namespace_appkit.m"
-clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$OUT/studio_workspace_root.o" "$ENGINE/native/workspace_root_appkit.m"
-clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$OUT/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
-clang++ -c -std=c++17 -O2 -o "$OUT/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
-pending_directory="$(mktemp -d "$OUT/studio-compile.XXXXXX")"
+pending_directory="$(mktemp -d "$OUT/studio-build.XXXXXX")"
 pending_object="$pending_directory/main.o"
+pending_inputs="$pending_directory/inputs.json"
+python3 "$ROOT/tools/studio_build_identity.py" --snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
+
+clang -c -fobjc-arc -O2 -o "$pending_directory/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
+clang -c -fobjc-arc -O2 -o "$pending_directory/studio_viewport_metal.o" "$ENGINE/native/viewport_metal.m"
+clang -c -fobjc-arc -O2 -o "$pending_directory/studio_file_panel.o" "$ENGINE/native/file_panel_appkit.m"
+clang -c -fobjc-arc -O2 -o "$pending_directory/studio_file_trash.o" "$ENGINE/native/file_trash_appkit.m"
+clang -std=c11 -O2 -c -o "$pending_directory/studio_file_path.o" "$ENGINE/native/file_path.c"
+clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_file_path_namespace.o" "$ENGINE/native/file_path_namespace_appkit.m"
+clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_workspace_root.o" "$ENGINE/native/workspace_root_appkit.m"
+clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
+clang++ -c -std=c++17 -O2 -o "$pending_directory/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
 bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$pending_object" "$ROOT/src/studio/app/main.elisa"
 [[ -s "$pending_object" ]] || { echo "compiler did not emit a fresh Studio object" >&2; exit 1; }
-mv "$pending_object" "$OUT/studio_main.o"
-rmdir "$pending_directory" 2>/dev/null || true
-clang -o "$OUT/mocap_studio" \
-  "$OUT/studio_main.o" "$OUT/studio_canvas_shim.o" "$OUT/studio_viewport_metal.o" "$OUT/studio_file_panel.o" "$OUT/studio_file_trash.o" "$OUT/studio_file_path.o" "$OUT/studio_file_path_namespace.o" "$OUT/studio_workspace_root.o" "$OUT/studio_storage_manifest_lock.o" \
-  "$OUT/studio_native_fallbacks.o" "$RUNTIME" \
+python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
+clang -o "$pending_directory/mocap_studio" \
+  "$pending_object" "$pending_directory/studio_canvas_shim.o" "$pending_directory/studio_viewport_metal.o" "$pending_directory/studio_file_panel.o" "$pending_directory/studio_file_trash.o" "$pending_directory/studio_file_path.o" "$pending_directory/studio_file_path_namespace.o" "$pending_directory/studio_workspace_root.o" "$pending_directory/studio_storage_manifest_lock.o" \
+  "$pending_directory/studio_native_fallbacks.o" "$RUNTIME" \
   -framework Cocoa -framework Foundation -framework CoreText -framework CoreGraphics -framework ImageIO \
   -framework QuartzCore -framework IOSurface -framework Metal -framework UniformTypeIdentifiers
+[[ -s "$pending_directory/mocap_studio" ]] || { echo "linker did not emit a fresh Studio executable" >&2; exit 1; }
+python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
+# Publish only after fresh compilation, linking and input revalidation pass.
+# Failure preserves the previous executable and its recorded input identity.
+python3 "$ROOT/tools/studio_build_identity.py" --seal-product "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
+# Keep each executable beside its immutable objects and sealed input record.
+# Renaming one symlink publishes that complete generation atomically.
+ln -s "$(basename "$pending_directory")/mocap_studio" "$pending_directory/current-executable"
+[[ ! -d "$OUT/mocap_studio" ]] || { echo "Studio output is a directory; refusing to replace it" >&2; exit 1; }
+mv -f "$pending_directory/current-executable" "$OUT/mocap_studio"
 echo "built $OUT/mocap_studio"
-bash "$ROOT/scripts/package_studio_app.sh" "$OUT/mocap_studio"
+bash "$ROOT/scripts/package_studio_app.sh" "$OUT/mocap_studio" "$pending_inputs"
 
 [[ "${STUDIO_SKIP_CHECKS:-0}" == "1" ]] && exit 0
 
