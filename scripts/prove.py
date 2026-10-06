@@ -273,6 +273,9 @@ def main():
             timed_out = True
             run = subprocess.CompletedProcess([prover, os.path.abspath(f)], 124,
                 stdout="", stderr=f"proof file exceeded {args.file_timeout:g}s wall-time limit; partial output discarded")
+        except (OSError, UnicodeError) as failure:
+            run = subprocess.CompletedProcess([prover, os.path.abspath(f)], 126,
+                stdout="", stderr=f"proof invocation or output decoding failed: {failure}; result discarded")
         took = time.monotonic() - start
         if not source_changed and digest(f, revision) != expected_key:
             source_changed = True
