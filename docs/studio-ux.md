@@ -257,8 +257,9 @@ open. Missing or changed saved entries still need a dedicated management view.
 
 The overview and accessible inventory summary include the last scan value
 or an explicit unavailable state, including empty inventories. Visible and accessible copy share a formatter for an explicit UTC date and
-time; unsupported timestamps use the unavailable message. Calendar laws
-have one certificate replay gap and are not recorded as fully verified. This records scan time, not artifact creation or Trash
+time; unsupported timestamps use the unavailable message. The scalar clock-field policy proves 18/18 obligations and its laws prove
+32/32, all certificates replayed. Calendar boundaries remain covered by
+runtime tests; calendar-date arithmetic has no complete formal contract. This records scan time, not artifact creation or Trash
 move time.
 
 Artifact registration now reuses the canonical export-path admission guard
