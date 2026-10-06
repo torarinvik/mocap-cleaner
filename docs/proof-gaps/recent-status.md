@@ -447,11 +447,12 @@ when whole-tree counts establish a unique enum owner and member spelling;
 aliases and overloaded value operators remain refused. Prover `0706f67c`
 adds caller contract-row qualification from the exact function declaration
 path, requiring one enum and one member in that lexical declaration scope.
-The focused validation laws improve to 11/14 with 11 certificates replayed
+The default prover was rebuilt at `994f95be` with clean provenance against
+Stage1 `88ffc005`; the manifest records `source_dirty=false` for both source
+trees. The focused validation laws prove 11/14 with 11 certificates replayed
 and zero replay gaps; `ready_is_success` now closes. Three `not (...)` return
-ensures remain open at the `non-comparison-goal` gate. The focused build used
-Stage1 `4c409da6`; duplicate-type and parameter-shadow refusal guards added
-after that build still need requalification against the current compiler.
+ensures remain open at the `non-comparison-goal` gate. Duplicate-type and
+parameter-shadow refusal guards are included in this qualified build.
 
 ## G98: composed summary replay (2026-10-06)
 
