@@ -67,6 +67,13 @@ Compilation does not qualify publication, review binding or the UI workflow.
       completion must not conceal failed takes. Mark the manifest incomplete
       when any input or required report is unfinished. Allow source/result review
       before approving warning outputs.
+      An empty queue has an explicit empty state with an Add inputs action;
+      it must not produce a successful production manifest. Preserve approval
+      of the exact staged result through publication without requiring a second
+      review. After cancellation drains active workers, provide an explicit
+      resume/retry action that revalidates only selected failed/cancelled inputs
+      and retains completed outputs. Prove running-item counts agree with the
+      worker count at every queue transition.
 - [ ] Add dry-run validation of paths, rig compatibility and expected outputs.
       Do not apply one rig's absolute bone indices across unrelated inputs.
 - [ ] Expose the existing report diff as a review view with thresholds,
