@@ -51,6 +51,11 @@ replay remain required; supplied booleans alone do not verify filesystem facts.
 `export_batch_preflight_copy` supplies labels and correction guidance for every
 outcome and compiles to `build/batch-preflight-copy.iTT5gC/copy.o` on the fresh
 diagnostic compiler. This copy still needs queue UI wiring and native review.
+`export_batch_queue_copy` distinguishes processing, staged output, required
+review and final publication, with drain-cancellation and recovery guidance.
+Its fresh diagnostic object is `build/batch-queue-copy.dpWquy/copy.o`; native
+queue wiring must establish the lifecycle facts before presenting these labels.
+Compilation does not qualify publication, review binding or the UI workflow.
 
 - [ ] Wrap the existing batch/parallel/report capabilities in a queue UI:
       input list, animation selection, compatible recipe, output naming,
