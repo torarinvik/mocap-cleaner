@@ -11,11 +11,13 @@ module StudioExportRecoveryCompletion:
             InvalidReport = 0
             BindingUnavailable = 1
             NotPublished = 2
+            OwnershipUnavailable = 3
+            WorkspaceBusy = 4
 
         enum Outcome:
             Rejected(reason: StudioExportRecoveryCompletion::Failure)
-            ExistingMatching(journal_saved: bool)
-            Published(status: StudioPublicationDurabilityPolicy::Result, journal_saved: bool)
+            ExistingMatching(journal_status: StudioPublicationDurabilityPolicy::Result)
+            Published(status: StudioPublicationDurabilityPolicy::Result, journal_status: StudioPublicationDurabilityPolicy::Result)
 
         # Caller supplies captured bytes and native ownership/transaction facts.
         # An unreadable/conflicting existing destination cannot be overwritten:
@@ -24,6 +26,8 @@ module StudioExportRecoveryCompletion:
                      output: darray[u8]&, json: darray[u8]&, text: darray[u8]&,
                      owned: bool, locked: bool, report: Report) -> Outcome can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
             return Outcome.Rejected(Failure.InvalidReport) if report != Report.Json and report != Report.Text
+            return Outcome.Rejected(Failure.OwnershipUnavailable) if not owned
+            return Outcome.Rejected(Failure.WorkspaceBusy) if not locked
             mutable journal: StudioExportRecoveryJournal::Record = expected
             return Outcome.Rejected(Failure.BindingUnavailable) if not StudioExportRecoveryBinding::load(directory, expected, output, json, text, owned, locked, &journal)
             mutable destination: u8[4096] = zeroed
@@ -35,14 +39,34 @@ module StudioExportRecoveryCompletion:
                 destination[index] <- expected.text_destination[index]
             publish(directory, &journal, (&destination[0]).cast[cstr], text, false)
 
+        def message(outcome: Outcome) -> sview:
+            match outcome:
+                Outcome.Rejected(reason):
+                    return "Choose a JSON or text report to complete." if reason == Failure.InvalidReport
+                    return "Recovery files could not be verified as owned by this workspace. Keep them and inspect the recovery record." if reason == Failure.OwnershipUnavailable
+                    return "Workspace transaction is unavailable. Wait for other workspace operations to finish, then retry." if reason == Failure.WorkspaceBusy
+                    return "Recovery bytes no longer match the captured export, or could not be read. Keep the recovery files and review the export." if reason == Failure.BindingUnavailable
+                    return "Report was not published. Check folder access and any existing report; retry will not replace an existing file. Keep recovery files."
+                Outcome.ExistingMatching(journal_status):
+                    return "The existing report matches. Recovery tracking could not be saved; keep recovery files." if journal_status == StudioPublicationDurabilityPolicy::Result.NotPublished
+                    return "The existing report matches. Recovery tracking was written, but its directory durability is unconfirmed; keep recovery files." if journal_status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+                    return "The existing report matches and recovery tracking was saved. Other report files still require their own check."
+                Outcome.Published(status, journal_status):
+                    if status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown:
+                        return "Report published; report durability and recovery tracking are unconfirmed. Keep recovery files." if journal_status != StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced
+                        return "Report published; its directory durability is unconfirmed. Recovery tracking was saved. Keep recovery files."
+                    return "Report published and directory synced. Recovery tracking could not be saved; keep recovery files." if journal_status == StudioPublicationDurabilityPolicy::Result.NotPublished
+                    return "Report published and directory synced. Recovery tracking durability is unconfirmed; keep recovery files." if journal_status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+                    "Report published and directory synced; recovery tracking saved. Other reports still require their own check."
+
     private:
         def publish(directory: cstr, journal: mutable StudioExportRecoveryJournal::Record&,
                     destination: cstr, bytes: darray[u8]&, json: bool) -> Outcome:
             matched: bool = StudioExportRecoveryBytes::matches(destination, bytes, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
             if matched:
                 advance_observed(journal, json)
-                saved: bool = StudioPublicationDurabilityPolicy::published(StudioExportRecoveryStore::update_journal(directory, journal))
-                return Outcome.ExistingMatching(saved)
+                journal_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::update_journal(directory, journal)
+                return Outcome.ExistingMatching(journal_status)
             status: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::write_new_sidecar_with_status(destination, bytes)
             return Outcome.Rejected(Failure.NotPublished) if not StudioPublicationDurabilityPolicy::published(status)
             advance_observed(journal, json)
@@ -50,10 +74,10 @@ module StudioExportRecoveryCompletion:
             # durable stages only when GLB durability was already recorded.
             if status == StudioPublicationDurabilityPolicy::Result.PublishedDirectorySynced and journal.durable != StudioExportRecoveryStagePolicy::Stage.Prepared:
                 journal.durable <- StudioExportRecoveryReportStagePolicy::with_report(journal.durable.i64(), json).cast[StudioExportRecoveryStagePolicy::Stage]
-            saved: bool = StudioPublicationDurabilityPolicy::published(StudioExportRecoveryStore::update_journal(directory, journal))
+            journal_status: StudioPublicationDurabilityPolicy::Result = StudioExportRecoveryStore::update_journal(directory, journal)
             # Publication remains visible even when the later journal update
             # fails. The retained record permits another conservative attempt.
-            Outcome.Published(status, saved)
+            Outcome.Published(status, journal_status)
 
         def advance_observed(journal: mutable StudioExportRecoveryJournal::Record&, json: bool):
             mutable observed: i64 = journal.observed.i64()

@@ -210,8 +210,9 @@ publication when the journal already records GLB durability. Recognizing an
 existing report alone does not advance durability.
 
 Published outcomes retain their publication status even if the later journal
-update fails; a separate journal-saved flag exposes that failure. Existing-match
-outcomes also expose journal persistence separately. Historical completion
+update fails; a separate typed journal status exposes that failure and unknown
+directory durability. Existing-match outcomes also expose journal persistence
+separately. Historical completion
 stages do not authenticate other current sidecars. Caller-owned lock/IO facts
 remain trusted, and Studio/restart integration and native fault qualification
 are unfinished. Candidate faabd1f7 emitted the object without diagnostics
@@ -267,3 +268,24 @@ The first integrated normal-compiler build stopped on undeclared
 `build/export-report-path-studio-build.log`. The owning agent has the diagnostic;
 integration remains unverified until that work compiles. No executable tests
 were added and no native long-path export was exercised.
+
+After the session owner added the missing declaration, the same normal f292cbe0
+compile/package command finished successfully in session 4190. The log now
+contains both built and packaged outputs without diagnostics. This qualifies
+compilation of the path guard, not native long-path behavior.
+
+## Recovery completion diagnostics
+
+Completion outcomes now retain the full journal persistence status rather than
+collapsing written-but-unsynced and directory-synced results into one Boolean.
+Typed messages distinguish unverified ownership, unavailable workspace
+transactions, mismatched/unreadable captured bytes, create-only publication
+failure, exact existing reports, report durability uncertainty and journal
+failure/uncertainty. Published reports remain reported as published when later
+journal persistence fails. Messages require keeping recovery evidence on
+uncertain outcomes and do not imply every sidecar was checked.
+
+The isolated faabd1f7 compiler emitted the completion object without diagnostics.
+Messages have not been integrated into native recovery UI; native IO/UX
+qualification and the existing stage-law proof gaps remain open. No executable
+tests were added or run for this slice.
