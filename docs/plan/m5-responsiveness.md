@@ -26,6 +26,15 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
       after undo, take changes or new settings.
 - [ ] Show progress/stage, cancellation and last valid preview. Coalesce rapid
       parameter changes; avoid spawning unbounded work per pointer event.
+- [ ] Make close, application termination and document replacement safe while
+      workers own data. Retain every live affine handle until its result can be
+      consumed; poll completion without blocking the UI. Record one pending
+      close intent and resume the ordinary save/discard flow after draining,
+      without requiring a second close gesture. Revalidate worker state at the
+      final close handler, including jobs started while a prompt was open.
+      Cancellation must remain available while waiting. Qualify failed jobs,
+      stale results, dirty documents, repeated close requests and focus loss;
+      no dropped handles, lost edits or publication into a replacement take.
 - [ ] Keep playback/time mapping deterministic when results arrive; preserve
       playhead intent and pause/resume semantics during retime rebuilds.
 - [ ] Extend narrow evaluation only where dependencies permit. Keep full
