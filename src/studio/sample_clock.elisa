@@ -1,0 +1,100 @@
+# Capture the actual output key times. This admits nonuniform spacing without
+# pretending a rounded average fps is an exact sample clock.
+include "sample_time_policy.elisa"
+include "../../../elisa-engine-mocap/src/assets/glb_document.elisa"
+
+module StudioSampleClock:
+    public:
+        const enum Status of i64:
+            Unavailable = 0
+            Ready = 1
+            InvalidTime = 2
+            MismatchedChannels = 3
+            UnsupportedInterpolation = 4
+            InvalidSampleCount = 5
+
+        struct Clock:
+            private:
+                state: Status
+                origin_us: i64
+                starts_us: darray[i64]
+
+    private:
+        def rejected(state: Status) -> Clock:
+            Clock{state: state, origin_us: 0, starts_us: []}
+
+        def timestamp(doc: GlbDocument::Document&, input: usize, index: usize) -> i64:
+            value: f64 = GlbDocument::track_value(doc, input, index, 0).f64()
+            return -1 if value != value or value < 0.0 or value > 10000000.0
+            (value * 1000000.0 + 0.5).i64()
+
+    public:
+        def capture(doc: GlbDocument::Document&, animation: usize, expected_count: i64) -> Clock:
+            return rejected(Status.InvalidSampleCount) if expected_count < 1 or expected_count > StudioSampleTimePolicy::Domain::MAX_FRAMES
+            mutable longest: usize = 0
+            mutable input: i64 = -1
+            for index in 0..<GlbDocument::channel_count(doc, animation) |index, doc, animation, longest, input|:
+                channel: GlbDocument::Channel = GlbDocument::channel(doc, animation, index)
+                return rejected(Status.UnsupportedInterpolation) if channel.interpolation == GlbDocument::Interpolation.CubicSpline
+                count: usize = GlbDocument::key_count(doc, channel.input)
+                return rejected(Status.MismatchedChannels) if GlbDocument::key_count(doc, channel.output) != count
+                if count > longest:
+                    longest <- count
+                    input <- channel.input.i64()
+            return rejected(Status.InvalidSampleCount) if input < 0 or longest.i64() != expected_count
+            mutable starts: darray[i64] = []
+            mutable origin: i64 = 0
+            mutable previous: i64 = -1
+            for index in 0..<longest |index, doc, input, starts, origin, previous|:
+                time: i64 = timestamp(doc, input.usize(), index)
+                return rejected(Status.InvalidTime) if not StudioSampleTimePolicy::timestamp_valid(time, previous, index == 0)
+                origin <- time if index == 0
+                starts.push(StudioSampleTimePolicy::relative_us(time, origin))
+                previous <- time
+            for index in 0..<GlbDocument::channel_count(doc, animation) |index, doc, animation, starts, origin, longest|:
+                channel: GlbDocument::Channel = GlbDocument::channel(doc, animation, index)
+                count: usize = GlbDocument::key_count(doc, channel.input)
+                # A single-key channel is constant at every reviewed sample.
+                if count == 1:
+                    return rejected(Status.InvalidTime) if timestamp(doc, channel.input, 0) < 0
+                    continue
+                return rejected(Status.MismatchedChannels) if count != longest
+                for key in 0..<count |key, doc, channel, starts, origin|:
+                    absolute: i64 = timestamp(doc, channel.input, key)
+                    return rejected(Status.InvalidTime) if absolute < origin or absolute > StudioSampleTimePolicy::Domain::MAX_TIME_US
+                    observed: i64 = StudioSampleTimePolicy::relative_us(absolute, origin)
+                    return rejected(Status.MismatchedChannels) if not StudioSampleTimePolicy::aligned(starts[key], observed)
+            Clock{state: Status.Ready, origin_us: origin, starts_us: starts}
+
+        def status(clock: Clock&) -> Status:
+            clock.state
+
+        def ready(clock: Clock&) -> bool:
+            clock.state == Status.Ready and clock.starts_us.count > 0 and clock.starts_us.count.i64() <= StudioSampleTimePolicy::Domain::MAX_FRAMES
+
+        def count(clock: Clock&) -> i64:
+            clock.starts_us.count.i64()
+
+        def origin_us(clock: Clock&) -> i64:
+            return -1 if not ready(clock)
+            clock.origin_us
+
+        def last_us(clock: Clock&) -> i64:
+            return -1 if not ready(clock)
+            clock.starts_us[clock.starts_us.count - 1]
+
+        def start_us(clock: Clock&, frame: i64) -> i64:
+            return -1 if not ready(clock) or frame < 0 or frame >= count(clock)
+            clock.starts_us[frame.usize()]
+
+        def frame_at_us(clock: Clock&, time: i64) -> i64:
+            return -1 if not ready(clock) or time < 0
+            mutable low: i64 = 0
+            mutable high: i64 = count(clock)
+            while low + 1 < high:
+                middle: i64 = low + (high - low) / 2
+                if clock.starts_us[middle.usize()] <= time:
+                    low <- middle
+                else:
+                    high <- middle
+            low

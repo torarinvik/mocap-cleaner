@@ -218,6 +218,19 @@ This has not changed the application's fixed-rate playback clock: the evaluated
 grid still needs validated numerator/denominator ownership, source-key admission,
 UI/report labels, integration and current proof/runtime qualification.
 
+Each evaluated Clip now captures an owned, privately represented sample clock
+from its actual cleaned GLB input timestamps. Times round to the nearest
+microsecond, become clip-relative, and must strictly increase. Every nonconstant
+channel must match the same per-frame times and input/output key counts;
+single-key channels remain constant, with finite valid times. Cubic interpolation,
+empty/oversized grids and mismatched channel grids return typed unavailable
+states rather than a guessed exact clock. Nonuniform increasing grids are
+supported. The capture module and updated model compile at O0 to retained
+objects; scalar timestamp admission has nine accompanying laws. Playback,
+time entry, labels and export reports still need this captured clock wired in,
+with source/corrected grid provenance and actionable unavailable-state messages.
+Current proof/replay and native playback acceptance remain open.
+
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
       Display the indexing convention consistently. Keep empty, malformed or
