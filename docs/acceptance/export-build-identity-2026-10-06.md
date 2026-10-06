@@ -13,9 +13,13 @@ provenance descriptions now distinguish partial build-input evidence from a
 complete application/dependency manifest. Report assumptions explicitly state
 that a dirty revision is not an exact source identity.
 
-The first compile/package run passed on normal f292cbe0. A subsequent run after
-adding the pre-generation provenance check is pending in session 12782;
-`build/export-build-identity-studio-build.log` records both provenance checks.
+The first compile/package run passed on normal f292cbe0 in session 61851. A
+subsequent run after adding the pre-generation provenance check terminated
+with exit two in session 12782: the backend declined
+`save_session_to_current_path@37` in concurrent session-save work and did not
+write an object. The session owner has the diagnostic. The current
+`build/export-build-identity-studio-build.log` records both provenance checks
+and that failure, rather than the earlier successful compile/package output.
 Generated values identify compiler f292cbe0, engine 01f5aec7 and UI 8ab2eb39,
 all clean at capture, with the project dirty. The compiler hash is
 `5a6c3f32668295ca8786ca0892c1fab56db44457f6b6d2e9b8e4236156a431c6`;
