@@ -1,0 +1,238 @@
+include "state/stack_state.elisa"
+
+# Canonical bounded binary snapshot for an export recipe. Floating pose offsets
+# are stored as their IEEE-754 binary32 bits; no unit conversion or rounding is
+# performed by this codec.
+module StudioExportBatchRecipeCodec:
+    public:
+        const module Limit:
+            SCHEMA: i64 = 1
+            MAGIC_BYTES: usize = 4
+            HEADER_FIELDS: i64 = 10
+            MAX_BYTES: usize = 8192
+
+        def valid_stack(recipe: StackState::Stack&, frames: i64, nodes: i64) -> bool:
+            return false if frames < 1 or frames > Retime::Domain::MAX_FRAMES
+            return false if nodes < 1 or nodes > Retime::Domain::MAX_FRAMES
+            return false if recipe.count < 0 or recipe.count > StackPolicy::Limit::MAX_OPS
+            return false if recipe.edit_count < 0 or recipe.edit_count > StackState::MAX_EDITS
+            return false if recipe.fix_count < 0 or recipe.fix_count > Corrections::MAX
+            return false if recipe.band_count < 0 or recipe.band_count > StackState::MAX_BANDS
+            return false if recipe.blend < StudioFoot::Blend::MIN or recipe.blend > StudioFoot::Blend::MAX
+            for index in 0..<recipe.count:
+                operation: Ops::Operation = recipe.ops[index.usize()]
+                return false if operation.first < 0 or operation.last < operation.first or operation.last > StackPolicy::Limit::MAX_FRAMES
+                return false if operation.strength < 1 or operation.strength > StackState::MAX_STRENGTH
+                return false if operation.edge < 1 or operation.edge > StackState::MAX_EDGE
+            for index in 0..<recipe.edit_count:
+                edit: StackState::FootEdit = recipe.edits[index.usize()]
+                return false if edit.side < StackState::LEFT or edit.side > StackState::RIGHT_HAND
+                return false if edit.first < 0 or edit.first > edit.last or edit.last >= frames
+            for index in 0..<recipe.fix_count:
+                fix: Corrections::Correction = recipe.fixes[index.usize()]
+                return false if fix.node < 0 or fix.node >= nodes or fix.first < 0 or fix.first > fix.key or fix.key > fix.last or fix.last >= frames
+                return false if not Geometry::quat_is_finite(fix.rotation) or Geometry::quat_length(fix.rotation) <= 0.0
+                return false if not Geometry::vec3_is_finite(fix.translation)
+            for index in 0..<recipe.band_count:
+                band: StackState::Band = recipe.bands[index.usize()]
+                return false if not Retime::range_ok(band.first, band.last, frames)
+                return false if not Retime::speed_ok(band.speed) or band.blend < 0 or band.blend > Retime::Domain::MAX_BLEND
+                for other in 0..<index:
+                    previous: StackState::Band = recipe.bands[other.usize()]
+                    return false if not Retime::disjoint(previous.first, previous.last, band.first, band.last)
+            true
+
+        def binary32_bits(value: f32) -> u32 can Unsafe.PointerCast:
+            mutable copy: f32 = value
+            u32_ref((&copy).cast[u32&])
+
+        def encode[@r](recipe: StackState::Stack&, frames: i64, nodes: i64,
+                out: mutable darray[u8]& @r) -> bool @r can Memory.Allocate:
+            requires frames >= 1 and frames <= Retime::Domain::MAX_FRAMES
+            requires nodes >= 1 and nodes <= Retime::Domain::MAX_FRAMES
+            ensure not result or valid_bytes(out)
+            return false if not valid_stack(recipe, frames, nodes)
+            out.clear()
+            append_byte(out, 69)
+            append_byte(out, 66)
+            append_byte(out, 82)
+            append_byte(out, 49)
+            append_number(out, Limit::SCHEMA)
+            append_number(out, frames)
+            append_number(out, nodes)
+            append_number(out, 1 if recipe.feet else 0)
+            append_number(out, 1 if recipe.hands else 0)
+            append_number(out, recipe.blend)
+            append_number(out, recipe.count)
+            append_number(out, recipe.edit_count)
+            append_number(out, recipe.fix_count)
+            append_number(out, recipe.band_count)
+            for index in 0..<recipe.count |recipe, out|:
+                operation: Ops::Operation = recipe.ops[index.usize()]
+                append_number(out, operation_code(operation.kind))
+                append_number(out, 1 if operation.enabled else 0)
+                append_number(out, operation.first)
+                append_number(out, operation.last)
+                append_number(out, operation.bones)
+                append_number(out, operation.strength)
+                append_number(out, operation.edge)
+            for index in 0..<recipe.edit_count |recipe, out|:
+                edit: StackState::FootEdit = recipe.edits[index.usize()]
+                append_number(out, edit.side)
+                append_number(out, edit.first)
+                append_number(out, edit.last)
+                append_number(out, 1 if edit.planted else 0)
+            for index in 0..<recipe.fix_count |recipe, out|:
+                fix: Corrections::Correction = recipe.fixes[index.usize()]
+                append_number(out, 1 if fix.enabled else 0)
+                append_number(out, fix.node)
+                append_number(out, fix.key)
+                append_number(out, fix.first)
+                append_number(out, fix.last)
+                append_float(out, fix.rotation.x)
+                append_float(out, fix.rotation.y)
+                append_float(out, fix.rotation.z)
+                append_float(out, fix.rotation.w)
+                append_float(out, fix.translation.x)
+                append_float(out, fix.translation.y)
+                append_float(out, fix.translation.z)
+            for index in 0..<recipe.band_count |recipe, out|:
+                band: StackState::Band = recipe.bands[index.usize()]
+                append_number(out, band.first)
+                append_number(out, band.last)
+                append_number(out, band.speed)
+                append_number(out, band.blend)
+                append_number(out, 1 if band.enabled else 0)
+            valid_bytes(out)
+
+        def valid_bytes(bytes: darray[u8]&) -> bool:
+            return false if bytes.count < Limit::MAGIC_BYTES + Limit::HEADER_FIELDS.usize() * 8 or bytes.count > Limit::MAX_BYTES
+            return false if bytes[0] != 69 or bytes[1] != 66 or bytes[2] != 82 or bytes[3] != 49
+            mutable cursor: usize = Limit::MAGIC_BYTES
+            mutable header: i64[10] = zeroed
+            for index in 0..<Limit::HEADER_FIELDS.usize() |bytes, cursor, header|:
+                return false if not read_number(bytes, &cursor, &header[index])
+            schema: i64 = header[0]
+            frames: i64 = header[1]
+            nodes: i64 = header[2]
+            feet: i64 = header[3]
+            hands: i64 = header[4]
+            blend: i64 = header[5]
+            operations: i64 = header[6]
+            edits: i64 = header[7]
+            fixes: i64 = header[8]
+            bands: i64 = header[9]
+            return false if schema != Limit::SCHEMA or frames < 1 or frames > Retime::Domain::MAX_FRAMES or nodes < 1 or nodes > Retime::Domain::MAX_FRAMES
+            return false if not bool_number(feet) or not bool_number(hands) or blend < StudioFoot::Blend::MIN or blend > StudioFoot::Blend::MAX
+            return false if operations < 0 or operations > StackPolicy::Limit::MAX_OPS or edits < 0 or edits > StackState::MAX_EDITS
+            return false if fixes < 0 or fixes > Corrections::MAX or bands < 0 or bands > StackState::MAX_BANDS
+            expected: i64 = (Limit::MAGIC_BYTES.i64() + Limit::HEADER_FIELDS * 8) + operations * 56 + edits * 32 + fixes * 96 + bands * 40
+            return false if expected != bytes.count.i64()
+            for index in 0..<operations |bytes, cursor|:
+                mutable fields: i64[7] = zeroed
+                for field in 0..<7 |bytes, cursor, fields|:
+                    return false if not read_number(bytes, &cursor, &fields[field.usize()])
+                return false if fields[0] < 0 or fields[0] > 5 or not bool_number(fields[1])
+                return false if fields[2] < 0 or fields[3] < fields[2] or fields[3] > StackPolicy::Limit::MAX_FRAMES
+                return false if fields[5] < 1 or fields[5] > StackState::MAX_STRENGTH or fields[6] < 1 or fields[6] > StackState::MAX_EDGE
+            for index in 0..<edits |bytes, cursor|:
+                mutable fields: i64[4] = zeroed
+                for field in 0..<4 |bytes, cursor, fields|:
+                    return false if not read_number(bytes, &cursor, &fields[field.usize()])
+                return false if fields[0] < StackState::LEFT or fields[0] > StackState::RIGHT_HAND
+                return false if fields[1] < 0 or fields[1] > fields[2] or fields[2] >= frames or not bool_number(fields[3])
+            for index in 0..<fixes |bytes, cursor|:
+                mutable fields: i64[12] = zeroed
+                for field in 0..<12 |bytes, cursor, fields|:
+                    return false if not read_number(bytes, &cursor, &fields[field.usize()])
+                return false if not bool_number(fields[0]) or fields[1] < 0 or fields[1] >= nodes
+                return false if fields[2] < 0 or fields[3] < 0 or fields[3] > fields[2] or fields[2] > fields[4] or fields[4] >= frames
+                return false if not finite_bits(fields[5]) or not finite_bits(fields[6]) or not finite_bits(fields[7]) or not finite_bits(fields[8])
+                return false if not finite_bits(fields[9]) or not finite_bits(fields[10]) or not finite_bits(fields[11])
+                rotation: Geometry::Quat = Geometry::Quat{x: from_bits(fields[5]), y: from_bits(fields[6]), z: from_bits(fields[7]), w: from_bits(fields[8])}
+                return false if Geometry::quat_length(rotation) <= 0.0
+            mutable band_first: i64[8] = zeroed
+            mutable band_last: i64[8] = zeroed
+            for index in 0..<bands |bytes, cursor, band_first, band_last|:
+                mutable fields: i64[5] = zeroed
+                for field in 0..<5 |bytes, cursor, fields|:
+                    return false if not read_number(bytes, &cursor, &fields[field.usize()])
+                return false if not Retime::range_ok(fields[0], fields[1], frames)
+                return false if not Retime::speed_ok(fields[2]) or fields[3] < 0 or fields[3] > Retime::Domain::MAX_BLEND or not bool_number(fields[4])
+                for previous in 0..<index |index, band_first, band_last, fields|:
+                    return false if not Retime::disjoint(band_first[previous.usize()], band_last[previous.usize()], fields[0], fields[1])
+                band_first[index.usize()] <- fields[0]
+                band_last[index.usize()] <- fields[1]
+            cursor == bytes.count
+
+        # Read one persisted correction component's raw binary32 payload.
+        # Components 0-3 are quaternion x/y/z/w and 4-6 are translation x/y/z.
+        def correction_component_bits(bytes: darray[u8]&, correction_index: i64,
+                component: i64) -> i64:
+            requires correction_index >= 0
+            requires component >= 0 and component < 7
+            ensure result >= -1
+            return -1 if not valid_bytes(bytes)
+            mutable cursor: usize = Limit::MAGIC_BYTES
+            mutable header: i64[10] = zeroed
+            for index in 0..<Limit::HEADER_FIELDS.usize() |bytes, cursor, header|:
+                return -1 if not read_number(bytes, &cursor, &header[index])
+            return -1 if correction_index >= header[8]
+            cursor <- cursor + header[6].usize() * 56 + header[7].usize() * 32
+            cursor <- cursor + correction_index.usize() * 96 + 40
+            cursor <- cursor + component.usize() * 8
+            mutable bits: i64 = -1
+            return -1 if not read_number(bytes, &cursor, &bits)
+            bits
+
+    private:
+        def operation_code(kind: Ops::Kind) -> i64:
+            return 0 if kind == Ops::Kind.Despike
+            return 1 if kind == Ops::Kind.PinContacts
+            return 2 if kind == Ops::Kind.CloseSeam
+            return 3 if kind == Ops::Kind.SmoothPath
+            return 4 if kind == Ops::Kind.LimitWring
+            5
+
+        def append_byte[@r](out: mutable darray[u8]& @r, value: u8) -> void @r can Memory.Allocate:
+            out.push(value)
+
+        def append_number[@r](out: mutable darray[u8]& @r, value: i64) -> void @r can Memory.Allocate:
+            mutable bits: u64 = value.u64()
+            for _ in 0..<8 |out, bits|:
+                out.push((bits & 255).u8())
+                bits <- bits >> 8
+
+        def read_number(bytes: darray[u8]&, cursor: mutable usize&, out: mutable i64&) -> bool:
+            return false if cursor + 8 > bytes.count
+            mutable bits: u64 = 0
+            for offset in 0..<8 |bytes, cursor, bits|:
+                bits <- bits | bytes[cursor + offset].u64() << (offset.i64() * 8).u32()
+            out <- bits.i64()
+            cursor <- cursor + 8
+            true
+
+        def bool_number(value: i64) -> bool:
+            value == 0 or value == 1
+
+        def append_float[@r](out: mutable darray[u8]& @r, value: f32) -> void @r can[Memory.Allocate, Unsafe.PointerCast]:
+            bits: u32 = float_bits(value)
+            append_number(out, bits.i64())
+
+        def float_bits(value: f32) -> u32 can Unsafe.PointerCast:
+            u32_ref((&value).cast[u32&])
+
+        def u32_ref(value: u32&) -> u32:
+            value
+
+        def from_bits(value: i64) -> f32 can Unsafe.PointerCast:
+            mutable bits: u32 = value.u32()
+            f32_ref((&bits).cast[f32&])
+
+        def f32_ref(value: f32&) -> f32:
+            value
+
+        def finite_bits(value: i64) -> bool:
+            return false if value < 0 or value > 4294967295
+            number: f32 = from_bits(value)
+            number - number == 0.0
