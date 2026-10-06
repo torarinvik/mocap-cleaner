@@ -32,3 +32,11 @@ new malformed/duplicate/type/precision admission cases. Native UI interaction,
 workspace adoption and motion preservation acceptance remain open. Prover
 nested-enum source witnesses are under repair; stronger law failures remain
 visible and proof baselines have not been weakened.
+
+## Corrected diff follow-up
+
+The CLI was rebuilt with current compiler `4c409da6`. Running
+`build/mocap-cleaner diff build/cli-test/r.json build/cli-test/h.json --html build/cli-test/diff-corrected.html`
+then returned zero, with `regressions 0` and `errors 0`. This verifies the timing
+identity fix against the two reports from the failed scenario; it does not
+convert the preceding full check into a pass or rerun its other proof gates.
