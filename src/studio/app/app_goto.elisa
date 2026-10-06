@@ -6,6 +6,8 @@ extend Studio:
         global mutable goto_focus: StudioTimelineGotoFocus::Control = StudioTimelineGotoFocus::Control.Field
         global mutable goto_syncing_text: bool = false
         global mutable goto_previous_focus: usize = UiFlat::NONE
+        global mutable goto_mode: StudioTimelineEntryPolicy::Mode = StudioTimelineEntryPolicy::Mode.Frame
+        global mutable goto_rate: i64 = 0
 
         def goto_show_controls(shown: bool) -> void:
             return if not accessibility_goto_ready
@@ -27,12 +29,12 @@ extend Studio:
         def goto_accept_accessibility_text() -> void:
             return if goto_syncing_text
             value: sview = UiFlat::text_value(accessibility_goto_field_widget)
-            mutable valid: bool = StudioTimelineGotoKernel::draft_extent_valid(value.len, value.data != null)
+            mutable valid: bool = StudioTimelineEntryPolicy::extent_valid(goto_mode, value.len, value.data != null)
             if valid:
                 for i in 0..<value.len.usize() |i, value, valid|:
-                    valid <- false if not StudioTimelineGotoKernel::digit_byte(value.data[i])
+                    valid <- false if not StudioTimelineEntryPolicy::byte_allowed(goto_mode, value.data[i])
             if not valid:
-                status <- "Use up to eight digits for the frame number; the previous entry was retained."
+                status <- "Use digits and a decimal point for seconds; the previous entry was retained." if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds else "Use up to eight digits for the frame number; the previous entry was retained."
                 status_file <- null
                 goto_sync_text()
                 touch()
@@ -49,6 +51,8 @@ extend Studio:
 
         def goto_stale() -> bool:
             return true if clip == null
+            if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds and clip is c:
+                return true if c.rate != goto_rate
             StudioTimelineGotoDraftPolicy::current(goto_target, take_serial, built,
                 stack_generation, frames()) == false
 
@@ -59,10 +63,27 @@ extend Studio:
             StudioText::view()
 
         def goto_result() -> StudioTimelineGotoPolicy::Result:
-            StudioTimelineGotoPolicy::parse(goto_text(), goto_target.frames)
+            return StudioTimelineGotoPolicy::parse(goto_text(), goto_target.frames) if goto_mode == StudioTimelineEntryPolicy::Mode.Frame
+            parsed: StudioTimelineTimeInput::Result = StudioTimelineTimeInput::parse(goto_text(), goto_rate, goto_target.frames)
+            mutable converted: StudioTimelineGotoPolicy::Status = StudioTimelineGotoPolicy::Status.Invalid
+            converted <- StudioTimelineGotoPolicy::Status.Empty if parsed.status == StudioTimelineTimeInput::Status.Empty
+            converted <- StudioTimelineGotoPolicy::Status.Exact if parsed.status == StudioTimelineTimeInput::Status.Exact
+            converted <- StudioTimelineGotoPolicy::Status.Clamped if parsed.status == StudioTimelineTimeInput::Status.Clamped
+            StudioTimelineGotoPolicy::Result{status: converted, frame: parsed.frame}
 
         def goto_open_dialog() -> void:
+            goto_open_mode(StudioTimelineEntryPolicy::Mode.Frame)
+
+        def goto_open_mode(mode: StudioTimelineEntryPolicy::Mode) -> void:
             return if clip == null or frames() < 1 or frames() > StudioTimelineGotoPolicy::MAX_FRAMES
+            if clip is c:
+                goto_rate <- c.rate
+            if mode == StudioTimelineEntryPolicy::Mode.Seconds and (goto_rate < 1 or goto_rate > StudioTimelineTimeInputKernel::Domain::MAX_RATE):
+                status <- "Go to time unavailable: the evaluated clip rate is unsupported."
+                status_file <- null
+                touch()
+                return
+            goto_mode <- mode
             goto_target <- goto_target_now()
             typed_len <- 0
             typing <- true
@@ -111,11 +132,11 @@ extend Studio:
             goto_status <- parsed.status
             if parsed.status == StudioTimelineGotoPolicy::Status.Exact or parsed.status == StudioTimelineGotoPolicy::Status.Clamped:
                 scrub_to(parsed.frame)
-                status <- "Frame selected" if parsed.status == StudioTimelineGotoPolicy::Status.Exact else "Frame was past the take; selected the last frame"
+                status <- "Frame selected" if parsed.status == StudioTimelineGotoPolicy::Status.Exact else "Entry was past the take; selected the last frame"
                 status_file <- null
                 goto_close()
             else:
-                status <- "Enter a frame number using digits only."
+                status <- "Enter seconds with up to three decimal places." if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds else "Enter a frame number using digits only."
                 status_file <- null
                 touch()
 
@@ -146,7 +167,13 @@ extend Studio:
 
         def goto_append_key(code: UiCore::Key) -> void:
             return if goto_focus != StudioTimelineGotoFocus::Control.Field
-            return if modifiers != 0 or typed_len >= StudioTimelineGotoKernel::Input::MAX_DIGITS
+            return if modifiers != 0 or typed_len >= StudioTimelineEntryPolicy::capacity(goto_mode)
+            if code == UiCore::Key.Period and goto_mode == StudioTimelineEntryPolicy::Mode.Seconds:
+                typed[typed_len.usize()] <- 46
+                typed_len <- typed_len + 1
+                goto_sync_text()
+                touch()
+                return
             mutable digit: i64 = -1
             digit <- 0 if code == UiCore::Key.Digit0
             digit <- 1 if code == UiCore::Key.Digit1
@@ -174,6 +201,21 @@ extend Studio:
                 touch()
 
     public:
+        def goto_time_entry() -> bool:
+            goto_mode == StudioTimelineEntryPolicy::Mode.Seconds
+
+        def goto_title() -> sview:
+            "Go to time" if goto_time_entry() else "Go to frame"
+
+        def goto_field_label() -> sview:
+            "Clip time in seconds" if goto_time_entry() else "Frame number"
+
+        def goto_help() -> sview:
+            "Enter seconds with up to three decimal places. Values past the take are clamped." if goto_time_entry() else "Enter a 1-based frame number. Values past the take are clamped."
+
+        def goto_field_help() -> sview:
+            "Type unsigned seconds, for example 2.125. Up to eight whole digits and three decimal places." if goto_time_entry() else "Type digits only. The field accepts up to eight digits."
+
         def goto_focused_control() -> StudioTimelineGotoFocus::Control:
             goto_focus
 
