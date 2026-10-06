@@ -397,3 +397,7 @@ collection, witnesses and independent replay lookup. It remains unbuilt and
 unverified: stage1 seeding refuses modified upstream stage0 sources. Existing
 proof expectations remain intact; qualification requires a provenance-valid
 build and focused source/law runs with independent certificate replay.
+
+Follow-up: the repair is committed as prover `49714c65`. Both compiler
+checkouts subsequently became clean and normal seeding started. This removes
+the dirty-source barrier to rebuilding; proof qualification remains pending.
