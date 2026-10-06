@@ -130,16 +130,16 @@ objects in the root `clips` array using engine token subtree boundaries.
 Names are located before extracting values, so field order does not change
 ownership. Nested metadata and timing arrays are excluded. Non-array `clips`,
 unnamed clip entries, and empty names are rejected. The CLI compiles with
-compiler `4c409da6`. This is partial structural implementation: clip identity
-normalization (including Unicode JSON
-escapes), fractional/exponent numbers, indexed lookup, and traversal proof
-coverage still need implementation and qualification.
+compiler `4c409da6`. This is partial structural implementation: fractional/exponent numbers,
+indexed lookup, and traversal proof coverage still need implementation and
+qualification. Unicode escape decoding is implemented below and requires
+behavioral and proof qualification.
 
 Duplicate root `clips` fields and duplicate clip `name` fields are now rejected.
 Clip identities must also be unique even when their metric sets do not overlap;
 the root identity `total` is reserved to prevent collisions. These structural
-checks currently compare the reader's decoded byte spans; complete Unicode
-escape normalization and proof coverage of traversal remain open.
+checks compare decoded UTF-8 byte spans, including JSON Unicode escapes.
+Decoder qualification and proof coverage of traversal remain open.
 `JsonScalar` now supplies contracted Unicode scalar validation and hexadecimal
 digit conversion for the pending decoder. Its six laws assert scalar rejection
 and conversion results. The current published prover establishes all 19 source
@@ -159,7 +159,10 @@ remain required.
 Decimal comparison preparation: `ReportDecimal` admits exact common-scale
 multiplication only when it stays within the regression domain. Four laws
 cover identity scaling, zero, and rejection on both sides of the range.
-This kernel is not connected to parsing yet. Decimal/exponent parsing,
+The integer reader now uses its digit admission and append contracts to
+reject coefficients outside the domain before multiplication. Matching laws
+cover first digits, the exact maximum coefficient, overflow rejection and
+admitted bounds; their replay remains pending. Decimal/exponent parsing,
 canonical mantissa/exponent representation, common-scale alignment, floor
 conversion, and faithful HTML formatting remain required. Prover `3de825c7`
 reports 75/77 source-closure obligations and 81/89 law-closure obligations
