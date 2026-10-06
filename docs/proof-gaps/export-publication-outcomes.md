@@ -314,6 +314,19 @@ function among declines and no object emitted. Evidence:
 `build/report-correction-bits-studio-build.log`. Existing report proof gaps and
 native observation remain open; no executable tests were added or run.
 
+## Report-stage proof closure
+
+Clean prover candidate `elisa-proof-summary-replay-clean` at `3ac99624` mirrors
+Boolean double-negation reduction in producer and independent kernel replay.
+Its manifest records clean source and frontend/Stage1 f292cbe0; root verified
+the binary hash against that manifest and reran the current product files.
+Source proves/replays 78/78 and laws 99/99, zero findings and zero replay gaps.
+Two semantic normalization suggestions remain; neither is a semantic error.
+Logs: `build/report-stage-clean-source.log`,
+`build/report-stage-clean-laws.log`. Reviewed baseline rows now require that
+closure. The older default does not satisfy them. This closes the pure report
+stage helper, not the broader journal stage module, native IO or recovery UI.
+
 ## Report preparation now blocks unsafe publication
 
 Studio previously allowed GLB publication when staged identity or report
