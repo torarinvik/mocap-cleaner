@@ -2,6 +2,22 @@
 
 [Proof gap index](../proof-gaps.md)
 
+## Mutable global enum initializer ownership
+
+Compiler `04b384ec` declines `UiMetrics.stage_state` after recovery adds
+another enum named `Stage`. Root reproduced this with two modules containing
+same-named enums and different variants in `build/repro/global-enum-owner.elisa`.
+The compiler returns zero despite the diagnostic and emits no object.
+
+Global materialization looked up each declaration's table row by owner but
+did not set that owner while folding its initializer. Compiler commit
+`45330579` wraps materialization in the declaration's module context and
+restores the previous context after the inner operation, including early
+returns. A normal compiler seed rebuild is running, with log
+`build/global-owner-compiler-seed.log`. The patch is not yet qualified by the
+reproduction or full Studio compilation; do not treat source adoption as a
+matching binary or a completed fix. No executable tests were added or run.
+
 ## Current global container lowering gap
 
 Compiler `04b384ec` declines direct mutation of a mutable global darray,
