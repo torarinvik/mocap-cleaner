@@ -9,6 +9,26 @@ extend Studio:
         global mutable goto_mode: StudioTimelineEntryPolicy::Mode = StudioTimelineEntryPolicy::Mode.Frame
         global mutable goto_rate: i64 = 0
 
+        # Validate the complete insertion before changing a draft: dropping
+        # unsupported characters could turn a malformed paste into another time.
+        def goto_accept_committed_text(text: sview) -> void:
+            return if not goto_open or goto_focus != StudioTimelineGotoFocus::Control.Field
+            mutable valid: bool = StudioTimelineEntryPolicy::extent_valid(goto_mode, text.len, text.data != null)
+            if valid:
+                valid <- typed_len + text.len <= StudioTimelineEntryPolicy::capacity(goto_mode)
+                for i in 0..<text.len.usize() |i, text, valid|:
+                    valid <- false if not StudioTimelineEntryPolicy::byte_allowed(goto_mode, text.data[i])
+            if not valid:
+                status <- "Entry was refused; use the shown format and length. The previous draft was retained."
+                status_file <- null
+                touch()
+                return
+            for i in 0..<text.len.usize() |i, text|:
+                typed[(typed_len + i.i64()).usize()] <- text.data[i]
+            typed_len <- typed_len + text.len
+            goto_sync_text()
+            touch()
+
         def goto_show_controls(shown: bool) -> void:
             return if not accessibility_goto_ready
             for widget in [accessibility_goto_field_widget,
