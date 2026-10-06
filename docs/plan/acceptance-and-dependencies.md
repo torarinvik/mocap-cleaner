@@ -22,6 +22,12 @@ Complete all applicable categories before removing a task from this roadmap.
 - Identify the party that can provide each result: implementation/proof work,
   native interaction review, animator annotation or external participant trial.
   Missing human evidence remains open; never invent participants or feedback.
+- Every named proof law must assert its intended predicate through `ensure` or
+  an explicit assertion. A Boolean return without such an obligation is not
+  evidence for the law's name. Review preconditions against valid and invalid
+  domain examples; assertion presence alone is not sufficient. Audit helper
+  functions separately and retain intended false/equivalence outcomes. See the
+  [law assertion coverage audit](../proof-gaps/law-assertion-audit.md).
 - Accept a proof result only with its contract coverage and certificate replay.
   A proof-count improvement alone does not establish native filesystem facts,
   motion quality or usable controls. Retain original regression expectations;
