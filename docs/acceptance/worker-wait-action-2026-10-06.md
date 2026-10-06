@@ -14,6 +14,13 @@ JSON (`build/worker-wait-action-laws.json`) reports 25/27 proven obligations,
 findings or semantic errors. These counts are not complete proof acceptance.
 The existing 27-obligation complete baseline remains unchanged.
 
+The unchanged pre-migration source/laws were also checked with this same
+candidate (`build/worker-wait-laws-before-action.json`): 26/27 proven, 28/29
+certificates replayed and one gap. Both old and new rejected certificates are
+in `interrupted_wait_retries`. The typed representation adds one replay gap in
+this candidate; it is recorded for prover repair rather than hidden by the
+producer's complete count.
+
 Normal compile qualification awaits compiler `3c72f59f`'s seed. Native errno,
 waitpid behavior and interruption handling still require runtime qualification
 through the authorized check; pure classification does not prove those facts.
