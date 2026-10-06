@@ -10,9 +10,14 @@
       pointer movement updates the proposed interval, Escape/focus loss leaves
       saved state untouched, release creates one history entry and unchanged
       ranges create none. Validate capacity-refusal feedback, minimum-window
-      handles and long takes. The range overlay does not yet evaluate a new
-      cleaned pose during dragging; qualify or implement that contextual pose
-      preview with explicit approximation limits. See
+      handles and long takes. Qualify the contextual pose candidate against the
+      exact stack that release commits, including take/document/history/frame
+      changes during dragging. A pending or failed candidate must leave the
+      current result visible and clearly identified. Throttling evaluation
+      starts does not establish an update-latency bound: show pending work
+      honestly and complete the M5 worker/supersession integration before
+      accepting long-clip responsiveness. Approximate previews require explicit
+      limits and comparison against release evaluation. See
       `docs/studio-contact-preview.md` for implementation/proof evidence.
 - [ ] Add timeline zoom/pan, fitted range, visible row labels and draggable
       handles with usable hit targets. Visually verify the shipped 1-based
