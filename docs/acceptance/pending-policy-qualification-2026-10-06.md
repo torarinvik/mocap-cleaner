@@ -9,6 +9,7 @@ Existing baselines must not be weakened to admit the edits.
 | Recovery action availability | `export_recovery_ui_policy`, matching UI laws | Policy/law replay, full Studio object, disabled pointer/key/AX dispatch |
 | Contact endpoint editing | `contact_frame_policy`, matching frame laws | No-op and generation refusal replay; exact history/preview preservation |
 | Contact endpoint accessibility | `accessibility`, matching accessibility laws | Tree replay, full Studio compile, focus and draft/error announcements |
+| Contact pose preview | `contact_preview_policy`, matching preview laws and app integration | Current replay; exact take/document/stack/frame binding; cancel and commit clear transient poses; faithful candidate rendering; measured large-clip evaluation latency and UI responsiveness |
 | Numeric input capacity | `text_entry_policy`, matching entry laws | Capacity laws replay, preserved draft at refusal, correction flow |
 | Retime target binding | `retime_draft_policy`, `studio_retime_draft_laws` | Current compile/replay; range/band/history changes reject mutation |
 | Retime text precision | `state/retime_state` | Current existing fixture compile/run through authorized check; fourth fractional digit refused |
@@ -20,12 +21,14 @@ Existing baselines must not be weakened to admit the edits.
 | Typed finding intent | `issue_annotation`, matching annotation laws | Const enum encoding replay; existing fixture compile/run; filter, session save and accessibility integration |
 | Export formatted-field capacity | `report_text_policy`, matching text laws and `app/report_text` | Byte/view boundary replay; oversized field or exhausted slots invalidate complete snapshot before GLB publication; no earlier view overwritten; normal full-stack report preserved |
 | Batch dry-run admission | `export_batch_preflight_policy`, matching preflight laws | Current replay; native exact path/source/report collision checks; animation/recipe/rig fact capture; queue and UI integration |
+| Batch queue lifecycle | `export_batch_queue_policy`, matching queue laws | Current replay; bounded workers and running-count consistency; cancellation drain and explicit resume/retry; exact staged-result review preserved through publication; native create-only outputs and complete manifests; queue UI integration |
 | Proof supervisor/cache | `scripts/prove.py` | Timeout, bad exits, partial/corrupt summaries, changed source including cache-only runs, replaced/missing prover binary and parallel progress |
 
 The full proof corpus glob includes new direct source files and all `proof/`
 files. New retime-draft, issue-explanation record and cache-arithmetic files currently have no reviewed
 rows in `scripts/proof-baseline.tsv`; the new batch-preflight source and laws
-also need reviewed rows. This must remain a gate failure until
+also need reviewed rows, as do the contact-preview and batch-queue policies and
+laws. This must remain a gate failure until
 reports are inspected and independently replayed. Do not substitute historical
 candidate counts for current baselines.
 
