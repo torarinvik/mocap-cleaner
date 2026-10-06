@@ -119,7 +119,8 @@ full product check qualify the same snapshot.
 Existing integration freezes JSON/text bytes before GLB publication, distinguishes
 individual sidecar outcomes, attempts parent-directory sync and presents partial
 or uncertain results in the result dialog and accessibility text. A create-only
-sidecar publisher exists. These foundations still need recovery integration and
+sidecar publisher exists and compiles; native collision/cleanup behavior and
+recovery integration remain unqualified. These foundations still need recovery integration and
 qualification; current evidence is in [integration observations](../acceptance/m6-integration-observations-2026-10-06.md)
 and [publication proof gaps](../proof-gaps/export-publication-outcomes.md).
 
