@@ -21,9 +21,9 @@ module CliOutputGuard:
                         source_facts: i64 = cli_output_facts(source_path)
                         target_facts: i64 = cli_output_facts(target_path)
                         facts_known: bool = root_facts >= 0 and source_facts >= 0 and target_facts >= 0
-                        root_is_build: bool = facts_known and (root_facts & PATH_EXISTS) != 0 and (root_facts & PATH_DIRECTORY) != 0 and (root_facts & PATH_SYMLINK) == 0
-                        source_exists: bool = facts_known and (source_facts & PATH_EXISTS) != 0
-                        target_exists: bool = facts_known and (target_facts & PATH_EXISTS) != 0
+                        root_is_build: bool = facts_known and (root_facts & NativeFacts::EXISTS) != 0 and (root_facts & NativeFacts::DIRECTORY) != 0 and (root_facts & NativeFacts::SYMLINK) == 0
+                        source_exists: bool = facts_known and (source_facts & NativeFacts::EXISTS) != 0
+                        target_exists: bool = facts_known and (target_facts & NativeFacts::EXISTS) != 0
                         mutable same_source: bool = false
                         if facts_known and source_exists and target_exists:
                             same_source <- cli_output_same_identity(source_path, target_path)
@@ -32,8 +32,8 @@ module CliOutputGuard:
                             facts_known and root_is_build,
                             root_is_build and CliOutputGuardPolicy::file_is_under_build(root_bytes, target_bytes),
                             same_source, target_exists,
-                            facts_known and (target_facts & PATH_SYMLINK) != 0,
-                            facts_known and (target_facts & PATH_REGULAR) != 0,
+                            facts_known and (target_facts & NativeFacts::SYMLINK) != 0,
+                            facts_known and (target_facts & NativeFacts::REGULAR) != 0,
                             reserved_metadata)
                         cli_output_release(target_path)
                     cli_output_release(source_path)
@@ -69,20 +69,23 @@ module CliOutputGuard:
                     target_bytes: darray[u8] = copy_path(target_path)
                     root_facts: i64 = cli_output_facts(root_path)
                     target_facts: i64 = cli_output_facts(target_path)
-                    root_is_build: bool = root_facts >= 0 and (root_facts & PATH_EXISTS) != 0 and (root_facts & PATH_DIRECTORY) != 0 and (root_facts & PATH_SYMLINK) == 0
-                    target_is_directory: bool = target_facts >= 0 and (target_facts & PATH_EXISTS) != 0 and (target_facts & PATH_DIRECTORY) != 0 and (target_facts & PATH_SYMLINK) == 0
+                    root_is_build: bool = root_facts >= 0 and (root_facts & NativeFacts::EXISTS) != 0 and (root_facts & NativeFacts::DIRECTORY) != 0 and (root_facts & NativeFacts::SYMLINK) == 0
+                    target_is_directory: bool = target_facts >= 0 and (target_facts & NativeFacts::EXISTS) != 0 and (target_facts & NativeFacts::DIRECTORY) != 0 and (target_facts & NativeFacts::SYMLINK) == 0
                     admitted <- root_is_build and target_is_directory and CliOutputGuardPolicy::directory_is_under_build(root_bytes, target_bytes)
                     cli_output_release(target_path)
                 cli_output_release(root_path)
             admitted
 
     private:
-        const CLI_OUTPUT_PATH_CAPACITY: usize = 4096
-        const PATH_EXISTS: i64 = 1
-        const PATH_SYMLINK: i64 = 2
-        const PATH_REGULAR: i64 = 4
-        const PATH_DIRECTORY: i64 = 8
-        const CLI_RESERVED_PATH_CAPACITY: usize = 4144
+        const module Capacity:
+            const PATH: usize = 4096
+            const RESERVED: usize = 4144
+
+        const module NativeFacts:
+            const EXISTS: i64 = 1
+            const SYMLINK: i64 = 2
+            const REGULAR: i64 = 4
+            const DIRECTORY: i64 = 8
 
         @link_name("elisa_file_path_resolve")
         extern cli_output_resolve(path: cstr) -> cstr? can[Blocking.IO, Memory.Allocate]
@@ -104,16 +107,16 @@ module CliOutputGuard:
                 native_reserved_child_matches(root_path, target_path, "studio_storage_manifest.txt") or native_reserved_child_matches(root_path, target_path, "studio_storage_preferences.txt") or native_reserved_child_matches(root_path, target_path, "studio_storage_exemptions.txt") or native_reserved_child_matches(root_path, target_path, "studio_storage_manifest.lock")
 
             def native_reserved_child_matches(root_path: cstr, target_path: cstr, name: sview) -> bool can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
-                mutable reserved: u8[CLI_RESERVED_PATH_CAPACITY] = zeroed
+                mutable reserved: u8[Capacity::RESERVED] = zeroed
                 mutable root_length: usize = 0
-                while root_length < CLI_OUTPUT_PATH_CAPACITY and root_path[root_length] != 0:
+                while root_length < Capacity::PATH and root_path[root_length] != 0:
                     reserved[root_length] <- root_path[root_length]
                     root_length <- root_length + 1
-                return true if root_length == 0 or root_length >= CLI_OUTPUT_PATH_CAPACITY
+                return true if root_length == 0 or root_length >= Capacity::PATH
                 reserved[root_length] <- 47
                 mutable name_length: usize = 0
                 for byte in name:
-                    return true if root_length + 1 + name_length + 1 >= CLI_RESERVED_PATH_CAPACITY
+                    return true if root_length + 1 + name_length + 1 >= Capacity::RESERVED
                     reserved[root_length + 1 + name_length] <- byte.u8()
                     name_length <- name_length + 1
                 reserved[root_length + 1 + name_length] <- 0
@@ -127,8 +130,8 @@ module CliOutputGuard:
         def copy_path(path: cstr) -> darray[u8] can Memory.Allocate:
             mutable bytes: darray[u8] = []
             mutable index: usize = 0
-            while index < CLI_OUTPUT_PATH_CAPACITY and path[index] != 0:
+            while index < Capacity::PATH and path[index] != 0:
                 bytes.push(path[index])
                 index <- index + 1
-            return [] if index >= CLI_OUTPUT_PATH_CAPACITY
+            return [] if index >= Capacity::PATH
             bytes
