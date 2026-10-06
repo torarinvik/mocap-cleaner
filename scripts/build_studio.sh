@@ -71,14 +71,17 @@ for t in "$ROOT"/test/studio_*.elisa; do
   fi
 done
 if [[ -x "$PROOF" ]]; then
-  for f in "$ROOT"/src/studio/*.elisa; do
-    if "$PROOF" "$f" | grep -q "state: proved"; then
-      echo "PROVED $(basename "$f")"
-    else
-      echo "NOT PROVED $(basename "$f")"; status=1
-    fi
-  done
+  # Use the same complete reviewed corpus as check.sh. A matching line from
+  # a partial or crashed prover process is insufficient qualification.
+  proof_files=(src/*/*.elisa src/studio/io/*_policy.elisa src/studio/io/storage_preferences_codec.elisa proof/*.elisa)
+  if ! python3 scripts/prove.py "$PROOF" "${proof_files[@]}"; then
+    status=1
+  fi
+  if ! python3 scripts/check_proof_baseline.py "${proof_files[@]}"; then
+    status=1
+  fi
 else
-  echo "no prover at $PROOF; proofs skipped"
+  echo "no prover at $PROOF; proof qualification failed" >&2
+  status=1
 fi
 exit $status
