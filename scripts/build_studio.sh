@@ -56,6 +56,11 @@ echo "built $OUT/mocap_studio"
 [[ "${STUDIO_SKIP_CHECKS:-0}" == "1" ]] && exit 0
 
 status=0
+if bash "$ROOT/scripts/check_storage_io.sh"; then
+  :
+else
+  echo "FAIL storage_io"; status=1
+fi
 if clang -std=c11 -Wall -Wextra -Werror -O2 \
   -o "$OUT/test/file_path_test" "$ENGINE/native/file_path.c" "$ENGINE/native/file_path_test.c" \
   && TMPDIR="$OUT/test" "$OUT/test/file_path_test"; then

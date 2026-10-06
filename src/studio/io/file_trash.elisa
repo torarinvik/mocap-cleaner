@@ -12,6 +12,16 @@ extern studio_trash_move_fields(build_root: cstr, candidate: cstr,
     modified_seconds: mutable i64&, modified_nanoseconds: mutable i64&,
     output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
 
+@link_name("elisa_file_trash_move_checked_fields")
+extern studio_trash_move_checked_fields(build_root: cstr, candidate: cstr,
+    expected_original_path: cstr, expected_device: i64, expected_inode: i64,
+    expected_size_bytes: i64, expected_modified_seconds: i64,
+    expected_modified_nanoseconds: i64,
+    original_path: mutable u8&, trashed_path: mutable u8&, path_capacity: i32,
+    device: mutable i64&, inode: mutable i64&, size_bytes: mutable i64&,
+    modified_seconds: mutable i64&, modified_nanoseconds: mutable i64&,
+    output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
+
 @link_name("elisa_file_trash_restore_fields")
 extern studio_trash_restore_fields(build_root: cstr, original_path: cstr,
     trashed_path: cstr, device: i64, inode: i64, size_bytes: i64,
@@ -147,11 +157,33 @@ module StudioFileTrash:
             recovered <- next
             true
 
-        # `record` is updated only after the engine returns a complete receipt.
-        # Errors are copied into `message` and remain available to the UI.
+        # Legacy callers capture the identity during the native operation.
         def move(build_root: cstr, candidate: cstr, kind: i64,
                  record: mutable StudioStorageManifest::Entry&,
                  message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            move_record(build_root, candidate, kind, null, record, message)
+
+        # Cleanup binds the native operation to the durable identity reviewed
+        # by the user. A stale review is rejected before the file is moved.
+        def move_checked(build_root: cstr, candidate: cstr,
+                         expected: StudioStorageManifest::Entry,
+                         record: mutable StudioStorageManifest::Entry&,
+                         message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
+            message.clear()
+            if expected.state != StudioStorageManifest::REGISTERED or not StudioStorageManifest::valid(expected):
+                explanation: sview = "The reviewed file identity is incomplete or invalid."
+                for byte in explanation:
+                    message.push(byte)
+                return false
+            move_record(build_root, candidate, expected.kind, expected, record, message)
+
+    private:
+        # `record` is updated only after the engine returns a complete receipt.
+        # Errors are copied into `message` and remain available to the UI.
+        def move_record(build_root: cstr, candidate: cstr, kind: i64,
+                        reviewed: StudioStorageManifest::Entry?,
+                        record: mutable StudioStorageManifest::Entry&,
+                        message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
             message.clear()
             if kind < StudioStorageReceiptPolicy::RECOVERY or kind >= StudioStorageReceiptPolicy::KIND_COUNT:
                 explanation: sview = "Studio cannot manage this artifact type."
@@ -169,12 +201,24 @@ module StudioFileTrash:
             original_ptr: mutable u8& = (&original[0]).cast[mutable u8&] can Unsafe.PointerCast
             trashed_ptr: mutable u8& = (&trashed[0]).cast[mutable u8&] can Unsafe.PointerCast
             error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
-            code: i32 = studio_trash_move_fields(build_root, candidate,
-                original_ptr, trashed_ptr,
-                STUDIO_TRASH_PATH_CAPACITY.i32(), &device, &inode, &size_bytes,
-                &modified_seconds, &modified_nanoseconds,
-                error_ptr,
-                STUDIO_TRASH_ERROR_CAPACITY.i32())
+            mutable code: i32 = -1
+            if reviewed is expected:
+                mutable expected_path: u8[4096] = zeroed
+                for index in 0..<expected.original_path.count |expected, expected_path|:
+                    expected_path[index] <- expected.original_path[index]
+                expected_path[expected.original_path.count] <- 0
+                expected_ptr: cstr = (&expected_path[0]).cast[cstr] can Unsafe.PointerCast
+                code <- studio_trash_move_checked_fields(build_root, candidate,
+                    expected_ptr, expected.device, expected.inode, expected.size_bytes,
+                    expected.modified_seconds, expected.modified_nanoseconds,
+                    original_ptr, trashed_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(),
+                    &device, &inode, &size_bytes, &modified_seconds,
+                    &modified_nanoseconds, error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
+            else:
+                code <- studio_trash_move_fields(build_root, candidate,
+                    original_ptr, trashed_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(),
+                    &device, &inode, &size_bytes, &modified_seconds,
+                    &modified_nanoseconds, error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
             message.clear()
             mutable error_index: usize = 0
             while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
@@ -209,6 +253,7 @@ module StudioFileTrash:
             record <- next
             true
 
+    public:
         # The receipt remains unchanged on failure and is cleared by the UI
         # only after this function confirms that the engine restored the file.
         def restore(build_root: cstr, record: StudioStorageManifest::Entry,
