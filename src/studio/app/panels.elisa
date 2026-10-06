@@ -1,5 +1,6 @@
 include "../storage_window_policy.elisa"
 include "../storage_age_policy.elisa"
+include "../storage_identity_policy.elisa"
 # The studio's 2D panels, drawn immediate-mode with elisa-ui primitives:
 # window layout, the toolbar with code-drawn vector icons, the timeline
 # (problem markers, contact bars, operation scope, playhead), the curve view
@@ -1035,7 +1036,9 @@ module StudioPanels:
         const STORAGE_RESTORE: i64 = 2
         const STORAGE_TRASH: i64 = 3
         const STORAGE_RETENTION: i64 = 4
-        const STORAGE_ACTION_COUNT: i64 = 5
+        const STORAGE_SELECT_ELIGIBLE: i64 = 5
+        const STORAGE_CLEAR_SELECTION: i64 = 6
+        const STORAGE_ACTION_COUNT: i64 = 7
         const STORAGE_STATUS_PRESENT: i64 = 0
         const STORAGE_STATUS_IN_TRASH: i64 = 1
         const STORAGE_STATUS_CHANGED: i64 = 2
@@ -1051,6 +1054,7 @@ module StudioPanels:
 
         def storage_button_box(w: f32, h: f32, action: i64) -> Box:
             d: Box = storage_dialog_box(w, h)
+            return box(d.x + 430.0 + (action - STORAGE_SELECT_ELIGIBLE).f32() * 148.0, d.y + 95.0, 132.0, 30.0) if action >= STORAGE_SELECT_ELIGIBLE
             box(d.x + 24.0 + action.f32() * 148.0, d.y + d.h - 54.0, 132.0, 38.0)
 
         def storage_row_box(w: f32, h: f32, visible_row: i64) -> Box:
@@ -1125,11 +1129,11 @@ module StudioPanels:
 
         def storage_panel(w: f32, h: f32, opened: bool,
                           entries: darray[StudioStorageManifest::Entry]&,
-                          statuses: darray[i64]&, reasons: darray[i64]&,
+                          statuses: darray[i64]&, reasons: darray[i64]&, cleanup_selected: darray[StudioStorageManifest::Entry]&,
                           selected: i64, focus: i64, message: i64,
                           protected_records: i64, unverified_records: i64,
                           restore_available: bool, restore_review: bool, trash_available: bool, trash_review: bool,
-                          present_bytes: i64, trash_bytes: i64, scan_seconds: i64, retention_days: i64) -> void:
+                          present_bytes: i64, trash_bytes: i64, scan_seconds: i64, retention_days: i64, selection_bytes: i64, selection_removed: i64) -> void:
             return if not opened
             d: Box = storage_dialog_box(w, h)
             footer: f32 = d.y + d.h - 110.0
@@ -1150,10 +1154,11 @@ module StudioPanels:
                 tracked <- tracked + 1 if entry.state == StudioStorageManifest::REGISTERED
                 receipts <- receipts + 1 if entry.state == StudioStorageManifest::IN_TRASH
             StudioText::begin()
-            StudioText::put("Tracked records  ")
-            StudioText::put_i(tracked)
-            StudioText::put("     Trash recovery receipts  ")
-            StudioText::put_i(receipts)
+            StudioText::put("Selected: ")
+            StudioText::put_i(cleanup_selected.count.i64())
+            StudioText::put(" file(s), ")
+            StudioText::put_i(selection_bytes)
+            StudioText::put(" bytes")
             StudioDraw::text(d.x + 24.0, d.y + 106.0, 12.0, StudioText::view(), StudioDraw::accent())
             StudioText::begin()
             StudioText::put("Verified storage:  ")
@@ -1180,14 +1185,18 @@ module StudioPanels:
             else:
                 StudioDraw::bold(d.x + 24.0, d.y + 152.0, 11.0, "STUDIO-MANAGED INVENTORY", StudioDraw::muted())
             first: i64 = storage_first_visible(w, h, entries.count.i64(), selected)
-            for visible_row in 0..<storage_visible_count(w, h, entries.count.i64(), selected) |visible_row, first, entries, statuses, selected, d|:
+            for visible_row in 0..<storage_visible_count(w, h, entries.count.i64(), selected) |visible_row, first, entries, statuses, selected, cleanup_selected, reasons, d|:
                 index: i64 = first + visible_row
                 row: Box = storage_row_box(w, h, visible_row)
                 entry: StudioStorageManifest::Entry = entries[index]
                 row_status: i64 = statuses[index] if index < statuses.count else STORAGE_STATUS_UNVERIFIED
                 StudioDraw::rect(row.x, row.y, row.w, row.h,
                     StudioDraw::color(47, 55, 70) if index == selected else StudioDraw::panel())
-                StudioDraw::text(row.x + 10.0, row.y + 8.0, 12.0,
+                mutable checked: bool = false
+                for picked in cleanup_selected |picked, entry, checked|:
+                    checked <- true if StudioStorageIdentityPolicy::matches(picked.device, entry.device, picked.inode, entry.inode, picked.size_bytes, entry.size_bytes, picked.modified_seconds, entry.modified_seconds, picked.modified_nanoseconds, entry.modified_nanoseconds, StudioStorageManifest::same_path(picked.original_path, entry.original_path))
+                StudioDraw::text(row.x + 8.0, row.y + 8.0, 12.0, "[x]" if checked else "[ ]" if index < reasons.count.i64() and reasons[index] == StudioStorageCleanupPolicy::PROTECT_NONE else "[-]", StudioDraw::accent() if checked else StudioDraw::muted())
+                StudioDraw::text(row.x + 34.0, row.y + 8.0, 12.0,
                     storage_entry_name(entries, index), StudioDraw::ink())
                 StudioDraw::text(row.x + row.w - 265.0, row.y + 8.0, 11.0,
                     storage_kind_label(entry.kind), StudioDraw::muted())
@@ -1247,6 +1256,11 @@ module StudioPanels:
             elif message == 2:
                 StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "The build folder could not be verified. No inventory paths are shown.", StudioDraw::color(240, 170, 110))
+            elif selection_removed > 0:
+                StudioText::begin()
+                StudioText::put_i(selection_removed)
+                StudioText::put(" selected file(s) removed: identity changed, missing, or now protected. Review again.")
+                StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
             elif unverified_records > 0:
                 StudioText::begin()
                 StudioText::put_i(unverified_records)
@@ -1261,13 +1275,13 @@ module StudioPanels:
                 StudioDraw::text(d.x + 24.0, footer + 20.0, 11.0,
                     "Inventory refreshed; all visible file identities are verified.", StudioDraw::color(150, 210, 160))
             StudioDraw::text(d.x + 24.0, footer + 46.0, 10.0,
-                "Up / Down selects   Tab moves to a button   Enter activates   Esc closes", StudioDraw::muted())
+                "Up / Down inspects   Space toggles selection   Tab moves to buttons   Esc cancels", StudioDraw::muted())
             for action in 0..<STORAGE_ACTION_COUNT |action, w, h, focus, restore_available, restore_review, trash_available, trash_review, retention_days|:
                 b: Box = storage_button_box(w, h, action)
                 StudioDraw::rect(b.x, b.y, b.w, b.h,
                     StudioDraw::color(58, 52, 40) if focus == action else StudioDraw::panel())
                 StudioDraw::bold(b.x + 12.0, b.y + 11.0, 12.0,
-                    "Refresh" if action == STORAGE_REFRESH else "Done" if action == STORAGE_DONE else ("Confirm restore" if restore_review else "Restore") if action == STORAGE_RESTORE else ("Confirm Trash" if trash_review else "Move to Trash") if action == STORAGE_TRASH else StudioStorageAccessibilityCopy::retention_value(retention_days),
+                    "Select eligible" if action == STORAGE_SELECT_ELIGIBLE else "Clear selection" if action == STORAGE_CLEAR_SELECTION else "Refresh" if action == STORAGE_REFRESH else "Done" if action == STORAGE_DONE else ("Confirm restore" if restore_review else "Restore") if action == STORAGE_RESTORE else ("Confirm Trash" if trash_review else "Move to Trash") if action == STORAGE_TRASH else StudioStorageAccessibilityCopy::retention_value(retention_days),
                     StudioDraw::muted() if (action == STORAGE_RESTORE and not restore_available) or (action == STORAGE_TRASH and not trash_available) else StudioDraw::ink())
                 StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if focus == action
 

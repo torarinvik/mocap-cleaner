@@ -177,6 +177,14 @@ attempts restore; fresh checks distinguish verified restoration, a retained
 Trash receipt and an uncertain location. Unresolved recovery prevents another
 cleanup move from replacing its receipt. Refresh can finish reconciliation.
 
-Multi-selection, grouping/filtering, persistent retention preferences,
-exemptions and per-item batch progress remain to be implemented. The current
-workflow performs one reviewed move at a time.
+Inventory checkboxes store selections by full artifact identity. Click a
+checkbox or press Space on the inspected row to toggle an eligible file.
+Select eligible covers the current verified inventory; Clear selection clears
+that set. Protected rows use a disabled checkbox marker. The selected file
+count and exact byte sum are visible. Refresh removes missing, changed or
+newly protected selections and reports the removal.
+
+Multi-item execution, grouping/filtering, persistent retention preferences,
+exemptions and per-item batch progress remain to be implemented. Move to Trash
+currently requires exactly one selected eligible file; it performs one
+reviewed move at a time.
