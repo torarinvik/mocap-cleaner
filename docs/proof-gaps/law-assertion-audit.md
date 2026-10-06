@@ -62,3 +62,8 @@ same UI core as its existing executable fixture; object compilation succeeds.
 This expands the dependency closure and must be reflected in proof qualification
 rather than hiding missing definitions or weakening assertions. Updated replay
 and native interaction checks remain open.
+
+Current prover `d3a17832` / compiler `4c409da6` source baselines were added for
+export snapshot freshness (2/2) and report-text bounds (10/10), each with complete
+certificate replay and zero gaps. Their composed laws remain unqualified; no
+existing baseline was reduced and these source results do not close UI gates.
