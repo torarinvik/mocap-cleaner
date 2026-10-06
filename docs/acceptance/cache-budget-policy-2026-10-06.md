@@ -78,3 +78,15 @@ Inherited findings include checked-product wrap guards, typed execution
 contracts and unverified helper summaries. Aggregate contents and rig laws
 also report ambiguous constant goals; lexical owner resolution requires
 investigation. No contract or existing baseline was weakened in response.
+
+Checked arithmetic is subsequently extracted into `CacheBudgetArithmetic`,
+with its six original laws moved intact into a dedicated proof module. Bank
+and rig policies now import only arithmetic and layout estimates, avoiding
+unrelated channel execution obligations. The combined fixture compiles at
+`build/cache-arithmetic-extract.eSIb2g/fixture.o` with compiler `720896f4`.
+The same `4da/720` comparison reports arithmetic laws 20/30 certificates,
+all 20 replayed, and rig laws 19/34, all 19 replayed. Neither report is fully
+proved: checked-product wrap guards, helper summaries and ambiguous goals
+remain. The changed obligation totals reflect the include graph, not weakened
+assertions. These reports are `build/cache-arithmetic-laws-720.json` and
+`build/rig-budget-extracted-laws-720.json`.
