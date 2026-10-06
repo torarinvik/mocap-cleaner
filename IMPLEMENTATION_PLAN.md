@@ -1,6 +1,6 @@
 # Mocap Cleaner — Product and Implementation Plan
 
-Updated 2026-10-06. This roadmap describes remaining work. Completed
+Updated 2026-10-07. This roadmap describes remaining work. Completed
 implementation is recorded in Git. Milestone documents retain their original
 section numbering and detailed acceptance criteria.
 

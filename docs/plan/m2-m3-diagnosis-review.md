@@ -149,8 +149,13 @@ implemented; this does not close the combined timeline milestone.
 
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
-      Display the indexing convention consistently; clamp invalid input with
-      an explanation rather than jumping to an unrelated frame.
+      Display the indexing convention consistently. Keep empty, malformed or
+      overflowing drafts editable and disable Apply without moving the playhead.
+      Clamp a valid numeric value outside the clip with a visible explanation.
+      Bind every action to the current document, result and stack revisions;
+      replacement or a changed frame count invalidates an open draft.
+      Expose identical validation and enablement through pointer, keyboard and
+      accessibility actions. Cancel and focus loss preserve the selected frame.
 - [ ] Separate work range, playback loop, operation scope and retime band
       visually and in their labels. Changing a playback loop must not change
       exported duration or operation scope.
