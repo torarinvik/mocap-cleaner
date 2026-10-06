@@ -115,6 +115,15 @@ The original rule rejected valid generated reports and is not qualified.
 Report reads now distinguish stream errors from normal EOF and check close
 status. Failed reads clear partial bytes before reporting unavailable input.
 This prevents complete-looking prefixes from being compared as full reports.
+
+Comparison input now has a 16 MiB per-report admission limit, applied both
+before parsing and during file reads. An oversized read closes the file and
+clears its partial bytes. This bounds input memory; indexed metric lookup and
+schema-aware traversal remain required to bound comparison work.
+`ReportBudget` has contracts and five laws. Current compiler builds the CLI;
+the published checker proves the source (4/4), but the laws have 11/14
+certificates replayed despite 14 producer-proven obligations. Qualification
+remains open until those three composition gaps replay.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
 
