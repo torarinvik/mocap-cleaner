@@ -13,6 +13,7 @@ include "../../../../elisa-ui/src/platform/appkit/ui_appkit_canvas_flat.elisa"
 include "../../../../elisa-engine-mocap/src/viewport/viewport.elisa"
 include "../../../../elisa-engine-mocap/src/ui/file_panel.elisa"
 include "../io/file_trash.elisa"
+include "../storage_restore_policy.elisa"
 include "../io/storage_manifest_file.elisa"
 include "scene.elisa"
 include "character.elisa"
@@ -102,6 +103,8 @@ module Studio:
         global mutable storage_screen_open: bool = false
         global mutable storage_focus: i64 = -1
         global mutable storage_selected: i64 = 0
+        global mutable storage_restore_review: bool = false
+        global mutable storage_restore_entry: StudioStorageManifest::Entry = zeroed
         global mutable storage_message: i64 = 0
         global mutable storage_protected_records: i64 = 0
         global mutable storage_unverified_records: i64 = 0
@@ -1494,6 +1497,7 @@ module Studio:
         # refresh checks live filesystem identity and reconciles interrupted
         # Trash moves before displaying an entry as verified.
         def refresh_storage_inventory() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            storage_restore_review <- false
             storage_visible_entries <- []
             storage_visible_statuses <- []
             storage_protected_records <- 0
@@ -1593,7 +1597,60 @@ module Studio:
         def close_storage_screen() -> void:
             return if not storage_screen_open
             storage_screen_open <- false
+            storage_restore_review <- false
             storage_focus <- -1
+            touch()
+
+        def storage_restore_available() -> bool:
+            return false if storage_message == 1 or storage_message == 2 or storage_message == 5
+            return false if storage_selected < 0 or storage_selected >= storage_visible_entries.count.i64() or storage_selected >= storage_visible_statuses.count.i64()
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            statuses: darray[i64] = storage_visible_statuses
+            entry: StudioStorageManifest::Entry = entries[storage_selected]
+            StudioStorageRestorePolicy::eligible(entry.state,
+                StudioStorageManifest::valid(entry), storage_manifest_state == 1,
+                statuses[storage_selected] == StudioPanels::STORAGE_STATUS_IN_TRASH,
+                true, false)
+
+        def restore_storage_entry() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            expected: StudioStorageManifest::Entry = storage_restore_entry
+            refresh_storage_inventory()
+            # Reload the manifest before mutating it, and require the reviewed
+            # receipt to remain visible and durable after fresh source checks.
+            mutable still_available: bool = false
+            entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+            statuses: darray[i64] = storage_visible_statuses
+            if storage_message != 1 and storage_message != 2 and storage_message != 5:
+                for index in 0..<entries.count |entries, statuses, expected, still_available|:
+                    entry: StudioStorageManifest::Entry = entries[index]
+                    if index < statuses.count and statuses[index] == StudioPanels::STORAGE_STATUS_IN_TRASH and storage_identity_matches(expected, entry) and StudioStorageManifest::same_path(expected.trashed_path, entry.trashed_path):
+                        still_available <- true
+            if not still_available:
+                storage_message <- 9
+                touch()
+                return
+            mutable recovered: StudioStorageManifest::Entry = zeroed
+            mutable explanation: darray[u8] = []
+            if not StudioFileTrash::reconcile("build", expected, &recovered, &explanation):
+                refresh_storage_inventory()
+                storage_message <- 7
+                touch()
+                return
+            if not storage_identity_matches(expected, recovered) or not StudioStorageManifest::same_path(expected.trashed_path, recovered.trashed_path):
+                refresh_storage_inventory()
+                storage_message <- 9
+                touch()
+                return
+            if not StudioFileTrash::restore("build", recovered, &explanation):
+                refresh_storage_inventory()
+                storage_message <- 7
+                touch()
+                return
+            # Refresh recognizes the exact original identity and atomically
+            # changes its receipt back to REGISTERED. A failed save retains
+            # the on-disk receipt so another refresh can finish recovery.
+            refresh_storage_inventory()
+            storage_message <- 8 if storage_message == 5 or storage_message == 1 else 6
             touch()
 
         def storage_action(action: i64) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
@@ -1602,24 +1659,38 @@ module Studio:
                 touch()
             elif action == StudioPanels::STORAGE_DONE:
                 close_storage_screen()
+            elif action == StudioPanels::STORAGE_RESTORE and storage_restore_available():
+                if storage_restore_review:
+                    restore_storage_entry()
+                else:
+                    entries: darray[StudioStorageManifest::Entry] = storage_visible_entries
+                    storage_restore_entry <- entries[storage_selected]
+                    storage_restore_review <- true
+                    touch()
 
         def storage_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             if code == UiCore::Key.Escape:
-                close_storage_screen()
+                if storage_restore_review:
+                    storage_restore_review <- false
+                    touch()
+                else:
+                    close_storage_screen()
             elif code == UiCore::Key.Up:
                 if storage_focus < 0 and storage_visible_entries.count > 0:
+                    storage_restore_review <- false
                     storage_selected <- storage_selected - 1 if storage_selected > 0
                     touch()
             elif code == UiCore::Key.Down:
                 if storage_focus < 0 and storage_visible_entries.count > 0:
+                    storage_restore_review <- false
                     storage_selected <- storage_selected + 1 if storage_selected + 1 < storage_visible_entries.count.i64()
                     touch()
             elif code == UiCore::Key.Tab:
-                storage_focus <- (StudioPanels::STORAGE_DONE if StudioShortcuts::shift(modifiers) else StudioPanels::STORAGE_REFRESH) if storage_focus < 0 else 1 - storage_focus
+                storage_focus <- (StudioPanels::STORAGE_DONE if StudioShortcuts::shift(modifiers) else StudioPanels::STORAGE_REFRESH) if storage_focus < 0 else (storage_focus + (StudioPanels::STORAGE_ACTION_COUNT - 1 if StudioShortcuts::shift(modifiers) else 1)) % StudioPanels::STORAGE_ACTION_COUNT
                 touch()
             elif code == UiCore::Key.Left or code == UiCore::Key.Right:
                 if storage_focus >= 0:
-                    storage_focus <- 1 - storage_focus
+                    storage_focus <- (storage_focus + (StudioPanels::STORAGE_ACTION_COUNT - 1 if code == UiCore::Key.Left else 1)) % StudioPanels::STORAGE_ACTION_COUNT
                     touch()
             elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
                 storage_action(storage_focus) if storage_focus >= 0
@@ -1634,6 +1705,7 @@ module Studio:
             row: i64 = StudioPanels::storage_row_hit(w, h, x, y,
                 storage_visible_entries.count.i64(), storage_selected)
             if row >= 0:
+                storage_restore_review <- false
                 storage_selected <- row
                 storage_focus <- -1
                 touch()
@@ -2728,7 +2800,8 @@ module Studio:
             StudioPanels::storage_panel(w, h, storage_screen_open,
                 storage_visible_entries, storage_visible_statuses,
                 storage_selected, storage_focus, storage_message,
-                storage_protected_records, storage_unverified_records)
+                storage_protected_records, storage_unverified_records,
+                storage_restore_available(), storage_restore_review)
             StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
