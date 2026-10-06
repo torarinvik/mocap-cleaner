@@ -150,6 +150,14 @@ native keyboard/accessibility acceptance and current proof replay remain
 open. Time input and the boundary-navigation controls below remain to be
 implemented; this does not close the combined timeline milestone.
 
+The exact boundary-selection policy now admits only in-range frames strictly
+before/after the playhead, retains the nearest eligible boundary, and refuses
+invalid candidates without losing the prior choice. It also validates inclusive
+selection endpoints. Its accompanying laws compile with retained function
+symbols at O0; current producer/replay and UI integration remain open. Contact
+and correction-key producers must feed exact frames, never visual bins, and
+the UI must explain when no boundary is available.
+
 - [ ] Add typed Go to frame/time, first/last frame, selection start/end,
       previous/next contact boundary and previous/next correction key.
       Display the indexing convention consistently. Keep empty, malformed or

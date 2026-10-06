@@ -1,0 +1,47 @@
+# Exact output-frame navigation. Boundary producers retain every frame; this
+# fold must consume their exact frames rather than downsampled display bins.
+module StudioTimelineNavigationPolicy:
+    public:
+        const module Domain:
+            MAX_FRAMES: i64 = 10000000
+
+        const enum Direction of i64:
+            Previous = -1
+            Next = 1
+
+        def selection_valid(start: i64, end: i64, count: i64) -> bool:
+            requires count >= 1 and count <= Domain::MAX_FRAMES
+            ensure result == (start >= 0 and start <= end and end < count)
+            start >= 0 and start <= end and end < count
+
+        # -1 means no eligible boundary. It is never a scrub destination.
+        def choose_boundary(current: i64, candidate: i64, best: i64,
+                            count: i64, direction: Direction) -> i64:
+            requires count >= 1 and count <= Domain::MAX_FRAMES
+            requires current >= 0 and current < count
+            requires best == -1 or best >= 0 and best < count
+            requires direction != Direction.Previous or best == -1 or best < current
+            requires direction != Direction.Next or best == -1 or best > current
+            ensure result == -1 or result >= 0 and result < count
+            ensure result == best or result == candidate
+            ensure direction != Direction.Previous or result == -1 or result < current
+            ensure direction != Direction.Next or result == -1 or result > current
+            ensure direction != Direction.Previous or best == -1 or result >= best
+            ensure direction != Direction.Next or best == -1 or result <= best
+            return best if candidate < 0 or candidate >= count
+            if direction == Direction.Previous:
+                return best if candidate >= current
+                return candidate if best == -1 or candidate > best
+            else:
+                return best if candidate <= current
+                return candidate if best == -1 or candidate < best
+            best
+
+        # Inclusive selection endpoints and clip endpoints use the same
+        # output-frame convention as scrubbing; no duration/frame ambiguity.
+        def endpoint(last: bool, count: i64) -> i64:
+            requires count >= 1 and count <= Domain::MAX_FRAMES
+            ensure result >= 0 and result < count
+            ensure not last or result == count - 1
+            ensure last or result == 0
+            count - 1 if last else 0
