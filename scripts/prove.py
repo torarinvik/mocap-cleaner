@@ -45,7 +45,7 @@ CACHE = os.path.join(OUT, "cache")
 DURATIONS = os.path.join(CACHE, "durations.json")
 KEEP = re.compile(r"verification state|obligations:|proven:|failed:|unproven:")
 # Bump when the key layout or the cached line format changes.
-KEY_VERSION = b"prove-cache-v7"
+KEY_VERSION = b"prove-cache-v8"
 # The prover is run as `PROVER <absolute file>`; part of the key so a change
 # here cannot reuse results produced by another invocation.
 INVOCATION = b"argv:PROVER,ABSFILE"
@@ -323,6 +323,23 @@ def main():
                 invalid_runs.append((f, returncode, diagnostic))
             if old is not None and not invalid and line != old:
                 mismatches.append((f, old, line))
+    # Cache hits also belong to the selected snapshot. Check after all workers
+    # finish so a changed hit, or an edit after a worker's final observation,
+    # cannot leave a successful report for the current source tree.
+    already_invalid = {f for f, _, _ in invalid_runs}
+    for f, out, cached, _ in hits + todo:
+        expected_key = os.path.basename(cached)[:-4]
+        if digest(f, revision) == expected_key:
+            continue
+        with open(out, "w") as report:
+            report.write("")
+        marker = out[:-4] + ".cached"
+        if os.path.exists(marker):
+            os.remove(marker)
+        if f not in already_invalid:
+            invalid_runs.append((f, 125,
+                "source/include snapshot changed before run completion; current report discarded"))
+            already_invalid.add(f)
     tmp = DURATIONS + ".tmp"
     with open(tmp, "w") as o:
         json.dump(durations, o, indent=1, sort_keys=True)
