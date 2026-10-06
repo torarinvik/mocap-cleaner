@@ -185,3 +185,10 @@ the panel highlights the actually visible result and labels the stale suggested
 control. Qualify a document/stack change during candidate viewing: no stale pose
 may remain presented as current, and suggested-view activation stays disabled.
 Candidate metric freshness and native rendering/replay evidence remain open.
+
+Stale suggested comparisons now withhold their before/after numeric rows and
+show rebuild guidance. Contact, joint, boundary, velocity and impact evidence
+all return unavailable when the captured revision is stale, preventing a passing
+label from describing measurements against an older candidate. Qualify stale
+review screens and accessibility announcements; current compilation/replay and
+native evidence are pending.
