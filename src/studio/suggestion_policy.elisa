@@ -1,0 +1,106 @@
+# Pure admission for opening, applying, and cancelling a cleanup suggestion.
+# Preview state is owned by the app; this kernel decides whether an action is
+# valid for the captured document and stack revisions.
+module StudioSuggestionPolicy:
+    public:
+        const module State:
+            CLOSED: i64 = 0
+            OPEN: i64 = 1
+
+        const module Event:
+            OPEN: i64 = 0
+            APPLY: i64 = 1
+            CANCEL: i64 = 2
+
+        const module Decision:
+            NO_CHANGE: i64 = 0
+            OPENED: i64 = 1
+            APPLIED: i64 = 2
+            CANCELLED: i64 = 3
+            STALE: i64 = 4
+            UNMEASURED: i64 = 5
+            REGRESSION: i64 = 6
+            INVALID: i64 = 7
+
+        # Contact locking needs both validated contact evidence and an
+        # explicit user choice. A request alone never enables the lock.
+        def may_enable_contact_lock(contacts_validated: bool, user_opted_in: bool) -> bool:
+            ensure result implies contacts_validated
+            ensure result implies user_opted_in
+            contacts_validated and user_opted_in
+
+        # Every preservation dimension must have a measurement before a
+        # candidate can pass review. Unknown evidence is not a pass.
+        def metrics_pass(all_measured: bool, contacts_ok: bool, joints_ok: bool,
+                         boundaries_ok: bool, velocity_ok: bool,
+                         impacts_ok: bool) -> bool:
+            ensure not all_measured implies not result
+            ensure not contacts_ok implies not result
+            ensure not joints_ok implies not result
+            ensure not boundaries_ok implies not result
+            ensure not velocity_ok implies not result
+            ensure not impacts_ok implies not result
+            if not all_measured or not contacts_ok or not joints_ok or not boundaries_ok or not velocity_ok or not impacts_ok:
+                return false
+            true
+
+        # A preview may open only for a ready candidate and nonnegative
+        # captured revisions. Reopening an existing preview is a no-op.
+        def open_decision(state: i64, candidate_ready: bool,
+                          document_revision: i64, stack_revision: i64) -> i64:
+            requires state == State::CLOSED or state == State::OPEN
+            ensure result == Decision::OPENED or result == Decision::NO_CHANGE
+            ensure result == Decision::OPENED implies state == State::CLOSED
+            ensure result == Decision::OPENED implies candidate_ready
+            ensure result == Decision::OPENED implies document_revision >= 0 and stack_revision >= 0
+            if state != State::CLOSED:
+                return Decision::NO_CHANGE
+            if not candidate_ready or document_revision < 0 or stack_revision < 0:
+                return Decision::NO_CHANGE
+            Decision::OPENED
+
+        # Applying is admitted only for an open preview built from the exact
+        # current document and stack revisions, with all preservation metrics
+        # measured and passing. Stale previews are closed by the caller.
+        def apply_decision(state: i64, preview_document_revision: i64,
+                           preview_stack_revision: i64, document_revision: i64,
+                           stack_revision: i64, all_measured: bool,
+                           contacts_ok: bool, joints_ok: bool,
+                           boundaries_ok: bool, velocity_ok: bool,
+                           impacts_ok: bool) -> i64:
+            requires state == State::CLOSED or state == State::OPEN
+            ensure result == Decision::APPLIED or result == Decision::STALE or result == Decision::UNMEASURED or result == Decision::REGRESSION or result == Decision::INVALID
+            ensure result == Decision::APPLIED implies state == State::OPEN
+            ensure result == Decision::APPLIED implies preview_document_revision >= 0 and preview_stack_revision >= 0
+            ensure result == Decision::APPLIED implies document_revision >= 0 and stack_revision >= 0
+            ensure result == Decision::APPLIED implies preview_document_revision == document_revision
+            ensure result == Decision::APPLIED implies preview_stack_revision == stack_revision
+            ensure result == Decision::APPLIED implies all_measured
+            ensure result == Decision::APPLIED implies contacts_ok
+            ensure result == Decision::APPLIED implies joints_ok
+            ensure result == Decision::APPLIED implies boundaries_ok
+            ensure result == Decision::APPLIED implies velocity_ok
+            ensure result == Decision::APPLIED implies impacts_ok
+            if state != State::OPEN:
+                return Decision::INVALID
+            if preview_document_revision < 0 or preview_stack_revision < 0 or document_revision < 0 or stack_revision < 0:
+                return Decision::STALE
+            if preview_document_revision != document_revision or preview_stack_revision != stack_revision:
+                return Decision::STALE
+            if all_measured and contacts_ok and joints_ok and boundaries_ok and velocity_ok and impacts_ok:
+                return Decision::APPLIED
+            if not all_measured:
+                return Decision::UNMEASURED
+            Decision::REGRESSION
+
+        # Cancel never commits, regardless of revision freshness.
+        def cancel_decision(state: i64) -> i64:
+            requires state == State::CLOSED or state == State::OPEN
+            ensure result == Decision::CANCELLED or result == Decision::NO_CHANGE
+            ensure result == Decision::CANCELLED implies state == State::OPEN
+            Decision::CANCELLED if state == State::OPEN else Decision::NO_CHANGE
+
+        # Events outside the recognized UI actions fail closed.
+        def event_valid(event: i64) -> bool:
+            ensure result == (event >= Event::OPEN and event <= Event::CANCEL)
+            event >= Event::OPEN and event <= Event::CANCEL
