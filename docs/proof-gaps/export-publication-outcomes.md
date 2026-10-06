@@ -88,7 +88,7 @@ is pending: the first formula produced budget refusals and caller replay gaps,
 and an equivalent explicit-branch formulation is being checked. Do not use
 superseded `build/export-recovery-stage-*.json` reports as acceptance evidence
 until the current runs finish and their certificates are reviewed. No baseline
-is added for the stage policy, and journal parsing/integration remain open.
+is added for the stage policy, and journal qualification/integration remain open.
 
 The version-1 journal codec now stores a strict header, transaction basename,
 workspace and three final paths, capture generation/animation, frozen byte sizes,
