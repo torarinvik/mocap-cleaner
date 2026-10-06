@@ -120,7 +120,7 @@ used for evaluation. The reader rejects declared schema/unit mismatches and
 malformed declarations; unknown/legacy metadata is explicitly unqualified in
 console and HTML. Unit metadata is capped at 128 declarations by a contracted
 budget. Exact unit conversion, full detector-setting/provenance compatibility,
-strict acceptance gating for unknown metadata, metadata traversal proof replay
+qualification of the strict unknown-metadata gate, metadata traversal proof replay
 and native edge-case qualification remain required. The compatibility policy
 has source contracts and schema/unit laws; current Stage1 compilation succeeds.
 
@@ -130,3 +130,10 @@ with a known wrong dimension are rejected. Unknown metric names remain
 unqualified. Current compiler builds the reader and laws. The default prover
 reports source 4/4 and laws 9/12, with three laws still unknown; independent
 replay and behavior qualification remain open.
+
+Unknown schema, unit or required detector declarations now force an unavailable
+exit verdict; numeric rows remain available for inspection. The metadata
+admission policy reports 3/3 and its laws 11/11 on the default prover; reader
+and updated existing fixtures compile. Independent replay and behavioral
+qualification remain required. These checks do not supply missing immutable
+provenance or the other detector settings still listed above.
