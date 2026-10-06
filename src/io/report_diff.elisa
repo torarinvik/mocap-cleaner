@@ -9,6 +9,7 @@ include "../core/regress.elisa"
 include "../core/report_budget.elisa"
 include "../core/report_decimal.elisa"
 include "../core/report_index_kernel.elisa"
+include "../core/report_compatibility.elisa"
 include "../../../elisa-engine-mocap/src/assets/glb_json.elisa"
 include "report.elisa"
 include "json_string.elisa"
@@ -285,6 +286,16 @@ module ReportDiff:
                 validation_problem(&errors, &diagnostics, "Candidate report is empty, malformed or has duplicate metric identities.")
             if errors == 0 and ma.count == 0:
                 validation_problem(&errors, &diagnostics, "Baseline report contains no scalar metrics.")
+            mutable schema_unknown: bool = false
+            if errors == 0:
+                schema_status: ReportCompatibility::Status = declared_schema_status(&a_text, &b_text)
+                if schema_status == ReportCompatibility::Status.Invalid:
+                    validation_problem(&errors, &diagnostics, "Report schema declarations are malformed or duplicated.")
+                elif schema_status == ReportCompatibility::Status.Incompatible:
+                    validation_problem(&errors, &diagnostics, "Report schemas differ or only one report declares a schema. Regenerate both reports with the same supported producer.")
+                elif schema_status == ReportCompatibility::Status.Unknown:
+                    schema_unknown <- true
+                    Out::line("Schema compatibility is unknown. Numeric results do not qualify units, detector settings or provenance.")
             mutable candidate_index: darray[usize] = []
             build_index(&pb, &mb, &candidate_index)
             tol: i64 = tolerance(tol_permille)
@@ -360,6 +371,8 @@ module ReportDiff:
                 Report::push_text(&document, "<section aria-labelledby=validation-heading><h2 id=validation-heading>Validation problems</h2><ul>")
                 document.extend(diagnostics)
                 Report::push_text(&document, "</ul></section>")
+            if schema_unknown:
+                Report::push_text(&document, "<section aria-labelledby=schema-heading><h2 id=schema-heading>Schema compatibility unknown</h2><p>These reports use a legacy or unrecognized schema. Numeric results do not establish matching units, detector settings or provenance. Regenerate both reports with the same supported producer before acceptance.</p></section>")
             ReportDiffHtml::table_begin(&document)
             document.extend(page)
             ReportDiffHtml::end(&document)
@@ -372,3 +385,5 @@ module ReportDiff:
             return Regress::verdict(regressions, errors)
 
 include "report_diff_index.elisa"
+
+include "report_diff_schema.elisa"
