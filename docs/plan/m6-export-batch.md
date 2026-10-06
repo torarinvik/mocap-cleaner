@@ -117,3 +117,8 @@ status. Failed reads clear partial bytes before reporting unavailable input.
 This prevents complete-looking prefixes from being compared as full reports.
 The source compiles on current Stage1; filesystem fault qualification remains
 open.
+
+Regression source qualification: current clean prover `d3a17832` / compiler
+`4c409da6` proves 71/71 source obligations and replays 71/71 certificates, zero
+gaps. `metric_available` states its exact predicate directly; its contract is
+unchanged. Composed law and native comparison qualification remain separate.
