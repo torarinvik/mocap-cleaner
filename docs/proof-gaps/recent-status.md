@@ -419,3 +419,44 @@ complete independent certificate replay and zero gaps/findings. Saved flat,
 relative nested and absolute-reference probes also prove completely. The
 intermediate 28-obligation regression no longer appears in the final runs.
 No original expectation was relaxed.
+
+## G97: nested const-enum witnesses and summary ownership (2026-10-06)
+
+Before the repair, the committed prover (`d3a17832`, Stage1 `4c409da6`) did not
+produce scalar witnesses for const enums nested inside modules. Its witness
+collector only scanned top-level declarations, and qualified enum comparisons
+remained unresolved. Focused reports showed `StudioExportValidation` source
+5/6, validation laws 9/18, metric evidence source 14/39 and laws 22/64.
+Existing law baselines remained unchanged.
+
+The producer repair is committed as prover `3de825c7`, rebuilt normally with
+Stage1 `4c409da6`; the manifest records the committed proof revision and
+`source_dirty=false`. It recursively collects nested declarations, checks
+enum and variant uniqueness over the full declaration tree, and records the
+exact qualified `Field(enum_type, variant)` term while retaining existing
+shorthand witnesses. `StudioExportValidation` source now proves 6/6 with full
+replay. The strengthened validation laws prove 10/14; four caller ensures
+remain open because the verified callee summary retains a module-local
+`Result.READY` field while its caller precondition uses
+`StudioExportValidation::Result.READY`. Metric evidence proves 15/39 source
+and 23/62 laws, with full replay for proven obligations. Existing law
+baselines remain unchanged.
+
+The witness records the exact type expression and only admits a short member
+when whole-tree counts establish a unique enum owner and member spelling;
+aliases and overloaded value operators remain refused. Caller contract rows
+still need scope-aware enum path qualification. Do not normalize a short
+member name to a guessed enum owner.
+
+## G98: composed summary replay (2026-10-06)
+
+The `Regress` source reports 71/71 with full replay. Its stronger law file
+reports 160/171 with eight certificate replay gaps. The remaining producer
+goals include Boolean equality across two function summaries
+(`exact_integer_availability_matches_domain`, `ambiguous-constant-goal`) and
+two checked arithmetic facts in the `growth_past_*_regresses` laws
+(`wrap-guard-fact`). `report_budget` source proves 4/4. After cardinality
+laws were added, its current law report produces 17/22, with 17 certificates
+replayed and five unknown obligations. This agrees with the latest full root
+record; 14/14 and 11/14 were from an older law snapshot. Existing laws and
+source bounds remain intact; no baseline was weakened.
