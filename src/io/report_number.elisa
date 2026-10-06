@@ -1,7 +1,8 @@
 include "../core/report_decimal.elisa"
 include "../core/report_budget.elisa"
+include "../../../elisa-engine-mocap/src/assets/glb_json.elisa"
 
-# Parse an already validated JSON number token into an exact canonical value.
+# Validate a JSON number token and preserve its exact canonical value.
 # Trailing zeroes are held separately so equivalent spellings share a value.
 module ReportNumber:
     private:
@@ -17,6 +18,7 @@ module ReportNumber:
             requires start <= stop and stop <= text.count
             requires stop - start <= ReportBudget::Capacity::BYTES.usize()
             return Result.Unavailable if start == stop
+            return Result.Unavailable if not GlbJson::number_valid(text, start, stop)
             mutable at: usize = start
             negative: bool = text[at] == 45
             at <- at + 1 if negative
@@ -58,6 +60,8 @@ module ReportNumber:
                     coefficient <- ReportDecimal::append_digit(coefficient, digit)
                 at <- at + 1
             return Result.Unavailable if not saw_digit or (fractional and not fraction_digit)
+            # Once grammar is validated, zero is independent of exponent size.
+            return Result.Exact(coefficient: 0, exponent: 0) if coefficient == 0
             mutable explicit_exponent: i64 = 0
             if at < stop:
                 at <- at + 1
@@ -74,6 +78,5 @@ module ReportNumber:
                     explicit_exponent <- explicit_exponent * 10 + (byte - 48).i64()
                     at <- at + 1
                 explicit_exponent <- -explicit_exponent if exponent_negative
-            return Result.Exact(coefficient: 0, exponent: 0) if coefficient == 0
             coefficient <- -coefficient if negative
             Result.Exact(coefficient: coefficient, exponent: explicit_exponent - fraction + zeroes)
