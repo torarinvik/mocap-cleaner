@@ -123,13 +123,16 @@ fi
 # cache hits and fails on any mismatch.
 mkdir -p build/proof
 rm -f build/proof/*.txt build/proof/*.cached
-python3 scripts/prove.py ${PROOF_RECHECK:+--recheck-sample "$PROOF_RECHECK"} "$PROVER" $(ls src/*/*.elisa proof/*.elisa 2>/dev/null) || status=1
-for f in src/*/*.elisa proof/*.elisa; do
+# The pure preferences codec lives beside its IO adapter, but participates
+# in the same reviewed proof corpus as the Studio kernels.
+set -- src/*/*.elisa src/studio/io/storage_preferences_codec.elisa proof/*.elisa
+python3 scripts/prove.py ${PROOF_RECHECK:+--recheck-sample "$PROOF_RECHECK"} "$PROVER" "$@" || status=1
+for f in "$@"; do
     [ -f "$f" ] || continue
     base="build/proof/$(echo "$f" | tr / _)"
     line=$(cat "$base.txt" 2>/dev/null)
     tag=""; [ -f "$base.cached" ] && tag=" (cached)"
     echo "proof $f: $line$tag"
 done
-python3 scripts/check_proof_baseline.py src/*/*.elisa proof/*.elisa || status=1
+python3 scripts/check_proof_baseline.py "$@" || status=1
 exit $status
