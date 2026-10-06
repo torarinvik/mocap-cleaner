@@ -4,6 +4,44 @@ include "../timeline_goto_focus.elisa"
 extend Studio:
     private:
         global mutable goto_focus: StudioTimelineGotoFocus::Control = StudioTimelineGotoFocus::Control.Field
+        global mutable goto_syncing_text: bool = false
+        global mutable goto_previous_focus: usize = UiFlat::NONE
+
+        def goto_show_controls(shown: bool) -> void:
+            return if not accessibility_goto_ready
+            for widget in [accessibility_goto_field_widget,
+                           accessibility_goto_apply_widget,
+                           accessibility_goto_cancel_widget] |widget, shown|:
+                UiFlat::set_visible(widget, shown)
+                UiFlat::set_enabled(widget, shown)
+
+        # Native AX setters edit the retained field. Keep its counted bytes
+        # synchronized with the modal draft without recursively accepting our
+        # own programmatic Change event.
+        def goto_sync_text() -> void:
+            return if not goto_open or not accessibility_goto_ready
+            goto_syncing_text <- true
+            UiFlat::replace_text(accessibility_goto_field_widget, goto_text())
+            goto_syncing_text <- false
+
+        def goto_accept_accessibility_text() -> void:
+            return if goto_syncing_text
+            value: sview = UiFlat::text_value(accessibility_goto_field_widget)
+            mutable valid: bool = value.len >= 0 and value.len <= 8 and (value.len == 0 or value.data != null)
+            if valid:
+                for i in 0..<value.len.usize() |i, value, valid|:
+                    valid <- false if value.data[i] < 48 or value.data[i] > 57
+            if not valid:
+                status <- "Use up to eight digits for the frame number; the previous entry was retained."
+                status_file <- null
+                goto_sync_text()
+                touch()
+                return
+            for i in 0..<value.len.usize() |i, value|:
+                typed[i] <- value.data[i]
+            typed_len <- value.len
+            goto_focus <- StudioTimelineGotoFocus::Control.Field
+            touch()
 
         def goto_target_now() -> StudioTimelineGotoDraftPolicy::Target:
             StudioTimelineGotoDraftPolicy::Target{take: take_serial, document: built,
@@ -34,6 +72,9 @@ extend Studio:
             reset_menu_open <- false
             goto_status <- StudioTimelineGotoPolicy::Status.Empty
             goto_focus <- StudioTimelineGotoFocus::Control.Field
+            goto_previous_focus <- UiFlat::focused()
+            goto_show_controls(true)
+            goto_sync_text()
             # A shortcut can open the modal while a pointer gesture is still
             # in flight. Drop its capture so a later pointer-up cannot commit
             # it after the dialog closes.
@@ -50,9 +91,13 @@ extend Studio:
             touch()
 
         def goto_close() -> void:
+            goto_show_controls(false)
             goto_open <- false
             typing <- false
             typed_len <- 0
+            UiFlat::clear_focus()
+            _ = UiFlat::request_focus(goto_previous_focus)
+            goto_previous_focus <- UiFlat::NONE
             touch()
 
         def goto_apply() -> void:
@@ -94,6 +139,7 @@ extend Studio:
             elif code == UiCore::Key.Backspace:
                 return if goto_focus != StudioTimelineGotoFocus::Control.Field
                 typed_len <- typed_len - 1 if typed_len > 0 else 0
+                goto_sync_text()
                 touch()
             else:
                 goto_append_key(code)
@@ -115,6 +161,7 @@ extend Studio:
             if digit >= 0:
                 typed[typed_len.usize()] <- (48 + digit).u8()
                 typed_len <- typed_len + 1
+                goto_sync_text()
                 touch()
 
         def goto_pointer(x: f32, y: f32, button: i32) -> void:
@@ -135,6 +182,9 @@ extend Studio:
 
         def goto_accessibility_action(widget: usize, event: i32) -> bool:
             return false if not goto_open
+            if widget == accessibility_goto_field_widget and event == UiConst::WidgetEvent.Change.i32():
+                goto_accept_accessibility_text()
+                return true
             return true if event != UiConst::WidgetEvent.Click.i32()
             if widget == accessibility_goto_field_widget:
                 goto_focus <- StudioTimelineGotoFocus::Control.Field
