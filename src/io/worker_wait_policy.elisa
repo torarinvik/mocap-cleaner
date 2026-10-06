@@ -1,0 +1,29 @@
+# Pure classification for POSIX waitpid outcomes. Runtime errno values come
+# from the platform adapter and are not proved by this policy.
+module WorkerWaitPolicy:
+    public:
+        const ACTION_RETRY: i64 = 0
+        const ACTION_REAPED: i64 = 1
+        const ACTION_FAILED: i64 = 2
+        const EINTR: i64 = 4
+
+        # A positive pid means one child was reaped. EINTR means retry the
+        # blocking wait. Every other result is a wait failure.
+        def action(wait_result: i64, error_number: i64) -> i64:
+            ensure result == (ACTION_RETRY if wait_result < 0 and error_number == EINTR else ACTION_REAPED if wait_result > 0 else ACTION_FAILED)
+            return ACTION_RETRY if wait_result < 0 and error_number == EINTR
+            return ACTION_REAPED if wait_result > 0
+            ACTION_FAILED
+
+        # Running-child counts change only after waitpid reaps a child.
+        def remaining(running: i64, reaped: bool) -> i64:
+            requires running >= 0
+            ensure result == (running - 1 if reaped and running > 0 else running)
+            return running - 1 if reaped and running > 0
+            running
+
+        # A child counts as successful only if waitpid reaped it and status
+        # reports success. This says nothing about the status encoding source.
+        def completion_ok(reaped: bool, status: i64) -> bool:
+            ensure result == (reaped and status == 0)
+            reaped and status == 0

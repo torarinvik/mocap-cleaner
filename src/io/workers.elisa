@@ -2,6 +2,7 @@
 # sends its stdout to a part file, so the parent can print every take's
 # output in input order once the workers finish.
 include "output_completion_policy.elisa"
+include "worker_wait_policy.elisa"
 @link_name("fork")
 extern w_fork() -> i32 can[Blocking.IO]
 @link_name("waitpid")
@@ -23,6 +24,15 @@ extern w_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release
 @link_name("remove")
 extern w_remove(path: u8&) -> i32 can[Blocking.IO]
 
+# POSIX errno accessor. This IO adapter currently supports Darwin and Linux;
+# each accessor returns the calling thread's errno storage.
+static if ELISA_TARGET_OS_MACOS:
+    @link_name("__error")
+    extern w_errno_address() -> mutable i32& can[Blocking.IO]
+static else:
+    @link_name("__errno_location")
+    extern w_errno_address() -> mutable i32& can[Blocking.IO]
+
 module Workers:
     public:
         # Flush every stdio stream (before a fork, so buffers are not doubled,
@@ -39,13 +49,17 @@ module Workers:
                 pid <- w_fork()
             return pid
 
-        # Wait for any worker; true when it exited with status 0.
-        def wait_any() -> bool:
+        # Wait for any worker. `reaped` is false only on a non-EINTR wait
+        # failure; `ok` is true only when a child was reaped with status 0.
+        def wait_any() -> (reaped: bool, ok: bool):
             mutable status: i32 = 1
             mutable pid: i32 = -1
             can Blocking.IO:
                 pid <- w_waitpid(-1, &status, 0)
-            return pid > 0 and status == 0
+                while pid < 0 and w_errno_address()[0] == WorkerWaitPolicy::EINTR:
+                    pid <- w_waitpid(-1, &status, 0)
+            reaped: bool = pid > 0
+            (reaped: reaped, ok: WorkerWaitPolicy::completion_ok(reaped, status.i64()))
 
         # End a worker with `code` after flushing its output.
         def finish(code: i32):
