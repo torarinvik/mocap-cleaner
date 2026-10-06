@@ -101,3 +101,9 @@ produces an explicit invalid-run diagnostic and discards the result. This
 prevents storing observed changed-source evidence under the earlier cache key.
 It does not substitute for an immutable qualification checkout: changes that
 are made and reverted between observations remain outside this detection.
+
+The proof supervisor now consumes worker results in completion order and logs
+each completed report or invalid run immediately with elapsed time and exit
+code. A slow first task no longer hides other workers' progress. The message
+says `report completed`, not `proved`; baseline and replay gates still determine
+acceptance. Qualification of parallel progress and failure reporting is pending.

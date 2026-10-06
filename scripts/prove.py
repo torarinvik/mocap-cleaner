@@ -38,7 +38,7 @@ import re
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 OUT = "build/proof"
 CACHE = os.path.join(OUT, "cache")
@@ -292,8 +292,13 @@ def main():
     mismatches = []
     invalid_runs = []
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        for f, took, old, line, invalid, returncode, diagnostic in pool.map(prove, work):
+        pending = [pool.submit(prove, item) for item in work]
+        for future in as_completed(pending):
+            f, took, old, line, invalid, returncode, diagnostic = future.result()
             durations[f] = round(took, 3)
+            state = "invalid run" if invalid else "report completed"
+            print(f"prove: {f}: {state} in {took:.2f}s; exit {returncode}",
+                  file=sys.stderr, flush=True)
             if invalid:
                 invalid_runs.append((f, returncode, diagnostic))
             if old is not None and not invalid and line != old:
