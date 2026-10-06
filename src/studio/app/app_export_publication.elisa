@@ -1,5 +1,6 @@
 include "../export_publication_policy.elisa"
 include "app_state.elisa"
+include "app_export_recovery.elisa"
 include "../export_snapshot_policy.elisa"
 include "report_text.elisa"
 include "../export_recovery_budget_policy.elisa"
@@ -109,21 +110,22 @@ extend Studio:
                         say_file("Export cancelled: displayed result changed; existing destination kept.", destination)
                         touch()
                         return false
-                    publication: StudioPublicationDurabilityPolicy::Result = StudioExportPublisher::commit_with_status(temporary, destination)
-                    if StudioPublicationDurabilityPolicy::published(publication):
-                        export_durability_unknown <- publication == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
-                        storage_tracking_failed <- false
-                        export_publication_outcome <- StudioExportPublicationPolicy::Outcome.GlbOnly
-                        if report_snapshot is frozen_reports:
-                            export_publication_outcome <- publish_export_reports(destination, frozen_reports)
+                    mutable recovery: RecoveryExportResult = zeroed
+                    if report_snapshot is frozen_reports:
+                        recovery <- publish_with_recovery(destination, temporary, allows_overwrite, captured_generation, c.anim.i64(), frozen_reports.json, frozen_reports.summary)
+                    if recovery.published:
+                        export_durability_unknown <- recovery.durability_unknown
+                        storage_tracking_failed <- recovery.tracking_failed
+                        export_publication_outcome <- recovery.report_outcome
                         report_saved: bool = StudioExportPublicationPolicy::reports_complete(export_publication_outcome)
-                        FilePanel::release_path(temporary)
                         export_path <- destination
                         say_file("GLB exported and validated; report saved, but Storage tracking could not be saved", destination) if report_saved and storage_tracking_failed
                         say_file("GLB exported and validated; report sidecars and Storage tracking could not be saved", destination) if not report_saved and storage_tracking_failed
                         say_file("exported and validated; report saved", destination) if report_saved and not storage_tracking_failed
                         say_file(StudioExportPublicationPolicy::message(export_publication_outcome), destination) if not report_saved and not storage_tracking_failed
                         say_file("GLB published; directory durability is unconfirmed. The result exists; do not repeat export over it.", destination) if export_durability_unknown
+                        say_file("GLB was published, but its staging file could not be removed. Keep this file for recovery review.", temporary) if recovery.keep_staging
+                        FilePanel::release_path(temporary)
                         FilePanel::note_recent(destination)
                         _ = puts(destination)
                         export_result_path <- destination
@@ -131,13 +133,26 @@ extend Studio:
                         export_result_open <- true
                         touch()
                         return true
-                    StudioExportPublisher::discard(temporary)
+                    if not recovery.keep_staging:
+                        StudioExportPublisher::discard(temporary)
                     FilePanel::release_path(temporary)
-                    say_file("export failed; destination kept", destination)
+                    say_file(recovery_failure_message(recovery.failure), destination)
+                    say_file("No GLB was published. Storage lock release is uncertain; restart Studio before retrying workspace writes.", destination) if recovery.tracking_failed
                 else:
                     say_file(StudioExportValidation::message(prepare_error), destination)
                 touch()
             false
+
+        def recovery_failure_message(failure: RecoveryFailure) -> sview:
+            return "Export blocked: GLB and report destinations changed or conflict. Choose new names; nothing was published." if failure == RecoveryFailure.Destinations
+            return "Recovery could not start because build/ is busy. Retry when other workspace operations finish; nothing was published." if failure == RecoveryFailure.Lock
+            return "Recovery could not capture the staged GLB. Nothing was published; keep the staging and recovery files for review." if failure == RecoveryFailure.Staging
+            return "Recovery metadata could not be verified. Nothing was published; inspect Storage & Recovery before retrying." if failure == RecoveryFailure.Metadata
+            return "A complete recovery package could not be prepared. Nothing was published; inspect Storage & Recovery and keep any recovery files." if failure == RecoveryFailure.Prepare
+            return "Recovery retention capacity is full. Nothing was published; preserve recovery files and restart Studio before retrying." if failure == RecoveryFailure.Retention
+            return "Prepared recovery no longer matches the captured export. Nothing was published; keep recovery files and inspect Storage & Recovery." if failure == RecoveryFailure.Binding
+            return "GLB was not published. A prepared recovery package remains; keep it for review before retrying." if failure == RecoveryFailure.Publication
+            "Export could not be published. Destination and recovery files were kept."
 
         def export_report_paths_fit(destination: cstr) -> bool:
             mutable length: usize = 0
@@ -325,15 +340,15 @@ extend Studio:
                 balance_impossible_frames: c.impossible_frames}
             mutable warnings: darray[StudioExportReport::Warning] = []
             if c.impossible_frames > 0:
-                warnings.push(StudioExportReport::Warning{category: "balance", severity: StudioExportReport::Severity::WARNING, message: "Frames marked impossible by the Studio balance detector."})
+                warnings.push(StudioExportReport::Warning{category: "balance", severity: StudioExportReport::Severity.WARNING, message: "Frames marked impossible by the Studio balance detector."})
             if c.spikes_after > c.spikes_before:
-                warnings.push(StudioExportReport::Warning{category: "spikes", severity: StudioExportReport::Severity::WARNING, message: "Detected spike frames increased after cleanup."})
+                warnings.push(StudioExportReport::Warning{category: "spikes", severity: StudioExportReport::Severity.WARNING, message: "Detected spike frames increased after cleanup."})
             if c.slide_after > c.slide_before:
-                warnings.push(StudioExportReport::Warning{category: "foot_slide", severity: StudioExportReport::Severity::WARNING, message: "Measured planted-foot slide increased after cleanup."})
+                warnings.push(StudioExportReport::Warning{category: "foot_slide", severity: StudioExportReport::Severity.WARNING, message: "Measured planted-foot slide increased after cleanup."})
             if c.sink_after > c.sink_before:
-                warnings.push(StudioExportReport::Warning{category: "foot_sink", severity: StudioExportReport::Severity::WARNING, message: "Measured foot sink increased after cleanup."})
+                warnings.push(StudioExportReport::Warning{category: "foot_sink", severity: StudioExportReport::Severity.WARNING, message: "Measured foot sink increased after cleanup."})
             if c.hand_slide_after > c.hand_slide_before:
-                warnings.push(StudioExportReport::Warning{category: "hand_slide", severity: StudioExportReport::Severity::WARNING, message: "Measured hand slide increased after cleanup."})
+                warnings.push(StudioExportReport::Warning{category: "hand_slide", severity: StudioExportReport::Severity.WARNING, message: "Measured hand slide increased after cleanup."})
             data: StudioExportReport::Data = StudioExportReport::Data{
                 source_name: source_name,
                 source_fingerprint_first: c.source_fingerprint.first,

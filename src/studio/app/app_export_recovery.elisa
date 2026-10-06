@@ -1,0 +1,344 @@
+# Same-session retention and publication for recovery-backed GLB exports.
+include "app_state.elisa"
+include "app_storage_persistence.elisa"
+include "app_export_destination.elisa"
+include "export_publisher.elisa"
+include "../io/export_recovery_prepare.elisa"
+include "../io/export_recovery_binding.elisa"
+include "../io/export_recovery_publication.elisa"
+include "../io/export_recovery_completion.elisa"
+include "../io/export_recovery_metadata.elisa"
+include "../export_recovery_retention_policy.elisa"
+include "../export_staging_cleanup_policy.elisa"
+
+extend Studio:
+    private:
+        const enum RecoveryFailure of i64:
+            None = 0
+            Destinations = 1
+            Lock = 2
+            Staging = 3
+            Metadata = 4
+            Prepare = 5
+            Retention = 6
+            Binding = 7
+            Publication = 8
+
+        struct RecoveryExportResult:
+            published: mutable bool
+            failure: mutable RecoveryFailure
+            report_outcome: mutable StudioExportPublicationPolicy::Outcome
+            durability_unknown: mutable bool
+            tracking_failed: mutable bool
+            keep_staging: mutable bool
+
+        global mutable retained_export_count: i64 = 0
+        global mutable retained_export_payload_bytes: i64 = 0
+        global mutable retained_export_offsets: i64[16] = zeroed
+        global mutable retained_export_lengths: i64[96] = zeroed
+        global mutable retained_export_payload: darray[u8] = zeroed
+        global mutable retained_recovery_path_count: usize = 0
+        global mutable retained_recovery_paths: u8[65536] = zeroed
+
+        def publish_with_recovery(destination: cstr, staging: cstr,
+                                  overwrite_confirmed: bool, generation: i64,
+                                  animation: i64, json: darray[u8]&, text: darray[u8]&) -> RecoveryExportResult can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable result: RecoveryExportResult = zeroed
+            mutable json_path: darray[u8] = []
+            mutable text_path: darray[u8] = []
+            return fail_recovery(result, RecoveryFailure.Destinations) if not recovery_report_paths(destination, &json_path, &text_path)
+            json_cstr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
+            text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
+            return fail_recovery(result, RecoveryFailure.Destinations) if not recovery_destinations_ready(destination, json_cstr, text_cstr, overwrite_confirmed)
+
+            descriptor: i32 = begin_storage_transaction()
+            return fail_recovery(result, RecoveryFailure.Lock) if descriptor == -1
+            locked_transaction: bool = storage_transaction_active and (descriptor >= 0 or descriptor == -2)
+            if not recovery_destinations_ready(destination, json_cstr, text_cstr, overwrite_confirmed):
+                result <- fail_recovery(result, RecoveryFailure.Destinations)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+
+            mutable output: darray[u8] = []
+            if not StudioExportRecoveryBytes::read(staging, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES, &output) or output.count == 0:
+                result <- fail_recovery(result, RecoveryFailure.Staging)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+            mutable record: StudioExportRecoveryJournal::Record = zeroed
+            if not StudioExportRecoveryMetadata::draft(workspace_build_directory(), destination, generation, animation, output.count.i64(), json.count.i64(), text.count.i64(), &record):
+                result <- fail_recovery(result, RecoveryFailure.Metadata)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+            incoming_reservation: i64 = output.count.i64() + json.count.i64() + text.count.i64() + StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES + cstr_length(staging) + 8192
+            if not StudioExportRecoveryRetentionPolicy::retain_admitted(retained_export_count, retained_export_payload_bytes, incoming_reservation):
+                result <- fail_recovery(result, RecoveryFailure.Retention)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+
+            preparation: StudioExportRecoveryPrepare::Preparation = StudioExportRecoveryPrepare::prepare(workspace_build_directory(), staging, &record, json, text, descriptor >= 0 or descriptor == -2)
+            mutable recovery_directory: cstr = ""
+            mutable directory_owned: bool = false
+            if preparation is StudioExportRecoveryPrepare::Preparation.Prepared(directory):
+                directory_facts: i64 = FilePanel::path_facts(directory)
+                directory_owned <- directory_facts >= 0 and (directory_facts & FilePanel::PATH_DIRECTORY) != 0 and (directory_facts & FilePanel::PATH_SYMLINK) == 0
+                if not directory_owned:
+                    retain_recovery_path_diagnostic(directory)
+                    FilePanel::release_path(directory)
+                    result <- fail_recovery(result, RecoveryFailure.Binding)
+                    result.keep_staging <- true
+                    result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                    return result
+                if not retain_prepared_recovery(directory, staging, record, output, json, text):
+                    retain_recovery_path_diagnostic(directory)
+                    FilePanel::release_path(directory)
+                    result <- fail_recovery(result, RecoveryFailure.Retention)
+                    result.keep_staging <- true
+                    result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                    return result
+                recovery_directory <- directory
+            elif preparation is StudioExportRecoveryPrepare::Preparation.RetainedFailure(reason, directory):
+                retain_recovery_path_diagnostic(directory)
+                FilePanel::release_path(directory)
+                result <- fail_recovery(result, RecoveryFailure.Prepare)
+                result.keep_staging <- true
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+            else:
+                result <- fail_recovery(result, RecoveryFailure.Prepare)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+
+            publication: StudioExportRecoveryPublication::Outcome = StudioExportRecoveryPublication::commit(
+                recovery_directory, staging, destination, record, output, json, text,
+                directory_owned, locked_transaction, overwrite_confirmed)
+            if publication is StudioExportRecoveryPublication::Outcome.Rejected(reason):
+                result <- fail_recovery(result, RecoveryFailure.Binding)
+                result.keep_staging <- true
+                FilePanel::release_path(recovery_directory)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+            elif publication is StudioExportRecoveryPublication::Outcome.NotPublished:
+                result <- fail_recovery(result, RecoveryFailure.Publication)
+                result.keep_staging <- true
+                FilePanel::release_path(recovery_directory)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+            elif publication is StudioExportRecoveryPublication::Outcome.Published(status, journal_status, staging_removed):
+                result.published <- true
+                result.keep_staging <- StudioExportStagingCleanupPolicy::pending(true, staging_removed)
+                retain_recovery_path_diagnostic(staging) if not staging_removed
+                result.durability_unknown <- status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+                result.tracking_failed <- journal_status == StudioPublicationDurabilityPolicy::Result.NotPublished
+                result.durability_unknown <- result.durability_unknown or journal_status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+                mutable json_saved: bool = false
+                mutable text_saved: bool = false
+                json_outcome: StudioExportRecoveryCompletion::Outcome = StudioExportRecoveryCompletion::complete(
+                    recovery_directory, record, output, json, text, directory_owned, locked_transaction, StudioExportRecoveryCompletion::Report.Json)
+                json_saved <- recovery_report_completed(json_outcome)
+                result.tracking_failed <- result.tracking_failed or recovery_journal_failed(json_outcome)
+                result.durability_unknown <- result.durability_unknown or recovery_journal_unknown(json_outcome)
+                if json_saved:
+                    result.tracking_failed <- true if not register_storage_artifact_locked(json_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
+                text_outcome: StudioExportRecoveryCompletion::Outcome = StudioExportRecoveryCompletion::complete(
+                    recovery_directory, record, output, json, text, directory_owned, locked_transaction, StudioExportRecoveryCompletion::Report.Text)
+                text_saved <- recovery_report_completed(text_outcome)
+                result.tracking_failed <- result.tracking_failed or recovery_journal_failed(text_outcome)
+                result.durability_unknown <- result.durability_unknown or recovery_journal_unknown(text_outcome)
+                if text_saved:
+                    result.tracking_failed <- true if not register_storage_artifact_locked(text_cstr, StudioStorageCleanupPolicy::GENERATED_REPORT)
+                result.report_outcome <- StudioExportPublicationPolicy::sidecar_outcome(json_saved, text_saved)
+            else:
+                result <- fail_recovery(result, RecoveryFailure.Publication)
+                result.keep_staging <- true
+                FilePanel::release_path(recovery_directory)
+                result.tracking_failed <- true if not end_storage_transaction(descriptor)
+                return result
+
+            FilePanel::release_path(recovery_directory)
+            released: bool = end_storage_transaction(descriptor)
+            result.tracking_failed <- true if not released
+            result
+
+        def fail_recovery(current: RecoveryExportResult, failure: RecoveryFailure) -> RecoveryExportResult:
+            current.failure <- failure
+            current
+
+        def recovery_report_paths(destination: cstr, json_path: mutable darray[u8]&, text_path: mutable darray[u8]&) -> bool:
+            mutable length: usize = 0
+            while length < 4096 and destination[length] != 0:
+                length <- length + 1
+            return false if length == 0 or length >= 4096 or not StudioExportReportPathPolicy::admitted(length.i64())
+            for index in 0..<length:
+                json_path.push(destination[index])
+                text_path.push(destination[index])
+            json_path.extend(".report.json")
+            text_path.extend(".report.txt")
+            json_path.push(0)
+            text_path.push(0)
+            true
+
+        def recovery_destinations_ready(destination: cstr, json_path: cstr, text_path: cstr, overwrite_confirmed: bool) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            export_reason(destination, overwrite_confirmed) == StudioExportPolicy::ALLOW and artifact_destination_allowed(destination) and export_reason(json_path, false) == StudioExportPolicy::ALLOW and artifact_destination_allowed(json_path) and export_reason(text_path, false) == StudioExportPolicy::ALLOW and artifact_destination_allowed(text_path)
+
+        def retained_payload_size(directory: cstr, staging: cstr, record: StudioExportRecoveryJournal::Record&, output: darray[u8]&, json: darray[u8]&, text: darray[u8]&) -> i64:
+            mutable directory_length: usize = 0
+            mutable staging_length: usize = 0
+            while directory_length < 4096 and directory[directory_length] != 0:
+                directory_length <- directory_length + 1
+            while staging_length < 4096 and staging[staging_length] != 0:
+                staging_length <- staging_length + 1
+            return -1 if directory_length >= 4096 or staging_length >= 4096
+            mutable encoded: darray[u8] = []
+            return -1 if not StudioExportRecoveryJournal::encode(record, &encoded)
+            output.count.i64() + json.count.i64() + text.count.i64() + encoded.count.i64() + directory_length.i64() + staging_length.i64()
+
+        def retain_prepared_recovery(directory: cstr, staging: cstr, record: StudioExportRecoveryJournal::Record&, output: darray[u8]&, json: darray[u8]&, text: darray[u8]&) -> bool:
+            return false if retained_export_count >= StudioExportRecoveryRetentionPolicy::Capacity::MAX_RECORDS
+            incoming: i64 = retained_payload_size(directory, staging, record, output, json, text)
+            return false if incoming <= 0 or not StudioExportRecoveryRetentionPolicy::retain_admitted(retained_export_count, retained_export_payload_bytes, incoming)
+            mutable dir_bytes: darray[u8] = []
+            mutable staging_bytes: darray[u8] = []
+            return false if not copy_cstr_bytes(directory, &dir_bytes) or not copy_cstr_bytes(staging, &staging_bytes)
+            mutable encoded: darray[u8] = []
+            return false if not StudioExportRecoveryJournal::encode(record, &encoded)
+            slot: usize = retained_export_count.usize()
+            retained_export_offsets[slot] <- retained_export_payload.count.i64()
+            retained_export_lengths[slot * 6] <- dir_bytes.count.i64()
+            retained_export_lengths[slot * 6 + 1] <- staging_bytes.count.i64()
+            retained_export_lengths[slot * 6 + 2] <- encoded.count.i64()
+            retained_export_lengths[slot * 6 + 3] <- output.count.i64()
+            retained_export_lengths[slot * 6 + 4] <- json.count.i64()
+            retained_export_lengths[slot * 6 + 5] <- text.count.i64()
+            mutable next_payload: darray[u8] = retained_export_payload
+            next_payload.extend(dir_bytes)
+            next_payload.extend(staging_bytes)
+            next_payload.extend(encoded)
+            next_payload.extend(output)
+            next_payload.extend(json)
+            next_payload.extend(text)
+            retained_export_payload <- next_payload
+            retained_export_count <- retained_export_count + 1
+            retained_export_payload_bytes <- retained_export_payload_bytes + incoming
+            true
+
+        def retain_recovery_path_diagnostic(directory: cstr) -> void:
+            return if retained_recovery_path_count >= 16
+            offset: usize = retained_recovery_path_count * 4096
+            mutable length: usize = 0
+            while length < 4096 and directory[length] != 0:
+                retained_recovery_paths[offset + length] <- directory[length]
+                length <- length + 1
+            return if length == 0 or length >= 4096
+            retained_recovery_paths[offset + length] <- 0
+            retained_recovery_path_count <- retained_recovery_path_count + 1
+
+        def cstr_length(path: cstr) -> i64:
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                length <- length + 1
+            return 4096 if length >= 4096
+            length.i64()
+
+        def copy_cstr_bytes(path: cstr, out: mutable darray[u8]&) -> bool:
+            out.clear()
+            mutable length: usize = 0
+            while length < 4096 and path[length] != 0:
+                out.push(path[length])
+                length <- length + 1
+            length > 0 and length < 4096
+
+        def recovery_report_completed(outcome: StudioExportRecoveryCompletion::Outcome) -> bool:
+            if outcome is StudioExportRecoveryCompletion::Outcome.Rejected(reason):
+                return false
+            if outcome is StudioExportRecoveryCompletion::Outcome.ExistingMatching(status):
+                return true
+            if outcome is StudioExportRecoveryCompletion::Outcome.Published(status, journal_status):
+                return true
+            false
+
+        def recovery_journal_failed(outcome: StudioExportRecoveryCompletion::Outcome) -> bool:
+            if outcome is StudioExportRecoveryCompletion::Outcome.Rejected(reason):
+                return true
+            if outcome is StudioExportRecoveryCompletion::Outcome.ExistingMatching(status):
+                return status == StudioPublicationDurabilityPolicy::Result.NotPublished
+            if outcome is StudioExportRecoveryCompletion::Outcome.Published(native_status, journal_status):
+                return journal_status == StudioPublicationDurabilityPolicy::Result.NotPublished
+            false
+
+        def recovery_journal_unknown(outcome: StudioExportRecoveryCompletion::Outcome) -> bool:
+            if outcome is StudioExportRecoveryCompletion::Outcome.Rejected(reason):
+                return false
+            if outcome is StudioExportRecoveryCompletion::Outcome.ExistingMatching(status):
+                return status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+            if outcome is StudioExportRecoveryCompletion::Outcome.Published(native_status, journal_status):
+                return native_status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown or journal_status == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+            false
+
+    public:
+        # Same-session retained recovery payloads survive result dismissal and
+        # take replacement. A later UI can list and explicitly retry an item.
+        def retained_export_recovery_count() -> i64:
+            retained_export_count
+
+        def retained_export_recovery_at[@r](index: i64,
+                directory: mutable darray[u8]& @r, staging: mutable darray[u8]& @r,
+                record: mutable StudioExportRecoveryJournal::Record& @r,
+                output: mutable darray[u8]& @r, json: mutable darray[u8]& @r,
+                text: mutable darray[u8]& @r) -> bool:
+            return false if index < 0 or index >= retained_export_count
+            slot: usize = index.usize()
+            offset: i64 = retained_export_offsets[slot]
+            dir_size: i64 = retained_export_lengths[slot * 6]
+            staging_size: i64 = retained_export_lengths[slot * 6 + 1]
+            journal_size: i64 = retained_export_lengths[slot * 6 + 2]
+            output_size: i64 = retained_export_lengths[slot * 6 + 3]
+            json_size: i64 = retained_export_lengths[slot * 6 + 4]
+            text_size: i64 = retained_export_lengths[slot * 6 + 5]
+            total: i64 = dir_size + staging_size + journal_size + output_size + json_size + text_size
+            return false if offset < 0 or total < 0 or total > retained_export_payload.count.i64() - offset
+            mutable next_directory: darray[u8] @r = []
+            mutable next_staging: darray[u8] @r = []
+            mutable next_output: darray[u8] @r = []
+            mutable next_json: darray[u8] @r = []
+            mutable next_text: darray[u8] @r = []
+            mutable cursor: i64 = offset
+            append_retained_range(&next_directory, &cursor, dir_size)
+            next_directory.push(0)
+            append_retained_range(&next_staging, &cursor, staging_size)
+            next_staging.push(0)
+            mutable journal: darray[u8] @r = []
+            append_retained_range(&journal, &cursor, journal_size)
+            mutable decoded_record: StudioExportRecoveryJournal::Record @r = zeroed
+            return false if not StudioExportRecoveryJournal::decode(journal, &decoded_record)
+            append_retained_range(&next_output, &cursor, output_size)
+            append_retained_range(&next_json, &cursor, json_size)
+            append_retained_range(&next_text, &cursor, text_size)
+            directory <- next_directory
+            staging <- next_staging
+            output <- next_output
+            json <- next_json
+            text <- next_text
+            record <- decoded_record
+            true
+
+        def retained_export_recovery_path_count() -> i64:
+            retained_recovery_path_count.i64()
+
+        def retained_export_recovery_path_at[@r](index: i64, out: mutable darray[u8]& @r) -> bool:
+            return false if index < 0 or index >= retained_recovery_path_count.i64()
+            offset: usize = index.usize() * 4096
+            mutable next_path: darray[u8] @r = []
+            mutable length: usize = 0
+            while length < 4096 and retained_recovery_paths[offset + length] != 0:
+                next_path.push(retained_recovery_paths[offset + length])
+                length <- length + 1
+            return false if length == 0 or length >= 4096
+            next_path.push(0)
+            out <- next_path
+            true
+
+    private:
+        def append_retained_range(out: mutable darray[u8]&, cursor: mutable i64&, count: i64):
+            for _ in 0..<count |out, cursor|:
+                out.push(retained_export_payload[cursor.usize()])
+                cursor <- cursor + 1
