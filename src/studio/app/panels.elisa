@@ -24,6 +24,7 @@ include "../sidebar_layout.elisa"
 include "../export_review.elisa"
 include "../export_path_review.elisa"
 include "../export_result.elisa"
+include "../io/storage_manifest.elisa"
 include "../../../build/generated/studio_icon_paths.elisa"
 
 module StudioDraw:
@@ -858,7 +859,8 @@ module StudioPanels:
             return "Save Session" if row == 2
             return "Save Session As..." if row == 3
             return "Export Cleaned GLB" if row == 4
-            "Export As..."
+            return "Export As..." if row == 5
+            "Storage & Recovery"
 
         def file_menu_shortcut(row: i64) -> sview:
             return "Cmd-O" if row == 0
@@ -866,7 +868,8 @@ module StudioPanels:
             return "Cmd-S" if row == 2
             return "Cmd-Shift-S" if row == 3
             return "E" if row == 4
-            "Cmd-E"
+            return "Cmd-E" if row == 5
+            ""
 
         def file_menu_panel(sb: Box, opened: bool, has_take: bool, focus: i64, hover: i64) -> void:
             button: Box = file_button_box(sb)
@@ -1016,6 +1019,145 @@ module StudioPanels:
             for action in 0..<StudioExportResult::ACTION_COUNT |action, w, h, px, py|:
                 return action if inside(export_result_button_box(w, h, action), px, py)
             -1
+
+        const STORAGE_REFRESH: i64 = 0
+        const STORAGE_DONE: i64 = 1
+        const STORAGE_ACTION_COUNT: i64 = 2
+        const STORAGE_ROW_HEIGHT: f32 = 32.0
+        const STORAGE_VISIBLE_ROWS: i64 = 6
+
+        def storage_dialog_box(w: f32, h: f32) -> Box:
+            dialog_width: f32 = 760.0 if w >= 792.0 else w - 32.0
+            dialog_height: f32 = 520.0 if h >= 552.0 else h - 32.0
+            box((w - dialog_width) / 2.0, (h - dialog_height) / 2.0,
+                dialog_width, dialog_height)
+
+        def storage_button_box(w: f32, h: f32, action: i64) -> Box:
+            d: Box = storage_dialog_box(w, h)
+            box(d.x + 24.0 + action.f32() * 148.0, d.y + d.h - 54.0, 132.0, 38.0)
+
+        def storage_row_box(w: f32, h: f32, visible_row: i64) -> Box:
+            d: Box = storage_dialog_box(w, h)
+            box(d.x + 22.0, d.y + 184.0 + visible_row.f32() * STORAGE_ROW_HEIGHT,
+                d.w - 44.0, STORAGE_ROW_HEIGHT - 2.0)
+
+        def storage_visible_count(w: f32, h: f32, count: i64, selected: i64) -> i64:
+            return 0 if count <= 0
+            STORAGE_VISIBLE_ROWS if count > STORAGE_VISIBLE_ROWS else count
+
+        def storage_first_visible(count: i64, selected: i64) -> i64:
+            return 0 if count <= STORAGE_VISIBLE_ROWS
+            return selected - STORAGE_VISIBLE_ROWS + 1 if selected >= count - 1
+            return selected - STORAGE_VISIBLE_ROWS / 2 if selected >= STORAGE_VISIBLE_ROWS / 2
+            0
+
+        def storage_row_hit(w: f32, h: f32, px: f32, py: f32,
+                            count: i64, selected: i64) -> i64:
+            first: i64 = storage_first_visible(count, selected)
+            for visible_row in 0..<storage_visible_count(w, h, count, selected) |visible_row, first, w, h, px, py|:
+                return first + visible_row if inside(storage_row_box(w, h, visible_row), px, py)
+            -1
+
+        def storage_hit(w: f32, h: f32, px: f32, py: f32) -> i64:
+            for action in 0..<STORAGE_ACTION_COUNT |action, w, h, px, py|:
+                return action if inside(storage_button_box(w, h, action), px, py)
+            -1
+
+        def storage_entry_name(entries: darray[StudioStorageManifest::Entry]&,
+                               index: i64) -> sview:
+            StudioText::begin()
+            return StudioText::view() if index < 0 or index >= entries.count.i64()
+            entry: StudioStorageManifest::Entry = entries[index]
+            mutable first: usize = 0
+            for byte_index in 0..<entry.original_path.count |entry|:
+                first <- byte_index + 1 if entry.original_path[byte_index] == 47
+            if first >= entry.original_path.count:
+                StudioText::put("(unknown name)")
+            else:
+                for byte_index in first..<entry.original_path.count |entry|:
+                    StudioText::byte(entry.original_path[byte_index])
+            StudioText::view()
+
+        def storage_kind_label(kind: i64) -> sview:
+            return "Recovery" if kind == StudioStorageCleanupPolicy::RECOVERY
+            return "Temporary export" if kind == StudioStorageCleanupPolicy::TEMP_EXPORT
+            return "Quality report" if kind == StudioStorageCleanupPolicy::GENERATED_REPORT
+            "Unknown type"
+
+        def storage_entry_status(entry: StudioStorageManifest::Entry) -> sview:
+            return "Trash recovery" if entry.state == StudioStorageManifest::IN_TRASH
+            "Tracked record"
+
+        def storage_panel(w: f32, h: f32, opened: bool,
+                          entries: darray[StudioStorageManifest::Entry]&,
+                          selected: i64, focus: i64, message: i64,
+                          protected_records: i64) -> void:
+            return if not opened
+            d: Box = storage_dialog_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 22.0, 19.0, "Storage & Recovery", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 52.0, 12.0,
+                "Studio records generated reports and recovery receipts under build/.", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 72.0, 11.0,
+                "Source takes are protected. Refresh rereads the inventory; it does not delete files.", StudioDraw::muted())
+            mutable tracked: i64 = 0
+            mutable receipts: i64 = 0
+            for entry in entries:
+                tracked <- tracked + 1 if entry.state == StudioStorageManifest::REGISTERED
+                receipts <- receipts + 1 if entry.state == StudioStorageManifest::IN_TRASH
+            StudioText::begin()
+            StudioText::put("Tracked records  ")
+            StudioText::put_i(tracked)
+            StudioText::put("     Trash recovery receipts  ")
+            StudioText::put_i(receipts)
+            StudioDraw::text(d.x + 24.0, d.y + 106.0, 12.0, StudioText::view(), StudioDraw::accent())
+            StudioDraw::bold(d.x + 24.0, d.y + 142.0, 11.0, "STUDIO-MANAGED INVENTORY", StudioDraw::muted())
+            first: i64 = storage_first_visible(entries.count.i64(), selected)
+            for visible_row in 0..<storage_visible_count(w, h, entries.count.i64(), selected) |visible_row, first, entries, selected, d|:
+                index: i64 = first + visible_row
+                row: Box = storage_row_box(w, h, visible_row)
+                entry: StudioStorageManifest::Entry = entries[index]
+                StudioDraw::rect(row.x, row.y, row.w, row.h,
+                    StudioDraw::color(47, 55, 70) if index == selected else StudioDraw::panel())
+                StudioDraw::text(row.x + 10.0, row.y + 8.0, 12.0,
+                    storage_entry_name(entries, index), StudioDraw::ink())
+                StudioDraw::text(row.x + row.w - 265.0, row.y + 8.0, 11.0,
+                    storage_kind_label(entry.kind), StudioDraw::muted())
+                StudioDraw::text(row.x + row.w - 130.0, row.y + 8.0, 11.0,
+                    storage_entry_status(entry), StudioDraw::accent() if entry.state == StudioStorageManifest::IN_TRASH else StudioDraw::muted())
+            if entries.count == 0:
+                StudioDraw::text(d.x + 30.0, d.y + 198.0, 12.0,
+                    "No Studio-managed files are registered yet.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 410.0, 11.0,
+                "Inventory records are not a live file check. Cleanup stays unavailable until safety checks pass.", StudioDraw::muted())
+            if message == 1:
+                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                    "The inventory could not be read. No cleanup action is available.", StudioDraw::color(240, 170, 110))
+            elif message == 2:
+                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                    "The build folder could not be verified. No inventory paths are shown.", StudioDraw::color(240, 170, 110))
+            elif protected_records > 0:
+                StudioText::begin()
+                StudioText::put_i(protected_records)
+                StudioText::put(" record(s) were hidden because they are outside build/.")
+                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0, StudioText::view(), StudioDraw::color(240, 170, 110))
+            elif message == 3:
+                StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0,
+                    "Inventory refreshed.", StudioDraw::color(150, 210, 160))
+            StudioDraw::text(d.x + 24.0, d.y + 456.0, 10.0,
+                "Up / Down selects   Tab moves to a button   Enter activates   Esc closes", StudioDraw::muted())
+            for action in 0..<STORAGE_ACTION_COUNT |action, w, h, focus|:
+                b: Box = storage_button_box(w, h, action)
+                StudioDraw::rect(b.x, b.y, b.w, b.h,
+                    StudioDraw::color(58, 52, 40) if focus == action else StudioDraw::panel())
+                StudioDraw::bold(b.x + 12.0, b.y + 11.0, 12.0,
+                    "Refresh" if action == STORAGE_REFRESH else "Done", StudioDraw::ink())
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if focus == action
 
         def export_path_inspector_dialog_box(w: f32, h: f32) -> Box:
             box((w - 820.0) / 2.0, (h - 500.0) / 2.0, 820.0, 500.0)

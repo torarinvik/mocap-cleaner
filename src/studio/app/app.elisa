@@ -96,7 +96,13 @@ module Studio:
         global mutable export_path: cstr = "build/studio_export.glb"
         global mutable storage_manifest_state: i64 = 0
         global mutable storage_entries: darray[StudioStorageManifest::Entry] = zeroed
+        global mutable storage_visible_entries: darray[StudioStorageManifest::Entry] = zeroed
         global mutable storage_tracking_failed: bool = false
+        global mutable storage_screen_open: bool = false
+        global mutable storage_focus: i64 = -1
+        global mutable storage_selected: i64 = 0
+        global mutable storage_message: i64 = 0
+        global mutable storage_protected_records: i64 = 0
         const REPLACE_TAKE: i64 = 1
         const REPLACE_SESSION: i64 = 2
         const REPLACE_CLOSE: i64 = 3
@@ -1478,6 +1484,97 @@ module Studio:
             storage_entries <- updated
             true
 
+        # The inventory view only names records whose canonical original path
+        # is below the verified build directory. A malformed or hand-edited
+        # manifest can therefore never expose a source-take path in the UI.
+        def refresh_storage_inventory() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            storage_manifest_state <- 0
+            if not storage_manifest_ready():
+                storage_message <- 1
+                return
+            if FilePanel::resolve_path("build") is root_path:
+                facts: i64 = FilePanel::path_facts(root_path)
+                if facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0:
+                    root_bytes: darray[u8] = path_bytes(root_path)
+                    if root_bytes.count > 0:
+                        mutable active_source: darray[u8] = []
+                        if FilePanel::resolve_path(path) is source_path:
+                            active_source <- path_bytes(source_path)
+                        mutable visible: darray[StudioStorageManifest::Entry] = []
+                        mutable protected: i64 = 0
+                        for entry in storage_entries |entry, root_bytes, active_source, visible, protected|:
+                            is_active_source: bool = active_source.count > 0 and StudioStorageManifest::same_path(entry.original_path, active_source)
+                            if StudioExportPolicy::inside_build(root_bytes, entry.original_path) and not is_active_source:
+                                visible.push(entry)
+                            else:
+                                protected <- protected + 1
+                        storage_visible_entries <- visible
+                        storage_protected_records <- protected
+                        storage_selected <- 0 if visible.count == 0
+                        storage_selected <- visible.count.i64() - 1 if storage_selected >= visible.count.i64()
+                        storage_message <- 3
+                        return
+            storage_message <- 2
+
+        def open_storage_screen() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            file_menu_open <- false
+            file_menu_hover <- -1
+            reset_menu_open <- false
+            help_open <- false
+            storage_screen_open <- true
+            storage_focus <- -1
+            storage_selected <- 0
+            refresh_storage_inventory()
+            touch()
+
+        def close_storage_screen() -> void:
+            return if not storage_screen_open
+            storage_screen_open <- false
+            storage_focus <- -1
+            touch()
+
+        def storage_action(action: i64) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            if action == StudioPanels::STORAGE_REFRESH:
+                refresh_storage_inventory()
+                touch()
+            elif action == StudioPanels::STORAGE_DONE:
+                close_storage_screen()
+
+        def storage_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            if code == UiCore::Key.Escape:
+                close_storage_screen()
+            elif code == UiCore::Key.Up:
+                if storage_focus < 0 and storage_visible_entries.count > 0:
+                    storage_selected <- storage_selected - 1 if storage_selected > 0
+                    touch()
+            elif code == UiCore::Key.Down:
+                if storage_focus < 0 and storage_visible_entries.count > 0:
+                    storage_selected <- storage_selected + 1 if storage_selected + 1 < storage_visible_entries.count.i64()
+                    touch()
+            elif code == UiCore::Key.Tab:
+                storage_focus <- (StudioPanels::STORAGE_DONE if StudioShortcuts::shift(modifiers) else StudioPanels::STORAGE_REFRESH) if storage_focus < 0 else 1 - storage_focus
+                touch()
+            elif code == UiCore::Key.Left or code == UiCore::Key.Right:
+                if storage_focus >= 0:
+                    storage_focus <- 1 - storage_focus
+                    touch()
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                storage_action(storage_focus) if storage_focus >= 0
+
+        def storage_pointer_down(w: f32, h: f32, x: f32, y: f32, button: i32) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if button != 0
+            action: i64 = StudioPanels::storage_hit(w, h, x, y)
+            if action >= 0:
+                storage_focus <- action
+                storage_action(action)
+                return
+            row: i64 = StudioPanels::storage_row_hit(w, h, x, y,
+                storage_visible_entries.count.i64(), storage_selected)
+            if row >= 0:
+                storage_selected <- row
+                storage_focus <- -1
+                touch()
+
         def current_export_warnings() -> i64:
             if clip is c:
                 return StudioExportPolicy::warning_count(
@@ -2004,6 +2101,8 @@ module Studio:
                 request_export(export_path, false)
             elif action == StudioFilePolicy::EXPORT_AS:
                 export_as()
+            elif action == StudioFilePolicy::OPEN_STORAGE:
+                open_storage_screen()
 
         def activate_file_menu(row: i64) -> void:
             return if row < 0 or row >= StudioFilePolicy::ROWS
@@ -2323,7 +2422,7 @@ module Studio:
         def modal_overlay_active() -> bool:
             StudioModalPolicy::hides_viewports(help_open, replacement_prompt_open,
                 legacy_prompt_open, export_review_open, export_warning_detail_open,
-                export_path_inspector_open, export_result_open)
+                export_path_inspector_open, export_result_open) or storage_screen_open
 
         def sync_view(i: i64, scale: f32) -> void:
             if modal_overlay_active():
@@ -2552,7 +2651,6 @@ module Studio:
                     StudioRetime::overlay(StudioPanels::timeline_box(w, h), c, &s, &selection, t.frame)
                     StudioRetime::controls(StudioPanels::curve_box(w, h), RetimeState::ready(&selection) or band_focus >= 0, retime_speed, typing, typed_view())
                     StudioPanels::cleanup_readout(StudioPanels::sidebar_box(w, h), c, readout_value(shown_slide, c.slide_after), readout_value(shown_sink, c.sink_after), readout_value(shown_hand_slide, c.hand_slide_after), s.blend)
-                    StudioPanels::file_menu_panel(StudioPanels::sidebar_box(w, h), file_menu_open, true, file_menu_focus, file_menu_hover)
                 else:
                     draw_issue_browser(w, h, issues_revision != built,
                         not load_failed)
@@ -2561,6 +2659,12 @@ module Studio:
             screen: i64 = StudioChrome::chrome_screen(clip != null, load_failed)
             if screen != StudioChrome::SCREEN_EDIT:
                 StudioPanels::guide(w, h, screen)
+            StudioPanels::file_menu_panel(StudioPanels::sidebar_box(w, h),
+                file_menu_open and not storage_screen_open, clip != null,
+                file_menu_focus, file_menu_hover)
+            StudioPanels::storage_panel(w, h, storage_screen_open,
+                storage_visible_entries, storage_selected, storage_focus,
+                storage_message, storage_protected_records)
             StudioPanels::status_bar(StudioPanels::status_box(w, h), frame_now(), frames(), rate(), s.selected if StackState::valid(s, s.selected) else -1, gain_slide, gain_spikes, is_dirty, message(s))
             StudioPanels::tooltip(hover_button)
             StudioPanels::help_sheet(w, h) if help_open
@@ -2580,7 +2684,7 @@ module Studio:
                     export_path_inspector_page, export_path_inspector_focus)
             if export_result_open:
                 StudioPanels::export_result_panel(w, h, true, export_result_path, export_result_focus, export_report_saved)
-            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open:
+            if screen == StudioChrome::SCREEN_EDIT and not help_open and not file_menu_open and not replacement_prompt_open and not legacy_prompt_open and not storage_screen_open:
                 if timeline is current_timeline:
                     publish_accessibility(w, h, s, current_timeline)
             scale: f32 = UiAppKitCanvas::backing_scale()
@@ -3483,6 +3587,9 @@ module Studio:
             down_y <- y
             last_x <- x
             last_y <- y
+            if storage_screen_open:
+                storage_pointer_down(w, h, x, y, button)
+                return
             if contact_draft_target >= 0:
                 draft_tb: StudioPanels::Box = StudioPanels::timeline_box(w, h)
                 draft_stack: StackState::Stack = current_stack()
@@ -3616,7 +3723,7 @@ module Studio:
                 scrub_to(StudioPanels::timeline_frame(tb, x, frames()))
                 return
             if StudioPanels::inside(sb, x, y):
-                if clip != null and StudioPanels::inside(StudioPanels::file_button_box(sb), x, y) and button == 0:
+                if StudioPanels::inside(StudioPanels::file_button_box(sb), x, y) and button == 0:
                     file_menu_open <- true
                     file_menu_focus <- 0
                     file_menu_hover <- -1
@@ -3670,6 +3777,13 @@ module Studio:
             return false
 
         def pointer_move(x: f32, y: f32) -> void:
+            if storage_screen_open:
+                hit: i64 = StudioPanels::storage_hit(
+                    UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                if hit >= 0 and hit != storage_focus:
+                    storage_focus <- hit
+                    touch()
+                return
             if export_warning_detail_open:
                 hit: i64 = StudioPanels::export_warning_detail_hit(
                     UiCore::viewport_width(), UiCore::viewport_height(), x, y)
@@ -4134,6 +4248,9 @@ module Studio:
                 touch()
                 return
             return if modifier(code, true)
+            if storage_screen_open:
+                storage_key(code)
+                return
             if export_warning_detail_open:
                 export_warning_detail_key(code)
                 return
