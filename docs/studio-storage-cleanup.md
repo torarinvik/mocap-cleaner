@@ -105,26 +105,35 @@ minimum-window and accessibility-focus acceptance remains open.
 Refresh retains a complete aligned snapshot of entries, statuses and protection
 reasons separately from displayed rows. Selection reconciliation, pending batch
 freshness and reviewed Move/Restore checks use that complete snapshot. The same
-eligibility gate applies to inventory and displayed rows. This prepares list
-filtering without allowing hidden rows to escape cleanup safety checks; the
-filter controls and hidden-selection feedback are still pending. The view
-projection now uses the filter policy, preserves inspection by exact identity
-when still visible, and keeps entry/status/reason arrays aligned. It defaults
-to All; cycling is prepared internally and refuses changes during a batch.
+eligibility gate applies to inventory and displayed rows. The filter button
+cycles All records, Eligible, Protected, Recovery, Temporary exports, Quality
+reports and In Trash. It refuses changes during Move/Restore review and running
+batches. Pointer, keyboard and accessibility dispatch use the same admission
+policy. Projection preserves inspection by exact identity when still visible
+and keeps entry/status/reason arrays aligned; hidden cleanup selections remain
+selected. First use defaults to All with an empty cleanup selection.
 
 The inventory separation builds with `STUDIO_SKIP_CHECKS=1`; this evidence
 does not qualify native filter interaction or filesystem race behavior.
 Read-only review of the projection found no stale-index or hidden-row route
 that bypasses identity, eligibility or manifest-version checks. Select eligible
-uses displayed rows; Clear selection clears the whole selection. The future
-controls must state these scopes and announce selections hidden by a filter.
+uses displayed rows and replaces the selection; Clear selection clears the
+whole selection. Visible and accessible summaries state the hidden count and
+exact selected bytes. An empty filtered view is distinguished from an empty
+inventory. Move review explicitly includes hidden selections.
 
 The hidden-selection accounting policy validates complete, visible, selected
 and visibly selected counts together, including the capacity of the hidden
 portion. It derives the hidden count only from valid facts. Invalid accounting
 must display unknown, never a misleading zero. Source and laws prove 60/60
-and 80/80 obligations respectively; the policy object compiles. UI integration
-and native acceptance remain pending.
+and 80/80 obligations respectively; the policy object and Studio compile.
+Filter accessibility source/laws prove 185/185 and 245/245 with complete replay.
+Read-only layout review confirms the filter bar and five rendered rows fit the
+1100×720 minimum. Native interaction/focus acceptance remains pending.
+
+The live result node now publishes its proved next-sibling link to Inspect
+Path, then Filter. The AppKit hierarchy follows explicit child/sibling links;
+leaving that link empty would omit these controls from the dialog chain.
 
 ### Native acceptance attempt (2026-10-06)
 

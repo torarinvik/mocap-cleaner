@@ -103,7 +103,8 @@ Restore implementation. Current implementation and evidence are recorded in
       output protection. Exercise fresh eligibility with changed sources,
       symlink replacement, future timestamps and unavailable clock/filesystem
       facts; unknown evidence must never permit a move.
-- [ ] Add grouping, sorting, search and type/eligibility filters. Show each
+- [ ] Add grouping, sorting and search. Qualify the implemented type/eligibility
+      filters with native inputs and retained hidden selections. Show each
       row's kind, modified age, exact size and build-relative location. Qualify
       the implemented recorded-original-path inspector at the minimum window
       size with native pointer, keyboard and accessibility inputs. Support bounded
