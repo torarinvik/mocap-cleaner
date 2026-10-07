@@ -132,3 +132,14 @@ reassignment invalidation. Qualify copied-local use, shorter-lived owner escape,
 reassignment to a different owner, dead/destroyed regions and unknown-owner
 copies separately before rebuilding the seed. The source finding has been
 assigned to the compiler worker; no repaired product is established yet.
+
+Compile-only negative reductions are prepared beside the positive copy case:
+`reassigned-owner.elisa` replaces a copied local from a shorter-lived region;
+`expired-owner.elisa` uses an assigned owner after that region exits; and
+`copy-escape.elisa` returns a reference into the copied local. The original
+`4a68f508` product refuses the first two at region inference and the last with
+an explicit function-local dangling-reference diagnostic. These are baseline
+comparisons only once the bootstrap source is patched. Rerun the positive and
+all three negatives against the repaired, source-matched product; accepting
+the copy must not turn any negative into an emitted object. No executable was
+run and these reductions do not qualify the integrated compiler.
