@@ -58,3 +58,20 @@ returned -1, created no output, and retained their input bytes. The original
 user source SHA-256 was checked again after all calls and remained unchanged.
 These cases cover the captured native objects, not the still-failing Studio
 worker journey or general FBX compatibility.
+
+## Asynchronous worker isolation
+
+Calling `StudioFbxImportWorker::load` directly with the user's source, selected
+build root, animation `jab`, ticket 1 and rate 30 returned status 0, a valid
+derived path and a memo. Calling through `task`, readiness polling and joined
+Result destructuring instead terminated with signal 11 before delivering any
+Result. The captured stack stopped at `arena_alloc + 356`, reached through
+`__elisa_darray_grow` on the worker thread.
+
+Exact probe source/object/executable, compiler, runtime and native-library hashes
+are recorded in `build/fbx-worker-async-crash-evidence-2026-10-07.json` (record
+SHA-256 `c52d85c203af48de8e426d309689e34bbd7af06ad3e517aef0b119958be5cb92`).
+This standalone probe omitted AppKit/UI initialization. It isolates an actual
+asynchronous failure in that process, but does not prove that Studio's visible
+refusal has the same cause. A proposed compiler function-value allocation ABI
+repair remains unqualified until rebuilt and exercised.

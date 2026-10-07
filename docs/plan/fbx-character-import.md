@@ -88,6 +88,15 @@ build and runtime results remain evidence for their captured source tuple.
 
 Next acceptance work:
 
+- Resolve the asynchronous worker allocation failure before accepting background
+  import. The same exact Job succeeds synchronously, but the standalone
+  task/poll/join probe exits with signal 11 before returning a Result. Evidence
+  is `build/fbx-worker-async-crash-evidence-2026-10-07.json`. Compiler inspection
+  identified missing hidden allocation arguments in function-value calls as a
+  candidate cause. Qualify a sound ABI repair, then repeat both the probe and
+  actual Studio journey. The probe omits AppKit initialization and cannot alone
+  establish why the user's app refuses import.
+
 - Complete cancellation/restart and repeat authorized runtime checks against the
   final current application tuple.
 - Inspect actual Open FBX, character deformation, pose edits and Character/Skeleton
