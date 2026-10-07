@@ -76,6 +76,11 @@ this item.
 
 **Depends on:** Q01. Package/source correspondence work may proceed beforehand.
 
+The current d5 compiler request-policy run has 99 obligations, 60 proven,
+39 unproven and four replay gaps; its package is source-inadmissible. See
+[the exact request proof record](../acceptance/fbx-request-proof-2026-10-07.md).
+This does not supersede the separate staging-policy report below.
+
 - Qualify exact expanded bytes, ordered imports and lexical declaration owners.
   Changed bytes, order, paths, duplicate names and unsupported scopes refuse
   authentication. Portable replay must remain labelled unauthenticated.
