@@ -25,6 +25,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Session source binding and fingerprint limitations](proof-gaps/session-source-binding.md)
 - [Borrowed std and protocol region binding](proof-gaps/borrowed-protocol-region-binding.md)
 - [Void-return postcondition lowering](proof-gaps/void-return-postconditions.md)
+- [Build generation policy proof and replay (2026-10-07)](proof-gaps/build-generation-policy-proof-20261007.md)
 - [Export sheet row field resolution](proof-gaps/export-sheet-row-resolution.md)
 - [Studio runtime source selection](proof-gaps/runtime-source-selection.md)
 
