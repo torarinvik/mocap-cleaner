@@ -49,6 +49,21 @@ Complete all applicable categories before removing a task from this roadmap.
 
 ## Language safety and foreign boundaries
 
+- Follow the selected compiler's `STYLE_GUIDE.md` for new code and files already
+  being edited: value-producing blocks, loop expressions with scoped captures,
+  and immutable bindings where possible. Avoid unrelated style sweeps.
+- Use named `region` scopes only for scratch work whose allocations may end
+  there. Keep buffers backing live views and arrays retained by documents or
+  worker results outside disposable scopes; prefer a value block or helper for
+  escaping results. Style fixes must preserve ownership and control flow.
+- Audit with `-Wnever-leak=strict`; adopt `-Werror=never-leak=strict` only for a
+  clean compilation closure. Included dependencies also produce findings, so a
+  clean local file does not imply a clean application. Do not use `-permissive`
+  or renamed underscore locals to hide findings.
+- General owned-array value threading is marked planned in the guide. Use
+  working expression forms and existing array extension methods until the
+  selected compiler supports and qualifies additional forms.
+
 - Use `can` grants to propagate unsafe capabilities through adapters and their
   callers. Introduce `trusted` only where tracking deliberately ends; document
   that stopping point and the obligations it assumes. Passing compilation by
