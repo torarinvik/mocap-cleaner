@@ -3,6 +3,7 @@
 # app_export_publication; the ordinary single-export publisher is untouched.
 include "app_state.elisa"
 include "../export_batch_recipe_codec.elisa"
+include "../native_path_bytes.elisa"
 include "../export_batch_review_binding.elisa"
 include "../export_batch_panel_policy.elisa"
 include "../io/export_batch_root_identity.elisa"
@@ -117,7 +118,8 @@ extend Studio:
             source_candidate: darray[u8] = batch_path_bytes(path)
             source_result: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(source_candidate, &source_facts, &source_errors)
             return false if not StudioExportBatchSourceIdentity::admitted(source_result)
-            mutable source_c: darray[u8] = nul_terminated(source_facts.canonical_path)
+            mutable source_c: darray[u8] = StudioNativePathBytes::terminated(source_facts.canonical_path)
+            return false if source_c.count == 0
             if StudioModel::open((&source_c[0]).cast[cstr]) is source_document:
                 if StudioModel::fingerprint(&source_document) is source_fingerprint:
                     return false if source_fingerprint.first != captured_source.first or source_fingerprint.second != captured_source.second
@@ -150,12 +152,16 @@ extend Studio:
             else:
                 return false
             mutable staged_path: darray[u8] = batch_path_bytes(temporary)
-            mutable output_c: darray[u8] = nul_terminated(output_path)
-            mutable json_c: darray[u8] = nul_terminated(json_path)
-            mutable text_c: darray[u8] = nul_terminated(text_path)
+            mutable output_c: darray[u8] = StudioNativePathBytes::terminated(output_path)
+            mutable json_c: darray[u8] = StudioNativePathBytes::terminated(json_path)
+            mutable text_c: darray[u8] = StudioNativePathBytes::terminated(text_path)
+            return false if output_c.count == 0 or json_c.count == 0 or text_c.count == 0
+            mutable animation_available: bool = false
+            if clip is current_clip:
+                animation_available <- animation_id == current_clip.anim.i64() and animation_id >= 0 and animation_id < GlbDocument::animation_count(current_clip.source).i64()
             preflight: StudioExportBatchPreflightPolicy::Outcome = StudioExportBatchPreflightPolicy::evaluate(
                 true,
-                clip is c and c.anim.i64() >= 0 and c.anim.i64() < GlbDocument::animation_count(c.source).i64(),
+                animation_available,
                 recovery_destinations_ready(destination, (&json_c[0]).cast[cstr], (&text_c[0]).cast[cstr], false),
                 not StudioStorageManifest::same_path(source_facts.canonical_path, output_path) and not StudioStorageManifest::same_path(source_facts.canonical_path, json_path) and not StudioStorageManifest::same_path(source_facts.canonical_path, text_path),
                 not StudioStorageManifest::same_path(output_path, json_path) and not StudioStorageManifest::same_path(output_path, text_path) and not StudioStorageManifest::same_path(json_path, text_path),
@@ -182,7 +188,8 @@ extend Studio:
                 return added
             else:
                 mutable batch_id: darray[u8] = []
-                mutable build_c: darray[u8] = nul_terminated(root_candidate)
+                mutable build_c: darray[u8] = StudioNativePathBytes::terminated(root_candidate)
+                return false if build_c.count == 0
                 return false if not StudioExportBatchQueueStore::reserve_batch_id((&build_c[0]).cast[cstr], descriptor, &batch_id)
                 mutable queue: StudioExportBatchReviewBinding::BoundQueue = StudioExportBatchReviewBinding::create_durable(1, root_candidate, root_identity, batch_id)
                 added: bool = StudioExportBatchReviewBinding::enqueue_prepared(&queue, preflight, identity, warning_count, true, descriptor)
