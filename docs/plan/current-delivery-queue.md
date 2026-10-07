@@ -14,8 +14,13 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-The current compiler repair is not qualified for promotion. Clean source
-`60f5a3b2` is rebased onto fetched main `9bdfec53`; the rebase preserves all
+The current compiler repair is not qualified for promotion. The latest fetch
+resolves compiler main to `528b24bd` (new value-threading support) and proof main
+to `6ddde32b` (resource range-binder and inventory fixes). Preserve repairs and
+rebase/rebuild both before current qualification. The in-progress `9bdfec53`
+baseline gate supplies captured comparison evidence only.
+
+Captured compiler source `60f5a3b2` is rebased onto main `9bdfec53`; the rebase preserves all
 26 preceding project patches unchanged. Region forwarding now retains the
 exact selected fact row and validates vector/span shape. Unresolved callees
 conservatively mark growable caller parameters. Invalid caller rows use a
@@ -112,7 +117,7 @@ Remaining work:
   semantics and ownership. O0 complete-graph LLVM generation succeeds for the
   earlier source-matched tuple; O2 remains unqualified. See
   [the isolated optimization evidence](../proof-gaps/studio-fixed-array-clone-cost.md).
-  The pending compiler return-snapshot repair is now `b0032613`; earlier
+  The return-snapshot repair seeded successfully at `a9b22071`; earlier
   `756315f2`, `fa0aeb0e`, `84574b1e` and `972ac576` seed attempts failed
   type/parser checks and supply no qualifying product. Capture large values at
   their original evaluation point, keep contract `result` storage distinct,
@@ -121,6 +126,13 @@ Remaining work:
   currently excludes error-function success out-parameters; audit that path
   explicitly and preserve its return-value timing rather than inferring coverage
   from non-error sret controls.
+  Its strengthened 32,776-byte ensure/defer fixture returns the original first
+  field and both padding endpoints at O0/O2 (exit 42). A false ensure compiles
+  and aborts at runtime (134). Root inspected the retained evidence log under
+  `build/large-return-snapshot-a9b22071-final/` in the compiler checkout.
+  Product `7778893b…f1132` is captured comparison evidence after the new upstream
+  fetch; repeat these controls and complete Studio optimization on the rebased
+  source-matched product before acceptance.
 - Finish the authorized diagnostic check without restarting on observation or
   per-file timeouts. Its drifting inputs cannot qualify current source; retain
   individual failures and obtain a fixed-snapshot current regression result.
