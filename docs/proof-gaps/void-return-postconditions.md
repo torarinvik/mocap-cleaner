@@ -1,7 +1,7 @@
 # Void-return postcondition lowering
 
-Status: repaired source compiles with a matched product; native contract
-enforcement, authenticated proof and integrated qualification remain open.
+Status: focused native success/failure enforcement observed; broader return-path,
+authenticated proof and integrated qualification remain open.
 
 Compiler repair commits `74bd774` and `f0d8e4e` now emit void postconditions
 without a synthetic result binding. The source covers explicit bare returns,
@@ -77,3 +77,29 @@ fallthrough, mutation observed by the postcondition, contract failure and error
 returns with the repaired source-matched compiler. Recompile the complete
 residual law graph and Studio/CLI before claiming integration; authenticated
 proof replay remains separate from compiler contract enforcement.
+
+## Current native backend observation
+
+Candidate compiler source `2ef1fa26` preserves these repairs via `3f578e5a`.
+The original native gate returns 565/566 because its old void-ensure case
+expects refusal; current main returns 566/566 under that expectation. The
+revised gate runs the supported successful predicate and a failing predicate,
+and completes 567/567 with terminal exit 0. This is an explicit preserved
+behavior difference, not identical results under an unchanged baseline.
+
+Root inspected the failure LLVM: it loads parameter n, compares n > 0,
+branches to the panic/abort path on false, and returns void on true. The
+retained runtime diagnostic is `panic at elisa_stage1:2:14: postcondition failed`,
+with a touch backtrace. In `/tmp/Elisa-compiler-void-poll/build/`:
+
+- `abort_contract_ensure_void_false.ll` SHA-256:
+  `1c8d452485a5602c2f2237ebf4804d2de87b900bd227ea2e5c2cf28c386b6ad4`.
+- `abort_contract_ensure_void_false.run.log` SHA-256:
+  `6f1c84bea2f8fcb36b29618890e9b0f915a523b36b6ecb5140e6a7c0737ff2ff`.
+- Gate result: `backend-native-2ef1fa26-r3.log`; a strengthened assertion
+  rerun is retained separately as r4.
+
+The harness is built by the explicit clean Stage0 and exercises the candidate
+backend source. It does not establish direct Stage1 CLI enforcement, all void
+return forms, authenticated proof, or Studio integration. Those scopes remain
+open; historical source compilation above remains comparison evidence.
