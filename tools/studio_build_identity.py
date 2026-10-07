@@ -90,6 +90,8 @@ def snapshot(project, engine, ui, compiler):
             "studio_build_generation_creation_scan_appkit.m",
             "studio_build_generation_creation_json_appkit.h",
             "studio_build_generation_creation_json_appkit.m",
+            "studio_build_generation_recovery_discovery_appkit.h",
+            "studio_build_generation_recovery_discovery_appkit.m",
             "studio_build_generation_trash_current_appkit.m",
             "studio_build_generation_trash_path_appkit.m",
             "studio_build_generation_trash_inventory_appkit.m",

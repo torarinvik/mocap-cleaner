@@ -42,7 +42,7 @@ install -m 0600 /dev/null "$pending_directory/.studio-generation.lease"
 pending_object="$pending_directory/main.o"
 pending_inputs="$pending_directory/inputs.json"
 build_trash_sources=(io current path inventory journal restore reconcile binding lifecycle candidate)
-build_candidate_sources=(candidate_provider creation_scan creation_json)
+build_candidate_sources=(candidate_provider creation_scan creation_json recovery_discovery)
 build_trash_objects=()
 inventory_arguments=(
   --file main.o --file mocap_studio
