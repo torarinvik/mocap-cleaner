@@ -213,6 +213,14 @@ negative controls, meaningful history entries and session/export parity.
   decoders must reject unsupported values; native integer flags accept only
   exact 0/1. Never publish a recoverable success from a parsed receipt alone:
   verify identity, location, locks and durable journal/parent synchronization.
+- Before persisting a move intent, match the complete reviewed identity under
+  retained global and artifact locks: artifact/path/device/inode plus product,
+  manifest, contents-inventory and lease-record digests. The current begin-move
+  ABI accepts an expected product digest only; extend its reviewed-identity
+  admission before UI integration. Re-enumerating and releasing locks cannot
+  close the race between review and mutation. Define package manifest evidence
+  explicitly so copied inputs and package metadata are both covered. Refuse
+  changed controls even when the executable bytes are unchanged.
 - Qualify generation recovery through this outcome matrix before exposing it:
 
   | Observed state | Required UI and action |
