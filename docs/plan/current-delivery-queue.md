@@ -25,6 +25,10 @@ This does not qualify the entire roadmap or UI interaction journey.
 
 Remaining work:
 
+- New fetched compiler tip `50b16e68` adds borrow-exclusivity repairs and backend
+  reference-field reads. Preserve project and task-region repairs while merging,
+  rebuild compiler/runtime with source provenance, and requalify the complete
+  graph. Captured `48dc78e2` evidence is not qualification of this newer source.
 - Preserve the verified UI checkpoint and source closure when rebuilding after
   pending skin/session changes. Recheck fetched upstream and project repairs.
 - Retain verified compiler/runtime source and linked-dependency provenance at
@@ -38,6 +42,11 @@ Remaining work:
   per-file timeouts. Its drifting inputs cannot qualify current source; retain
   individual failures and obtain a fixed-snapshot current regression result.
 - Keep native interaction, motion quality and real user acceptance separately open.
+- Keep FFI capability propagation visible through `can` grants. Close strict
+  native extent/contracts using bounded bridges; use `trusted` only at a deliberate
+  documented stopping point. Audit all task captures separately from returned-data
+  ownership, including source-aware Session Locate's nested request buffers.
+  See [the foreign adapter audit](../proof-gaps/fbx-foreign-adapter.md).
 
 **Finish evidence:** exact input manifests and product provenance, authenticated
 current prover/replay pair, current complete graph/link closure and successful
