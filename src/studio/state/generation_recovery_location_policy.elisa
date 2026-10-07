@@ -1,0 +1,106 @@
+# Presentation and Finder-reveal admission for exact recovery locations.
+# Location facts are advisory UI evidence only; they never admit Restore.
+module StudioGenerationRecoveryLocationPolicy:
+    public:
+        const enum Side of i64:
+            Original = 0
+            Quarantine = 1
+
+        const enum EntryState of i64:
+            ExactArtifact = 0
+            Absent = 1
+            DifferentOccupant = 2
+            Unsafe = 3
+            Unknown = 4
+
+        const enum RevealAction of i64:
+            Disabled = 0
+            ShowArtifactFolder = 1
+            ShowConflictFolder = 2
+
+        const enum Summary of i64:
+            NotMoved = 0
+            Quarantined = 1
+            OriginalNameOccupied = 2
+            BothLocationsPresent = 3
+            BothLocationsAbsent = 4
+            Unresolved = 5
+
+        const enum Label of i64:
+            OriginalExact = 0
+            OriginalAbsent = 1
+            OriginalOccupied = 2
+            OriginalUnsafe = 3
+            OriginalUnknown = 4
+            QuarantineExact = 5
+            QuarantineAbsent = 6
+            QuarantineOccupied = 7
+            QuarantineUnsafe = 8
+            QuarantineUnknown = 9
+
+        struct LocationEvidence:
+            state: EntryState
+            entry_identity_verified: bool
+            parent_identity_verified: bool
+            artifact_path_valid: bool
+            parent_path_valid: bool
+
+        struct SelectedEvidence:
+            observation_current: bool
+            root_matches_selection: bool
+            operation_matches_selection: bool
+
+        def location_valid(evidence: LocationEvidence) -> bool:
+            if evidence.state == EntryState.ExactArtifact:
+                return evidence.entry_identity_verified and evidence.parent_identity_verified and evidence.artifact_path_valid
+            if evidence.state == EntryState.DifferentOccupant:
+                return not evidence.entry_identity_verified and evidence.parent_identity_verified and evidence.parent_path_valid
+            if evidence.state == EntryState.Absent:
+                return not evidence.entry_identity_verified and not evidence.artifact_path_valid
+            if evidence.state == EntryState.Unsafe or evidence.state == EntryState.Unknown:
+                return not evidence.entry_identity_verified and not evidence.artifact_path_valid and not evidence.parent_path_valid
+            false
+
+        def valid_selection(evidence: SelectedEvidence) -> bool:
+            evidence.observation_current and evidence.root_matches_selection and evidence.operation_matches_selection
+
+        def reveal_action(selection: SelectedEvidence, location: LocationEvidence) -> RevealAction:
+            ensure result == RevealAction.Disabled or valid_selection(selection)
+            ensure result != RevealAction.ShowArtifactFolder or (location.state == EntryState.ExactArtifact and location.entry_identity_verified and location.parent_identity_verified and location.artifact_path_valid)
+            ensure result != RevealAction.ShowConflictFolder or (location.state == EntryState.DifferentOccupant and location.parent_identity_verified and location.parent_path_valid and not location.entry_identity_verified)
+            return RevealAction.Disabled if not valid_selection(selection) or not location_valid(location)
+            if location.state == EntryState.ExactArtifact:
+                return RevealAction.ShowArtifactFolder
+            return RevealAction.ShowConflictFolder if location.state == EntryState.DifferentOccupant
+            RevealAction.Disabled
+
+        def summary(original: EntryState, quarantine: EntryState) -> Summary:
+            ensure result == Summary.NotMoved or (original == EntryState.ExactArtifact and quarantine == EntryState.Absent)
+            ensure result == Summary.Quarantined or (original == EntryState.Absent and quarantine == EntryState.ExactArtifact)
+            ensure result == Summary.OriginalNameOccupied or (original == EntryState.DifferentOccupant and quarantine == EntryState.ExactArtifact)
+            ensure result == Summary.BothLocationsPresent or (original == EntryState.ExactArtifact and quarantine == EntryState.ExactArtifact)
+            ensure result == Summary.BothLocationsAbsent or (original == EntryState.Absent and quarantine == EntryState.Absent)
+            if original == EntryState.ExactArtifact and quarantine == EntryState.Absent:
+                return Summary.NotMoved
+            if original == EntryState.Absent and quarantine == EntryState.ExactArtifact:
+                return Summary.Quarantined
+            if original == EntryState.DifferentOccupant and quarantine == EntryState.ExactArtifact:
+                return Summary.OriginalNameOccupied
+            if original == EntryState.ExactArtifact and quarantine == EntryState.ExactArtifact:
+                return Summary.BothLocationsPresent
+            if original == EntryState.Absent and quarantine == EntryState.Absent:
+                return Summary.BothLocationsAbsent
+            Summary.Unresolved
+
+        def label(side: Side, state: EntryState) -> Label:
+            if side == Side.Original:
+                return Label.OriginalExact if state == EntryState.ExactArtifact
+                return Label.OriginalAbsent if state == EntryState.Absent
+                return Label.OriginalOccupied if state == EntryState.DifferentOccupant
+                return Label.OriginalUnsafe if state == EntryState.Unsafe
+                return Label.OriginalUnknown
+            return Label.QuarantineExact if state == EntryState.ExactArtifact
+            return Label.QuarantineAbsent if state == EntryState.Absent
+            return Label.QuarantineOccupied if state == EntryState.DifferentOccupant
+            return Label.QuarantineUnsafe if state == EntryState.Unsafe
+            Label.QuarantineUnknown
