@@ -159,3 +159,18 @@ artifacts are inspected. Compiler-product provenance alone does not establish
 linked runtime provenance or qualify the composed Studio graph. Remaining
 private-field ownership and call/binary backend declines require separate
 reductions and an eventual fixed-snapshot integrated build.
+
+## Manifest path law compilation
+
+The nine new path-admission and entry-key laws in
+`proof/studio_storage_manifest_laws.elisa` compile at O0 into
+`build/manifest-path-qualification/laws.o` (224,056 bytes). The command was
+`../Elisa-compiler/bin/elisac-stage1 -emit obj -O0 -o build/manifest-path-qualification/laws.o proof/studio_storage_manifest_laws.elisa`.
+It exited zero; `nm` contains every new law symbol. The law source SHA-256 is
+`0d0d5df938f5510acf4d8b8c43e4d1272dbeb50a44b6067c692cf951ba4ca22d`.
+The compiler provenance check passed for source
+`bb1f4095e350aa8dcb232a0e56b53c684b44ce2f`, product SHA-256
+`203009661b41a4aed677487848d300b7232d0801f76fa19a65222309ffe039a7`.
+This compile-only record does not discharge the laws, qualify filesystem
+behavior or establish authenticated source correspondence. The final current
+proof pair must report those outcomes separately.
