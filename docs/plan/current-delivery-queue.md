@@ -14,9 +14,11 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting every subsequent source slice.
 
-The committed compiler repairs now produce a source-matched Stage1 seed and
-support validated snapshot std roots. These are intermediate results; integrated
-application and paired-prover qualification remain open.
+Compiler `9667344c` now has matched Stage1/runtime products. Prover/replay
+generation `ef1317585270400a8aa51deeb92ed517` passed pair integrity and current
+dependency freshness checks. These establish the tools available for the next
+qualification, not application behavior or law truth. Complete application
+compilation/linking and the current full check remain open.
 
 - Qualify borrow-region propagation through compiler/std callers, including
   explicit short-lived allocation refusal, distinct owners and retained scratch
@@ -24,8 +26,9 @@ application and paired-prover qualification remain open.
 - Qualify the proof snapshot's std paths against the validated runtime trust
   root. Keep runtime privileges restricted to individual selected std sources;
   verify whole-unit legacy bypasses refuse, including direct-product invocations.
-- Fetch dependency upstreams, preserve project repairs, build the selected
-  compiler and its linked runtime, then build prover and replay together.
+- Before each qualification, fetch dependency upstreams and preserve project
+  repairs. Rebuild changed compiler/runtime or proof sources as matched products;
+  never carry a previous pair's freshness result across a source change.
 - Retain immutable source/include manifests, native inputs, product hashes,
   terminal logs and pair authentication. Reject changed or mixed inputs.
 - Compile the latest complete Studio and CLI graphs. Resolve frontend and
@@ -49,6 +52,11 @@ this item. Keep native interaction and motion quality separately open.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
+- Repair current struct/const-enum correspondence refusal and control-flow fact
+  snapshot growth. The generation cleanup graph has 89 obligations, only 33
+  proven and replayed, and no authenticated source obligations. Preserve its
+  safety contracts and fail-closed authentication while fixing these gaps;
+  see [the exact qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
 
 **Finish evidence:** authenticated intended predicates, negative controls and
 unchanged regression expectations. Unresolved laws retain their gap records.
