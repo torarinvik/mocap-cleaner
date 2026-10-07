@@ -333,3 +333,26 @@ The pure artifact admission gate proves 2/2 obligations and its laws prove
 bounds (13/13 source, 19/19 laws); it does not formally verify native Unicode
 comparison. Native syntax checks pass. Runtime Unicode/volume alias fixtures
 and filesystem race acceptance remain open.
+
+### Storage reflow and filename source changes (2026-10-07)
+
+The footer now derives columns/rows from an integer layout policy. Below the
+header breakpoint, Inspect path and exemption actions use a separate row;
+selection actions use another. File-list capacity reserves those extra rows.
+Drawing, hit testing and accessibility continue to share `storage_button_box`
+and `storage_row_box`. These are source changes, not running-window evidence.
+
+Filename commands carry a clip limited to the name column, preventing them
+from drawing over type/status labels. Names exceeding the 128-byte display
+slot reserve three bytes for `...` and stop at a complete UTF-8 scalar boundary.
+Copies stop at the slot bound. The full retained path remains available through
+inspection and semantic row names. The top-level Storage panel currently owns
+its temporary clip state; nested clipping would need preserved/intersected
+caller clip state before this renderer is reused inside another clipped panel.
+
+Eight layout laws and four truncation laws accompany these changes. Their
+current compilation and authenticated proof qualification are pending. Also
+pending: native resize/keyboard/VoiceOver checks, font and scale validation,
+long introduction/overview/footer text, tiny-window minimum-size behavior,
+and an overflow marker when a name fits the byte slot but exceeds its pixel
+column. Source clipping alone does not close those presentation requirements.
