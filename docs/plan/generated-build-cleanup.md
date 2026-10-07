@@ -106,8 +106,13 @@ cross-variant reinterpretation. A successful source build is not this exit.
   partial output; never derive a quarantine path from an operation ID.
   The adapter now rejects nonempty parent bytes for an absent entry whose
   parent identity is unverified, alongside descriptor-binding claims without
-  that identity. Two refusal laws accompany this shape check; current compiler
-  and authenticated prover qualification remains pending.
+  that identity. Two refusal laws accompany this shape check. The seven-file
+  frozen law graph compiled at O0 with clean current-main compiler `665f40d7`:
+  exit 0, 170,072-byte object, source and product hashes unchanged. Retained
+  evidence is `build/recovery-location-laws-39ehvx29/inputs.json`, copied
+  `inputs/`, `compile.log` and `result.json`. No runtime was linked into the law
+  object; current repaired-compiler and authenticated prover qualification
+  remain pending.
 - Publish location observations only for the exact current ticket, selected row,
   root and operation. Workspace changes, reselection, Refresh and queued mutation
   invalidate reveal actions until a new observation arrives. Keep location
