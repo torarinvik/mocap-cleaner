@@ -17,9 +17,11 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 The current compiler repair is not qualified for promotion. Clean source
 `b35b5bc3` is rebased onto fetched main `9bdfec53`; the rebase preserves all
 26 preceding project patches unchanged. Region forwarding now retains the
-exact selected fact row and validates vector/span shape; malformed metadata
-conservatively propagates caller requirements rather than claiming no arena
-is needed. Its fresh seed and regression qualification remain pending.
+exact selected fact row and validates vector/span shape. Unresolved callees
+conservatively mark growable caller parameters. Review remains open for malformed
+global tables: an invalid caller row must refuse compilation, rather than let
+the fallback return without recording its arena requirement. Its fresh seed
+and regression qualification remain pending.
 Mixed-owner callee lookups carry scalar table selectors,
 and error-family consumers project views locally. Diagnostic compile
 `build/descriptor-current-projection.log` exits 0 and emits an object with
