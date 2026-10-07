@@ -14,6 +14,16 @@ module SessionSourceReferenceCodec:
             animation_name: darray[u8]
 
         private:
+            struct Token:
+                start: usize
+                end: usize
+
+            def token_count(token: Token) -> usize:
+                token.end - token.start
+
+            def token_byte(line: darray[u8]&, token: Token, index: usize) -> u8:
+                line[token.start + index]
+
             const module Hex:
                 PREFIX: sview = "source-ref-v1"
 
@@ -29,10 +39,10 @@ module SessionSourceReferenceCodec:
                 return value.i64() - 87 if value >= 97 and value <= 102
                 -1
 
-            def token_equal(token: darray[u8]&, expected: sview) -> bool:
-                return false if token.count != expected.len.usize()
-                for index in 0..<token.count |index, token, expected|:
-                    return false if token[index] != expected[index].u8()
+            def token_equal(line: darray[u8]&, token: Token, expected: sview) -> bool:
+                return false if token_count(token) != expected.len.usize()
+                for index in 0..<token_count(token) |index, line, expected|:
+                    return false if token_byte(line, token, index) != expected[index].u8()
                 true
 
             def name_valid(value: darray[u8]&) -> bool:
@@ -80,31 +90,31 @@ module SessionSourceReferenceCodec:
                     output.push(hex_digit(byte / 16))
                     output.push(hex_digit(byte % 16))
 
-            def decode_hex(value: darray[u8]&, maximum: usize, allow_empty: bool) -> darray[u8]? can Memory.Allocate:
-                return null if value.count == 0 or value.count % 2 != 0
-                return null if value.count / 2 > maximum
+            def decode_hex(line: darray[u8]&, value: Token, maximum: usize, allow_empty: bool) -> darray[u8]? can Memory.Allocate:
+                length: usize = token_count(value)
+                return null if length == 0 or length % 2 != 0
+                return null if length / 2 > maximum
                 mutable decoded: darray[u8] = []
-                for index in 0..<(value.count / 2) |index, value, decoded|:
-                    high: i64 = hex_value(value[index * 2])
-                    low: i64 = hex_value(value[index * 2 + 1])
+                for index in 0..<(length / 2) |index, line, decoded|:
+                    high: i64 = hex_value(token_byte(line, value, index * 2))
+                    low: i64 = hex_value(token_byte(line, value, index * 2 + 1))
                     return null if high < 0 or low < 0
                     decoded.push((high * 16 + low).u8())
                 return null if decoded.count == 0 and not allow_empty
                 decoded
 
-            def split_tokens(line: darray[u8]&) -> darray[darray[u8]]? can Memory.Allocate:
+            def split_tokens(line: darray[u8]&) -> darray[Token]? can Memory.Allocate:
                 return null if line.count == 0 or line.count > Limit::LINE_BYTES
-                mutable values: darray[darray[u8]] = []
-                mutable token: darray[u8] = []
-                for byte in line |byte, values, token|:
+                mutable values: darray[Token] = []
+                mutable start: usize = 0
+                for index in 0..<line.count |index, line, values, start|:
+                    byte: u8 = line[index]
                     if byte == 32:
-                        return null if token.count == 0
-                        values.push(move token)
-                        token <- []
-                    else:
-                        token.push(byte)
-                return null if token.count == 0
-                values.push(move token)
+                        return null if start == index
+                        values.push(Token{start: start, end: index})
+                        start <- index + 1
+                return null if start == line.count
+                values.push(Token{start: start, end: line.count})
                 values
 
             def put_separator(output: mutable darray[u8]&) -> void can Memory.Allocate:
@@ -158,35 +168,38 @@ module SessionSourceReferenceCodec:
 
         def decode(line: darray[u8]&) -> Record? can Memory.Allocate:
             if split_tokens(line) is tokens:
-                return null if tokens.count != 9 or not token_equal(tokens[0], Hex::PREFIX)
+                return null if tokens.count != 9 or not token_equal(line, tokens[0], Hex::PREFIX)
                 mutable format: StudioTakeSourceRefPolicy::SourceFormat = StudioTakeSourceRefPolicy::SourceFormat.DirectGlb
-                return null if tokens[1].count != 1 or (tokens[1][0] != 48 and tokens[1][0] != 49)
-                format <- StudioTakeSourceRefPolicy::SourceFormat.FbxDerived if tokens[1][0] == 49
-                if decode_hex(tokens[2], Limit::ANIMATION_BYTES, false) is animation:
+                return null if token_count(tokens[1]) != 1 or (token_byte(line, tokens[1], 0) != 48 and token_byte(line, tokens[1], 0) != 49)
+                format <- StudioTakeSourceRefPolicy::SourceFormat.FbxDerived if token_byte(line, tokens[1], 0) == 49
+                if decode_hex(line, tokens[2], Limit::ANIMATION_BYTES, false) is animation:
                     return null if not name_valid(animation)
-                    if decode_hex(tokens[3], StudioTakeSourceRefPolicy::Limit::PATH_BYTES, false) is original_path:
-                        if decode_hex(tokens[5], StudioTakeSourceRefPolicy::Limit::PATH_BYTES, false) is runtime_path:
+                    if decode_hex(line, tokens[3], StudioTakeSourceRefPolicy::Limit::PATH_BYTES, false) is original_path:
+                        if decode_hex(line, tokens[5], StudioTakeSourceRefPolicy::Limit::PATH_BYTES, false) is runtime_path:
                             mutable importer: darray[u8] = []
                             mutable options: darray[u8] = []
                             if format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived:
-                                if decode_hex(tokens[7], StudioTakeSourceRefPolicy::Limit::IMPORTER_REVISION_BYTES, false) is revision:
+                                if decode_hex(line, tokens[7], StudioTakeSourceRefPolicy::Limit::IMPORTER_REVISION_BYTES, false) is revision:
                                     importer <- move revision
                                 else:
                                     return null
-                                if tokens[8].count == 64:
-                                    for byte in tokens[8] |byte, options|:
+                                if token_count(tokens[8]) == 64:
+                                    for index in 0..<token_count(tokens[8]) |index, line, options|:
+                                        byte: u8 = token_byte(line, tokens[8], index)
                                         options.push(byte)
                                 else:
                                     return null
                             else:
-                                return null if not token_equal(tokens[7], "-") or not token_equal(tokens[8], "-")
+                                return null if not token_equal(line, tokens[7], "-") or not token_equal(line, tokens[8], "-")
                             mutable original_sha256: darray[u8] = []
                             mutable runtime_sha256: darray[u8] = []
-                            return null if tokens[4].count != 64 or tokens[6].count != 64
-                            for byte in tokens[4] |byte, original_sha256|:
+                            return null if token_count(tokens[4]) != 64 or token_count(tokens[6]) != 64
+                            for index in 0..<token_count(tokens[4]) |index, line, original_sha256|:
+                                byte: u8 = token_byte(line, tokens[4], index)
                                 return null if not byte_is_hex(byte)
                                 original_sha256.push(byte)
-                            for byte in tokens[6] |byte, runtime_sha256|:
+                            for index in 0..<token_count(tokens[6]) |index, line, runtime_sha256|:
+                                byte: u8 = token_byte(line, tokens[6], index)
                                 return null if not byte_is_hex(byte)
                                 runtime_sha256.push(byte)
                             reference: StudioTakeSourceRefPolicy::TakeSourceRef = StudioTakeSourceRefPolicy::TakeSourceRef{
