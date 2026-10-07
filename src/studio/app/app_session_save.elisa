@@ -1,4 +1,6 @@
 include "app_state.elisa"
+include "../session_save_target_policy.elisa"
+include "../../core/bounded_path_policy.elisa"
 
 extend Studio:
     private:
@@ -8,27 +10,33 @@ extend Studio:
             identity: SessionState::SourceIdentity = session_identity(c)
             SessionState::impact_records_valid(records, state, identity)
 
-        def save_session_to_current_path() -> bool:
+        def save_session_to_path(destination: cstr, adopt_destination: bool) -> bool:
+            # Preflight before IO; a refused Save As never changes the active path.
+            if adopt_destination and not BoundedPathPolicy::admitted(bounded_path_length(destination), PathCapacity::BYTES.i64()):
+                status <- "session path exceeds 4095 bytes"
+                status_file <- null
+                touch()
+                return false
             if pending_edit_active():
-                say_file("Session save blocked while an edit result is pending. Wait for it to finish or discard the pending edit.", session_path)
+                say_file("Session save blocked while an edit result is pending. Wait for it to finish or discard the pending edit.", destination)
                 touch()
                 return false
             mutable destination_reason: i64 = StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
             can Unsafe.PointerCast:
-                destination_reason <- export_reason(session_path, true)
+                destination_reason <- export_reason(destination, true)
             if destination_reason != StudioExportPolicy::Reason.ALLOW.i64():
                 mutable explanation: sview = "Session save blocked: destination could not be verified. Choose a regular file inside build/."
                 explanation <- "Session save blocked: destination is the source take or its alias. Choose another file inside build/." if destination_reason == StudioExportPolicy::Reason.SOURCE_COLLISION.i64()
                 explanation <- "Session save blocked: choose a file inside build/." if destination_reason == StudioExportPolicy::Reason.OUTSIDE_BUILD.i64()
                 explanation <- "Session save blocked: destination is a symbolic link. Choose a regular file inside build/." if destination_reason == StudioExportPolicy::Reason.SYMBOLIC_LINK.i64()
-                say_file(explanation, session_path)
+                say_file(explanation, destination)
                 touch()
                 return false
             mutable artifact_allowed: bool = false
             can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
-                artifact_allowed <- artifact_destination_allowed(session_path)
+                artifact_allowed <- artifact_destination_allowed(destination)
             if not artifact_allowed:
-                say_file("Session save blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", session_path)
+                say_file("Session save blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
                 touch()
                 return false
             mutable ok: bool = false
@@ -41,30 +49,39 @@ extend Studio:
                             records.push(SessionIssueAnnotationPolicy::stored_from_issue(issue, frames()))
                 suggestion_impact_prepare(c)
                 if not suggestion_impact_snapshot_valid(c):
-                    say_file("session save blocked: impact review has invalid source or frame binding", session_path)
+                    say_file("session save blocked: impact review has invalid source or frame binding", destination)
                     touch()
                     return false
                 impact_records <- suggestion_impact_session_records(c)
                 session_stack: StackState::Stack = current_stack()
                 identity: SessionState::SourceIdentity = session_identity(c)
                 impact_state: SessionImpactAnnotationPolicy::ReviewState = suggestion_impact_session_state()
-                destination: cstr = session_path
                 ok <- SessionState::save_session_with_reviews(session_stack, identity, records, impact_state, impact_records, destination)
+            if StudioSessionSaveTargetPolicy::may_adopt(ok, adopt_destination):
+                if not set_session_path(destination):
+                    status <- "Session file written, but its path could not be adopted. Current save target and dirty state are retained."
+                    status_file <- null
+                    touch()
+                    return false
             if ok:
                 HistoryState::mark_saved(&history)
+                published_destination: cstr = session_path if adopt_destination else destination
                 mutable tracked: bool = false
                 can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
-                    tracked <- register_storage_artifact(session_path, StudioStorageRegistrationPolicy::receipt_kind(StudioStorageRegistrationPolicy::Artifact.Session.i64()))
-                say_file("session saved to", session_path) if tracked
-                say_file("Session saved; Storage registration could not be saved. Recovery file remains protected", session_path) if not tracked
-                FilePanel::note_recent(session_path)
+                    tracked <- register_storage_artifact(published_destination, StudioStorageRegistrationPolicy::receipt_kind(StudioStorageRegistrationPolicy::Artifact.Session.i64()))
+                say_file("session saved to", published_destination) if tracked
+                say_file("Session saved; Storage registration could not be saved. Recovery file remains protected", published_destination) if not tracked
+                FilePanel::note_recent(published_destination)
             else:
                 mutable failure: sview = "session save failed; check path, permissions or disk space"
                 failure <- "session save failed; too many or invalid finding annotations" if SessionState::save_error() == SessionState::SaveError.Annotations.i64()
                 failure <- "session save failed; impact review is invalid or exceeds its record limit" if SessionState::save_error() == SessionState::SaveError.Impact.i64()
-                say_file(failure, session_path)
+                say_file(failure, destination)
             touch()
             ok
+
+        def save_session_to_current_path() -> bool:
+            save_session_to_path(session_path, false)
 
         def save_session() -> void:
             _ = save_session_to_current_path()

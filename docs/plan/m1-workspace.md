@@ -119,7 +119,13 @@ current detector before presenting an ignored finding as still applicable.
       Never fall back silently to `/build` or the source-take directory.
 - [ ] Exercise replacement, window-close and Cmd-Q prompts on screen,
       including Save/Discard/Cancel, Escape, repeated close requests and save
-      failures. Confirm that unreadable, damaged and mismatched sessions are
+      failures.
+      Save As now adopts its selected target only after the session write
+      succeeds; refusal retains the previous target and saved marker. Three
+      target-admission laws accompany this change. Qualify failed Save As
+      followed by ordinary Save, successful adoption, overlong paths and chooser
+      cancellation with actual buffers and on-disk session contents.
+      Confirm that unreadable, damaged and mismatched sessions are
       rejected before the dirty-document prompt; failed saves preserve the
       prompt and edits; and cancellation leaves the document usable. Keep
       unsaved-work warnings visually distinct from ordinary status feedback.
