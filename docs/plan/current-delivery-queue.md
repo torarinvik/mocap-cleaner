@@ -25,6 +25,18 @@ This does not qualify the entire roadmap or UI interaction journey.
 
 Remaining work:
 
+- Compiler repair `4635427d` is held from promotion: its name-only generic
+  test creates arena carriers even for scalar specialized results. Replace it
+  with resolved-callee, substituted-result region demand; retain fail-closed
+  unmodeled result handling. Before pushing `codex/void-poll-region`, run a
+  join/void-caller lifetime regression (prefer sanitizer coverage), compare
+  carrier-function counts and benchmark Stage1 against current main with no
+  slowdown. Rebase on `665f40d7` or newer, preserve borrow/reference/loop fixes,
+  and run stage0 seed, `self_host_gen3_smoke`, `backend_native_smoke` and the
+  fast gate. Failure lists must match main. Push only after these gates; the
+  external merge train owns landing after its 60-minute quiet period. A seed
+  of the broad repair remains diagnostic evidence only.
+
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
   runs successfully after the submitting frame ends and after a helper returns
