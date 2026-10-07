@@ -226,9 +226,13 @@ negative controls, meaningful history entries and session/export parity.
   evidence hashes exact `inputs.json` bytes; packages hash exact
   `PACKAGE-GENERATION.json` and separately `BUILD-INPUTS.json` bytes. The contents
   inventory excludes these controls. Refuse changed controls even when the
-  executable bytes are unchanged. Extend the durable receipt to retain these
-  reviewed control digests and qualify restart reconciliation against them;
-  the current v1 receipt retains product/inventory/lease evidence only.
+  executable bytes are unchanged. Engine `0d6fa26c` adds v2 durable receipts
+  retaining these reviewed control digests and revalidating them during Restore
+  and reconciliation. Qualify restart and changed-control refusal against exact
+  saved digests. V1 receipts remain legacy product/inventory/lease evidence;
+  expose that weaker scope explicitly before enabling UI recovery. Strict native
+  compilation and companion law object compilation do not establish runtime
+  durability, native/source correspondence or authenticated proofs.
 - Integrate the bounded candidate façade with background dispatch, explicit
   overflow/refusal states and a paged accessible review list. Unknown age stays
   protected; only verified filesystem birthtime supplies retention evidence.
