@@ -2,18 +2,46 @@
 # A valid descriptor/count must keep every Vec3 payload alive across churn.
 module SkinCacheLifetime:
     public:
+        error SkinError:
+            InvalidFrame
         struct Vec3:
             x: f32
             y: f32
             z: f32
+        struct Mesh:
+            indices: usize[3]
+        struct DrawList:
+            vertices: mutable darray[Vec3]
         global mutable points: darray[Vec3]? = null
         global mutable cached_frame: i64 = -1
 
         def pose(frame: i64) -> darray[Vec3]:
             mutable out: darray[Vec3] = []
+            _ = catch skin(frame, &out):
+                value: value
+                error failure: 0
+            return out
+
+        # Mirrors MeshOverlay::skin: an error-returning function grows the
+        # caller's mutable output array through a reference.
+        def skin(frame: i64, out: mutable darray[Vec3]&) -> usize error[SkinError]:
             for index in 0..<256 |index, frame, out|:
                 out.push(Vec3{x: frame.f32(), y: index.f32(), z: 42.0})
-            return out
+            return out.count
+
+        # Mirrors the viewport's nested borrowed-input/mutable-draw-list call.
+        def mesh_draw(list: mutable DrawList&, mesh: Mesh&, source: darray[Vec3]&) -> usize error[SkinError]:
+            for corner in 0..<3 |corner, list, mesh, source|:
+                list.vertices.push(source[mesh.indices[corner]])
+            return list.vertices.count
+
+        # The scene result is allocated while it reads the borrowed global pose.
+        def scene(mesh: Mesh&, source: darray[Vec3]&) -> DrawList:
+            mutable list: DrawList = DrawList{vertices: []}
+            _ = catch mesh_draw(&list, mesh, source):
+                value: value
+                error failure: 0
+            return move list
 
         def refresh(frame: i64) -> void:
             return if cached_frame == frame
@@ -27,6 +55,10 @@ module SkinCacheLifetime:
                 for index in 0..<256 |index, vertices, frame|:
                     value: Vec3 = vertices[index]
                     return false if value.x != frame.f32() or value.y != index.f32() or value.z != 42.0
+                mesh: Mesh = Mesh{indices: [0.usize(), 128.usize(), 255.usize()]}
+                list: DrawList = scene(&mesh, vertices)
+                return false if list.vertices.count != 3
+                return false if list.vertices[0].y != 0.0 or list.vertices[1].y != 128.0 or list.vertices[2].y != 255.0
                 return true
             return false
 
