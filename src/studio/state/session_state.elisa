@@ -88,6 +88,7 @@ module SessionState:
             Impact = 6
             TooLarge = 7
             Close = 8
+            Edits = 9
 
         struct SourceIdentity:
             first: i64
@@ -311,6 +312,7 @@ module SessionState:
                                         impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
             session_annotation_overflow <- false
             session_impact_invalid <- false
+            session_edits_invalid <- false
             session_source_comparison <- null
             return null if frames < 1 or frames > StudioChrome::Frame::MAX_FRAMES
             return null if not header_line(text)
@@ -357,16 +359,16 @@ module SessionState:
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
                         b: i64 = StudioChrome::session_frame(fields[4], frames)
                         op: Ops::Operation = Ops::Operation{kind: kind_from(fields[1]), enabled: fields[2] != 0, first: a if a <= b else b, last: b if a <= b else a, bones: StudioChrome::session_bones(fields[5]), strength: StudioChrome::session_strength(fields[6]), edge: StudioChrome::session_edge(fields[7])}
-                        return null if not StackState::add(&s, op)
+                        return reject_authored_edits() if not StackState::add(&s, op)
                     elif tag == WireTag::EDIT and fields.count == 5:
                         a: i64 = StudioChrome::session_frame(fields[2], frames)
                         b: i64 = StudioChrome::session_frame(fields[3], frames)
-                        return null if not StackState::add_edit(&s, fields[1], a if a <= b else b, b if a <= b else a, fields[4] != 0)
+                        return reject_authored_edits() if not StackState::add_edit(&s, fields[1], a if a <= b else b, b if a <= b else a, fields[4] != 0)
                     elif tag == WireTag::FIX and fields.count == 13:
                         if fix_from(&fields, frames, nodes) is fix:
-                            return null if not StackState::add_fix(&s, fix)
+                            return reject_authored_edits() if not StackState::add_fix(&s, fix)
                         else:
-                            return null
+                            return reject_authored_edits()
                     elif tag == WireTag::BAND and fields.count == 6:
                         # Unlike legacy operation fields, bands must be
                         # wholly valid: silently clamping a range/speed could
@@ -376,8 +378,8 @@ module SessionState:
                         speed: i64 = fields[3]
                         blend: i64 = fields[4]
                         enabled: i64 = fields[5]
-                        return null if not SessionBandPolicy::band_record_valid(first, last, speed, blend, enabled, frames)
-                        return null if not StackState::add_band(&s, first, last, speed, frames)
+                        return reject_authored_edits() if not SessionBandPolicy::band_record_valid(first, last, speed, blend, enabled, frames)
+                        return reject_authored_edits() if not StackState::add_band(&s, first, last, speed, frames)
                         at: i64 = s.band_count - 1
                         mutable band: StackState::Band = s.bands[at]
                         band.blend <- blend
@@ -455,6 +457,7 @@ module SessionState:
             session_load_error <- LoadError.None.i64()
             session_source_comparison <- null
             session_impact_invalid <- false
+            session_edits_invalid <- false
             mutable text: darray[u8] = []
             read_status: BoundedReadPolicy::Status = OpsFile::read_bytes_bounded(path, &text, BoundedReadPolicy::Capacity::DEFAULT_BYTES)
             if read_status != BoundedReadPolicy::Status.Ok:
@@ -473,6 +476,7 @@ module SessionState:
             session_annotation_overflow <- false
             if decode_session_with_reviews(&text, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations) is decoded:
                 return decoded
+            session_load_error <- LoadError.Edits.i64() if session_edits_invalid
             session_load_error <- LoadError.Impact.i64() if session_impact_invalid
             session_load_error <- LoadError.Annotations.i64() if session_annotation_overflow and not session_impact_invalid
             session_load_error <- LoadError.Source.i64() if session_load_error == LoadError.None.i64() and version == StudioChrome::Session::VERSION
@@ -495,6 +499,11 @@ module SessionState:
         global mutable session_load_error: i64 = LoadError.None.i64()
         global mutable session_annotation_overflow: bool = false
         global mutable session_impact_invalid: bool = false
+        global mutable session_edits_invalid: bool = false
+
+        def reject_authored_edits() -> StackState::Stack?:
+            session_edits_invalid <- true
+            null
 
         def atomic_save(out: darray[u8]&, path: cstr) -> bool:
             session_save_error <- SaveError.None.i64()
