@@ -53,7 +53,15 @@ Remaining work:
   current-main ancestry. A clean worktree or ancestor check alone cannot
   establish preservation; the retained original branch under
   `backup/void-poll-before-main-rebase` supplies the comparison source.
-  Candidate seed, lifetime, performance and regression qualification remain open.
+  The first candidate seed failed on concrete Stage0 binding/ref diagnostics.
+  Commit `331982f7` repairs those source errors; the next seed succeeded with
+  product SHA-256 `f0af9891268cc6b66a8a5eb373c8d71fb114056fd1a4ef6a9c694b25370a0e27`
+  and runtime SHA-256 `2c7a16bb5f87dbff7e2413e8886a31e832115f897b4a4b30df2aa56a59ace93d`.
+  Root independently verified these hashes and the clean worktree. Source
+  provenance and freshness checks pass; lifetime, performance and regression
+  qualification remain open. Correctness builds may overlap corpus checks
+  with measured memory headroom; performance measurements require a quiet,
+  matched comparison window.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
