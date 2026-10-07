@@ -139,11 +139,14 @@ this item.
 
 **Depends on:** Q01. Package/source correspondence work may proceed beforehand.
 
-The latest retained six-policy run uses proof `56460af7`, compiler `2ef1fa26`
-and pair `27a76cce72424a72ba1a75bb0e8c2f96`. Five packages fail source admission;
-failure policy replays 26/26 theorems. All six correspondence checks cover zero
-functions and remain unauthenticated. These results supersede historical d5/48dc
-counts for current status. See
+The latest retained six-policy run uses proof `d98afac0`, compiler `60f5a3b2`
+and pair `366396b1c2b84b5e9632fad44be2a282`, against frozen application
+source `fa43d43c`. All six packages fail source admission. Every correspondence
+check covers zero functions and remains unauthenticated. Nested const-enum
+integer casts are a concrete proposition-formation gap; repair exact owner and
+underlying-type witnesses in producer and independent replay, with contradictory,
+wrong-owner and wrong-width refusal controls. Earlier 26/26 failure-policy replay
+is historical evidence for an older source revision. See
 [the exact proof record](../acceptance/fbx-request-proof-2026-10-07.md).
 
 - Finish exact lexical owner propagation for nested constants and function

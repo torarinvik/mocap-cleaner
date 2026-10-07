@@ -140,3 +140,26 @@ theorems, but all six correspondence checks exit 1, check zero functions and
 report coverage not-established. No policy has authenticated source coverage.
 The positive standalone terminated package independently replays 3/3 theorems;
 this remains a narrow result and does not close Q02.
+
+## Frozen application source fa43d43c
+
+The next six-policy run uses proof source `d98afac0`, exact compiler source
+`60f5a3b2` and matched pair `366396b1c2b84b5e9632fad44be2a282`.
+Retained reports are in the proof checkout under
+`build/q02-fbx-qualification-fa43d43-20261007T210647Z-74342/`.
+Root read all six correspondence results and recorded hashes and sizes of all
+24 report/package/replay/correspondence artifacts in
+`build/q02-six-policy-root-audit.json`, SHA-256
+`073e92abf27821473d339a370ddb37a3436999e3213f690ca1b7a3f3b7b60670`.
+All six packages are rejected as `source-inadmissible`, with zero theorems,
+zero checked functions, coverage `not-established` and correspondence exit 1.
+The earlier failure-policy 26/26 result does not qualify this newer source.
+
+The failure-policy report contains 16 proposition-formation findings involving
+nested `StudioFbxImportWorker::Status` integer casts. The pending prover repair
+must validate exact enum declaration ownership and explicit integer backing,
+then independently reject contradictory values, wrong owners and wrong widths.
+Runtime success of the failure guidance fixture does not establish these laws.
+The original pair driver tail exit 1 (an absent custom manifest field) remains
+retained separately from subsequent successful exact-environment build and
+pair-current checks. No source-authentication acceptance is claimed.
