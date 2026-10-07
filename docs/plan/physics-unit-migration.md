@@ -7,10 +7,12 @@ the following physics paths still use micrometres. This inventory is remaining
 work, not qualification evidence.
 
 `PhysicsLengthBoundary` now supplies bounded integer micrometre admission,
-0.1 mm conversion and explicit report conversion admission. Six obligations
+0.1 mm conversion and explicit report conversion admission. Ten obligations
 compile with d2754a8e. It is not yet wired into physics callers; authenticated
 replay and the world-float boundary remain open. World floats must round once
 at the final unit boundary, rather than first rounding to micrometres.
+Coverage includes both signed half-unit ties, values below half a unit and
+exact report-unit recovery; compilation does not establish proof validity.
 
 | Boundary | Current callers | Required dimension |
 | --- | --- | --- |
