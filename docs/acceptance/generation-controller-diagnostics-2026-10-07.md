@@ -73,3 +73,32 @@ Today's changed source tree cannot establish the exact predicates compiled for
 the captured run. The extra increment remains unexplained. Recover the matching
 executable/source snapshot or capture a fresh exact run before attributing it to
 compiler behavior or the correction algorithm. Preserve existing tolerances.
+
+## Explicit retained-handle release retry
+
+Move and Restore controls now offer **Retry Release** when their retained reply
+owns a positive native handle. The entire affine reply transfers to the drain
+worker; captured root, operation identity, commit status and diagnostic bytes
+remain retained. The controls show Releasing during the job and return to
+Recovery pending afterward. A release retry does not establish artifact location
+or authorize another mutation. Busy/unknown results keep the token; no automatic
+retry loop is introduced.
+
+Admission requires all five generation jobs idle, an open Storage/review screen,
+no queued close, and no storage mutation modal or running batch. It deliberately
+does not require a fresh inventory row or ledger capacity: release operates on
+already owned native state. Native acquire_entry permits closing an existing
+registered token even when registration is inhibited by sticky release uncertainty.
+
+The expanded nine admission/reconciliation law declarations compile as an object
+with the isolated UI collision repair candidate. Its source base is dd0312ee,
+source tree c9aa21a6692529aab8ab58faf56407bfd44c23ef56aead658ba48e48a95d182e,
+product SHA256 7862a5472885a2956f012d27cf0635beff5af126c6c79d5263abe61d11a987f2.
+The compiler agent reports no new frontend/affine diagnostics for integrated
+controllers; the application still declines at ledger global initialization and
+five generated result readers plus wrappers. No executable was emitted.
+The original dd wrapper refused compilation because restored source mtimes were
+newer than its binary; no stale-product bypass was used for this observation.
+
+Native retry execution, Busy/uncertain fault cases, keyboard/VoiceOver interaction,
+authenticated laws and safe disposal after exact reconciliation remain open.

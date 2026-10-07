@@ -1,3 +1,5 @@
+include "../io/build_generation_handle_drain_worker.elisa"
+include "../state/generation_handle_drain_policy.elisa"
 include "../state/generation_storage_drain_policy.elisa"
 include "../state/generation_restore_selection_policy.elisa"
 include "../io/build_generation_restore_worker.elisa"
@@ -98,19 +100,32 @@ extend Studio:
                 true
             false
 
+        def generation_restore_release_retry_enabled() -> bool:
+            if generation_restore_reply is retained:
+                jobs_idle: bool = StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
+                modal_busy: bool = storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
+                return StudioGenerationHandleDrainPolicy::may_offer_retry(retained.remaining_handle, jobs_idle, storage_screen_open and generation_review_open, storage_close_requested, modal_busy)
+            false
+
         def generation_restore_action_label() -> sview:
+            if generation_restore_reply is retained:
+                return "Retry Release" if retained.remaining_handle > 0
             match generation_restore_state:
                 StudioGenerationRestoreConfirmationPolicy::State.Idle: return "Review Restore"
                 StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): return "Confirm Restore"
                 StudioGenerationRestoreConfirmationPolicy::State.Running(key, job_ticket): return "Restoring…"
                 StudioGenerationRestoreConfirmationPolicy::State.Draining(key, job_ticket): return "Finishing…"
-                StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket): return "Recovery pending"
+                StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket): return "Releasing…" if generation_restore_task != null else "Recovery pending"
                 StudioGenerationRestoreConfirmationPolicy::State.Resolved(job_ticket): return "Restored"
 
         def generation_restore_action_help() -> sview:
+            if generation_restore_reply is retained:
+                return "Retry releasing the retained native handle. Operation details remain available for recovery review." if retained.remaining_handle > 0
             "Review the retained move operation and confirm before restoring the exact quarantined artifact to its original build directory."
 
         def generation_restore_action_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
+            if generation_restore_reply is retained:
+                return generation_restore_release_retry_enabled() if retained.remaining_handle > 0
             return false if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
             return false if not storage_screen_open or not generation_review_open or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64() or storage_move_review or storage_restore_review or storage_release_uncertain
             return false if generation_move_task != null or generation_restore_task != null or generation_restore_reply != null
@@ -140,6 +155,16 @@ extend Studio:
             copied
 
         def generation_restore_action() -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            if generation_restore_release_retry_enabled():
+                if generation_restore_reply is retained:
+                    ticket: i64 = retained.ticket
+                    generation_restore_reply <- null
+                    job: StudioBuildGenerationHandleDrainWorker::RestoreJob = StudioBuildGenerationHandleDrainWorker::RestoreJob{reply: move retained}
+                    generation_restore_task <- task(generation_restore_handle_drain_job, move job)
+                    generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket: ticket)
+                    UiCore::request_frame_after(0.016)
+                    touch()
+                return
             return if not generation_restore_action_enabled()
             mutable current: StudioGenerationRestoreConfirmationPolicy::SourceKey = generation_restore_current_key()
             if generation_restore_state == StudioGenerationRestoreConfirmationPolicy::State.Idle:
@@ -179,6 +204,7 @@ extend Studio:
                 touch()
 
         def generation_restore_message() -> sview:
+            return "Retrying native handle release; recovery details remain retained." if generation_restore_task != null and generation_restore_state == StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket: generation_restore_ticket)
             match generation_restore_state:
                 StudioGenerationRestoreConfirmationPolicy::State.Idle: return "Restore is available only for a verified retained move receipt."
                 StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): return "Review the verified restore operation, then activate Confirm Restore to proceed."
