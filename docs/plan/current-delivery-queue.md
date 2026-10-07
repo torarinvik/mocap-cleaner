@@ -14,19 +14,19 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-Clean compiler `ac0f4423` includes fetched upstream `218c2c22` and preserves the
-module-ownership, aggregate result-reader and private ledger-constructor repairs.
-The complete Studio graph, native link and local package succeeded at the
-captured snapshot in [native build evidence](../acceptance/studio-native-build-2026-10-07.md).
-The former backend declines are resolved; do not schedule those repairs again.
-The shared UI changed after publication, so that package does not qualify the
-newer UI source. Older captures remain comparison evidence in the acceptance
-records, rather than active implementation tasks.
+Compiler merge `48dc78e2` includes fetched performance changes through
+`63585c5f` and preserves project-specific repairs. Its reseed completed, and the
+complete Studio graph and native link succeeded. The rebuilt retained package
+has a visibly discoverable Workspace / File control. Publication into the usual
+bundle location was refused while the old running app held its lease; preserve
+that instance and reconcile publication after release. See
+[current build evidence](../acceptance/studio-workspace-build-2026-10-07.md).
+This does not qualify the entire roadmap or UI interaction journey.
 
 Remaining work:
 
-- Agree and independently verify the stable UI content checkpoint; rebuild the
-  complete app/package against it. Preserve project repairs and current upstream.
+- Preserve the verified UI checkpoint and source closure when rebuilding after
+  pending skin/session changes. Recheck fetched upstream and project repairs.
 - Retain verified compiler/runtime source and linked-dependency provenance at
   every new snapshot. The current runtime input/object stamp was independently
   recomputed; source or recipe changes require another verification.
@@ -57,27 +57,21 @@ this item.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
-- The current matched pair is generation `d321c0515e654899a3769707457298ca`,
-  built from proof HEAD `9432ac91184298227ece607c7f5e2fdb621032e0` and compiler
-  source commit `ac0f4423189e7f554388a903888347400d74acee`. Both products pass
-  pair integrity, current-source, and compiler provenance checks. The
-  generation-policy law graph has 89 obligations: 33 proven and 56 unproven.
-  Its source package replays 15/15 theorems; correspondence checks
-  `facts_valid` and `protection_reason`, leaves `eligible` unmatched on 13
-  unproved return ensures, and reports `may_cleanup` unsupported because its
-  helper is unchecked. The creation-journal law graph has 204 obligations: 67
-  proven and 137 unproven. Its source package replays 32/32 theorems, while
-  correspondence checks 0 functions, reports 4 unmatched and 8 unsupported,
-  including parameter-type and helper-summary gaps. Both correspondence reports
-  retain `source_authenticated: false`; no helper summary was promoted to
-  evidence. Exact input, product, compiler, and runtime hashes are recorded in
-  the immutable pair manifests and [qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
-- The three prior contract-proposition formation refusals are cleared by the
-  owner-aware declaration lookup repair. The focused law reports contain no
-  `contract-proposition-type` findings. This repairs proposition formation,
-  while the unmatched `eligible` obligations and unchecked helper calls still
-  prevent source authentication. Keep Q02 open and preserve these remaining
-  correspondence gaps.
+- Rebuild the matched pair after every proof-source repair. Pair `261b821b` was
+  built against compiler `48dc78e2` and passed freshness checks before the next
+  owner-aware resource-summary repair. Its focused TakeSourceRef report had
+  59 obligations, 34 proven and 25 unproven; staging had 128 obligations,
+  17 proven and 111 unproven. Both packages were admissible but unauthenticated,
+  with no checked replay theorems and unsupported source correspondence.
+  Retain the exact immutable pair reports; do not treat package admissibility
+  as verified predicates. Subsequent proof edits require a new current pair.
+- Repair resource helper summary lookup to respect qualified declaration owners.
+  Repeated leaf names such as `path_valid` and `bytes_equal` must not make an
+  unambiguous qualified call opaque or select the wrong owner's summary.
+  Preserve shared reborrow, mutation exclusion and generic-region constraints.
+- Qualify generation and creation-journal laws again with the repaired pair.
+  Historical reports remain unauthenticated and cannot close Q02. Exact gaps
+  are tracked in [proof gaps](../proof-gaps.md).
 - Continue reducing connective/source admission gaps and fact growth. Extra
   enum disequality facts cannot substitute for the checked relation between a
   helper result and its inputs. Preserve fail-closed authentication and keep
