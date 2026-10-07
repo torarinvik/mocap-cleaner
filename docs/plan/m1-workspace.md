@@ -19,6 +19,12 @@ in the diagnostic graph. Legacy versions retain their explicitly approved
 migration behavior; valid numeric unknown tags remain forward compatible.
 Qualify malformed records with the decoder and user-facing Edits error before
 accepting restoration integrity.
+V4 finding annotations with invalid shape, unsupported schema or invalid
+record values now refuse restoration with the annotation-specific error,
+instead of being silently skipped. Exact duplicate annotations remain
+deduplicated. Qualify rejected annotations with unchanged retained review
+state, current document and history; validate supported records against the
+current detector before presenting an ignored finding as still applicable.
 
 ## 6. M1 — A workspace that explains itself and protects work
 
