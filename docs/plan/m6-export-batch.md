@@ -299,6 +299,12 @@ qualifies the integrated application or native workflow.
       turn unavailable measurements into an asserted fit. Distinguish a valid
       zero-width glyph range from a failed measurement. Bind retained layout
       to the active font/scale generation and rebuild when that context changes.
+      Establish a safe borrowing or owned-buffer measurement API before wiring
+      the adapter. An unsafe pointer-cast callback invalidates region facts for
+      subsequent path/model accesses in the current compiler. A caller-region
+      output parameter alone does not restore those facts. Keep that refusal;
+      qualify the smallest safe UI/compiler boundary with exact byte retention,
+      buffer lifetime and callback effects before composing it into Studio.
       Qualify combining marks, joined emoji, fallback fonts and changes in scale
       or width. A cluster larger than a text node's budget needs an explicit,
       faithful inspection fallback; do not silently split, omit or normalize

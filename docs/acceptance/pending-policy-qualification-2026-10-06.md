@@ -232,3 +232,17 @@ is later reverted. Preserve that mismatch and inspect the post-run manifest
 before repairs. Prepare the next compilation from a verified immutable copy
 of the complete source/include graph and linked inputs; shared-checkout edits
 must not silently change the compiled generation or its provenance.
+
+## Path measurement callback ownership boundary
+
+The adapter worker reported that an explicit `WidthMeasure` callback with
+`Unsafe.PointerCast` invalidates the region facts needed by later path/model
+accesses. The adapter's `UiText::unsafe_sview_bounded_bytes` introduces the same
+boundary. A generic caller region and output parameter did not resolve the
+refusal. This is a reported diagnostic observation; the adapter is uncomposed
+and no successful adapter compilation or native qualification is recorded.
+
+Investigate a safe owned or fixed-buffer text-view API and preserve the current
+effect checks. Any required UI/compiler repair must establish exact retained
+bytes and buffer lifetimes, alongside the separate checked-width validity gate.
+Do not make unsafe callbacks appear safe by dropping their declared effects.
