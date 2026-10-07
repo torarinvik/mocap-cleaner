@@ -174,3 +174,21 @@ The compiler provenance check passed for source
 This compile-only record does not discharge the laws, qualify filesystem
 behavior or establish authenticated source correspondence. The final current
 proof pair must report those outcomes separately.
+
+## Report model initialization privacy
+
+The compiler worker isolated the `current_status` decline to Studio's external
+`global mutable prepared_report_model: StudioExportBatchReportView::Model = zeroed`.
+The inspected application declaration is in
+`src/studio/app/app_export_batch_warning_review.elisa`; the report model's
+status and owned buffers are private in its defining module. A reduction using
+the owning module's constructor and accessor succeeds, while an external
+zeroed global reproduces the private-field refusal. This distinguishes the
+initialization violation from the earlier suspected accessor-owner collision.
+The report module's isolated object also does not qualify its external caller.
+
+Repair the application storage through the owning constructor, with explicit
+absence/lifetime admission or narrow owner-managed storage APIs. Retain private
+fields and the report's bounded ownership and stale-review checks. A complete
+integrated compile and native report open/page/close qualification remain open;
+making the status public would bypass the diagnosed boundary.
