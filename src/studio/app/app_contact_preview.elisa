@@ -48,7 +48,7 @@ extend Studio:
                 }
                 contact_preview_running_identity <- identity
                 contact_preview_worker_cancelled <- false
-                contact_preview_task <- task(StudioContactPreviewWorker::evaluate, move job)
+                contact_preview_task <- task(evaluate_contact_preview_job, move job)
                 contact_preview_evaluated_generation <- identity.generation
                 contact_preview_last_evaluation_us <- (UiAppKitCanvas::monotonic_time() * 1000000.0).i64()
                 status <- "Evaluating proposed contact pose; current result remains visible."
@@ -64,35 +64,35 @@ extend Studio:
                 if not readiness.complete:
                     contact_preview_task <- move readiness.thread
                     return
-                completed: StudioContactPreviewWorker::Result = join(move readiness.thread)
-                completed_identity: StudioJobIdentity::Identity = completed.identity
-                mutable completed_memo: StudioModel::Memo = move completed.memo
-                mutable candidate: StudioModel::Clip? = move completed.candidate
-                source_now: StudioJobIdentity::Identity = contact_preview_identity(completed_identity.generation)
-                source_still_current: bool = StudioJobIdentity::same_source(completed_identity, source_now)
-                if source_still_current and memo == null:
-                    memo <- move completed_memo
-                current: StudioJobIdentity::Identity = contact_preview_identity(contact_preview_request_generation)
-                accept: bool = (StudioJobIdentity::may_publish(contact_preview_running_identity,
-                    completed_identity, contact_preview_worker_cancelled) and
-                    contact_preview_active and StudioJobIdentity::equal(current, completed_identity))
-                if accept:
-                    if candidate is ready_candidate:
-                        contact_preview_candidate <- move candidate
-                        contact_preview_candidate_first <- completed_identity.first_frame
-                        contact_preview_candidate_last <- completed_identity.last_frame
-                        contact_preview_candidate_take <- completed_identity.take_serial
-                        contact_preview_candidate_document <- completed_identity.document_revision
-                        contact_preview_candidate_stack <- completed_identity.stack_generation
-                        contact_preview_candidate_frame <- completed_identity.playhead_frame
-                        status <- "Evaluated proposed contact pose; release applies this range, Escape cancels."
-                        status_file <- null
-                    else:
-                        status <- "Contact pose preview failed; current result remains visible. Release still uses normal validation."
-                        status_file <- null
-                elif contact_preview_active:
-                    status <- "Contact pose preview was superseded; evaluating the latest range. Current result remains visible."
-                    status_file <- null
+                match join(move readiness.thread):
+                    StudioContactPreviewWorker::Result{identity: completed_identity, memo: returned_memo, candidate: candidate}:
+                        mutable completed_memo: StudioModel::Memo = move returned_memo
+                        mutable candidate_value: StudioModel::Clip? = move candidate
+                        source_now: StudioJobIdentity::Identity = contact_preview_identity(completed_identity.generation)
+                        source_still_current: bool = StudioJobIdentity::same_source(completed_identity, source_now)
+                        if source_still_current and memo == null:
+                            memo <- move completed_memo
+                        current: StudioJobIdentity::Identity = contact_preview_identity(contact_preview_request_generation)
+                        accept: bool = (StudioJobIdentity::may_publish(contact_preview_running_identity,
+                            completed_identity, contact_preview_worker_cancelled) and
+                            contact_preview_active and StudioJobIdentity::equal(current, completed_identity))
+                        if accept:
+                            if candidate_value is ready_candidate:
+                                contact_preview_candidate <- move candidate_value
+                                contact_preview_candidate_first <- completed_identity.first_frame
+                                contact_preview_candidate_last <- completed_identity.last_frame
+                                contact_preview_candidate_take <- completed_identity.take_serial
+                                contact_preview_candidate_document <- completed_identity.document_revision
+                                contact_preview_candidate_stack <- completed_identity.stack_generation
+                                contact_preview_candidate_frame <- completed_identity.playhead_frame
+                                status <- "Evaluated proposed contact pose; release applies this range, Escape cancels."
+                                status_file <- null
+                            else:
+                                status <- "Contact pose preview failed; current result remains visible. Release still uses normal validation."
+                                status_file <- null
+                        elif contact_preview_active:
+                            status <- "Contact pose preview was superseded; evaluating the latest range. Current result remains visible."
+                            status_file <- null
                 contact_preview_worker_cancelled <- false
                 touch()
                 if contact_preview_close_approved:
