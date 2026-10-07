@@ -119,6 +119,18 @@ acceptance. Qualification of parallel progress and failure reporting is pending.
 
 ### Current compiler qualification gaps
 
+- [ ] Qualify the corrected worker refusal laws against their exact final
+      source. Commits `f9d0571` and `cc4d554` align the Boolean law bodies with
+      their existing false-result contracts: cancelled/stale/changed identities
+      and unavailable workers return the refused admission predicate itself.
+      The true-result memo-restoration law still requires same source and refused
+      publication. Fresh O0 objects qualify compilation only (identity 10,176
+      bytes; worker policy 51,376 bytes). Independently replay these obligations
+      and inspect any counterexamples before accepting their baseline. Include
+      contradictory law bodies in the prover's negative qualification corpus
+      when implementing the authorized verification workflow; a compiler object
+      must never stand in for contract truth.
+
 - [ ] Qualify the source-matched candidate compiler's module-constant generic
       argument resolution in the complete Studio graph. Candidate `73319dd1`
       emits the reduced `UiText::fixed_bytes_view_range[Buffer::CAPACITY]` call.
