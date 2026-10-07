@@ -36,6 +36,13 @@ Complete all applicable categories before removing a task from this roadmap.
 - Qualify a fixed source/dependency snapshot. If files change during a run,
   identify affected results and rerun them before claiming snapshot acceptance.
   A failed observation does not establish that a live app/job has stopped.
+- Compiler freshness exceptions must follow the actual build input set.
+  Excluding Go test-only edits must still refuse renames between implementation
+  and test files, implementation deletions, module changes and relevant native
+  inputs. Parse paths without losing quoting or rename identities. Failed
+  source-status or input-inventory commands must refuse qualification rather
+  than treating an empty result as a clean source tree. Retain embedded source
+  revision checks and exact linked-product provenance alongside these checks.
 - Remove completed implementation from active checklists; retain outstanding
   native, quality or usability acceptance explicitly. Preserve history in Git
   and evidence records rather than rebuilding shipped policies.
