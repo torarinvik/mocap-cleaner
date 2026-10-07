@@ -1,0 +1,151 @@
+# Bounded versioned source metadata record used by session v5. Paths and the
+# selected animation name are hex encoded so filesystem bytes never alter the
+# line grammar; digest fields remain canonical ASCII SHA-256 hex.
+include "../take_source_ref_policy.elisa"
+
+module SessionSourceReferenceCodec:
+    public:
+        const module Limit:
+            LINE_BYTES: usize = 20000
+            ANIMATION_BYTES: usize = 1024
+
+        affine struct Record:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef
+            animation_name: darray[u8]
+
+        private:
+            const module Hex:
+                PREFIX: sview = "source-ref-v1"
+
+            def byte_is_hex(byte: u8) -> bool:
+                (byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102)
+
+            def hex_digit(value: u8) -> u8:
+                return 48 + value if value < 10
+                87 + value
+
+            def hex_value(value: u8) -> i64:
+                return value.i64() - 48 if value >= 48 and value <= 57
+                return value.i64() - 87 if value >= 97 and value <= 102
+                -1
+
+            def token_equal(token: darray[u8]&, expected: sview) -> bool:
+                return false if token.count != expected.len.usize()
+                for index in 0..<token.count |index, token, expected|:
+                    return false if token[index] != expected[index].u8()
+                true
+
+            def name_valid(value: darray[u8]&) -> bool:
+                return false if value.count == 0 or value.count > Limit::ANIMATION_BYTES
+                for byte in value:
+                    return false if byte == 0 or byte < 32
+                true
+
+            def push_hex(value: darray[u8]&, output: mutable darray[u8]&) -> void can Memory.Allocate:
+                for byte in value |byte, output|:
+                    output.push(hex_digit(byte / 16))
+                    output.push(hex_digit(byte % 16))
+
+            def decode_hex(value: darray[u8]&, maximum: usize, allow_empty: bool) -> darray[u8]? can Memory.Allocate:
+                return null if value.count == 0 or value.count % 2 != 0
+                return null if value.count / 2 > maximum
+                mutable decoded: darray[u8] = []
+                for index in 0..<(value.count / 2) |index, value, decoded|:
+                    high: i64 = hex_value(value[index * 2])
+                    low: i64 = hex_value(value[index * 2 + 1])
+                    return null if high < 0 or low < 0
+                    decoded.push((high * 16 + low).u8())
+                return null if decoded.count == 0 and not allow_empty
+                decoded
+
+            def split_tokens(line: darray[u8]&) -> darray[darray[u8]]? can Memory.Allocate:
+                return null if line.count == 0 or line.count > Limit::LINE_BYTES
+                mutable values: darray[darray[u8]] = []
+                mutable token: darray[u8] = []
+                for byte in line |byte, values, token|:
+                    if byte == 32:
+                        return null if token.count == 0
+                        values.push(move token)
+                        token <- []
+                    else:
+                        token.push(byte)
+                return null if token.count == 0
+                values.push(move token)
+                values
+
+            def put_separator(output: mutable darray[u8]&) -> void can Memory.Allocate:
+                output.push(32)
+
+        def encode(record: Record&, output: mutable darray[u8]&) -> bool can Memory.Allocate:
+            return false if not StudioTakeSourceRefPolicy::valid(record.reference) or not name_valid(record.animation_name)
+            output.clear()
+            for byte in Hex::PREFIX:
+                output.push(byte)
+            put_separator(output)
+            output.push(48 if record.reference.format == StudioTakeSourceRefPolicy::SourceFormat.DirectGlb else 49)
+            put_separator(output)
+            push_hex(record.animation_name, output)
+            put_separator(output)
+            push_hex(record.reference.original_path, output)
+            put_separator(output)
+            for byte in record.reference.original_sha256:
+                output.push(byte)
+            put_separator(output)
+            push_hex(record.reference.runtime_glb_path, output)
+            put_separator(output)
+            for byte in record.reference.runtime_glb_sha256:
+                output.push(byte)
+            put_separator(output)
+            if record.reference.importer_revision.count == 0:
+                output.push(45)
+            else:
+                push_hex(record.reference.importer_revision, output)
+            put_separator(output)
+            if record.reference.options_sha256.count == 0:
+                output.push(45)
+            else:
+                for byte in record.reference.options_sha256:
+                    output.push(byte)
+            return output.count <= Limit::LINE_BYTES
+
+        def decode(line: darray[u8]&) -> Record? can Memory.Allocate:
+            if split_tokens(line) is tokens:
+                return null if tokens.count != 9 or not token_equal(tokens[0], Hex::PREFIX)
+                mutable format: StudioTakeSourceRefPolicy::SourceFormat = StudioTakeSourceRefPolicy::SourceFormat.DirectGlb
+                return null if tokens[1].count != 1 or (tokens[1][0] != 48 and tokens[1][0] != 49)
+                format <- StudioTakeSourceRefPolicy::SourceFormat.FbxDerived if tokens[1][0] == 49
+                if decode_hex(tokens[2], Limit::ANIMATION_BYTES, false) is animation:
+                    return null if not name_valid(animation)
+                    if decode_hex(tokens[3], StudioTakeSourceRefPolicy::Limit::PATH_BYTES, false) is original_path:
+                        if decode_hex(tokens[5], StudioTakeSourceRefPolicy::Limit::PATH_BYTES, false) is runtime_path:
+                            mutable importer: darray[u8] = []
+                            mutable options: darray[u8] = []
+                            if format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived:
+                                if decode_hex(tokens[7], StudioTakeSourceRefPolicy::Limit::IMPORTER_REVISION_BYTES, false) is revision:
+                                    importer <- move revision
+                                else:
+                                    return null
+                                if tokens[8].count == 64:
+                                    for byte in tokens[8] |byte, options|:
+                                        options.push(byte)
+                                else:
+                                    return null
+                            else:
+                                return null if not token_equal(tokens[7], "-") or not token_equal(tokens[8], "-")
+                            mutable original_sha256: darray[u8] = []
+                            mutable runtime_sha256: darray[u8] = []
+                            return null if tokens[4].count != 64 or tokens[6].count != 64
+                            for byte in tokens[4] |byte, original_sha256|:
+                                return null if not byte_is_hex(byte)
+                                original_sha256.push(byte)
+                            for byte in tokens[6] |byte, runtime_sha256|:
+                                return null if not byte_is_hex(byte)
+                                runtime_sha256.push(byte)
+                            reference: StudioTakeSourceRefPolicy::TakeSourceRef = StudioTakeSourceRefPolicy::TakeSourceRef{
+                                format: format, original_path: move original_path, original_sha256: move original_sha256,
+                                runtime_glb_path: move runtime_path, runtime_glb_sha256: move runtime_sha256,
+                                importer_revision: move importer, options_sha256: move options}
+                            return null if not StudioTakeSourceRefPolicy::valid(reference)
+                            decoded: Record = Record{reference: reference, animation_name: move animation}
+                            return move decoded
+            null
