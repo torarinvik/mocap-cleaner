@@ -205,3 +205,19 @@ absence/lifetime admission or narrow owner-managed storage APIs. Retain private
 fields and the report's bounded ownership and stale-review checks. A complete
 integrated compile and native report open/page/close qualification remain open;
 making the status public would bypass the diagnosed boundary.
+
+Commit `19e07c7` repairs the application storage to `Model? = null`. Opening
+constructs, loads and validates a local model through the owning module, then
+moves it into storage; closing releases it to null. Owner-side optional status
+and page-count APIs return Empty/0 for absence. Paging, draw, accessibility and
+acknowledgement callers use those APIs or a guarded borrow. Previous is disabled
+for absent or stale page state. The private cache reads the validated immutable
+model without revalidating up to 1 MiB on every page change.
+
+The worker's focused O0 products are `build/report-model-optional/report-view.o`
+(57,640 bytes) and `report-laws.o` (77,360 bytes). The root inspected those
+sizes and confirmed both absence-law symbols in the law object. This records
+source implementation and focused compilation, not complete application or
+proof qualification. The cached-valid flag's relationship to the model's
+immutable open/close lifetime still needs contract/source-correspondence
+evidence, alongside native report open/page/close and acknowledgement checks.
