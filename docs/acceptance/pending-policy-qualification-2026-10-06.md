@@ -300,3 +300,13 @@ the worker's detailed comparison records identify changed `ui_paint.elisa` and
 added `ui_paint_diagnostic.elisa` as the input drift. Keep this generation as
 comparison evidence. The staged generation has begun a separate compilation
 with its standard-library root explicitly set inside the immutable copy.
+
+The staged compilation (worker session 11768, PID 31225) terminated with exit
+2, no object and the same 23 backend declines. Its post-run snapshot check
+exited zero. The root independently rehashed all 529 entries in the staged
+`mocap-cleaner/build/studio-immutable/inputs-before.json` after termination:
+zero mismatches. This is a source-matched diagnostic failure, not a successful
+application qualification. Preserve the staged generation while repairing the
+compiler using minimal reductions. The final app compilation requires a new
+immutable generation containing the later constant migrations and checked text
+measurement API; this older snapshot cannot qualify those changes.
