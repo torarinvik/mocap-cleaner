@@ -25,8 +25,9 @@ This does not qualify the entire roadmap or UI interaction journey.
 
 Remaining work:
 
-- New fetched compiler tip `50b16e68` adds borrow-exclusivity repairs and backend
-  reference-field reads. Preserve project and task-region repairs while merging,
+- New fetched compiler tip `75568f8` includes the `50b16e68` borrow-exclusivity
+  repairs and backend reference-field reads, followed by documentation changes.
+  It is merged into the repair checkout at `3714380c`. Preserve project and task-region repairs while merging,
   rebuild compiler/runtime with source provenance, and requalify the complete
   graph. Captured `48dc78e2` evidence is not qualification of this newer source.
 - Preserve the verified UI checkpoint and source closure when rebuilding after
@@ -47,6 +48,14 @@ Remaining work:
   documented stopping point. Audit all task captures separately from returned-data
   ownership, including source-aware Session Locate's nested request buffers.
   See [the foreign adapter audit](../proof-gaps/fbx-foreign-adapter.md).
+- Bounded adapter strict compilation and the real high-block staging/conversion,
+  digest, cache and source-preservation probe pass for the captured `50b16e68`
+  tuple. This is a qualified native adapter slice, not current application or
+  asynchronous ownership acceptance. Requalify the full graph after the repair
+  build; do not mix its std/runtime sources with an installed upstream binary.
+- Restore, recovery scan and recovery discovery now submit bounded inline paths,
+  matching candidate scan. Qualify all four callbacks and publication after the
+  polling frame ends; input capture alone cannot establish returned-data lifetime.
 
 **Finish evidence:** exact input manifests and product provenance, authenticated
 current prover/replay pair, current complete graph/link closure and successful
