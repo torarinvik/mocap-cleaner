@@ -136,7 +136,7 @@ module StudioBuildGenerationCandidateProvider:
                 OwnedIncompleteEvidence.Verified(revision, creation, failure, observed, status,
                     lease_device, lease_inode, namespace_verified, tree_verified,
                     builder_inactive, publication_intent_absent):
-                    row.phase == CreationPhase.Failed and product_identity_absent(row.product_identity) and owned_creation_matches(row.creation_evidence, revision, creation, failure, observed) and digest_valid(creation) and digest_valid(failure) and digest_valid(observed) and status >= 1 and status <= 255 and lease_device >= 0 and lease_inode > 0 and namespace_verified and tree_verified and builder_inactive and publication_intent_absent and not age_unknown(row.age) and not size_unknown(row.size_evidence)
+                    row.phase == CreationPhase.Failed and product_identity_absent(row.product_identity) and revision == 3 and owned_creation_matches(row.creation_evidence, revision, creation, failure, observed) and digest_valid(creation) and digest_valid(failure) and digest_valid(observed) and status >= 1 and status <= 255 and lease_device >= 0 and lease_inode > 0 and namespace_verified and tree_verified and builder_inactive and publication_intent_absent and not size_unknown(row.size_evidence)
 
         def owned_creation_matches(evidence: CreationEvidence, revision: i64,
                                    creation: darray[u8]&, failure: darray[u8]&,
@@ -346,6 +346,12 @@ module StudioBuildGenerationCandidateProvider:
                     inventory_pointer: mutable u8& = (&inventory_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
                     lease_pointer: mutable u8& = (&lease_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
                     row_error_pointer: mutable u8& = (&row_error[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    mutable incomplete_kind: i32 = -1
+                    mutable failure_status: i32 = -1
+                    mutable lease_device: i64 = -1
+                    mutable lease_inode: i64 = -1
+                    mutable builder_inactive: i32 = -1
+                    mutable observed_tree_verified: i32 = -1
                     status <- build_candidates_row(token, index,
                         &artifact_raw, &phase_raw, &protection_raw, &device, &inode, &build_device,
                         &build_inode, &revision, &creation_kind, &age, &age_known, &row_retention, &size_bytes,
@@ -357,6 +363,10 @@ module StudioBuildGenerationCandidateProvider:
                         input_pointer, product_pointer, inventory_pointer, lease_pointer,
                         row_error_pointer,
                         StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
+                    if status == 0:
+                        status <- build_candidates_incomplete(token, index, &incomplete_kind,
+                            &failure_status, &lease_device, &lease_inode, &builder_inactive,
+                            &observed_tree_verified)
                     mutable id: darray[u8] = []
                     mutable path: darray[u8] = []
                     mutable creation: darray[u8] = []
@@ -381,7 +391,12 @@ module StudioBuildGenerationCandidateProvider:
                     mutable artifact_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_artifact(artifact_raw)
                     mutable phase_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_phase(phase_raw)
                     mutable protection_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_protection(protection_raw)
-                    valid <- valid and artifact_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and phase_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and protection_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and creation_kind >= 0 and creation_kind <= 1 and product_kind >= 0 and product_kind <= 1 and (size_known == 0 or size_known == 1) and StudioBuildGenerationCandidateProviderBindingPolicy::decode_boolean(age_known) == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid
+                    mutable incomplete_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind = StudioBuildGenerationCandidateProviderBindingPolicy::decode_incomplete_evidence_kind(incomplete_kind)
+                    valid <- valid and artifact_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and phase_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and protection_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and incomplete_decoded == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and creation_kind >= 0 and creation_kind <= 1 and product_kind >= 0 and product_kind <= 1 and (size_known == 0 or size_known == 1) and StudioBuildGenerationCandidateProviderBindingPolicy::decode_boolean(age_known) == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and StudioBuildGenerationCandidateProviderBindingPolicy::decode_boolean(builder_inactive) == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and StudioBuildGenerationCandidateProviderBindingPolicy::decode_boolean(observed_tree_verified) == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid
+                    if incomplete_kind == 0:
+                        valid <- valid and failure_status == 0 and lease_device == 0 and lease_inode == 0 and builder_inactive == 0 and observed_tree_verified == 0
+                    if incomplete_kind == 1:
+                        valid <- valid and builder_inactive == 1 and observed_tree_verified == 1
                     if valid:
                         mutable creation_evidence: CreationEvidence = CreationEvidence.LegacyAbsent
                         if creation_kind == 1:
@@ -390,6 +405,15 @@ module StudioBuildGenerationCandidateProvider:
                         else:
                             valid <- revision == 0 and creation.count == 0 and latest.count == 0 and observed.count == 0
                         mutable product_identity: ProductIdentity = ProductIdentity.Absent
+                        mutable owned_incomplete_evidence: OwnedIncompleteEvidence = OwnedIncompleteEvidence.Unavailable
+                        if incomplete_kind == 1:
+                            # Native kind 1 attests a revision-3 Failed chain,
+                            # exact failure-tree match, no publication intent,
+                            # validated namespace, and inactive builder state.
+                            owned_incomplete_evidence <- OwnedIncompleteEvidence.Verified(revision,
+                                creation, latest, observed, failure_status.i64(), lease_device,
+                                lease_inode, true, observed_tree_verified == 1,
+                                builder_inactive == 1, true)
                         mutable size: SizeEvidence = SizeEvidence.Unknown
                         if product_kind == 1:
                             mutable input_evidence: DigestEvidence = DigestEvidence.NotApplicable
@@ -401,7 +425,7 @@ module StudioBuildGenerationCandidateProvider:
                             valid <- valid and digest_valid(manifest) and digest_valid(product) and digest_valid(inventory) and digest_valid(lease) and size_known == 1
                             product_identity <- ProductIdentity.Present(SealedDigests{manifest: DigestEvidence.Verified(manifest), input_record: input_evidence, product: product, inventory: inventory, lease_receipt: lease})
                         else:
-                            valid <- manifest.count == 0 and input_record.count == 0 and product.count == 0 and inventory.count == 0 and lease.count == 0 and size_known == 0
+                            valid <- manifest.count == 0 and input_record.count == 0 and product.count == 0 and inventory.count == 0 and lease.count == 0 and ((incomplete_kind == 0 and size_known == 0) or (incomplete_kind == 1 and size_known == 1))
                         size <- SizeEvidence.Verified(size_bytes) if size_known == 1 else SizeEvidence.Unknown
                         mutable age_evidence: AgeEvidence = AgeEvidence.Unknown
                         if age_known == 1:
@@ -409,7 +433,7 @@ module StudioBuildGenerationCandidateProvider:
                             age_evidence <- AgeEvidence.Verified(age, AgeOrigin.FilesystemBirthtime)
                         else:
                             valid <- valid and age == -1
-                        mutable row: Row = Row{artifact_id: id, relative_path: path, artifact: artifact_value(artifact_raw), phase: phase_value(phase_raw), protection: protection_value(protection_raw), device: device, inode: inode, build_root_device: build_device, build_root_inode: build_inode, age: age_evidence, retention_days: row_retention, size_evidence: size, creation_evidence: creation_evidence, owned_incomplete_evidence: OwnedIncompleteEvidence.Unavailable, product_identity: product_identity}
+                        mutable row: Row = Row{artifact_id: id, relative_path: path, artifact: artifact_value(artifact_raw), phase: phase_value(phase_raw), protection: protection_value(protection_raw), device: device, inode: inode, build_root_device: build_device, build_root_inode: build_inode, age: age_evidence, retention_days: row_retention, size_evidence: size, creation_evidence: creation_evidence, owned_incomplete_evidence: owned_incomplete_evidence, product_identity: product_identity}
                         valid <- valid and StudioBuildGenerationCandidateProviderBindingPolicy::row_output_admitted(status, artifact_raw, phase_raw, protection_raw, product_kind, device, inode, age, age_known, row_retention, size_bytes, size_known, path.count.i64(), id.count.i64()) and row_valid(row)
                         if valid: result.rows.push(row)
                     index <- index + 1
