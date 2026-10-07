@@ -14,22 +14,33 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting every subsequent source slice.
 
-Compiler `cc6570385d30090d0faa4e64a8f130f446764cec` now has matched
-Stage1/runtime products after incorporating fetched upstream changes. The
-complete Studio graph is being compiled against the captured current inputs.
-The earlier prover/replay generation `0729897f0fdc46ab8c0172974f1e42d3`
-was matched to compiler `9667344c`; it is now comparison evidence. Rebuild the
-pair against the current compiler before qualification. Complete application
-compilation/linking and the current full check remain open.
+Compiler `e34f2c0656aac1232ad72da6516c7eb89f866a47` has a fresh,
+clean Stage1 product after preserving project repairs and fetching upstream.
+It fixes the imported generic `view` collision that prevented Studio's nine
+optional narrowing expressions from compiling. The complete app unit now
+compiles; complete native linkage, package publication and the full current
+check remain open. Retain the exact product and extra `scripts/platform.sh`
+recipe-input hashes from [the source compile record](../acceptance/current-law-source-compile-2026-10-07.md).
 
-The current normal CLI compile finished successfully, without execution. The
-Studio compile refused nine binary expressions and produced no object/link;
-the earlier ListItem field refusal is resolved. Its captured input postcheck
-passed. A proof-pair build refused a recipe-digest mismatch. Investigation found that
-Stage1 hashes seven recipe inputs while the proof verifier hashed four; proof
-commit `1a0259bf` aligns its input set with Stage1. The fresh pair build is in
-progress. Require its terminal success and strict integrity/freshness checks
-before accepting the toolchain; diagnosis alone does not qualify the pair.
+The earlier prover/replay generation `953dac2d5fbf41af97a7a10f4f410dea`
+was built against compiler `0fb79267` before subsequent prover commits. It is
+comparison evidence. The current proof pair is being rebuilt against `e34f2c`
+with source-owned struct projections, const-enum symbols and checked helper
+summaries. Require terminal success and strict integrity/freshness checks;
+compilation or portable replay alone cannot establish source authentication.
+
+The native generation binding's arity mismatch was traced to the reserved
+Elisa identifier `error`, which the extern parameter scanner omitted from its
+arity count. Rename that source identifier without changing the positional C
+ABI, then compile the exact binding/controller closure. Keep this separate
+from the resolved generic `view` collision.
+
+Dependency freshness is still open. The selected UI has uncommitted source
+changes that must be captured exactly before and after qualification. The
+mocap engine branch has preserved project changes and diverges from fetched
+main; inspect and integrate required upstream changes after the separate engine
+installation is stable. Merely fetching or building an older selected tree does
+not close the current-dependency requirement.
 
 - Qualify borrow-region propagation through compiler/std callers, including
   explicit short-lived allocation refusal, distinct owners and retained scratch
