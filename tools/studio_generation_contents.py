@@ -40,6 +40,39 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def unique_json_object(pairs):
+    result = {}
+    for name, value in pairs:
+        require(name not in result, "duplicate generation record field")
+        result[name] = value
+    return result
+
+
+def bounded_json(payload):
+    # Bound parser recursion before decoding. Brackets inside JSON strings do
+    # not count, including escaped quotes and escaped backslashes.
+    depth = 0
+    quoted = escaped = False
+    for byte in payload:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif byte == 92:
+                escaped = True
+            elif byte == 34:
+                quoted = False
+        elif byte == 34:
+            quoted = True
+        elif byte in (91, 123):
+            depth += 1
+            require(depth <= Limits.depth, "generation JSON nesting limit exceeded")
+        elif byte in (93, 125):
+            depth -= 1
+            require(depth >= 0, "invalid generation JSON nesting")
+    require(not quoted and depth == 0, "incomplete generation JSON")
+    return json.loads(payload, object_pairs_hook=unique_json_object)
+
+
 def identity(facts):
     return facts.st_dev, facts.st_ino
 
@@ -241,7 +274,7 @@ def verify_record(project, artifact, artifact_id, kind):
             payload.extend(chunk)
         require(len(payload) == facts.st_size and version(os.fstat(fd)) == version(facts),
                 "inventory changed during read")
-        record = json.loads(payload)
+        record = bounded_json(payload)
         expected = {
             "schema": "mocap-studio-generation-inventory-v1",
             "artifact_id": artifact_id, "artifact_kind": kind,

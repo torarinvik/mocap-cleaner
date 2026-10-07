@@ -13,7 +13,7 @@ from pathlib import Path
 
 from studio_generation_contents import (
     DIRECTORY_FLAGS, FILE_FLAGS, Limits, identity, open_artifact, owned, require,
-    scan, version,
+    scan, version, bounded_json,
 )
 from studio_generation_creation import Journal, declared_plan, publish_initial
 from studio_generation_lock import verified_lock
@@ -31,14 +31,6 @@ class Event:
     ))
 
 
-def unique_object(pairs):
-    result = {}
-    for name, value in pairs:
-        require(name not in result, "duplicate creation record field")
-        result[name] = value
-    return result
-
-
 def read_record(parent, filename, private=True):
     fd = os.open(filename, FILE_FLAGS, dir_fd=parent)
     try:
@@ -54,7 +46,7 @@ def read_record(parent, filename, private=True):
             payload.extend(chunk)
         require(len(payload) == facts.st_size and version(os.fstat(fd)) == version(facts),
                 "creation record changed during read")
-        record = json.loads(payload, object_pairs_hook=unique_object)
+        record = bounded_json(payload)
         os.fsync(fd)
         require(version(os.stat(filename, dir_fd=parent, follow_symlinks=False)) ==
                 version(facts), "creation record binding changed")
