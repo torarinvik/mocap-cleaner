@@ -149,3 +149,19 @@ Use real participant evidence for the release usability trial. Agent inspection
 and automated checks can diagnose defects but cannot stand in for animator trials
 or annotated motion-quality evidence. Keep each evidence category open until its
 own required result exists.
+
+## Producer checkpoint: failed-tree facts
+
+Engine mocap commit `a29c9b2b` exposes the exact failed-tree verification result,
+positive terminal failure status and builder-inactive observation made while the
+artifact lease is exclusively locked. The tree digest is SHA-256 over the domain
+`studio-failed-tree-native-v1\n` followed by Foundation sorted-key JSON for the
+verified, path-sorted observed entries. This is a versioned native encoding,
+not the Python creation-journal serialization. The latest-record digest binds the
+exact failure event only for the verified revision-3 failed chain.
+
+Non-failed final phases clear incomplete facts. A scanner observation does not
+retain mutation ownership; begin/commit must reacquire and revalidate under locks.
+The candidate ABI still omits these facts, so this checkpoint does not enable
+cleanup. Strict native syntax compilation passed; fault/runtime acceptance and
+source-authenticated correspondence proofs remain required.
