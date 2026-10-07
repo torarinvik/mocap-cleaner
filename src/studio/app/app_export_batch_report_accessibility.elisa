@@ -1,0 +1,86 @@
+include "panels_export_batch_report.elisa"
+include "../export_batch_report_accessibility_policy.elisa"
+
+# Standalone publisher for the retained report sheet. `lines` must borrow the
+# controller's stable line cache through semantic publication and native read.
+extend Studio:
+    public:
+        def publish_export_batch_report_accessibility(w: f32, h: f32,
+                lines: darray[sview]&, page: usize, page_count: usize,
+                status: sview, focus: StudioExportBatchWarningReviewPolicy::Control,
+                controls: StudioExportBatchWarningReviewPolicy::Controls,
+                widgets: darray[usize]&) -> void:
+            requires lines.count <= StudioExportBatchReportAccessibilityPolicy::Node::LINE_COUNT.usize()
+            requires widgets.count == StudioExportBatchReportAccessibilityPolicy::Node::CONTROL_COUNT.usize()
+            requires widgets[0] != UiFlat::NONE and widgets[1] != UiFlat::NONE and widgets[2] != UiFlat::NONE and widgets[3] != UiFlat::NONE
+            requires page_count == 0 or page < page_count
+            none: usize = StudioAccessibility::NO_NODE
+            dialog: StudioPanels::Box = StudioPanels::export_batch_report_bounds(w, h)
+            StudioText::begin()
+            StudioText::put("Page ")
+            StudioText::put_i(0 if page_count == 0 else page.i64() + 1)
+            StudioText::put(" of ")
+            StudioText::put_i(page_count.i64())
+            StudioText::put(". The following nodes expose this page's complete captured text in order.")
+            UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Dialog,
+                "Captured warning report",
+                "Exact immutable report snapshot from the reviewed prepared export. The report is exposed as ordered individual text lines. Previous and next browse it; acknowledge only after reviewing the complete captured text; Back returns to the queue.",
+                UiCore::Rect(dialog.x, dialog.y, dialog.w, dialog.h),
+                StudioExportBatchReportAccessibilityPolicy::Node::DIALOG, none,
+                true, false, false, 0.0, StudioText::view(), "", 0, 0, 0,
+                none, StudioExportBatchReportAccessibilityPolicy::first_child_id(), none,
+                0.0, 1.0, false)
+            status_box: StudioPanels::Box = StudioPanels::box(dialog.x + 24.0, dialog.y + 72.0, dialog.w - 48.0, 24.0)
+            UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Status,
+                "Report review status", "Current report viewer status.",
+                UiCore::Rect(status_box.x, status_box.y, status_box.w, status_box.h),
+                StudioExportBatchReportAccessibilityPolicy::Node::STATUS, none,
+                true, false, false, 0.0, status, "", 0, 0, 0,
+                StudioExportBatchReportAccessibilityPolicy::Node::DIALOG,
+                none, StudioExportBatchReportAccessibilityPolicy::next_sibling_id(
+                    StudioExportBatchReportAccessibilityPolicy::Node::STATUS, lines.count.i64()),
+                0.0, 1.0, false)
+            for row in 0..<StudioExportBatchReportAccessibilityPolicy::Node::LINE_COUNT |row, lines, dialog|:
+                if row < lines.count.i64():
+                    line_id: usize = StudioExportBatchReportAccessibilityPolicy::line_id(row)
+                    line_box: StudioPanels::Box = StudioPanels::export_batch_report_line_box(w, h, row)
+                    next: usize = StudioExportBatchReportAccessibilityPolicy::next_sibling_id(line_id, lines.count.i64())
+                    UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Label,
+                        "Captured report line",
+                        "Exact report text for this visible line, in page order.",
+                        UiCore::Rect(line_box.x, line_box.y, line_box.w, line_box.h),
+                        line_id, none, true, false, false, 0.0, lines[row], "", 0, 0, 0,
+                        StudioExportBatchReportAccessibilityPolicy::Node::DIALOG,
+                        none, next, 0.0, 1.0, false)
+            for slot in 0..<StudioExportBatchReportAccessibilityPolicy::Node::CONTROL_COUNT |slot, widgets, controls, focus, w, h|:
+                control: StudioExportBatchWarningReviewPolicy::Control = StudioExportBatchReportAccessibilityPolicy::control_for_slot(slot)
+                enabled: bool = StudioExportBatchWarningReviewPolicy::control_enabled(control, controls)
+                widget: usize = widgets[slot.usize()]
+                UiFlat::set_enabled(widget, enabled)
+                button: StudioPanels::Box = StudioPanels::export_batch_report_control_box(w, h, control)
+                UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Button,
+                    StudioExportBatchWarningReviewPolicy::control_label(control),
+                    StudioExportBatchWarningReviewPolicy::control_help(control, controls),
+                    UiCore::Rect(button.x, button.y, button.w, button.h),
+                    StudioExportBatchReportAccessibilityPolicy::control_id(control), widget,
+                    enabled, focus == control, false, 0.0, "", "", 0, 0, 0,
+                    StudioExportBatchReportAccessibilityPolicy::Node::DIALOG, none,
+                    StudioExportBatchReportAccessibilityPolicy::next_sibling_id(
+                        StudioExportBatchReportAccessibilityPolicy::control_id(control), lines.count.i64()),
+                    0.0, 1.0, false)
+
+        # Returns a shared control only for an enabled click. The caller must
+        # route it through the report controller so the private ticket and
+        # exact snapshot checks remain authoritative.
+        def export_batch_report_accessibility_event(widget: usize, event: i32,
+                widgets: darray[usize]&,
+                controls: StudioExportBatchWarningReviewPolicy::Controls) -> StudioExportBatchWarningReviewPolicy::Control?:
+            requires widgets.count == StudioExportBatchReportAccessibilityPolicy::Node::CONTROL_COUNT.usize()
+            return null if event != UiConst::WidgetEvent.Click.i32()
+            return null if widget == UiFlat::NONE
+            for slot in 0..<StudioExportBatchReportAccessibilityPolicy::Node::CONTROL_COUNT |slot, widgets, widget, controls|:
+                if widgets[slot.usize()] == widget:
+                    control: StudioExportBatchWarningReviewPolicy::Control = StudioExportBatchReportAccessibilityPolicy::control_for_slot(slot)
+                    return control if StudioExportBatchWarningReviewPolicy::control_enabled(control, controls)
+                    return null
+            null
