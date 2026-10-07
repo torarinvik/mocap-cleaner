@@ -18,6 +18,13 @@ extend Studio:
             status <- "Correction target changed. Select the intended bone and frame, then drag again. Existing edits kept."
             touch()
 
+        def gizmo_transform_refused() -> void:
+            clear_gizmo_draft()
+            status <- "Correction cancelled: the requested transform is invalid. Existing edits kept."
+            nudged_row <- -1
+            status_file <- null
+            touch()
+
         def active_handle() -> i64:
             return GizmoPolicy::NONE if not gizmo_target_current(gizmo_view)
             if gizmo_drag is d:
@@ -106,10 +113,16 @@ extend Studio:
                     return
                 if view(i) is opened:
                     goal: Geometry::Transform = ViewportGizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
-                    gizmo_goal <- goal
+                    if not Geometry::transform_is_valid(goal):
+                        gizmo_transform_refused()
+                        return
                     if clip is c:
                         r: PoseOverride::Rig = StudioModel::rig(c)
                         fix: Corrections::Correction = StudioModel::correction_for(c, r, bone, frame_now(), goal)
+                        if not Corrections::transform_admitted(&fix):
+                            gizmo_transform_refused()
+                            return
+                        gizmo_goal <- goal
                         readout_angle <- StudioReadout::angle_tenths(fix.rotation)
                         readout_mm <- StudioReadout::millimetres(fix.translation)
                     touch()
@@ -132,8 +145,14 @@ extend Studio:
                 if view(i) is opened:
                     if clip is c:
                         goal: Geometry::Transform = ViewportGizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
+                        if not Geometry::transform_is_valid(goal):
+                            gizmo_transform_refused()
+                            return
                         r: PoseOverride::Rig = StudioModel::rig(c)
                         fix: Corrections::Correction = StudioModel::correction_for(c, r, bone, frame_now(), goal)
+                        if not Corrections::transform_admitted(&fix):
+                            gizmo_transform_refused()
+                            return
                         mutable s: StackState::Stack = current_stack()
                         if Corrections::identity(&fix):
                             clear_gizmo_draft()
