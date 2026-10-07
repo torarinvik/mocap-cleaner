@@ -197,6 +197,11 @@ Queued Undo/Redo retain typed intent and move the cursor only after evaluation;
 Undo cancels an existing draft first. A draft that returns to the committed
 stack adds no history. Save/close/dirty integration is still being completed,
 and current compiler/prover/native qualification of the full path remains open.
+Draft admission now also rejects an invalid observed base before accepting the
+first draft, and rejects stale existing drafts before composition. Four new
+admission obligations compile with d2754a8e (twelve transaction policy laws in
+total). Authenticated replay and actual discard/publication frame conditions
+remain pending.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;
