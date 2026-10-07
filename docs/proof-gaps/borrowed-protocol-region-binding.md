@@ -187,3 +187,27 @@ The conditional source is `conditional-owner-reassignment.elisa`, SHA-256
 These results qualify only the isolated bootstrap behavior. Store conformance,
 the remaining seed diagnostics, current Stage1 provenance and the paired proof
 build still require qualification.
+
+## Shared call lifetime: container versus record borrow
+
+Root isolated the remaining affine call mismatch under
+`build/region-inference-reduction/shared-lifetime/`. With both `choose[@r]`
+parameters typed `darray[sview]& @r`, a caller can consume the returned view
+while its local array and borrowed outer array are live: semantic processing
+exits 0. Replacing the outer parameter with `Table& @r`, where `Table` contains
+`names: darray[sview]`, exits 1: the call expects `Table& @__auto_364` but sees
+`Table& @__rg_outer`. Both helpers choose a view from either input and return
+`sview @r`; neither caller exports the resulting view. Investigate record
+reference reborrow/assignability against container-region handling. Do not
+force distinct owners to be equal or permit a result to outlive either input.
+
+This is diagnostic comparison evidence using the clean b25 bootstrap product,
+now historical relative to d433. Independent metadata inspection embeds
+`b25f566c83855f8e3f7d412c92e7d4cb06868080`, `vcs.modified=false`; product SHA-256
+`595d27099339e423b946fe1ba85bdfcc86436965742ecd377551d93c608997f7`.
+The array source `input.elisa` has SHA-256
+`f1c2281f51bc7da49b816bfbbb6d6ef92ad647d816852bd76569e22d3a2350ee`;
+the record source `record.elisa` has SHA-256
+`424797792e20c4cc870b0a5386c519954d0723cdc625467c33e551e5e1d54f54`.
+Logs are `result.log` and `record.log`; no executable was run. This narrows the
+next repair, but does not qualify current products or the integrated compiler.
