@@ -1,0 +1,250 @@
+# Bounded presentation and review lifecycle for generated build candidates.
+# Candidate facts and identities come from a fresh native provider; this module
+# never discovers paths or infers recovery state from names or parsed receipts.
+include "build_generation_policy.elisa"
+include "build_generation_trash_policy.elisa"
+
+module StudioBuildGenerationCandidatePolicy:
+    public:
+        const module Capacity:
+            MAX_CANDIDATES: i64 = 512
+            PAGE_SIZE: i64 = 32
+            MAX_ID_BYTES: i64 = StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES
+            MAX_PATH_BYTES: i64 = StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES
+
+        const enum ReviewState of i64:
+            Fresh = 0
+            Reviewing = 1
+            Confirmed = 2
+
+        const enum ProgressState of i64:
+            Idle = 0
+            Running = 1
+            Complete = 2
+            Partial = 3
+            RecoveryRequired = 4
+            Unknown = 5
+
+        const enum RecoveryAction of i64:
+            Inspect = 0
+            Restore = 1
+            RetryReview = 2
+            None = 3
+
+        struct Candidate:
+            artifact_id: darray[u8]
+            relative_path: darray[u8]
+            facts: StudioBuildGenerationPolicy::Facts
+
+        struct Identity:
+            artifact_id: darray[u8]
+
+        struct RowProjection:
+            artifact_id: darray[u8]
+            relative_path: darray[u8]
+            artifact: StudioBuildGenerationPolicy::Artifact
+            state: StudioBuildGenerationPolicy::State
+            age_days: i64
+            size_bytes: i64
+            protection: StudioBuildGenerationPolicy::Protection
+            selected: bool
+            selectable: bool
+
+        struct Model:
+            inventory_revision: i64
+            candidate_count: i64
+            page_index: i64
+            page_count: i64
+            selected_count: i64
+            selected_bytes: i64
+            review_state: ReviewState
+            reviewed_revision: i64
+            confirmed_revision: i64
+            progress_state: ProgressState
+            progress_total: i64
+            progress_completed: i64
+            progress_failed: i64
+            progress_untouched: i64
+            current_index: i64
+            recovery_action: RecoveryAction
+
+        def identity_valid(artifact_id: darray[u8]&) -> bool:
+            ensure result implies artifact_id.count > 0 and artifact_id.count <= Capacity::MAX_ID_BYTES
+            return false if artifact_id.count == 0 or artifact_id.count > Capacity::MAX_ID_BYTES
+            for byte in artifact_id:
+                return false if byte == 0
+            true
+
+        def same_identity(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def identities_valid(identities: darray[Identity]&) -> bool:
+            return false if identities.count > Capacity::MAX_CANDIDATES
+            for index in 0..<identities.count |identities|:
+                return false if not identity_valid(identities[index].artifact_id)
+                for other in 0..<index |identities|:
+                    return false if same_identity(identities[index].artifact_id, identities[other].artifact_id)
+            true
+
+        def identity_selected(identities: darray[Identity]&, artifact_id: darray[u8]&) -> bool:
+            return false if not identity_valid(artifact_id) or not identities_valid(identities)
+            for identity in identities:
+                return true if same_identity(identity.artifact_id, artifact_id)
+            false
+
+        def may_select_identity(identities: darray[Identity]&, artifact_id: darray[u8]&, eligible: bool) -> bool:
+            ensure result implies identity_valid(artifact_id) and identities_valid(identities) and identities.count < Capacity::MAX_CANDIDATES
+            identities_valid(identities) and identity_valid(artifact_id) and eligible and identities.count < Capacity::MAX_CANDIDATES and not identity_selected(identities, artifact_id)
+
+        def may_remove_identity(identities: darray[Identity]&, artifact_id: darray[u8]&) -> bool:
+            ensure result implies identity_valid(artifact_id) and identities_valid(identities)
+            identities_valid(identities) and identity_valid(artifact_id) and identity_selected(identities, artifact_id)
+
+        def candidate_valid(candidate: Candidate&) -> bool:
+            ensure result implies StudioBuildGenerationPolicy::facts_valid(candidate.facts)
+            return false if not identity_valid(candidate.artifact_id) or candidate.relative_path.count == 0 or candidate.relative_path.count > Capacity::MAX_PATH_BYTES
+            for byte in candidate.relative_path:
+                return false if byte == 0
+            StudioBuildGenerationPolicy::facts_valid(candidate.facts)
+
+        def count_valid(count: i64) -> bool:
+            ensure result == (count >= 0 and count <= Capacity::MAX_CANDIDATES)
+            count >= 0 and count <= Capacity::MAX_CANDIDATES
+
+        def page_count(candidate_count: i64) -> i64:
+            requires candidate_count >= 0 and candidate_count <= Capacity::MAX_CANDIDATES
+            ensure result >= 0 and result <= Capacity::MAX_CANDIDATES
+            (candidate_count + Capacity::PAGE_SIZE - 1) / Capacity::PAGE_SIZE
+
+        def page_start(candidate_count: i64, page_index: i64) -> i64:
+            requires candidate_count >= 0 and candidate_count <= Capacity::MAX_CANDIDATES
+            requires page_index >= 0 and page_index < page_count(candidate_count) or candidate_count == 0 and page_index == 0
+            ensure result >= 0 and result <= candidate_count
+            page_index * Capacity::PAGE_SIZE
+
+        def page_end(candidate_count: i64, page_index: i64) -> i64:
+            requires candidate_count >= 0 and candidate_count <= Capacity::MAX_CANDIDATES
+            requires page_index >= 0 and page_index < page_count(candidate_count) or candidate_count == 0 and page_index == 0
+            ensure result >= page_start(candidate_count, page_index) and result <= candidate_count
+            return candidate_count if page_start(candidate_count, page_index) + Capacity::PAGE_SIZE > candidate_count
+            page_start(candidate_count, page_index) + Capacity::PAGE_SIZE
+
+        def page_index_valid(candidate_count: i64, page_index: i64) -> bool:
+            ensure result == (count_valid(candidate_count) and page_index >= 0 and (page_index < page_count(candidate_count) or candidate_count == 0 and page_index == 0))
+            count_valid(candidate_count) and page_index >= 0 and (page_index < page_count(candidate_count) or candidate_count == 0 and page_index == 0)
+
+        def row(candidate: Candidate&, selected: bool) -> RowProjection:
+            requires candidate_valid(candidate)
+            ensure result.artifact_id.count <= Capacity::MAX_ID_BYTES
+            ensure result.relative_path.count <= Capacity::MAX_PATH_BYTES
+            ensure result.selectable == (StudioBuildGenerationPolicy::protection_reason(candidate.facts) == StudioBuildGenerationPolicy::Protection.None)
+            ensure result.selected implies result.selectable
+            protection: StudioBuildGenerationPolicy::Protection = StudioBuildGenerationPolicy::protection_reason(candidate.facts)
+            eligible: bool = protection == StudioBuildGenerationPolicy::Protection.None
+            RowProjection{artifact_id: candidate.artifact_id, relative_path: candidate.relative_path, artifact: candidate.facts.artifact, state: candidate.facts.state, age_days: candidate.facts.age_days, size_bytes: candidate.facts.size_bytes, protection: protection, selected: selected and eligible, selectable: eligible}
+
+        # A fresh scan replaces the visible set and invalidates review and
+        # confirmation, even if the row count happens to remain unchanged.
+        def refresh_revision(current_revision: i64, next_revision: i64,
+                             candidate_count: i64) -> bool:
+            ensure result implies next_revision > current_revision
+            current_revision >= 0 and next_revision > current_revision and count_valid(candidate_count)
+
+        def review_invalidated_by_revision(reviewed_revision: i64,
+                                           inventory_revision: i64) -> bool:
+            ensure result == (reviewed_revision != inventory_revision)
+            reviewed_revision != inventory_revision
+
+        def selection_toggle_allowed(candidate: Candidate&, selected: bool,
+                                     selected_count: i64, selected_bytes: i64) -> bool:
+            return false if not candidate_valid(candidate)
+            return false if selected_count < 0 or selected_count > Capacity::MAX_CANDIDATES
+            return false if selected_bytes < 0 or selected_bytes > StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
+            return true if selected
+            StudioBuildGenerationPolicy::eligible(candidate.facts) and selected_count < Capacity::MAX_CANDIDATES and candidate.facts.size_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES - selected_bytes
+
+        def must_remove_after_refresh(selected: bool, fresh_identity_matches: bool,
+                                      fresh_candidate_valid: bool,
+                                      fresh_eligible: bool) -> bool:
+            ensure result == (selected and (not fresh_identity_matches or not fresh_candidate_valid or not fresh_eligible))
+            selected and (not fresh_identity_matches or not fresh_candidate_valid or not fresh_eligible)
+
+        def selection_revision_matches(identities: darray[Identity]&, candidate_ids: darray[Identity]&) -> bool:
+            ensure result implies identities_valid(identities) and identities_valid(candidate_ids)
+            return false if not identities_valid(identities) or not identities_valid(candidate_ids)
+            return false if identities.count != candidate_ids.count
+            for identity in identities:
+                return false if not identity_selected(candidate_ids, identity.artifact_id)
+            true
+
+        def review_allowed(candidate_count: i64, selected_count: i64,
+                           selected_bytes: i64, inventory_revision: i64) -> bool:
+            ensure result implies selected_count > 0 and inventory_revision >= 0
+            count_valid(candidate_count) and selected_count > 0 and selected_count <= candidate_count and selected_bytes >= 0 and selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES and inventory_revision >= 0
+
+        def review_matches(review_state: ReviewState, reviewed_revision: i64,
+                           confirmed_revision: i64, inventory_revision: i64,
+                           selected_count: i64) -> bool:
+            ensure result implies selected_count > 0 and reviewed_revision == inventory_revision
+            ensure result implies review_state == ReviewState.Reviewing or review_state == ReviewState.Confirmed
+            selected_count > 0 and reviewed_revision == inventory_revision and (review_state == ReviewState.Reviewing or review_state == ReviewState.Confirmed) and (review_state != ReviewState.Confirmed or confirmed_revision == inventory_revision)
+
+        def may_confirm(review_state: ReviewState, reviewed_revision: i64,
+                        inventory_revision: i64, selected_count: i64,
+                        selection_unchanged: bool,
+                        protection_facts_fresh: bool) -> bool:
+            ensure result implies review_state == ReviewState.Reviewing
+            ensure result implies reviewed_revision == inventory_revision
+            review_state == ReviewState.Reviewing and reviewed_revision == inventory_revision and selected_count > 0 and selection_unchanged and protection_facts_fresh
+
+        def may_start(review_state: ReviewState, reviewed_revision: i64,
+                      confirmed_revision: i64, inventory_revision: i64,
+                      selected_count: i64, selection_unchanged: bool,
+                      all_selected_still_eligible: bool,
+                      no_recovery_required: bool,
+                      no_transaction_active: bool) -> bool:
+            ensure result implies review_state == ReviewState.Confirmed and reviewed_revision == inventory_revision and confirmed_revision == inventory_revision
+            review_state == ReviewState.Confirmed and reviewed_revision == inventory_revision and confirmed_revision == inventory_revision and selected_count > 0 and selection_unchanged and all_selected_still_eligible and no_recovery_required and no_transaction_active
+
+        def progress_valid(state: ProgressState, total: i64, completed: i64,
+                           failed: i64, untouched: i64, current_index: i64) -> bool:
+            ensure result implies total >= 0 and total <= Capacity::MAX_CANDIDATES
+            ensure result implies completed >= 0 and completed <= total
+            ensure result implies failed >= 0 and failed <= total
+            ensure result implies untouched >= 0 and untouched <= total
+            ensure result implies completed + untouched <= total
+            state >= ProgressState.Idle and state <= ProgressState.Unknown and total >= 0 and total <= Capacity::MAX_CANDIDATES and completed >= 0 and completed <= total and failed >= 0 and failed <= total and untouched >= 0 and untouched <= total and completed + untouched <= total and (current_index == -1 or current_index >= 0 and current_index < total)
+
+        def model_valid(model: Model) -> bool:
+            ensure result implies count_valid(model.candidate_count) and page_index_valid(model.candidate_count, model.page_index)
+            ensure result implies model.selected_count >= 0 and model.selected_count <= model.candidate_count
+            ensure result implies model.selected_bytes >= 0 and model.selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
+            ensure result implies progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index)
+            count_valid(model.candidate_count) and page_index_valid(model.candidate_count, model.page_index) and model.inventory_revision >= 0 and model.selected_count >= 0 and model.selected_count <= model.candidate_count and model.selected_bytes >= 0 and model.selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES and progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index) and model.review_state >= ReviewState.Fresh and model.review_state <= ReviewState.Confirmed and model.confirmed_revision >= -1 and model.reviewed_revision >= -1
+
+        def next_progress(state: ProgressState, item_known: bool,
+                          item_failed: bool, recovery_required: bool,
+                          completed: i64, total: i64) -> ProgressState:
+            requires total >= 1 and total <= Capacity::MAX_CANDIDATES
+            requires completed >= 0 and completed < total
+            ensure state != ProgressState.Running or item_known or result == ProgressState.Unknown
+            ensure state != ProgressState.Running or not recovery_required or result == ProgressState.RecoveryRequired
+            return state if state != ProgressState.Running
+            return ProgressState.Unknown if not item_known
+            return ProgressState.RecoveryRequired if recovery_required
+            return ProgressState.Partial if item_failed and completed + 1 == total
+            return ProgressState.Complete if completed + 1 == total
+            ProgressState.Running
+
+        def recovery_action(reconciled: bool, outcome_known: bool,
+                            quarantine_identity_verified: bool,
+                            original_name_available: bool,
+                            recovery_conflict: bool) -> RecoveryAction:
+            ensure result == RecoveryAction.Restore implies reconciled and outcome_known and quarantine_identity_verified and original_name_available and not recovery_conflict
+            return RecoveryAction.Inspect if not reconciled or not outcome_known or recovery_conflict
+            return RecoveryAction.Restore if quarantine_identity_verified and original_name_available
+            return RecoveryAction.RetryReview if reconciled and outcome_known and not quarantine_identity_verified
+            RecoveryAction.Inspect
