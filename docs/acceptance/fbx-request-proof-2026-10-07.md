@@ -99,3 +99,16 @@ independently defaults its frontend repository and revision. The supported
 `665f40d7` source for this intended comparison tuple. Preserve the failed build
 record and record corrected immutable commands; do not disable the mismatch
 guard. A successful matching build is still required before package replay.
+
+That matching build subsequently succeeded: current prover `ec4ceacd` and
+compiler/frontend `665f40d7` produced generation
+`fd94623c71ec43a2818e34b88d9f1f66`. Pair integrity and freshness passed.
+The guarded v9 run record SHA-256 is
+`c9552706b6f30cb2cf75c14c179ef614f8e885fd20d6d1629cc4e1903310450e`;
+root independently verified all 54 raw artifact hashes and sizes.
+Request and failure packages replayed 53/53 and 26/26 theorems, respectively,
+but correspondence checked zero functions with coverage `not-established`.
+Staging, source-reference, native-output and copy packages were refused as
+`source-inadmissible`. All six report `source_authenticated:false` and every
+correspondence command exits 1. The overall qualification exits 1. These
+current results supersede historical replay counts without closing Q02.
