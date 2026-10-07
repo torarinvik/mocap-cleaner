@@ -23,3 +23,30 @@ Current UI/controller changes require a new immutable generation before
 qualification. Regenerate identity/bridge files inside that generation so
 absolute include paths refer to its copied compiler, then retain the expanded
 closure and source/product manifests through compilation and linking.
+
+## Proof build runtime attribution mismatch (2026-10-07)
+
+The retained proof CLI build against `d2754a8e` also reported raw concurrency
+refusals inside copied runtime sources. Source inspection identifies a separate
+path mismatch that must be resolved before treating those refusals as compiler
+semantic defects:
+
+- The proof build's `scripts/compiler_snapshot.sh` exports pinned compiler
+  sources into `build/snapshot/Elisa-compiler`, including `elisacore_std`.
+- The copied proof `src/main.elisa` includes that adjacent exported std.
+- The selected original compiler's `scripts/elisac_stage1.sh` unconditionally
+  sets `ELISA_STAGE1_RUNTIME_STD_ROOT` to its own checkout's `elisacore_std`.
+- `Lexer::source_line_is_runtime_std_from_map` grants runtime attribution only
+  when the mapped source path has that exact root prefix and a path separator.
+
+Identical source bytes do not make these different paths match. This explains
+why the copied runtime can lose its runtime attribution; it does not establish
+that every retained diagnostic has this cause. Borrowed-return diagnostics
+require independent owner-region repairs.
+
+The next proof build must align its selected runtime source paths and trusted
+root through a provenance-checked compiler snapshot or validated root selection.
+Keep the scanner's per-source checks intact. Retain the expanded paths, selected
+environment, source hashes, product hashes and terminal build log. Then rebuild
+both prover and replay products and authenticate their pair before replaying app
+laws. No proof or native acceptance is claimed by this inspection.
