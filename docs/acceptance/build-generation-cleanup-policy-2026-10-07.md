@@ -267,3 +267,23 @@ Source AST/embedded Python, shell syntax and diff checks passed. A fresh full
 build exercising package Published is in progress. The preceding successful
 `studio-build.r2TDoB` build includes the redo-draft fix, but its package reached
 Sealed revision 3 only and cannot qualify this newly wired helper.
+
+### Pre-move package publication intent
+
+The package helper now durably creates a separate publication-intent record
+before moving either bundle. It links exact Sealed revision 3 bytes and binds
+the proposed current path, previous root identity and previous lease identity.
+Published revision 4 additionally binds the intent digest. An existing intent
+refuses retry and requires reconciliation; its presence never establishes that
+the moves or Published event succeeded. Prior bytes, previous Resources/lease
+bindings and held lease descriptors are rechecked through record publication.
+
+The journal admission contract now requires verified intent absence. A new law
+refuses admission when an intent already exists, bringing the total to 32.
+The exact law source compiles with the clean e34f2c compiler; object SHA256 is
+`ccf25564a1a70cb4bbfdbc6526413882bae2d68fff014c91265f0cef4cb99390`.
+This is compilation evidence, not authenticated proof or interruption testing.
+The preceding successful package `studio-package.xqxehP` has Sealed3 and
+Published4, but predates the pre-move intent implementation. Its
+`previous_sha256` links Sealed3; it is not a digest of the previous bundle.
+Fresh intent-aware build qualification and restart recovery remain open.
