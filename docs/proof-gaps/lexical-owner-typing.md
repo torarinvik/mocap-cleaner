@@ -1,6 +1,7 @@
 # Lexical owner identity in proposition typing
 
-Status: reproduced; source repair committed as `d83d6f69`, qualification open.
+Status: owner repair retained in `d98afac0`; current six-package admission fails.
+Nested const-enum cast repair is under review and remains unqualified.
 
 ## Reproduction and consequence
 
@@ -69,3 +70,31 @@ rows and wrong sorts. They have not compiled or run on a fresh compiler yet.
 The compiler checkout is being repaired/reseeded; stale products cannot qualify
 these changes. Flat unique-only named-type lookup remains a separate conservative
 coverage gap for repeated module-local user parameter/result type names.
+
+## Current nested const-enum cast gap
+
+The frozen `fa43d43c` application closure was checked with proof `d98afac0`,
+compiler `60f5a3b2` and generation `366396b1c2b84b5e9632fad44be2a282`.
+All six packages are source-inadmissible; correspondence checks zero functions.
+The failure-policy report has 16 proposition-formation findings on nested
+`StudioFbxImportWorker::Status` casts to `i64`, including the negative wire codes.
+
+The pending repair traverses AST call receivers to preserve existing exact-owner
+member witnesses. It proposes an `enum-underlying` environment row tied to the
+const enum declaration identity and its explicit integer backing type. Replay
+must require the same owner and backing width when typing a primitive cast.
+Call traversal itself must not assert a numeric result from a method spelling.
+
+Acceptance requires both source controls and adversarial package controls:
+
+- A nested `const enum Status of i64` with `InvalidJob = -100` forms and replays.
+- A claim that the same value is `-99` remains unproved.
+- Another module's same-name enum cannot provide the receiver's backing type.
+- A different integer backing width cannot qualify an `i64` cast by name alone.
+- Arbitrary user cast hooks remain outside primitive conversion semantics.
+- Duplicate identical or conflicting backing rows are refused.
+- A forged backing row on a struct or non-const enum identity is refused.
+
+Retain exact producer/replay product hashes, frozen source closure, per-control
+reports and exits, then rerun all six FBX packages. A green minimal cast control
+cannot close the remaining call-summary, region/borrow or CFG-budget gaps.
