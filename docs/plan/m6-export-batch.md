@@ -214,7 +214,7 @@ Compile-only evidence and exact limits are recorded in
 
 ### Prepared-export panel: remaining integration and qualification
 
-The saved, uncomposed implementation includes shared typed sheet controls,
+The saved implementation includes shared typed sheet controls,
 bounded selection/paging/focus state, owned overview snapshots, captured warning
 report paging, exact-attempt acknowledgement, and publication/cancel/resume
 controller routes. Report pages use stable cached line views; closing releases
@@ -229,10 +229,12 @@ object with law and admission symbols retained. Independent replay still has
 return-binding/call-summary gaps. Neither standalone rendering nor this evidence
 qualifies the integrated application or native workflow.
 
-- [ ] Compose `app_export_batch_ui.elisa` into the current application. Use its
-      report-first keyboard/pointer dispatch and sheet-then-report drawing. Consume
-      modal input before timeline, viewport, menus and other dialogs. Verify
-      opening/closing, focus restoration and disabled-action refusal end to end.
+- [ ] Qualify the composed `app_export_batch_ui.elisa` routes in the current
+      application. Report-first keyboard/pointer dispatch and sheet-then-report
+      drawing are wired, with guards for background scroll/text/file-drop/native
+      toolbar actions and stale pointer gestures. Verify opening/closing, focus
+      restoration and disabled-action refusal end to end. Add a discoverable
+      entry after enqueue/recovery actions and accessibility are established.
 - [ ] Wire native accessibility widgets, stable node IDs, parent/sibling metadata,
       focus, complete cached report line values, page status and announcements.
       Native actions must use the same admission and controller routes as pointer
