@@ -6,6 +6,7 @@
 include "../io/glb_tracks.elisa"
 include "../core/key_weight.elisa"
 include "../core/correction_scope_policy.elisa"
+include "../core/storage_range_policy.elisa"
 
 module Corrections:
     public:
@@ -81,6 +82,16 @@ module Corrections:
                     return false if other.output == held.output
                 track: GlbDocument::Track = GlbDocument::track(doc, held.output)
                 return false if track.components != (4 if rotation else 3)
+                if storage_length(doc, track) is length:
+                    for other_slot in 0..<GlbDocument::track_count(doc) |other_slot, doc, held, track, length|:
+                        continue if other_slot == held.output
+                        other: GlbDocument::Track = GlbDocument::track(doc, other_slot)
+                        if storage_length(doc, other) is other_length:
+                            return false if StorageRangePolicy::overlaps(track.byte_start, length, other.byte_start, other_length)
+                        else:
+                            return false
+                else:
+                    return false
                 for k in 0..<track.count |k, doc, held, c, rotation|:
                     continue if not KeyWeight::admits_index(k, c.first, c.last)
                     weight: i64 = KeyWeight::weight(k.i64(), c.first, c.key, c.last)
@@ -132,3 +143,10 @@ module Corrections:
                             _ = GlbDocument::set_track_value(doc, held.output, k, 2, GlbDocument::track_value(doc, held.output, k, 2) + c.translation.z * t)
                         moved <- moved + 1
             return moved
+
+    private:
+        def storage_length(doc: GlbDocument::Document&, track: GlbDocument::Track) -> usize?:
+            return null if track.components == 0 or track.byte_start > GlbDocument::byte_count(doc)
+            available: usize = GlbDocument::byte_count(doc) - track.byte_start
+            return null if track.count > (available / 4) / track.components
+            track.count * track.components * 4

@@ -184,6 +184,12 @@ applied correction. Five scalar-storage laws compile diagnostically. Qualify
 whole-document preservation, accessor aliasing, every intermediate weight and
 native failure feedback; include the additional pass in M5 performance budgets.
 This is source implementation, not a completed IEEE or transactional proof.
+The preflight also refuses overlapping GLB byte spans among distinct tracks,
+and bounds each span before multiplying its key/component counts. Half-open
+range overlap uses start distances without overflowing endpoint addition;
+six integer laws and the correction source compile with the matched repaired
+compiler `d2754a8e`. Authenticate range arithmetic and qualify overlapping
+accessor fixtures, unchanged source bytes and accepted disjoint layouts.
 
 Gizmo release also refuses an exactly identity correction before history
 insertion, including pointer movement that produces no transform change.
