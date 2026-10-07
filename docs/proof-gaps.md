@@ -34,6 +34,8 @@ status descriptions and evidence are preserved in the linked records.
 - [Studio fixed-array clone compilation cost](proof-gaps/studio-fixed-array-clone-cost.md)
 - [Tracked FBX foreign adapter and strict extern bounds](proof-gaps/fbx-foreign-adapter.md)
 
+- [Lexical owner identity in proposition typing](proof-gaps/lexical-owner-typing.md)
+
 ## Current qualification limits
 
 The complete check is not green. Native storage qualification requires fresh
