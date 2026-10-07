@@ -1,0 +1,79 @@
+include "../export_batch_panel_policy.elisa"
+
+# Display/navigation state only. Publication and review authority stay in the
+# bound queue; opening, paging and closing this sheet cannot approve an item.
+module StudioExportBatchSheetState:
+    public:
+        struct State:
+            total: mutable i64
+            first: mutable i64
+            selected: mutable i64
+            focus: mutable StudioExportBatchPanelPolicy::Focus
+            opened: mutable bool
+
+        def valid(s: State) -> bool:
+            return false if s.total < 0 or s.total > StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            return false if s.first < 0 or s.first > StudioExportBatchPanelPolicy::last_page(s.total)
+            return false if s.first % StudioExportBatchPanelPolicy::Page::ROWS != 0
+            return false if s.focus.i64() < 0 or s.focus.i64() > StudioExportBatchPanelPolicy::FocusDomain::LAST
+            return s.selected == -1 if s.total == 0
+            s.selected >= s.first and s.selected < s.total and s.selected < s.first + StudioExportBatchPanelPolicy::Page::ROWS
+
+        def create(total: i64) -> State:
+            requires total >= 0 and total <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            ensure valid(result)
+            ensure not result.opened
+            State{total: total, first: 0, selected: -1 if total == 0 else 0,
+                focus: StudioExportBatchPanelPolicy::Focus.Close, opened: false}
+
+        def show(s: State, opened: bool) -> State:
+            requires valid(s)
+            ensure valid(result)
+            ensure result.opened == opened
+            ensure result.selected == s.selected and result.first == s.first
+            mutable out: State = s
+            out.opened <- opened
+            out
+
+        def reconcile(s: State, total: i64) -> State:
+            requires valid(s)
+            requires total >= 0 and total <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            ensure valid(result)
+            ensure result.opened == s.opened
+            ensure result.total == total
+            ensure s.selected < 0 or s.selected >= total or result.selected == s.selected
+            mutable out: State = s
+            out.total <- total
+            out.selected <- -1 if total == 0 else (0 if s.selected < 0 else (total - 1 if s.selected >= total else s.selected))
+            out.first <- 0 if out.selected < 0 else (out.selected / StudioExportBatchPanelPolicy::Page::ROWS) * StudioExportBatchPanelPolicy::Page::ROWS
+            out
+
+        def select(s: State, row: i64) -> State:
+            requires valid(s)
+            ensure valid(result)
+            ensure row < 0 or row >= s.total or result.selected == row
+            ensure row >= 0 and row < s.total or result.selected == s.selected
+            return s if row < 0 or row >= s.total
+            mutable out: State = s
+            out.selected <- row
+            out.first <- (row / StudioExportBatchPanelPolicy::Page::ROWS) * StudioExportBatchPanelPolicy::Page::ROWS
+            out
+
+        def page(s: State, direction: StudioExportBatchPanelPolicy::Direction) -> State:
+            requires valid(s)
+            ensure valid(result)
+            ensure result.total == s.total and result.opened == s.opened
+            mutable out: State = s
+            out.first <- StudioExportBatchPanelPolicy::page_move(s.first, s.total, direction)
+            if out.selected < out.first or out.selected >= out.first + StudioExportBatchPanelPolicy::Page::ROWS:
+                out.selected <- -1 if out.total == 0 else out.first
+            out
+
+        def move_focus(s: State, reverse: bool, controls: StudioExportBatchPanelPolicy::Controls) -> State:
+            requires valid(s)
+            ensure valid(result)
+            ensure StudioExportBatchPanelPolicy::action_enabled(result.focus, controls)
+            ensure result.selected == s.selected and result.first == s.first
+            mutable out: State = s
+            out.focus <- StudioExportBatchPanelPolicy::move_focus(s.focus, reverse, controls)
+            out
