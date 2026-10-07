@@ -75,9 +75,14 @@ def snapshot(project, engine, ui, compiler):
         compiler / "scripts/assert_stage1_fresh.sh",
         compiler / "scripts/stage1_provenance.py",
         project / "scripts/package_studio_app.sh",
+        project / "tools/studio_verify_ufbx.py",
+        engine / "scripts/fetch_dependencies.py",
+        engine / "dependencies/ufbx/ufbx.c",
+        engine / "dependencies/ufbx/ufbx.h",
         ui / "src/platform/appkit/appkit_canvas_shim.m",
         *(engine / "native" / name for name in (
             "viewport_metal.m", "file_panel_appkit.m", "file_trash_appkit.m",
+            "fbx_to_glb.c",
             "file_path.c", "file_path_namespace_appkit.m",
             "workspace_root_appkit.m", "storage_manifest_lock.c",
             "studio_generation_lease_appkit.m",
@@ -128,7 +133,11 @@ def snapshot(project, engine, ui, compiler):
             for line in path.read_bytes().splitlines():
                 match = headers.match(line)
                 if match:
-                    pending.append(path.parent / match[1].decode("utf-8"))
+                    target = match[1].decode("utf-8")
+                    if target == "ufbx.h" and path == engine / "native/fbx_to_glb.c":
+                        pending.append(engine / "dependencies/ufbx/ufbx.h")
+                    else:
+                        pending.append(path.parent / target)
     return {"schema": "mocap-studio-inputs-v2", "files": files,
             "build_environment_sha256": build_environment_digest(),
             "native_tools": native_tools,
