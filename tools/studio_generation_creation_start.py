@@ -39,12 +39,12 @@ def unique_object(pairs):
     return result
 
 
-def read_record(parent, filename):
+def read_record(parent, filename, private=True):
     fd = os.open(filename, FILE_FLAGS, dir_fd=parent)
     try:
         facts = os.fstat(fd)
         owned(facts)
-        require(not facts.st_mode & 0o077 and 0 < facts.st_size <= Limits.json_bytes,
+        require((not private or not facts.st_mode & 0o077) and 0 < facts.st_size <= Limits.json_bytes,
                 "creation record is not bounded and private")
         payload = bytearray()
         while len(payload) <= facts.st_size:
@@ -87,6 +87,17 @@ def read_initial(parent, artifact_id):
     require(entries == [{"path": path, "kind": plan[path]} for path in sorted(plan)],
             "noncanonical creation plan")
     return record, payload, facts
+
+
+def read_started(parent, artifact_id):
+    initial, payload, facts = read_initial(parent, artifact_id)
+    started, started_payload, started_facts = read_record(parent, artifact_id + Event.suffix)
+    expected = dict(initial, phase=Event.phase, revision=Event.revision,
+                    previous_revision=Journal.revision,
+                    previous_sha256=hashlib.sha256(payload).hexdigest())
+    require(started == expected and type(started.get("revision")) is int and
+            type(started.get("previous_revision")) is int, "invalid creation start chain")
+    return initial, payload, facts, started_payload, started_facts
 
 
 def start_record(project, artifact, artifact_id):

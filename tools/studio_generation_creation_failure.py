@@ -16,7 +16,7 @@ from studio_generation_contents import (
     scan, version,
 )
 from studio_generation_creation import Journal, publish_initial
-from studio_generation_creation_start import Event, read_initial, read_record
+from studio_generation_creation_start import Event, read_started, read_record
 from studio_generation_lock import verified_lock
 
 
@@ -40,15 +40,9 @@ def record_failure(project, artifact, artifact_id, exit_status):
         parent_facts = os.fstat(parent)
         owned(parent_facts, directory=True)
         require(not parent_facts.st_mode & 0o077, "creation directory is not private")
-        initial, initial_payload, initial_facts = read_initial(parent, artifact_id)
+        initial, initial_payload, initial_facts, started_payload, started_facts = read_started(parent, artifact_id)
         require(initial["artifact_kind"] == "studio-build" and
                 initial["original_relative_path"] == artifact, "not the original build artifact")
-        started, started_payload, started_facts = read_record(parent, artifact_id + Event.suffix)
-        expected_started = dict(initial, phase=Event.phase, revision=Event.revision,
-                                previous_revision=Journal.revision,
-                                previous_sha256=hashlib.sha256(initial_payload).hexdigest())
-        require(started == expected_started and type(started.get("revision")) is int and
-                type(started.get("previous_revision")) is int, "invalid creation start chain")
         root = open_artifact(build, artifact)
         root_facts = os.fstat(root)
         for prefix, facts in (("build_root", locked_build), ("root", root_facts)):
