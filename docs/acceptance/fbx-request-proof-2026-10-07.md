@@ -60,3 +60,13 @@ The first attempt with the historical compiler did not execute controls: it
 reported source-region diagnostics and a diagnostic-wrapper visibility error.
 That is no behavioral result for current upstream. A current compatible compiler,
 preserved project repairs and a fresh matched pair remain required for Q02.
+
+Preparation for that pair is retained in the current prover checkout under
+`build/q02-fbx-current-ec4ceacd-v4/closure.json`, SHA-256
+`082aea8bf5425cf4daad259785c5451c41dc6e3cc12155ff8d44764249d318e7`.
+Root independently verified both selected compiler/runtime product hashes and
+all twelve policy/law files against both live and frozen copies, with no
+mismatches. The six law entry points include only files in this source closure.
+This records inputs for a pending build, not produced proof evidence. Exact
+executable per-law commands and producer/replay generation remain pending;
+the closure's English command placeholder cannot itself execute qualification.
