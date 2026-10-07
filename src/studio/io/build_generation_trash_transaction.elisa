@@ -7,8 +7,8 @@ module StudioBuildGenerationTrashTransaction:
     public:
         struct MoveIntentResult:
             status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus
-            operation_id: darray[u8]
             operation_id_valid: bool
+            operation_id_bytes: i64
             phase: StudioBuildGenerationTrashBindingPolicy::DecodedPhase
             journal_durable: StudioBuildGenerationTrashBindingPolicy::DecodedBoolean
             operation_id_reserved: StudioBuildGenerationTrashBindingPolicy::DecodedBoolean
@@ -30,54 +30,97 @@ module StudioBuildGenerationTrashTransaction:
             relative_path: darray[u8]
             output_details_valid: bool
 
+        struct BeginMoveResult:
+            status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus
+            evidence: StudioBuildGenerationTrashBindingPolicy::BeginEvidence
+
     private:
-        def collect_error(buffer: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()]&, output: mutable darray[u8]&) -> void:
+        def collect_error(buffer: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()]&, output: mutable darray[u8]&) -> void can[Memory.Allocate]:
+            ensure true
             output.clear()
             mutable index: usize = 0
             while index < StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize() and buffer[index] != 0:
                 output.push(buffer[index])
                 index <- index + 1
 
-        def collect_id(buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&, output: mutable darray[u8]&) -> bool:
+        def collect_id(buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&, output: mutable darray[u8]&) -> bool can[Memory.Allocate]:
+            ensure not result or (output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES.usize())
             output.clear()
             mutable index: usize = 0
             while index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and buffer[index] != 0:
                 output.push(buffer[index])
                 index <- index + 1
-            ensure not result or (index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and
-                output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES.usize())
-            index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and
-                output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES.usize()
+            mutable valid: bool = index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES.usize()
+            valid
 
-        def collect_operation_id(buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&, output: mutable darray[u8]&) -> bool:
+        def collect_operation_id(buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&, output: mutable darray[u8]&) -> bool can[Memory.Allocate]:
+            ensure not result or (output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES.usize())
             output.clear()
             mutable index: usize = 0
             while index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and buffer[index] != 0:
                 output.push(buffer[index])
                 index <- index + 1
-            ensure not result or (index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and
-                output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES.usize())
-            index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and
-                output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES.usize()
+            mutable valid: bool = index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES.usize()
+            valid
 
-        def collect_path(buffer: u8[StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()]&, output: mutable darray[u8]&) -> bool:
+        def collect_path(buffer: u8[StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()]&, output: mutable darray[u8]&) -> bool can[Memory.Allocate]:
+            ensure not result or (output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES.usize())
             output.clear()
             mutable index: usize = 0
             while index < StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize() and buffer[index] != 0:
                 output.push(buffer[index])
                 index <- index + 1
-            ensure not result or (index < StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize() and
-                output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES.usize())
-            index < StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize() and
-                output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES.usize()
+            mutable valid: bool = index < StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize() and output.count > 0 and output.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES.usize()
+            valid
 
         def status(raw: i32) -> StudioBuildGenerationTrashBindingPolicy::DecodedStatus:
             StudioBuildGenerationTrashBindingPolicy::decode_status(raw)
 
+    public:
+        def begin_move(build_root: cstr, relative_path: cstr,
+                       artifact_kind: i32, artifact_id: cstr,
+                       expected_device: u64, expected_inode: u64,
+                       expected_product_sha256: cstr, handle: mutable i64&,
+                       error_bytes: mutable darray[u8]&) -> BeginMoveResult can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            handle <- 0
+            error_bytes.clear()
+            mutable native_handle: i64 = 0
+            mutable root_verified: i32 = -1
+            mutable source_verified: i32 = -1
+            mutable manifest_verified: i32 = -1
+            mutable product_verified: i32 = -1
+            mutable lease_verified: i32 = -1
+            mutable lease_exclusive: i32 = -1
+            mutable descendants_verified: i32 = -1
+            mutable is_current: i32 = -1
+            mutable lease_protocol: i64 = -1
+            mutable lease_receipt_bytes: i64 = -1
+            mutable inventory_receipt_bytes: i64 = -1
+            mutable error_buffer: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()] = zeroed
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            code: i32 = studio_build_trash_begin_move(build_root, relative_path,
+                artifact_kind, artifact_id, expected_device, expected_inode,
+                expected_product_sha256, &native_handle, &root_verified,
+                &source_verified, &manifest_verified, &product_verified,
+                &lease_verified, &lease_exclusive, &descendants_verified,
+                &is_current, &lease_protocol, &lease_receipt_bytes,
+                &inventory_receipt_bytes, error_ptr,
+                StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.u32())
+            collect_error(error_buffer, error_bytes)
+            handle <- native_handle
+            evidence: StudioBuildGenerationTrashBindingPolicy::BeginEvidence =
+                StudioBuildGenerationTrashBindingPolicy::decode_begin_evidence(
+                    code, native_handle, root_verified, source_verified,
+                    manifest_verified, product_verified, lease_verified,
+                    lease_exclusive, descendants_verified, is_current,
+                    lease_protocol, lease_receipt_bytes,
+                    inventory_receipt_bytes)
+            BeginMoveResult(status(code), evidence)
+
         def persist_move_intent(handle: i64, operation_id: mutable darray[u8]&,
                                 error_bytes: mutable darray[u8]&) -> MoveIntentResult can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
-            ensure not result.operation_id_valid or (result.operation_id.count > 0 and
-                result.operation_id.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES.usize())
+            ensure not result.operation_id_valid or (result.operation_id_bytes > 0 and
+                result.operation_id_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES)
             operation_id.clear()
             error_bytes.clear()
             mutable id_buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()] = zeroed
@@ -97,7 +140,7 @@ module StudioBuildGenerationTrashTransaction:
             mutable decoded_status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = status(code)
             if code == StudioBuildGenerationTrashNative::Status.Acquired.i32() and not operation_valid:
                 decoded_status <- status(-1)
-            MoveIntentResult(decoded_status, operation_id, operation_valid,
+            MoveIntentResult(decoded_status, operation_valid, operation_id.count.i64(),
                 StudioBuildGenerationTrashBindingPolicy::decode_phase(phase_raw),
                 StudioBuildGenerationTrashBindingPolicy::decode_boolean(durable_raw),
                 StudioBuildGenerationTrashBindingPolicy::decode_boolean(reserved_raw),
@@ -123,8 +166,7 @@ module StudioBuildGenerationTrashTransaction:
 
         def begin_restore(build_root: cstr, operation_id: cstr,
                           handle: mutable i64&, error_bytes: mutable darray[u8]&) -> RestoreStartResult can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
-            ensure not StudioBuildGenerationTrashBindingPolicy::restore_evidence_admitted(result.evidence) or
-                (result.status.known and result.status.status == StudioBuildGenerationTrashNative::Status.Acquired and result.output_details_valid)
+            ensure not StudioBuildGenerationTrashBindingPolicy::restore_evidence_admitted(result.evidence) or (result.status.known and result.status.status == StudioBuildGenerationTrashNative::Status.Acquired and result.output_details_valid)
             handle <- 0
             error_bytes.clear()
             mutable native_handle: i64 = 0
@@ -182,10 +224,7 @@ module StudioBuildGenerationTrashTransaction:
 
         def reconcile(build_root: cstr, operation_id: cstr,
                       error_bytes: mutable darray[u8]&) -> ReconcileResult can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
-            ensure (result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Quarantined or
-                result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.RestorePending or
-                result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.NotMoved or
-                result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Restored) implies result.output_details_valid
+            ensure ((result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Quarantined or result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.RestorePending or result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.NotMoved or result.outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Restored) implies result.output_details_valid)
             error_bytes.clear()
             mutable location_raw: i32 = StudioBuildGenerationTrashNative::Location.Unknown.i32()
             mutable phase_raw: i32 = StudioBuildGenerationTrashNative::Phase.Unknown.i32()
