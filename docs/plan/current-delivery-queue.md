@@ -240,6 +240,15 @@ negative controls, meaningful history entries and session/export parity.
   unmatched intent stays protected. Failed/partial generations still need
   cleanup admission based on their creation evidence, without a fabricated
   product identity.
+  The owning scan worker and controller are now implemented (`ddf349a`,
+  `0ae9584`): refresh queues a scan, frame polling drains it without waiting,
+  and publication checks ticket, cancellation, workspace path and captured
+  retention. Progress/refusal/overflow text is connected to Storage's status
+  bar. Full-app compilation currently refuses the concrete join result reader
+  (`ctx_concurrency_result_read__Result`, index expression); resolve that
+  compiler integration failure before claiming this UI usable. Task-start
+  compilation alone did not exercise the consuming path. The generation row
+  review list, accessible controls and move/Restore controller remain open.
 - Connect the compiled owning Restore job to the controller. Cancellation or a
   stale ticket suppresses UI publication but must drain the reply and retain any
   unclosed native handle. Restore success requires committed restore, confirmed
