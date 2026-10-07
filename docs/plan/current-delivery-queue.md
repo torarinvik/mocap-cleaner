@@ -105,6 +105,11 @@ Remaining work:
   terminal results and
   exact failure lists before comparing the repair. Neither a baseline seed nor
   an installed upstream compiler qualifies project repairs or the Studio graph.
+  Baseline `backend_native_smoke` reports 566/566 passing checks;
+  `self_host_gen3_smoke` passes stages A–D, including gen3/gen4 object equality
+  and identical output over 40 runs. Freshness checks pass afterward. Retained
+  results, commands and logs are under the baseline compiler checkout's
+  `build/baseline-665f40d7/`; candidate equivalents and timing remain open.
 - Preserve the verified UI checkpoint and source closure when rebuilding after
   pending skin/session changes. Recheck fetched upstream and project repairs.
 - Retain verified compiler/runtime source and linked-dependency provenance at
