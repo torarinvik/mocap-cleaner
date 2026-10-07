@@ -171,6 +171,8 @@ No transaction milestone is accepted by the source changes alone.
       Include invalid count/cursor extremes: redo target lookup now compares
       against the guarded count-minus-one boundary before adding to its cursor,
       with three invalid-metadata obligations awaiting current qualification.
+      The shared redo enablement policy also guards invalid/empty metadata
+      before arithmetic; four admission laws include the maximal i64 cursor.
 - [ ] Qualify synchronous ordinary edits and both history directions with valid,
       invalid-output, exhausted-capacity and stale-base candidates. A refusal
       preserves the existing result and actionable feedback; a success creates
