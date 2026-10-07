@@ -67,7 +67,7 @@ def owned(facts, directory=False):
         require(facts.st_nlink == 1, "hard-linked file")
 
 
-def hash_file(parent, name, facts):
+def hash_file(parent, name, facts, durable=False):
     fd = os.open(name, FILE_FLAGS, dir_fd=parent)
     try:
         opened = os.fstat(fd)
@@ -82,6 +82,8 @@ def hash_file(parent, name, facts):
             count += len(chunk)
             require(count <= facts.st_size, "file grew during read")
             digest.update(chunk)
+        if durable:
+            os.fsync(fd)
         require(count == facts.st_size and version(os.fstat(fd)) == version(facts),
                 "file changed during read")
         require(version(os.stat(name, dir_fd=parent, follow_symlinks=False)) == version(facts),
@@ -107,7 +109,7 @@ def bounded_names(directory, limit):
         os.close(fd)
 
 
-def scan(root_fd, controls):
+def scan(root_fd, controls, durable=False):
     entries = []
     total = 0
 
@@ -141,7 +143,9 @@ def scan(root_fd, controls):
             else:
                 total += facts.st_size
                 require(total <= Limits.file_bytes, "total file size exceeded")
-                entry.update(size_bytes=facts.st_size, sha256=hash_file(fd, name, facts))
+                entry.update(size_bytes=facts.st_size, sha256=hash_file(fd, name, facts, durable=durable))
+        if durable:
+            os.fsync(fd)
         require(names == bounded_names(fd, Limits.entries + len(controls)) and
                 version(before) == version(os.fstat(fd)),
                 "directory changed during inventory")
@@ -284,7 +288,7 @@ def main():
         require(identity(os.fstat(build_fd)) == identity(locked_build), "build directory replaced")
         root_fd = open_artifact(build_fd, args.artifact)
         root = os.fstat(root_fd)
-        entries = scan(root_fd, CONTROLS[args.kind])
+        entries = scan(root_fd, CONTROLS[args.kind], durable=True)
         require({e["path"]: e["kind"] for e in entries} == expected,
                 "tree differs from explicitly declared product paths")
         record = {

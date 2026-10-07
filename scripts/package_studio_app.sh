@@ -67,6 +67,7 @@ package_root = Path(sys.argv[8])
 sys.path.insert(0, str(project / "tools"))
 from studio_generation_lock import verified_lock
 from studio_generation_contents import verify_record
+from studio_generation_controls import seal_control
 
 def generated_id(directory, prefix):
     name = directory.name
@@ -95,6 +96,7 @@ input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/pack
                     project / "tools/svg_icons.py", project / "build/generated/studio_icon_paths.elisa",
                     project / "tools/studio_generation_lock.py",
                     project / "tools/studio_generation_contents.py",
+                    project / "tools/studio_generation_controls.py",
                     project / "tools/studio_build_identity.py", project / "build/generated/studio_build_identity.elisa",
                     compiler / "scripts/elisac_stage1.sh", compiler / "build/runtime/elisacore_runtime.o"))
 input_paths.extend(path for path in (project / "assets/icons").rglob("*.svg"))
@@ -198,10 +200,11 @@ subprocess.run(command, pass_fds=(lock_fd,), check=True)
 inventory_hash = verify_record(project, artifact, package_generation_id, "studio-package")
 package_record["contents_inventory_sha256"] = inventory_hash
 lease_record["contents_inventory_sha256"] = inventory_hash
-(output.parent / "PACKAGE-GENERATION.json").write_text(
-    json.dumps(package_record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-lease_path.write_text(json.dumps(lease_record, sort_keys=True) + "\n", encoding="utf-8")
-lease_path.chmod(0o444)
+if input_record is not None:
+    seal_control(output.parent / "BUILD-INPUTS.json", record_bytes.decode("utf-8"))
+seal_control(output.parent / "PACKAGE-GENERATION.json",
+             json.dumps(package_record, indent=2, sort_keys=True) + "\n")
+seal_control(lease_path, json.dumps(lease_record, sort_keys=True) + "\n", readonly=True)
 
 PY
 
