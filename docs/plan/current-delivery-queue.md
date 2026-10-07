@@ -252,16 +252,20 @@ negative controls, meaningful history entries and session/export parity.
   protection explanations, pointer selection, keyboard inspection and
   Previous/Next/Refresh/Back controls. Its paging laws compile. The full graph
   still refuses the result reader; the screen has no runtime acceptance yet.
-  Complete discoverable native accessibility, source-bound review/confirmation,
-  move/Restore controller wiring and long-path inspection. See the
+  Native accessibility and explicit source-bound move confirmation are wired
+  (`863be07`, `692360c`, `5e1b130`, `5cda1dd`). The controller rechecks the
+  scan, selection, retention and workspace at confirmation and retains the owning
+  reply even after cancellation. These remain source implementation evidence:
+  the full graph reports 14 backend declines and has no runtime acceptance.
+  Complete result/recovery presentation, Restore wiring and long-path inspection. See the
   [integration diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
 - Connect the compiled owning Restore job to the controller. Cancellation or a
   stale ticket suppresses UI publication but must drain the reply and retain any
   unclosed native handle. Restore success requires committed restore, confirmed
   lock release and exact durable reconciliation; compilation of the worker and
   task instantiation does not qualify its runtime behavior.
-- Connect the owning reviewed move job (`8492253`, `aa19a87`) to explicit
-  confirmation and the progress/result UI. It captures inline native buffers,
+- Complete the progress/result UI for the connected owning reviewed move job
+  (`8492253`, `aa19a87`, `5cda1dd`). It captures inline native buffers,
   independently admits age against the captured retention, matches reviewed
   controls under retained locks, requires durable v2 intent evidence, closes
   ownership and reconciles before recoverable success. Worker, law and concrete
@@ -270,6 +274,11 @@ negative controls, meaningful history entries and session/export parity.
   operation identity and recovery evidence before it is discarded, as well as
   draining any remaining native handle. An uncertain move can become recoverable
   only after exact durable quarantine reconciliation and confirmed lock release.
+  The current retained reply blocks subsequent moves. Add outcome-specific
+  resolution, safe remaining-handle draining, Restore dispatch and a bounded
+  operation ledger before enabling another move. Enumerate durable receipts on
+  restart and reconcile them before enabling retry or Restore; retaining one
+  in-memory reply does not satisfy restart recovery or repeated cleanup.
 - Qualify the corrected native reconciliation parent comparison before runtime acceptance:
   a transaction begun at quarantine has the managed items directory as its
   source parent, while the receipt records the original parent. Compare each
