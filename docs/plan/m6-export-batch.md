@@ -232,3 +232,11 @@ warning inspection, pointer/keyboard/native accessibility routing, queue entry
 and return-focus behavior, followed by current integrated/native qualification.
 The full multi-take input/evaluation pipeline remains part of M6; prepared export
 captures alone do not satisfy that production workflow.
+
+Batch keyboard focus now has a checked native-ID decoder, shared forward/reverse
+wrapping, disabled-control skipping and one focus-to-action mapping reused by
+pointer hit routing. Close remains available. Five accompanying focus laws
+compile at O0 in a fresh 253,432-byte object with decoder/traversal symbols
+retained. This establishes the shared policy; actual modal keyboard/native
+accessibility event wiring and return-focus behavior are still required, as is
+current independent proof replay. The panel is still outside app composition.
