@@ -96,7 +96,9 @@ source tree c9aa21a6692529aab8ab58faf56407bfd44c23ef56aead658ba48e48a95d182e,
 product SHA256 7862a5472885a2956f012d27cf0635beff5af126c6c79d5263abe61d11a987f2.
 The compiler agent reports no new frontend/affine diagnostics for integrated
 controllers; the application still declines at ledger global initialization and
-five generated result readers plus wrappers. No executable was emitted.
+five generated result readers plus wrappers. The final label capture is
+`build/latest-compiler-qualification/generation-main-final-label-current-candidate.compile.log`.
+No executable was emitted.
 The original dd wrapper refused compilation because restored source mtimes were
 newer than its binary; no stale-product bypass was used for this observation.
 

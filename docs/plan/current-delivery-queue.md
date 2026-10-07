@@ -14,6 +14,20 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting every subsequent source slice.
 
+**Current status:** the isolated compiler candidate based on dd0312ee fixes the
+same-name container/enum `Result` collision that blocked UiDialog. The latest
+complete Studio compile reaches the backend but emits no object: ledger global
+initialization and five generated result readers plus their wrappers still
+produce 11 declines. The candidate and exact source-only evidence are recorded
+in [controller diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
+Resolve those declines, rebuild the final compiler and matched prover, then
+qualify complete native link/package and runtime behavior. The restored dd
+source triggered the wrapper mtime freshness gate; do not bypass it to qualify
+the pinned proof pair. The older successful app/package captures below are
+comparison snapshots and do not qualify today's integrated source.
+
+### Earlier comparison snapshots
+
 Compiler `e34f2c0656aac1232ad72da6516c7eb89f866a47` has a fresh,
 clean Stage1 product after preserving project repairs and fetching upstream.
 It fixes the imported generic `view` collision that prevented Studio's nine
@@ -298,7 +312,11 @@ negative controls, meaningful history entries and session/export parity.
   operation selection and background reconciliation are now connected.
   Qualify exact root/operation binding, stale replies, cancellation, capacity
   overflow and repeated moves. Complete safe resolution of retained uncertain
-  replies and remaining-handle draining. Generation job starts now serialize
+  replies. Explicit remaining-handle Retry Release controls are implemented
+  (`f06a8b7`), with whole-reply ownership transfer and admission laws. Qualify
+  Busy/stale/uncertain native results, retained metadata, retry progress and
+  cancellation; establish exact reconciliation before disposing of the reply or
+  permitting another mutation. Generation job starts now serialize
   inventory, discovery, reconciliation, move and Restore (`330e1c8`); qualify
   deferred requests and responsiveness under every overlapping user action.
   Qualify constructor/private-field handling in the compiler without exposing
