@@ -15,15 +15,9 @@ extern storage_exemptions_fclose(file: mutable heap void&) -> i32 can[Blocking.I
 
 module StudioStorageExemptionsCodec:
     public:
-        const HEADER_BYTES: usize = StudioStorageExemptionsWirePolicy::Wire::HEADER_BYTES
-        const MAX_FILE_BYTES: usize = StudioStorageManifest::MAX_ENTRIES.usize() * StudioStorageManifest::MAX_LINE_BYTES + 64 + StudioStorageExemptionsWirePolicy::Wire::PREFIX_BYTES
-        const LOAD_OK: i64 = 0
-        const LOAD_OPEN_FAILED: i64 = 1
-        const LOAD_READ_FAILED: i64 = 2
-        const LOAD_TOO_LARGE: i64 = 3
-        const LOAD_CLOSE_FAILED: i64 = 4
-        const LOAD_INVALID_FORMAT: i64 = 5
-
+        const module Wire:
+            HEADER_BYTES: usize = StudioStorageExemptionsWirePolicy::Wire::HEADER_BYTES
+            MAX_FILE_BYTES: usize = StudioStorageManifest::MAX_ENTRIES.usize() * StudioStorageManifest::MAX_LINE_BYTES + 64 + StudioStorageExemptionsWirePolicy::Wire::PREFIX_BYTES
 
         def entry_valid(entry: StudioStorageManifest::Entry) -> bool:
             ensure result implies entry.state == StudioStorageManifest::REGISTERED
@@ -35,11 +29,11 @@ module StudioStorageExemptionsCodec:
         # The manifest parser retains responsibility for record parsing,
         # identity scalar bounds, path validation, count limits, and duplicates.
         def decode(text: darray[u8]&, out: mutable darray[StudioStorageManifest::Entry]&) -> bool can Memory.Allocate:
-            return false if text.count > MAX_FILE_BYTES
-            return false if text.count < HEADER_BYTES + 1
+            return false if text.count > Wire::MAX_FILE_BYTES
+            return false if text.count < Wire::HEADER_BYTES + 1
             return false if not StudioStorageExemptionsWirePolicy::header_matches(text)
             mutable body: darray[u8] = []
-            for index in (HEADER_BYTES + 1)..<text.count |text, body|:
+            for index in (Wire::HEADER_BYTES + 1)..<text.count |text, body|:
                 body.push(text[index])
             mutable parsed: darray[StudioStorageManifest::Entry] = []
             return false if not StudioStorageManifest::decode(body, &parsed)
@@ -63,7 +57,7 @@ module StudioStorageExemptionsCodec:
             can Memory.Allocate:
                 wrapped.extend([109, 111, 99, 97, 112, 45, 115, 116, 111, 114, 97, 103, 101, 45, 101, 120, 101, 109, 112, 116, 105, 111, 110, 115, 45, 118, 49, 10])
                 wrapped.extend(manifest_bytes)
-            return false if wrapped.count > MAX_FILE_BYTES
+            return false if wrapped.count > Wire::MAX_FILE_BYTES
             can Memory.Allocate:
                 out.clear()
                 out.extend(wrapped)
@@ -71,12 +65,13 @@ module StudioStorageExemptionsCodec:
 
 module StudioStorageExemptionsFile:
     public:
-        const LOAD_OK: i64 = StudioStorageExemptionsCodec::LOAD_OK
-        const LOAD_OPEN_FAILED: i64 = StudioStorageExemptionsCodec::LOAD_OPEN_FAILED
-        const LOAD_READ_FAILED: i64 = StudioStorageExemptionsCodec::LOAD_READ_FAILED
-        const LOAD_TOO_LARGE: i64 = StudioStorageExemptionsCodec::LOAD_TOO_LARGE
-        const LOAD_CLOSE_FAILED: i64 = StudioStorageExemptionsCodec::LOAD_CLOSE_FAILED
-        const LOAD_INVALID_FORMAT: i64 = StudioStorageExemptionsCodec::LOAD_INVALID_FORMAT
+        const enum LoadStatus of i64:
+            Ok = 0
+            OpenFailed = 1
+            ReadFailed = 2
+            TooLarge = 3
+            CloseFailed = 4
+            InvalidFormat = 5
 
         def load_status(path: cstr, out: mutable darray[StudioStorageManifest::Entry]&) -> i64 can[Blocking.IO, Memory.Allocate, Memory.Release]:
             mutable bytes: darray[u8] = []
@@ -93,23 +88,23 @@ module StudioStorageExemptionsFile:
                             reading <- false
                             read_failed <- storage_exemptions_ferror(opened) != 0
                         else:
-                            if bytes.count >= StudioStorageExemptionsCodec::MAX_FILE_BYTES:
+                            if bytes.count >= StudioStorageExemptionsCodec::Wire::MAX_FILE_BYTES:
                                 too_large <- true
                                 reading <- false
                             else:
                                 bytes.push(byte.u8())
                     close_status: i32 = storage_exemptions_fclose(opened)
-                    return LOAD_READ_FAILED if read_failed
-                    return LOAD_TOO_LARGE if too_large
-                    return LOAD_CLOSE_FAILED if close_status != 0
+                    return LoadStatus.ReadFailed.i64() if read_failed
+                    return LoadStatus.TooLarge.i64() if too_large
+                    return LoadStatus.CloseFailed.i64() if close_status != 0
                 else:
-                    return LOAD_OPEN_FAILED
+                    return LoadStatus.OpenFailed.i64()
             mutable parsed: darray[StudioStorageManifest::Entry] = []
-            return LOAD_INVALID_FORMAT if not StudioStorageExemptionsCodec::decode(bytes, &parsed)
+            return LoadStatus.InvalidFormat.i64() if not StudioStorageExemptionsCodec::decode(bytes, &parsed)
             out.clear()
             for entry in parsed:
                 out.push(entry)
-            LOAD_OK
+            LoadStatus.Ok.i64()
 
         def load(path: cstr, out: mutable darray[StudioStorageManifest::Entry]&) -> bool can[Blocking.IO, Memory.Allocate, Memory.Release]:
-            load_status(path, out) == LOAD_OK
+            load_status(path, out) == LoadStatus.Ok.i64()
