@@ -44,6 +44,10 @@ deduplicated. Qualify rejected annotations with unchanged retained review
 state, current document and history; validate supported records against the
 current detector before presenting an ignored finding as still applicable.
 
+The [generated-build cleanup slices](generated-build-cleanup.md) define the
+remaining incomplete-artifact admission, receipt/Restore and interaction work.
+Implemented controls need qualification rather than duplicate implementation.
+
 ## 6. M1 — A workspace that explains itself and protects work
 
 ### 6.1 Information architecture and layout

@@ -12,82 +12,37 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 ### Q01 — Current compiler and paired prover
 
-**Priority:** P0; prerequisite for accepting every subsequent source slice.
+**Priority:** P0; prerequisite for accepting subsequent source slices.
 
-**Current status:** the isolated compiler candidate based on dd0312ee fixes the
-same-name container/enum `Result` collision that blocked UiDialog. The latest
-complete Studio compile reaches the backend but emits no object: ledger global
-initialization and five generated result readers plus their wrappers still
-produce 11 declines. The candidate and exact source-only evidence are recorded
-in [controller diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
-Resolve those declines, rebuild the final compiler and matched prover, then
-qualify complete native link/package and runtime behavior. The restored dd
-source triggered the wrapper mtime freshness gate; do not bypass it to qualify
-the pinned proof pair. The older successful app/package captures below are
-comparison snapshots and do not qualify today's integrated source.
+Clean compiler `ac0f4423` includes fetched upstream `218c2c22` and preserves the
+module-ownership, aggregate result-reader and private ledger-constructor repairs.
+The complete Studio graph, native link and local package succeeded at the
+captured snapshot in [native build evidence](../acceptance/studio-native-build-2026-10-07.md).
+The former backend declines are resolved; do not schedule those repairs again.
+The shared UI changed after publication, so that package does not qualify the
+newer UI source. Older captures remain comparison evidence in the acceptance
+records, rather than active implementation tasks.
 
-### Earlier comparison snapshots
+Remaining work:
 
-Compiler `e34f2c0656aac1232ad72da6516c7eb89f866a47` has a fresh,
-clean Stage1 product after preserving project repairs and fetching upstream.
-It fixes the imported generic `view` collision that prevented Studio's nine
-optional narrowing expressions from compiling. The complete app unit now
-compiles. The full compile, native link, build seal/publication and app package
-also completed at the captured snapshot with `STUDIO_SKIP_CHECKS=1`. The
-full current check and runtime acceptance remain open. Retain the exact product and extra `scripts/platform.sh`
-recipe-input hashes from [the source compile record](../acceptance/current-law-source-compile-2026-10-07.md).
+- Agree and independently verify the stable UI content checkpoint; rebuild the
+  complete app/package against it. Preserve project repairs and current upstream.
+- Retain verified compiler/runtime source and linked-dependency provenance at
+  every new snapshot. The current runtime input/object stamp was independently
+  recomputed; source or recipe changes require another verification.
+- Build the current producer/replay pair against that exact compiler and runtime.
+  Qualify std paths against the selected trust root and refuse whole-unit bypasses.
+- Compile current complete Studio and CLI graphs and preserve terminal evidence.
+  Exercise borrow propagation, distinct owners and retained scratch capacity.
+- Finish the authorized diagnostic check without restarting on observation or
+  per-file timeouts. Its drifting inputs cannot qualify current source; retain
+  individual failures and obtain a fixed-snapshot current regression result.
+- Keep native interaction, motion quality and real user acceptance separately open.
 
-The earlier prover/replay generation `953dac2d5fbf41af97a7a10f4f410dea`
-was built against compiler `0fb79267` before subsequent prover commits. It is
-comparison evidence. The current strict O2 pair, generation
-`8a85f9729079469a980012854b4f63cd`, was built from proof HEAD
-`828886b67c3c70939e9185a80668649d45163262` against compiler
-`e34f2c0656aac1232ad72da6516c7eb89f866a47`. Pair integrity and
-source/compiler/runtime freshness pass. The proof record gives exact source,
-product and manifest hashes. Focused source correspondence remains partial,
-with the portable replay trust record still reporting
-`source_authenticated: false`; the full `scripts/check.sh` and runtime
-acceptance remain open.
-
-The native generation binding's arity mismatch was traced to the reserved
-Elisa identifier `error`, which the extern parameter scanner omitted from its
-arity count. Rename that source identifier without changing the positional C
-ABI. That rename is committed and the reduced binding has no remaining arity
-errors. The complete transaction adapter now compiles as an object with current
-Stage1 `e34f2c`, including both evidence decoders. Integrate and qualify its
-controller/native link closure; its adapter compilation does not establish UI
-integration or native interaction acceptance.
-Keep this separate from the resolved generic `view` collision.
-
-Dependency freshness is still open. The selected UI has uncommitted source
-changes that must be captured exactly before and after qualification. The
-mocap engine now includes fetched main `55541b7b` at merge `dff5579b`,
-with its provider additions preserved; a full Studio build against that merged
-source passed. The bounded generation provider and its Elisa façade now compile,
-and the native provider, creation scanner and bounded JSON scanner are registered
-in the Studio build and source fingerprint (`b668720`). Qualify their complete
-link/package closure and background controller integration. Compiler
-provenance still needs `platform.sh` added to its recipe fingerprint; its exact
-hash is already captured by the app input snapshot.
-
-- Qualify borrow-region propagation through compiler/std callers, including
-  explicit short-lived allocation refusal, distinct owners and retained scratch
-  capacity. Do not relax lifetime validation to bootstrap the compiler.
-- Qualify the proof snapshot's std paths against the validated runtime trust
-  root. Keep runtime privileges restricted to individual selected std sources;
-  verify whole-unit legacy bypasses refuse, including direct-product invocations.
-- Before each qualification, fetch dependency upstreams and preserve project
-  repairs. Rebuild changed compiler/runtime or proof sources as matched products;
-  never carry a previous pair's freshness result across a source change.
-- Retain immutable source/include manifests, native inputs, product hashes,
-  terminal logs and pair authentication. Reject changed or mixed inputs.
-- Compile the latest complete Studio and CLI graphs. Resolve frontend and
-  backend failures before calling an app build usable.
-
-**Finish evidence:** source-matched compiler provenance; authenticated current
-prover/replay pair; complete graph compilation/linking; current `scripts/check.sh`
-result with failures listed individually. Neither a seed nor a law object closes
-this item. Keep native interaction and motion quality separately open.
+**Finish evidence:** exact input manifests and product provenance, authenticated
+current prover/replay pair, current complete graph/link closure and successful
+fixed-snapshot regression evidence. A seed, object or package alone does not close
+this item.
 
 ### Q02 — Source authentication and critical laws
 
@@ -226,8 +181,9 @@ negative controls, meaningful history entries and session/export parity.
 - Qualify the implemented explicit build/package contents inventories against
   native cleanup validation. Evidence and schema are recorded in
   [the inventory acceptance record](../acceptance/build-generation-cleanup-policy-2026-10-07.md).
-  Reject unknown descendants, linked entries, changed file contents, writable
-  entries, replaced ancestors and mismatched artifact/build identities. Repeat
+  Reject unknown descendants, linked entries, changed file contents, group/other-
+  writable entries or modes inconsistent with the evidence, replaced ancestors
+  and mismatched artifact/build identities. Repeat
   enumeration on retained descriptors must start at the beginning and distinguish
   read errors from end of directory. Revalidate immediately before mutation.
 - Cover failed and partial generations with an independent durable creation
@@ -238,8 +194,8 @@ negative controls, meaningful history entries and session/export parity.
   separately from freed disk space; retain external inventory and transaction
   records until their recovery dependencies are resolved. Provide restore from
   the journal identity even after the original generation name is reused.
-- Integrate the implemented native generation move/Restore/reconciliation
-  adapter with the Elisa controller and review UI. Raw status/phase/location
+- Qualify the connected native generation move/Restore/reconciliation
+  adapter, Elisa controller and review UI. Raw status/phase/location
   decoders must reject unsupported values; native integer flags accept only
   exact 0/1. Never publish a recoverable success from a parsed receipt alone:
   verify identity, location, locks and durable journal/parent synchronization.
@@ -266,27 +222,26 @@ negative controls, meaningful history entries and session/export parity.
   A verified Published4 resolves its matching publication intent, while an
   unmatched intent stays protected. Failed/partial generations still need
   cleanup admission based on their creation evidence, without a fabricated
-  product identity.
+  product identity. Execute G02–G06 in the [targeted cleanup slices](generated-build-cleanup.md);
+  producer verification, retained-lock admission and variant-aware receipts must
+  land together before incomplete rows become movable.
   The owning scan worker and controller are now implemented (`ddf349a`,
   `0ae9584`): refresh queues a scan, frame polling drains it without waiting,
   and publication checks ticket, cancellation, workspace path and captured
   retention. Progress/refusal/overflow text is connected to Storage's status
-  bar. Full-app compilation currently refuses the concrete join result reader
-  (`ctx_concurrency_result_read__Result`, index expression); resolve that
-  compiler integration failure before claiming this UI usable. Task-start
-  compilation alone did not exercise the consuming path. The read-only
-  generation inspection screen is implemented (`c63de6c`) with 16 rows per page,
-  protection explanations, pointer selection, keyboard inspection and
-  Previous/Next/Refresh/Back controls. Its paging laws compile. The full graph
-  still refuses the result reader; the screen has no runtime acceptance yet.
+  bar. The concrete consuming graph now compiles and links at the captured
+  snapshot. Qualify its native publication and failure paths. The generation
+  inspection screen has 16 rows per page, protection explanations, pointer/
+  keyboard selection and paging/refresh/back controls; runtime acceptance remains
+  open despite successful source and paging-law compilation.
   Native accessibility and explicit source-bound move confirmation are wired
   (`863be07`, `692360c`, `5e1b130`, `5cda1dd`). The controller rechecks the
   scan, selection, retention and workspace at confirmation and retains the owning
-  reply even after cancellation. These remain source implementation evidence:
-  later Restore integration captures still refuse backend emission (task-result
-  readers and ledger initialization); no full-app runtime acceptance exists.
-  Qualify result/recovery presentation and connected Restore flow; complete
-  long-path inspection. See the
+  reply even after cancellation. Complete native compile/link/package evidence
+  now exists for the captured snapshot; later UI drift requires rebuilding before
+  current runtime acceptance.
+  Qualify result/recovery presentation and connected Restore flow, including
+  implemented Unicode path inspection and eight-target focus traversal. See the
   [integration diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
 - Qualify the connected owning Restore job and recovery browser (`51c3cbc`,
   `1157dab`, `d1e4d35`). Cancellation or a
@@ -294,7 +249,7 @@ negative controls, meaningful history entries and session/export parity.
   unclosed native handle. Restore success requires committed restore, confirmed
   lock release and exact durable reconciliation; compilation of the worker and
   task instantiation does not qualify its runtime behavior.
-- Complete the progress/result UI for the connected owning reviewed move job
+- Qualify progress/result UI for the connected owning reviewed move job
   (`8492253`, `aa19a87`, `5cda1dd`). It captures inline native buffers,
   independently admits age against the captured retention, matches reviewed
   controls under retained locks, requires durable v2 intent evidence, closes
@@ -304,15 +259,16 @@ negative controls, meaningful history entries and session/export parity.
   operation identity and recovery evidence before it is discarded, as well as
   draining any remaining native handle. An uncertain move can become recoverable
   only after exact durable quarantine reconciliation and confirmed lock release.
-  The current retained reply blocks subsequent moves. Outcome-specific copy and
+  An unresolved retained reply blocks subsequent moves until exact recovery
+  acknowledgment. Outcome-specific copy and
   bounded in-memory identity retention are implemented (`5882dbe`, `021a276`,
   `80eb81c`, `5e2af2e`, `d644106`, `13f1245`). Recording uses owned root and
   operation bytes, detects exact duplicates and refuses capacity overflow;
   completion retains its reply if recording fails. Ledger browsing, earlier
   operation selection and background reconciliation are now connected.
   Qualify exact root/operation binding, stale replies, cancellation, capacity
-  overflow and repeated moves. Complete safe resolution of retained uncertain
-  replies. Exact Move/Restore Resolve Review source is connected to current
+  overflow and repeated moves. Qualify implemented exact resolution of retained
+  replies; uncertain release continues to refuse acknowledgment. Exact Move/Restore Resolve Review source is connected to current
   reconciliation and retained ledger identity; qualify it before accepting
   repeated cleanup. Restore captures artifact/path before dispatch (`d274c70`)
   and requires a new review/confirmation after acknowledgment. Explicit
@@ -323,8 +279,8 @@ negative controls, meaningful history entries and session/export parity.
   permitting another mutation. Generation job starts now serialize
   inventory, discovery, reconciliation, move and Restore (`330e1c8`); qualify
   deferred requests and responsiveness under every overlapping user action.
-  Qualify constructor/private-field handling in the compiler without exposing
-  ledger internals. Restart receipt discovery is implemented as candidate
+  Keep ledger internals private; current compiler constructor/result repairs
+  preserve that API and require current regression qualification. Restart receipt discovery is implemented as candidate
   enumeration with explicit unresolved pending metadata; qualify its native
   crash/lock/descriptor matrix and UI loading before closing restart recovery.
   See [discovery evidence and open acceptance](../acceptance/generation-recovery-discovery-2026-10-07.md).

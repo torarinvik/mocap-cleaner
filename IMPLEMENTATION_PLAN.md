@@ -38,6 +38,7 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 - [Recent law source compilation; proof qualification pending](docs/acceptance/current-law-source-compile-2026-10-07.md)
 - [Product goals, user journeys and baseline](docs/plan/product-and-m0.md)
 - [M1: workspace, storage and recovery](docs/plan/m1-workspace.md)
+- [Generated-build cleanup delivery slices](docs/plan/generated-build-cleanup.md)
 - [M2–M3: diagnosis, guided cleanup and comparison](docs/plan/m2-m3-diagnosis-review.md)
 - [M4: contact cleanup and precise repair](docs/plan/m4-contact-repair.md)
 - [M5: responsiveness and reliability](docs/plan/m5-responsiveness.md)

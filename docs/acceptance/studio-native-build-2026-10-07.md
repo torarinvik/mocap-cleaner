@@ -32,6 +32,12 @@ Platform: arm64 macOS 27.0.1, Apple M5, 24 GiB memory, Xcode SDK 27.0.
 | Mocap engine | clean `e1e9d1d4e637126ed873001e2ae0f7239821de6d`, branch `mocap-track`; fetched main `55541b7b` is included |
 | UI | `f33e439b3dc25eb28bb62b282128c0b0c9d6838a`, with preserved shared-agent changes; fetched main `dc6cd397` is included |
 
+The runtime audit independently recomputed the stored input digest
+`34a30d9c206fd1759e6458432c57db8b885a9900eaf5e63af0b0f13c14f1fd89`.
+Its stamp binds the current source tree, Stage1 product, runtime build/hooks
+recipe, O2 host settings and `/usr/bin/clang` partial linker to object `51365ba4`.
+A different installed runtime hash is not by itself evidence of staleness.
+
 Dirty revision flags alone do not identify source. The sealed input record lists
 individual source/native/header/tool hashes and the build-environment digest.
 
