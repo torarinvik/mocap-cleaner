@@ -160,4 +160,12 @@ for f in "$@"; do
     echo "proof $f: $line$tag"
 done
 python3 scripts/check_proof_baseline.py "$@" || status=1
+# Long checks may overlap shared-checkout edits. Do not qualify executables
+# and proof results against a different final source/toolchain generation.
+current_test_build_key=$(python3 scripts/test_build_key.py "$ELISAC") || exit 2
+if [ "$current_test_build_key" != "$test_build_key" ]; then
+    echo "check: source, compiler, native tool or build environment changed during qualification; rerun from a fixed snapshot" >&2
+    exit 2
+fi
+python3 scripts/check_prover_freshness.py "$PROVER" "${ELISA_PROOF_ROOT:-../elisa-proof-mocap}" "${ELISA_STAGE1:-../Elisa-compiler}" || exit 2
 exit $status
