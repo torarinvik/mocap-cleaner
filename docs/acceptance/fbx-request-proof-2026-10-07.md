@@ -44,6 +44,15 @@ the input was overwritten after compilation. Exact source recovery or a frozen
 rerun is required before relying on a retained source/product control closure.
 Do not substitute the newer source hash for the compiled input.
 
+The overwritten run is superseded by a reconstructed, rerun harness retained
+under `build/q02-summary-site-controls/matcher-controls-4b26ba89/`.
+Root verified its source, executable and both log hashes against
+`run-record.json` (SHA-256
+`643aad876f83d321fda3fb753dc321c35223b092306b0190fd3062e2d1ef6d60`).
+All added controls reach the same later return 43. This restores the retained
+harness evidence; it remains a historical d5 comparison, not current proof
+source authentication or a complete immutable prover dependency closure.
+
 Fetched prover main is now `ec4ceacdba15480e91bb98c5ff4861d3a75d548a`,
 83 commits ahead of merge base `af85ea4f`. Its newer source-call and rebinding
 logic requires comparison before carrying the historical matcher forward.
