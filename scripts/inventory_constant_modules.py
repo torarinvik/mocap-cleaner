@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List Elisa module scopes with multiple ungrouped constant declarations.
+"""List Elisa file and module scopes with multiple ungrouped constants.
 
 This is a lexical review inventory, not a substitute for semantic API review.
 Enum variants, const modules and function-local constants are excluded.
@@ -41,9 +41,8 @@ def candidates(content):
         if any(scope[1] == "enum" or scope[3] for scope in scopes):
             continue
         modules = [scope for scope in scopes if scope[1] == "module"]
-        if not modules:
-            continue
-        owner = ("::".join(scope[2] for scope in modules), modules[-1][4])
+        owner = (("::".join(scope[2] for scope in modules), modules[-1][4])
+                 if modules else ("<file>", 0))
         constants[owner].append((number, constant.group(1)))
     return list(constants.items())
 
@@ -68,7 +67,8 @@ def main():
         if not path.is_file():
             continue
         for (owner, line), values in candidates(path.read_text(encoding="utf-8")):
-            owners[owner].extend((name, number, symbol) for number, symbol in values)
+            scope_key = f"{name}:<file>" if owner == "<file>" else owner
+            owners[scope_key].extend((name, number, symbol) for number, symbol in values)
     count = 0
     for owner, values in sorted(owners.items()):
         if len(values) < 2:
@@ -77,7 +77,7 @@ def main():
                                  for name, number, symbol in values)
         print(f"{owner}: {declarations}")
         count += 1
-    print(f"constant inventory: {count} module scopes require review")
+    print(f"constant inventory: {count} file/module scopes require review")
     return 1 if args.check and count else 0
 
 
