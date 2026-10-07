@@ -160,6 +160,12 @@ current detector before presenting an ignored finding as still applicable.
       during keyboard navigation and restore focus after dismissal. Exercise
       chooser cancellation, repeated activation and replacement-save failure.
 - [ ] Qualify transactional path publication in take/session/Locate flows.
+      Workspace derived-leaf construction now validates leaf syntax and complete
+      root/build/leaf/terminator capacity before writing the caller's buffer.
+      Five boundary laws accompany the admission policy; current compilation,
+      authenticated replay and native buffer-preservation evidence remain open.
+      Include empty/dot/dot-dot leaves, separators, 254/255-byte leaves and exact
+      final-terminator capacity in the workspace-path qualification.
       `copy_path`, `stage_pending_path` and `set_session_path` now scan for an
       admitted terminator before writing retained buffers. Five integer laws
       cover capacity admission; copied helper bodies compile in a reduced

@@ -2,6 +2,7 @@
 # loaded from per-user host preferences, never inferred from process cwd.
 include "app_state.elisa"
 include "../workspace_root_adapter.elisa"
+include "../workspace_derived_path_policy.elisa"
 
 extend Studio:
     private:
@@ -42,7 +43,16 @@ extend Studio:
 
         def append_leaf(destination: mutable u8[4096]&, source_root: u8[4096]&,
                         prefix_bytes: usize, leaf: cstr) -> bool can Unsafe.PointerCast:
-            return false if prefix_bytes == 0 or prefix_bytes >= WorkspaceLimit::PATH_CAPACITY - 2
+            return false if prefix_bytes == 0 or prefix_bytes >= WorkspaceLimit::PATH_CAPACITY
+            mutable leaf_length: usize = 0
+            while leaf_length < WorkspaceLimit::MAX_LEAF_BYTES and leaf[leaf_length] != 0:
+                return false if leaf[leaf_length] == 47 or leaf[leaf_length] == 92
+                leaf_length <- leaf_length + 1
+            leaf_valid: bool = leaf_length < WorkspaceLimit::MAX_LEAF_BYTES and
+                not (leaf_length == 1 and leaf[0] == 46) and
+                not (leaf_length == 2 and leaf[0] == 46 and leaf[1] == 46)
+            return false if not StudioWorkspaceDerivedPathPolicy::admitted(
+                prefix_bytes, leaf_length, source_root[prefix_bytes - 1] == 47, leaf_valid)
             mutable index: usize = 0
             while index < prefix_bytes:
                 destination[index] <- source_root[index]
@@ -51,18 +61,13 @@ extend Studio:
                 destination[index] <- 47
                 index <- index + 1
             for byte in [98, 117, 105, 108, 100, 47]:
-                return false if index >= WorkspaceLimit::PATH_CAPACITY - 1
                 destination[index] <- byte.u8()
                 index <- index + 1
             mutable leaf_index: usize = 0
-            return false if leaf[0] == 0 or leaf[0] == 47
-            while leaf_index < WorkspaceLimit::MAX_LEAF_BYTES and leaf[leaf_index] != 0:
-                return false if leaf[leaf_index] == 47 or leaf[leaf_index] == 92
-                return false if index >= WorkspaceLimit::PATH_CAPACITY - 1
+            while leaf_index < leaf_length:
                 destination[index] <- leaf[leaf_index]
                 index <- index + 1
                 leaf_index <- leaf_index + 1
-            return false if leaf_index == WorkspaceLimit::MAX_LEAF_BYTES or (leaf_index == 1 and leaf[0] == 46) or (leaf_index == 2 and leaf[0] == 46 and leaf[1] == 46)
             destination[index] <- 0
             true
 
