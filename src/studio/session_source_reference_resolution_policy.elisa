@@ -1,0 +1,83 @@
+# Admission for reopening a saved take source reference. This decision uses
+# facts observed by native IO and the decoded saved tag-6 binding; declaration
+# fields alone never establish that a source or runtime file is unchanged.
+module StudioSessionSourceReferenceResolutionPolicy:
+    public:
+        const enum Format of i64:
+            LegacyGlb = 0
+            DirectGlb = 1
+            FbxDerived = 2
+
+        const enum Match of i64:
+            Verified = 0
+            Changed = 1
+            Unknown = 2
+            NotApplicable = 3
+
+        const enum Cache of i64:
+            Verified = 0
+            Unavailable = 1
+            Unknown = 2
+            NotApplicable = 3
+
+        const enum ProcessingIdentity of i64:
+            # Exact importer build AND normalized options identity.
+            Current = 0
+            Changed = 1
+            Unknown = 2
+            NotApplicable = 3
+
+        const enum Workspace of i64:
+            Ready = 0
+            Unavailable = 1
+
+        const enum DigestRecord of i64:
+            Valid = 0
+            Invalid = 1
+            NotApplicable = 2
+
+        const enum Resolution of i64:
+            Protected = 0
+            RestoreLegacyGlb = 1
+            LoadDirectGlb = 2
+            ReuseFbxCache = 3
+            RegenerateFbx = 4
+
+        def decide(format: Format, source_match: Match, tag6_match: Match,
+                    animation_match: Match, importer: ProcessingIdentity,
+                    digest_record: DigestRecord, cache: Cache,
+                    workspace: Workspace) -> Resolution:
+            # Regeneration plans source processing only; tag-6 and animation
+            # admission happens after conversion has recreated a runtime memo.
+            ensure result != Resolution.RestoreLegacyGlb and result != Resolution.LoadDirectGlb and result != Resolution.ReuseFbxCache or tag6_match == Match.Verified
+            ensure result != Resolution.RestoreLegacyGlb and result != Resolution.LoadDirectGlb and result != Resolution.ReuseFbxCache or animation_match == Match.Verified
+            ensure result != Resolution.LoadDirectGlb and result != Resolution.ReuseFbxCache and result != Resolution.RegenerateFbx or source_match == Match.Verified
+            ensure result != Resolution.ReuseFbxCache and result != Resolution.RegenerateFbx or importer == ProcessingIdentity.Current
+            ensure result != Resolution.ReuseFbxCache and result != Resolution.RegenerateFbx or digest_record == DigestRecord.Valid
+            ensure result != Resolution.ReuseFbxCache or cache == Cache.Verified
+            ensure result != Resolution.RegenerateFbx or (cache == Cache.Unavailable and workspace == Workspace.Ready)
+            if format == Format.LegacyGlb:
+                return Resolution.Protected if tag6_match != Match.Verified or animation_match != Match.Verified
+                return Resolution.Protected if source_match != Match.NotApplicable or importer != ProcessingIdentity.NotApplicable or digest_record != DigestRecord.NotApplicable or cache != Cache.NotApplicable
+                return Resolution.RestoreLegacyGlb
+            if format == Format.DirectGlb:
+                return Resolution.Protected if tag6_match != Match.Verified or animation_match != Match.Verified
+                return Resolution.Protected if source_match != Match.Verified or importer != ProcessingIdentity.NotApplicable or digest_record != DigestRecord.Valid or cache != Cache.Verified
+                return Resolution.LoadDirectGlb
+            if format == Format.FbxDerived:
+                return Resolution.Protected if source_match != Match.Verified or importer != ProcessingIdentity.Current or digest_record != DigestRecord.Valid
+                return Resolution.Protected if cache == Cache.Verified and (tag6_match != Match.Verified or animation_match != Match.Verified)
+                return Resolution.ReuseFbxCache if cache == Cache.Verified
+                return Resolution.RegenerateFbx if cache == Cache.Unavailable and workspace == Workspace.Ready
+            Resolution.Protected
+
+        # Reimport is admitted only after the saved importer/options still
+        # match and both the source and regenerated output match their saved
+        # SHA-256 identities. This does not grant permission to migrate edits.
+        def regeneration_verified(resolution: Resolution, source_match: Match,
+                                  importer: ProcessingIdentity, runtime_match: Match,
+                                  tag6_match: Match, animation_match: Match) -> bool:
+            ensure result implies resolution == Resolution.RegenerateFbx
+            ensure result implies source_match == Match.Verified and importer == ProcessingIdentity.Current
+            ensure result implies runtime_match == Match.Verified and tag6_match == Match.Verified and animation_match == Match.Verified
+            resolution == Resolution.RegenerateFbx and source_match == Match.Verified and importer == ProcessingIdentity.Current and runtime_match == Match.Verified and tag6_match == Match.Verified and animation_match == Match.Verified
