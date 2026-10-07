@@ -198,3 +198,59 @@ and `...-creation-journal/`.
 
 The authorized full `scripts/check.sh` run is pending. The proof-authentication
 work remains incomplete even if that repository-wide regression check passes.
+
+## Owner-aware lookup qualification (2026-10-07)
+
+A fresh matched producer/replay generation was built in the isolated proof
+worktree after adding lexical source type lookup and aligning the proof recipe
+with Stage1's `scripts/platform.sh` input. Generation
+`9a1ba34caa3b4040a967433478e8d91b` passed pair integrity and current-source
+checks. Both product manifests pin proof HEAD
+`67d6ac746b472c0a58fe180f439e579f91c3199e`, proof source tree SHA-256
+`5d39f4dfa4cacad4dd4ebe47bf0f39957a40120c414c3e1099e40011e0c357dc`, compiler
+revision `dd0312ee4ae2aef7506d3155d2c17cf0a0771cdf`, compiler product SHA-256
+`4bc25a80830bafd04066607a00a1623b3d6e446b7cb02cd449ad4938ccb164a7`, compiler
+source tree SHA-256
+`c4daec9675a5a4a00bb1e9a331b6c6b8dc901a8ff3ac77cb6295730d7abc3bfb`, recipe
+SHA-256 `105bd840e8e6ce839d87eb77f5155a4600e33b44d102db614d9402e15d433073`, and
+runtime SHA-256
+`51365ba4a06e13e0af344b5a21790795e15f1b7fbba23c0b5b94b5a52b00ccee`. Producer
+SHA-256 is
+`7b0880590418ec208d4ce2bcdb30fbb8376dadf4af553aadd1f295c4c7d1c975` and replay
+SHA-256 is
+`b5833031e3cd4f3c70b6feb5cf7a5319c644bfe1fd824deb9af85b4d9df30079`.
+
+For the generation policy, the law graph remains 89 obligations (33 proven,
+56 unproven; zero semantic errors). The package replays 33/33 theorems. Source
+correspondence checks two zero-obligation helpers, leaves `eligible` unmatched
+on 13 return ensures, and reports 19 unsupported functions. Coverage is
+partial and `source_authenticated` is false. The package and replay therefore
+do not authenticate the full source.
+
+The creation-journal laws graph in this pair reports 186 obligations (56
+proven, 130 unproven). Package construction rejects the source as
+`source-inadmissible`; correspondence checks no functions and authentication is
+false. The report files are retained under
+`elisa-proof-mocap-owner-aware/build/focused-qualification-pair-9a1ba34c-generation-policy/`.
+
+Three exact contract-proposition formation failures remain in this capture:
+
+- `StudioBuildGenerationPolicy::may_cleanup`, source line 94, calls
+  `eligible(item)` in an ensure, and line 98 calls it in a body guard.
+- `StudioBuildGenerationCreationPolicy::may_prepare_move`, source line 78, calls
+  `eligible(facts)` in an ensure.
+
+All three fail as `contract-proposition-type` with the typed kernel's
+`term-sort-or-operator-rejected` fallback. The declaration projection stores
+function signatures by bare name, while these modules both declare an
+`eligible` and the source-neutral call representation supplies only the leaf
+name to function lookup. The next repair must carry exact lexical owner
+resolution through function signatures and call formation. It must retain
+qualified exact-path matching, reject ambiguous same-scope matches, and keep
+unsupported or indirect calls refused. Adding an uninterpreted helper result
+or a summary axiom would not authenticate these source contracts.
+
+The proof-side source lookup repair and recipe pin are committed as
+`ac9df91b` and `67d6ac74` in the isolated proof worktree. The producer/replay
+capture does not qualify the full application or authenticate source
+correspondence.
