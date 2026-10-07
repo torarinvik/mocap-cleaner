@@ -14,136 +14,56 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-Compiler merge `48dc78e2` includes fetched performance changes through
-`63585c5f` and preserves project-specific repairs. Its reseed completed, and the
-complete Studio graph and native link succeeded. The rebuilt retained package
-has a visibly discoverable Workspace / File control. Publication into the usual
-bundle location was refused while the old running app held its lease; preserve
-that instance and reconcile publication after release. See
-[current build evidence](../acceptance/studio-workspace-build-2026-10-07.md).
-This does not qualify the entire roadmap or UI interaction journey.
+The current compiler repair is not qualified for promotion. Latest source
+`24271bee` includes the narrowed resolved-call carrier inference and explicit
+borrowed-view signatures. Its seed refuses 61 multi-input region mismatches;
+there is no fresh qualifying binary for this source. Earlier product/build
+observations remain comparison evidence in the linked records.
 
 Remaining work:
 
-- Compiler repair `4635427d` is held from promotion: its name-only generic
-  test creates arena carriers even for scalar specialized results. Candidate
-  `f9e23008` implements resolved-callee, substituted-result region demand and
-  retains fail-closed unmodeled result handling. Qualify this implementation
-  before pushing `codex/void-poll-region`: run a
-  join/void-caller lifetime regression (prefer sanitizer coverage), compare
-  carrier-function counts and benchmark Stage1 against current main with no
-  slowdown. Rebase on `665f40d7` or newer, preserve borrow/reference/loop fixes,
-  and run stage0 seed, `self_host_gen3_smoke`, `backend_native_smoke` and the
-  fast gate. Failure lists must match main. Push only after these gates; the
-  external merge train owns landing after its 60-minute quiet period. A seed
-  of the broad repair remains diagnostic evidence only.
-  Inspect isolated callers for scalar specialization, a scalar result borrowing
-  region-backed input, and a same-named function in another module; unrelated
-  allocations must not mask their carrier counts. Cover inferred, qualified and
-  explicit generic calls returning owned storage. The running lifetime fixture
-  must exercise optional task binding, void publication and growth of both the
-  outer container and nested buffers after publication. Retain commands, hashes,
-  sanitizer output and terminal exits rather than deleting the fixture artifacts.
-  The first rebase onto `665f40d7` dropped project merge-resolution changes:
-  the backup-to-rebased tree diff spans 69 files, including the worker arena,
-  result adoption, callback ABI handling and provenance guards. Preservation
-  commit `3f578e5a` restores them: root independently verified its tree hash
-  equals the backup's `5d5c40f2b75e8d21c39ea57b6e9efeba7e51b082`.
-  Candidate `f9e23008` differs only by a trailing blank-line removal and retains
-  current-main ancestry. A clean worktree or ancestor check alone cannot
-  establish preservation; the retained original branch under
-  `backup/void-poll-before-main-rebase` supplies the comparison source.
-  The first candidate seed failed on concrete Stage0 binding/ref diagnostics.
-  Commit `331982f7` repairs those source errors; the next seed succeeded with
-  product SHA-256 `f0af9891268cc6b66a8a5eb373c8d71fb114056fd1a4ef6a9c694b25370a0e27`
-  and runtime SHA-256 `2c7a16bb5f87dbff7e2413e8886a31e832115f897b4a4b30df2aa56a59ace93d`.
-  Root independently verified these hashes and the clean worktree. Source
-  provenance and freshness checks pass; lifetime, performance and regression
-  qualification remain open. Correctness builds may overlap corpus checks
-  with measured memory headroom; performance measurements require a quiet,
-  matched comparison window.
-  Follow-up candidate `cd6c98b9` resolves qualified explicit generic result
-  types and keeps touched files below 600 lines. Its exact seed and automated
-  lifetime smoke pass: O0/O2 and LLVM-instrumented ASan return 42; leak
-  detection is disabled, so this is not a leak qualification. Root checked
-  the retained automated log and ASan executable hash `c23ca347` under
-  `build/void-poll-result-region-20261007T184001Z-23185` in the compiler checkout.
-  Isolated scalar controls have zero carriers; two owned-result controls have
-  one each. Full before/after counts, performance and required gates remain open.
-  Candidate `d355c139` fixes qualified concrete call demand; its exact seed
-  and focused O0/O2/ASan smoke pass, and root's independent scalar-caller
-  reducer emits successfully. The current proof build now refuses two JSON
-  calls, down from nine. Their explicit `Arena&` allocator ABI suppresses the
-  hidden result slot that the call guard currently requires. Validate the
-  exact resolved allocator type and emitted owner argument, reject shadow
-  types and ambiguous ABI mappings, and retain unmanaged-result refusals.
-  Candidate `2ef1fa26` now validates a single reference to the builtin Arena
-  identity, including its canonical `Ref(TypeKind.Arena)` form. It rejects
-  by-value/shadow allocators and ambiguous argument mappings. Its exact seed,
-  focused lifetime O0/O2/ASan, scalar/shadow carrier controls and JSON safe API
-  smoke pass. Product SHA-256 is
-  `a2ffcf2e6cf588d36bab15e6c13315f94258e8742d8db050a041413a81eec7b7`.
-  Root inspected the retained automated log under `build/void-poll-2ef1fa26/`
-  and independently verified the product hash. The current proof pair builds against this tuple and its narrow cast
-  controls pass. The native gate finishes 565/566: `stripped_contract_ensure_void`
-  links a supported parameter-only void ensure that the baseline test expects
-  to decline; main passes 566/566 under that expectation. Root inspected
-  `emit_void_ensure_checks`, preserved by `3f578e5a`: it emits each predicate
-  through the ordinary contract guard and refuses failed expression lowering.
-  Retain the original mismatch, validate a failing predicate at runtime and
-  report this preserved behavior delta separately from unchanged-main parity.
-  Updating a test expectation alone does not establish the requested parity.
-  The revised success/failure native gate passes 567/567 with terminal exit 0;
-  strengthened assertions confirm the parameter comparison and exact panic
-  diagnostic. This Stage0-built backend harness does not establish direct
-  Stage1 CLI enforcement or unchanged-main failure-list parity. Self-host,
-  fast-list comparison, full carrier counts and runtime benchmark remain open.
-  Candidate self-host Stage A fails: compiler helper results borrowed from
-  table/scope parameters omit their return-region ties. An independent compile
-  of the frozen common main source graph likewise refuses with 67 lifetime
-  diagnostics; main emits successfully. Preserve lifetime enforcement and audit
-  helper ownership before adding region-polymorphic signatures; blanket ties
-  or weakened checking are not fixes. The three common small LLVM controls
-  are byte-identical, with local carrier counts 0/0/4 in both products. They
-  establish no full-graph ratio or performance result. Root independently
-  compared their bytes and refusal log hash under baseline build directory
-  `carrier-counts-2ef1fa26/`. Full client compatibility and promotion remain open.
-
-- Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
-  and runtime `a8de91a1`; source provenance passes. The focused FBX worker
-  runs successfully after the submitting frame ends and after a helper returns
-  its joined Result, including growth of returned arrays and Memo nodes.
-  The actual void polling/global-publication case still loses returned bytes
-  and crashes cleanup: it needs the caller's result allocation owner, rather
-  than assuming a function return-region slot. Preserve this failing case and
-  fix the compiler ownership path before accepting app publication. These
-  partial probes do not close Q01 or the visible FBX journey.
-
-- The fetched comparison baseline is now `665f40d7`, including borrow-exclusivity,
-  reference-field reads and loop-value slot binding. Its clean Stage0 seed
-  produced compiler SHA-256 `16a373d5f9ba605016d84fa8216c4e9e05aa73986d05bd73b1bf839dc59a09e3`
-  and runtime SHA-256 `ca40ba1db8a74110936ad5cdaf808707020c5c74ebb6e491bda2198696d13b8a`.
-  The frozen fast profile selected 32 checks and all 32 now have terminal
-  records (24 pass, 8 fail). Its registered command list matches the profile's
-  source patterns; the earlier 37-check count was incorrect and is superseded.
-  `emit_annotated_list_parity_smoke` passes 354 cases, while
-  `emit_ast_parity_smoke` reports 28 differing cases. The resumed baseline also
-  reports header parity failure (58 divergent cases; the final refusal is
-  `zeroed_relative_nested_module_reference_alias`) and interface parity failure
-  (63 of 336 cases). These failures are
-  terminal baseline results, not interruptions or candidate results. Remaining
-  failed scripts are interpret, packed, test-runner, unsafe and slice-real,
-  alongside AST, header and interface. Slice-real fails generated Stage0 inputs
-  on missing arena-cache lock intrinsics, rather than a measured Stage1 parity
-  difference. The exact failure lists must still match the candidate. Retain
-  terminal results and
-  exact failure lists before comparing the repair. Neither a baseline seed nor
-  an installed upstream compiler qualifies project repairs or the Studio graph.
-  Baseline `backend_native_smoke` reports 566/566 passing checks;
-  `self_host_gen3_smoke` passes stages A–D, including gen3/gen4 object equality
-  and identical output over 40 runs. Freshness checks pass afterward. Retained
-  results, commands and logs are under the baseline compiler checkout's
-  `build/baseline-665f40d7/`; candidate equivalents and timing remain open.
+- Replace multi-source owner selectors with a source-qualified result descriptor
+  or a supported lifetime-preserving representation. Preserve distinct FnTable,
+  StructTable, GenericTable and AST owners. Do not unify unrelated input regions,
+  erase lifetime tracking, or introduce copy allocations without measuring their
+  cost. Distinguish a valid top-level empty owner from absence explicitly.
+- Rebuild from a clean source snapshot using an explicitly selected source-matched
+  Stage0. The available clean Stage0 is source `6f0988a2`, binary `7b190f5a`;
+  it differs from earlier retained binary `e4adbb5e`. Record its actual toolchain
+  and hash rather than reusing the prior artifact identity.
+- Preserve the resolved-callee/substituted-result carrier rule and fail-closed
+  unmanaged-result checks. Cover inferred, qualified and explicit generic calls,
+  concrete calls, scalar/borrowed results, shadow allocators, ambiguous mappings
+  and explicit builtin Arena references. Reject by-value/shadow allocator owners.
+- Rerun the nested owned-result regression through optional polling, void global
+  publication and one-shot join/adoption. Grow both outer and nested buffers
+  after all producing frames end. Retain O0/O2 and LLVM-instrumented ASan evidence;
+  disabled leak detection cannot qualify leaks. The production path remains
+  nonblocking. See [lifetime evidence](../proof-gaps/fbx-join-buffer-lifetime.md).
+- Compare the required seed, self-host, native and registered 32-script fast gates
+  against fetched main `665f40d7` or newer. Match exact failing fixture lists,
+  preserving original expectations. The baseline has 24 passing/8 failing fast
+  scripts, native 566/566 and self-host A–D passing. Logs are retained under
+  `/tmp/elisa-compiler-baseline-665f40d7/build/baseline-665f40d7/`.
+- Keep the preserved void-ensure behavior delta explicit: the old candidate native
+  expectation yields 565/566; revised success/failure checks yield 567/567 and
+  verify the exact guard/panic. This Stage0-built backend harness is not direct
+  Stage1 CLI or unchanged-main parity. See
+  [void contract evidence](../proof-gaps/void-return-postconditions.md).
+- Measure per-function local carrier changes separately from hidden Arena ABI
+  slots on a common frozen graph. Three small controls are byte-identical with
+  local counts 0/0/4; candidate `2ef1fa26` refused the full common compiler graph
+  with 67 lifetime diagnostics. Those controls establish neither a full-graph
+  count nor a speed result. Requalify after the helper repair.
+- Benchmark Stage1 runtime against current main on the same substantive inputs
+  in a quiet measurement window. Require equivalent successful outputs and no
+  slowdown; a refused workload supplies no timing ratio. Preserve raw commands,
+  samples, resource measurements and product/input hashes.
+- Push `codex/void-poll-region` only after all promotion requirements are met.
+  The external merge train owns landing after 60 minutes quiet. Preserve project
+  repairs and fetched borrow/reference/loop fixes; an ancestry check alone is
+  insufficient. Backup-to-restoration tree equality is recorded in Git and the
+  retained compiler evidence, rather than remaining an implementation task.
 - Preserve the verified UI checkpoint and source closure when rebuilding after
   pending skin/session changes. Recheck fetched upstream and project repairs.
 - Retain verified compiler/runtime source and linked-dependency provenance at
