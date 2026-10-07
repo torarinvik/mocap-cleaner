@@ -1,4 +1,5 @@
 # Classify the native converter refusal without confusing staging/load -1.
+include "fbx_import_worker_status.elisa"
 module StudioFbxImportFailurePolicy:
     public:
         const enum Kind of i64:
@@ -7,21 +8,37 @@ module StudioFbxImportFailurePolicy:
             CacheWrite = 2
             NonFinite = 3
             UnsupportedSkin = 4
+            InvalidRequest = 5
+            UnreadableAnimation = 6
+            SourceChanged = 7
+            DigestUnavailable = 8
 
         def classify(status: i64) -> Kind:
             ensure status == -3 implies result == Kind.Memory
             ensure status == -4 implies result == Kind.CacheWrite
             ensure status == -5 implies result == Kind.NonFinite
             ensure status == -6 implies result == Kind.UnsupportedSkin
-            ensure status != -3 and status != -4 and status != -5 and status != -6 implies result == Kind.General
+            ensure status == StudioFbxImportWorker::Status.InvalidJob.i64() implies result == Kind.InvalidRequest
+            ensure status == StudioFbxImportWorker::Status.UnreadableAnimation.i64() implies result == Kind.UnreadableAnimation
+            ensure status == StudioFbxImportWorker::Status.SourceChanged.i64() implies result == Kind.SourceChanged
+            ensure status == StudioFbxImportWorker::Status.DigestUnavailable.i64() implies result == Kind.DigestUnavailable
+            ensure status != -3 and status != -4 and status != -5 and status != -6 and status != -100 and status != -101 and status != -102 and status != -103 implies result == Kind.General
             return Kind.Memory if status == -3
             return Kind.CacheWrite if status == -4
             return Kind.NonFinite if status == -5
             return Kind.UnsupportedSkin if status == -6
+            return Kind.InvalidRequest if status == StudioFbxImportWorker::Status.InvalidJob.i64()
+            return Kind.UnreadableAnimation if status == StudioFbxImportWorker::Status.UnreadableAnimation.i64()
+            return Kind.SourceChanged if status == StudioFbxImportWorker::Status.SourceChanged.i64()
+            return Kind.DigestUnavailable if status == StudioFbxImportWorker::Status.DigestUnavailable.i64()
             Kind.General
 
         def message(status: i64) -> sview:
             kind: Kind = classify(status)
+            return "The FBX import request could not be validated. Reopen the file and retry. The current take is unchanged." if kind == Kind.InvalidRequest
+            return "The converted FBX contains no usable animation. Choose another take or export an animated GLB, then retry. The current take is unchanged." if kind == Kind.UnreadableAnimation
+            return "The FBX changed during import. Wait for other tools to finish writing it, then reopen it. The current take is unchanged." if kind == Kind.SourceChanged
+            return "Studio could not verify the source or converted file. Check file access and workspace availability, then retry. The current take is unchanged." if kind == Kind.DigestUnavailable
             return "FBX import ran out of memory. Try a smaller take. The current take is unchanged." if kind == Kind.Memory
             return "The converted FBX could not be published safely. Check workspace permissions and free space, then retry. The current take is unchanged." if kind == Kind.CacheWrite
             return "The FBX contains non-finite animation or mesh values. Correct the source in its authoring tool and retry. The current take is unchanged." if kind == Kind.NonFinite
