@@ -4,7 +4,22 @@ These authorized focused checks use native objects from Studio generation
 `build/studio-build.yOXPzH`, built against compiler `bb274b14`. They do not
 qualify the newer compiler merge `48dc78e2` or establish UI acceptance.
 
-## Observed results
+## ABI correction and repeat
+
+The original Python converter invocation declared its frame-rate argument as
+`c_int64`, while the native function expects `double`. Those converter calls
+cannot qualify the requested sampling rate. The staging FIFO check does not
+call that ABI and remains a separate observation. Studio had the same mismatch;
+commit `fcc7da4` fixes its declaration and explicit conversion.
+
+Corrected `c_double` calls at 30.0 fps are recorded in
+`build/fbx-correct-rate-h32e__xd/results.json`. The bladed fixture succeeds and
+produces the identical GLB digest recorded below. The user
+`high block_Unreal5.6.fbx` still refuses with skin status -6 and no output. Both
+sources retain their original digests. Repeat the full conversion/refusal matrix
+with the correct ABI before current qualification.
+
+## Original observed results (sampling rate unqualified)
 
 - The selected fixture produced a GLB with one mesh, one skin and one animation.
 - A second conversion produced an identical GLB SHA-256.
