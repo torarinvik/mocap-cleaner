@@ -1,0 +1,73 @@
+extend Physics:
+    public:
+        def balance_frames(c: Rig::Clip&, coms: darray[MotionQuat::V]&, left: darray[bool]&, right: darray[bool]&, floor: i64, length: f64, out: mutable Findings&, inside_flags: mutable darray[bool]&, impossible: mutable darray[bool]&):
+            inside_flags.clear()
+            impossible.clear()
+            return if not PhysicsTrackShapePolicy::balance_admitted(c.frames, left.count.i64(), right.count.i64(), coms.count.i64())
+            for f in 0..<c.frames:
+                inside_flags.push(false)
+                impossible.push(false)
+            return if c.frames < 3 or length <= 0.000001 or coms.count.i64() != c.frames
+            fps: f64 = frame_rate(c)
+            if not PhysicsBalanceInputs::capture_admitted(&coms, floor, fps, Environment::GRAVITY):
+                out.unavailable_ops <- out.unavailable_ops + 1
+                return
+            margin: i64 = PhysicsLengthBoundary::from_metres(length * 0.06)
+            mutable xs: darray[i64] = []
+            mutable zs: darray[i64] = []
+            mutable w: Rig::World = Rig::empty_world()
+            mutable flags: darray[bool] = []
+            mutable held: darray[bool] = []
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                planted: bool = left[k] or right[k]
+                mutable com_held: bool = false
+                out.planted <- out.planted + 1 if planted
+                mutable flagged: bool = false
+                if planted:
+                    Rig::solve_world(c, f, &w)
+                    support_points(c, &w, left[k], right[k], &xs, &zs)
+                    p: MotionQuat::V = coms[k]
+                    a: MotionQuat::V = coms[(f - 1).usize()] if f > 0 else p
+                    b: MotionQuat::V = coms[(f + 1).usize()] if f + 1 < c.frames else p
+                    height: f64 = p.y - floor_metres(floor)
+                    omega: f64 = (Environment::GRAVITY / height).sqrt() if height > 0.05 else 14.0
+                    span: f64 = 2.0 if f > 0 and f + 1 < c.frames else 1.0
+                    vx: f64 = (b.x - a.x) * fps / span
+                    vz: f64 = (b.z - a.z) * fps / span
+                    com_in: bool = inside(&xs, &zs, PhysicsLengthBoundary::from_metres(p.x), PhysicsLengthBoundary::from_metres(p.z), margin)
+                    cap_x: f64 = p.x + vx / omega
+                    cap_z: f64 = p.z + vz / omega
+                    mutable cap_in: bool = false
+                    if PhysicsLengthBoundary::world_admitted(cap_x) and PhysicsLengthBoundary::world_admitted(cap_z):
+                        cap_in <- inside(&xs, &zs, PhysicsLengthBoundary::from_metres(cap_x), PhysicsLengthBoundary::from_metres(cap_z), margin)
+                    flagged <- Balance::unbalanced(planted, com_in, cap_in)
+                    com_held <- com_in
+                flags.push(flagged)
+                held.push(com_held)
+                inside_flags[k] <- com_held
+            # A flagged run is a step, not a fall, when a foot touches down
+            # within it or within Detection::MIN_UNBALANCED frames after it and the
+            # centre of mass is over the new support at that frame.
+            mutable run: i64 = 0
+            for f in 0..<c.frames:
+                k: usize = f.usize()
+                run <- Balance::run_length(Order::clamp(run, 0, Balance::Domain::LIMIT - 1), flags[k])
+                ends: bool = run > 0 and (f + 1 == c.frames or not flags[k + 1])
+                continue if not ends or run < Detection::MIN_UNBALANCED
+                first: i64 = f - run + 1
+                last: i64 = f + Detection::MIN_UNBALANCED if f + Detection::MIN_UNBALANCED < c.frames else c.frames - 1
+                mutable stepped: bool = false
+                for t in (first + 1)..=last:
+                    u: usize = t.usize()
+                    touchdown: bool = (left[u] and not left[u - 1]) or (right[u] and not right[u - 1])
+                    stepped <- true if touchdown and held[u]
+                out.stepped <- out.stepped + run if stepped
+                continue if not Balance::reported(run, Detection::MIN_UNBALANCED, stepped)
+                for t in first..=f:
+                    impossible[t.usize()] <- true
+                out.unbalanced_runs <- out.unbalanced_runs + 1
+                out.unbalanced <- out.unbalanced + run
+                if run > out.worst_run:
+                    out.worst_run <- run
+                    out.worst_first <- first

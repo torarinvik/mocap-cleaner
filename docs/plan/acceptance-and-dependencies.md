@@ -84,30 +84,17 @@ inverse and report conversions together before qualifying changed decisions.
 - Record every distance/angle/time/weight unit and conversion, including
   fixed-point saturation/rounding. Distinguish declared units from inferred
   scale, and invalidate affected analysis when units/floor/rig settings change.
-- Resolve the existing unit mismatch: `src/physics/balance.elisa` and
-  `src/physics/rig_physics.elisa` currently feed micrometres into proof-critical
-  kernels, while the project convention requires lengths in 0.1 mm. Inventory
-  all such kernels and their callers before changing scale. Introduce explicit
-  conversion boundaries, including signed rounding, overflow admission and
-  accumulated error bounds; convert constants, thresholds, contracts and laws
-  together. Keep exported `_um` metrics explicitly converted to micrometres
-  and match CLI/Studio results. Prove negative coordinates, sub-unit values,
-  boundary values and round-trip error bounds. Requalify correction decisions
-  around thresholds and document any intended precision change before rollout.
-  Split dimension-specific conversions before migrating callers: `Limb::micro`
-  currently converts both limb lengths for `Reach::limb_reach` and pole angles
-  for `Hinge::unwrap_step`. `RigPhysics` also uses it for heights, horizontal
-  coordinates, speeds, per-frame gravity, angular acceleration and quaternion
-  angle gaps. A global multiplier change would corrupt angular quantities.
-  Include Studio contact heights/speeds from `GlbTracks::to_fixed` in the caller
-  inventory. Assign each conversion its physical dimension and time basis;
-  preserve angular units while migrating lengths and length-derived quantities.
-  Qualify and integrate the isolated `LengthUnits` integer boundary added in
-  `dd3e296`: nearest rounding with signed half ties away from zero, explicit
-  reverse overflow admission and full-i64 source coverage. Its law graph has
-  compile evidence only. Discharge its laws and bind them to exact source before
-  relying on the conversion; caller migration and decision requalification
-  remain required.
+- Physics length sources now use 0.1 mm internally through explicit
+  `PhysicsLengthBoundary` conversions; speed and gravity include their time
+  basis, while angular acceleration and rotation drift remain microradians.
+  `_um` report fields are explicitly converted at the CLI boundary, with
+  accumulated overflow represented as unavailable. Source edits and updated
+  proof sources are complete, but current compiler/prover qualification,
+  fixed-corpus CLI/Studio decision comparison and native overlay review remain
+  open. See [the physics unit migration record](physics-unit-migration.md) for
+  the implementation inventory and exact remaining evidence. Preserve signed
+  rounding, domain and overflow coverage while qualifying; do not treat source
+  changes or compile output as proof discharge or acceptance evidence.
 - For metrics distinguish measured pass, measured failure, unknown and
   inapplicable. Include sample counts, intervals and exclusion reasons. A zero
   sample count, NaN, missing contact labels or unsupported metric is not zero

@@ -8,12 +8,12 @@
 #             source at the clip edges
 # Every per-frame decision goes through a proved kernel in Balance (support,
 # near, unbalanced, run_length, parabola, ballistic_residual, limit_step,
-# segment_mass) or Pin::pin_weight. Lengths are micrometres (Limb::micro),
-# angles micro-radians, y is up (glTF).
+# segment_mass) or Pin::pin_weight. Lengths are 0.1 mm units (PhysicsLengthBoundary),
+# angles microradians, y is up (glTF).
 include "../ops/rig_stack.elisa"
 include "balance.elisa"
-include "track_shape_policy.elisa"
 include "contact_inputs.elisa"
+include "balance_inputs.elisa"
 
 module Physics:
     public:
@@ -57,6 +57,7 @@ module Physics:
             flights: mutable i64
             ballistic_before: mutable i64
             ballistic_after: mutable i64
+            ballistic_report_available: mutable bool
             momentum_cap: mutable i64
             momentum_before: mutable i64
             momentum_after: mutable i64
@@ -73,7 +74,7 @@ module Physics:
             return PhysOp{kind: PhysKind.Momentum, fix: fix, amount: cap, edge: 8}
 
         def empty_findings() -> Findings:
-            return Findings{ops: 0, unavailable_ops: 0, frames: 0, planted: 0, unbalanced: 0, unbalanced_runs: 0, stepped: 0, worst_run: 0, worst_first: -1, airborne: 0, flights: 0, ballistic_before: 0, ballistic_after: 0, momentum_cap: 0, momentum_before: 0, momentum_after: 0, momentum_drift: 0, changed: 0}
+            return Findings{ops: 0, unavailable_ops: 0, frames: 0, planted: 0, unbalanced: 0, unbalanced_runs: 0, stepped: 0, worst_run: 0, worst_first: -1, airborne: 0, flights: 0, ballistic_before: 0, ballistic_after: 0, ballistic_report_available: true, momentum_cap: 0, momentum_before: 0, momentum_after: 0, momentum_drift: 0, changed: 0}
 
         def add(total: mutable Findings&, f: Findings&):
             total.ops <- total.ops + f.ops
@@ -88,8 +89,8 @@ module Physics:
                 total.worst_first <- f.worst_first
             total.airborne <- total.airborne + f.airborne
             total.flights <- total.flights + f.flights
-            total.ballistic_before <- total.ballistic_before + f.ballistic_before
-            total.ballistic_after <- total.ballistic_after + f.ballistic_after
+            merge_residual(&total.ballistic_before, &total.ballistic_after, &total.ballistic_report_available, f.ballistic_report_available, f.ballistic_before, true)
+            merge_residual(&total.ballistic_before, &total.ballistic_after, &total.ballistic_report_available, f.ballistic_report_available, f.ballistic_after, false)
             total.momentum_cap <- f.momentum_cap if f.momentum_cap > total.momentum_cap
             total.momentum_before <- total.momentum_before + f.momentum_before
             total.momentum_after <- total.momentum_after + f.momentum_after
@@ -153,7 +154,7 @@ module Physics:
 
         # ---- Contacts -------------------------------------------------------
 
-        # Lowest point (ankle or toe) of a foot per frame, micrometres.
+        # Lowest point (ankle or toe) of a foot per frame, in 0.1 mm units.
         def foot_lows(c: Rig::Clip&, side: i64) -> darray[i64]:
             mutable out: darray[i64] = []
             ankle: i64 = Rig::node_of(c, Roles::Joint.LeftFoot.i64() if side == 0 else Roles::Joint.RightFoot.i64())
@@ -164,7 +165,7 @@ module Physics:
                 Rig::solve_world(c, f, &w)
                 y: f64 = w.pos[ankle.usize()].y
                 low: f64 = w.pos[toe.usize()].y if toe >= 0 and w.pos[toe.usize()].y < y else y
-                out.push(Limb::micro(low))
+                out.push(PhysicsLengthBoundary::from_metres(low))
             return out
 
         def leg_length(c: Rig::Clip&) -> f64:
@@ -180,7 +181,7 @@ module Physics:
             mutable flags: darray[bool] = []
             lows: darray[i64] = foot_lows(c, side)
             ankle: i64 = Rig::node_of(c, Roles::Joint.LeftFoot.i64() if side == 0 else Roles::Joint.RightFoot.i64())
-            if ankle < 0 or lows.count.i64() != c.frames or length <= 0.000001:
+            if ankle < 0 or lows.count.i64() != c.frames or not PhysicsContactInputs::thresholds_admitted(length):
                 for f in 0..<c.frames:
                     flags.push(false)
                 return flags
@@ -190,7 +191,7 @@ module Physics:
             mutable w: Rig::World = Rig::empty_world()
             mutable last: MotionQuat::V = Rig::v(0.0, 0.0, 0.0)
             for f in 0..<c.frames:
-                heights.push(Order::clamp(lows[f.usize()] - floor, 0, Hinge::Domain::LIMIT))
+                heights.push(Order::clamp(lows[f.usize()] - floor, 0, Balance::Domain::LENGTH_LIMIT))
                 Rig::solve_world(c, f, &w)
                 p: MotionQuat::V = w.pos[ankle.usize()]
                 if f == 0:
@@ -198,29 +199,28 @@ module Physics:
                 else:
                     dx: f64 = p.x - last.x
                     dz: f64 = p.z - last.z
-                    speeds.push(Limb::micro((dx * dx + dz * dz).sqrt() * fps))
+                    speeds.push(PhysicsLengthBoundary::speed_from_metres_per_second((dx * dx + dz * dz).sqrt() * fps))
                 last <- p
-            enter: i64 = Limb::micro(length * 0.05)
-            leave: i64 = Limb::micro(length * 0.08)
-            max_speed: i64 = Limb::micro(length * 0.5)
-            if not Contact::valid_thresholds(enter, leave, max_speed):
-                for f in 0..<c.frames:
-                    flags.push(false)
-                return flags
+            enter: i64 = PhysicsLengthBoundary::from_metres(length * 0.05)
+            leave: i64 = PhysicsLengthBoundary::from_metres(length * 0.08)
+            max_speed: i64 = PhysicsLengthBoundary::speed_from_metres_per_second(length * 0.5)
             return Track::contacts(&heights, &speeds, enter, leave, max_speed)
 
         def floor_of(c: Rig::Clip&) -> i64:
-            mutable floor: i64 = Hinge::Domain::LIMIT
+            mutable floor: i64 = Balance::Domain::LENGTH_LIMIT
             for side in 0..<2:
                 for h in foot_lows(c, side.i64()):
                     floor <- h if h < floor
+            ensure floor >= -PhysicsLengthBoundary::Domain::MAX_COORDINATE
+            ensure floor <= PhysicsLengthBoundary::Domain::MAX_COORDINATE
             return floor
 
-        # Inverse of the floor producer's current micrometre representation.
-        # Update this boundary together with floor_of during unit migration.
+        # Inverse of floor_of's 0.1 mm world-coordinate representation.
         def floor_metres(floor: i64) -> f64:
-            ensure result == floor.f64() / Limb::MICRO
-            Limb::unmicro(floor)
+            requires floor >= -PhysicsLengthBoundary::Domain::MAX_COORDINATE
+            requires floor <= PhysicsLengthBoundary::Domain::MAX_COORDINATE
+            ensure result == PhysicsLengthBoundary::metres(floor)
+            PhysicsLengthBoundary::metres(floor)
 
         # ---- Balance --------------------------------------------------------
 
@@ -234,8 +234,8 @@ module Physics:
                     node: i64 = Rig::node_of(c, role)
                     continue if node < 0
                     p: MotionQuat::V = w.pos[node.usize()]
-                    xs.push(Limb::micro(p.x))
-                    zs.push(Limb::micro(p.z))
+                    xs.push(PhysicsLengthBoundary::from_metres(p.x))
+                    zs.push(PhysicsLengthBoundary::from_metres(p.z))
 
         # A floor point is inside the support region grown by `margin` (the
         # heel and foot width the ankle/toe corners leave out): within
@@ -275,78 +275,23 @@ module Physics:
         # `impossible` marks the frames of every reported run (see
         # Balance::reported). Both get one entry per frame; `coms` is
         # com_track(c). Totals go to `out` as for the `balance` op.
-        def balance_frames(c: Rig::Clip&, coms: darray[MotionQuat::V]&, left: darray[bool]&, right: darray[bool]&, floor: i64, length: f64, out: mutable Findings&, inside_flags: mutable darray[bool]&, impossible: mutable darray[bool]&):
-            inside_flags.clear()
-            impossible.clear()
-            return if not PhysicsTrackShapePolicy::balance_admitted(c.frames, left.count.i64(), right.count.i64(), coms.count.i64())
-            for f in 0..<c.frames:
-                inside_flags.push(false)
-                impossible.push(false)
-            return if c.frames < 3 or length <= 0.000001 or coms.count.i64() != c.frames
-            fps: f64 = frame_rate(c)
-            margin: i64 = Limb::micro(length * 0.06)
-            mutable xs: darray[i64] = []
-            mutable zs: darray[i64] = []
-            mutable w: Rig::World = Rig::empty_world()
-            mutable flags: darray[bool] = []
-            mutable held: darray[bool] = []
-            for f in 0..<c.frames:
-                k: usize = f.usize()
-                planted: bool = left[k] or right[k]
-                mutable com_held: bool = false
-                out.planted <- out.planted + 1 if planted
-                mutable flagged: bool = false
-                if planted:
-                    Rig::solve_world(c, f, &w)
-                    support_points(c, &w, left[k], right[k], &xs, &zs)
-                    p: MotionQuat::V = coms[k]
-                    a: MotionQuat::V = coms[(f - 1).usize()] if f > 0 else p
-                    b: MotionQuat::V = coms[(f + 1).usize()] if f + 1 < c.frames else p
-                    height: f64 = p.y - floor_metres(floor)
-                    omega: f64 = (Environment::GRAVITY / height).sqrt() if height > 0.05 else 14.0
-                    span: f64 = 2.0 if f > 0 and f + 1 < c.frames else 1.0
-                    vx: f64 = (b.x - a.x) * fps / span
-                    vz: f64 = (b.z - a.z) * fps / span
-                    com_in: bool = inside(&xs, &zs, Limb::micro(p.x), Limb::micro(p.z), margin)
-                    cap_in: bool = inside(&xs, &zs, Limb::micro(p.x + vx / omega), Limb::micro(p.z + vz / omega), margin)
-                    flagged <- Balance::unbalanced(planted, com_in, cap_in)
-                    com_held <- com_in
-                flags.push(flagged)
-                held.push(com_held)
-                inside_flags[k] <- com_held
-            # A flagged run is a step, not a fall, when a foot touches down
-            # within it or within Detection::MIN_UNBALANCED frames after it and the
-            # centre of mass is over the new support at that frame.
-            mutable run: i64 = 0
-            for f in 0..<c.frames:
-                k: usize = f.usize()
-                run <- Balance::run_length(Order::clamp(run, 0, Balance::Domain::LIMIT - 1), flags[k])
-                ends: bool = run > 0 and (f + 1 == c.frames or not flags[k + 1])
-                continue if not ends or run < Detection::MIN_UNBALANCED
-                first: i64 = f - run + 1
-                last: i64 = f + Detection::MIN_UNBALANCED if f + Detection::MIN_UNBALANCED < c.frames else c.frames - 1
-                mutable stepped: bool = false
-                for t in (first + 1)..=last:
-                    u: usize = t.usize()
-                    touchdown: bool = (left[u] and not left[u - 1]) or (right[u] and not right[u - 1])
-                    stepped <- true if touchdown and held[u]
-                out.stepped <- out.stepped + run if stepped
-                continue if not Balance::reported(run, Detection::MIN_UNBALANCED, stepped)
-                for t in first..=f:
-                    impossible[t.usize()] <- true
-                out.unbalanced_runs <- out.unbalanced_runs + 1
-                out.unbalanced <- out.unbalanced + run
-                if run > out.worst_run:
-                    out.worst_run <- run
-                    out.worst_first <- first
-
         # ---- Ballistic ------------------------------------------------------
 
         def gravity_step(c: Rig::Clip&) -> i64:
             fps: f64 = frame_rate(c)
-            return Order::clamp(Limb::micro(Environment::GRAVITY / (fps * fps)), 0, Balance::Domain::MAX_GRAVITY)
+            raw: f64 = Environment::GRAVITY / (fps * fps)
+            capped: f64 = 1.0 if raw > 1.0 else raw
+            return PhysicsLengthBoundary::gravity_from_metres_per_frame_squared(capped)
 
         def residual(ys: darray[i64]&, first: i64, last: i64, g: i64) -> i64:
+            requires first >= 0
+            requires last >= first
+            requires last - first < Balance::Domain::MAX_FLIGHT
+            requires last < ys.count.i64()
+            requires g >= 0
+            requires g <= Balance::Domain::MAX_GRAVITY
+            ensure result >= 0
+            ensure result <= Balance::Domain::MAX_FLIGHT * (4 * Balance::Domain::LENGTH_LIMIT + Balance::Domain::MAX_GRAVITY)
             mutable total: i64 = 0
             for k in first..=last:
                 continue if k < 1 or k + 1 >= ys.count.i64()
@@ -356,7 +301,7 @@ module Physics:
         def com_heights(c: Rig::Clip&) -> darray[i64]:
             mutable ys: darray[i64] = []
             for p in com_track(c):
-                ys.push(Limb::micro(p.y))
+                ys.push(PhysicsLengthBoundary::from_metres(p.y))
             return ys
 
         def ballistic_fix(c: mutable Rig::Clip&, op: PhysOp, left: darray[bool]&, right: darray[bool]&, out: mutable Findings&):
@@ -383,22 +328,42 @@ module Physics:
                     start <- -1
             out.flights <- out.flights + runs_first.count.i64()
             for r in 0..<runs_first.count:
-                out.ballistic_before <- out.ballistic_before + residual(&ys, runs_first[r], runs_last[r], g)
+                accumulate_residual(&out.ballistic_before, &out.ballistic_after, &out.ballistic_report_available, residual(&ys, runs_first[r], runs_last[r], g), true)
             if op.fix and hips >= 0 and Rig::pos_writable(c, hips):
                 mutable w: Rig::World = Rig::empty_world()
+                mutable correction_admitted: bool = true
                 for r in 0..<runs_first.count:
                     a: i64 = runs_first[r] - 1
                     b: i64 = runs_last[r] + 1
                     n: i64 = b - a
-                    y0: i64 = Order::clamp(ys[a.usize()], -Balance::Domain::LIMIT, Balance::Domain::LIMIT)
-                    y1: i64 = Order::clamp(ys[b.usize()], -Balance::Domain::LIMIT, Balance::Domain::LIMIT)
+                    y0: i64 = Order::clamp(ys[a.usize()], -Balance::Domain::LENGTH_LIMIT, Balance::Domain::LENGTH_LIMIT)
+                    y1: i64 = Order::clamp(ys[b.usize()], -Balance::Domain::LENGTH_LIMIT, Balance::Domain::LENGTH_LIMIT)
+                    for k in 1..<n:
+                        f: i64 = a + k
+                        delta: i64 = Balance::parabola(y0, y1, k, n, g) - ys[f.usize()]
+                        if delta < -PhysicsLengthBoundary::Domain::MAX_COORDINATE or delta > PhysicsLengthBoundary::Domain::MAX_COORDINATE:
+                            correction_admitted <- false
+                        else:
+                            shift_metres: f64 = PhysicsLengthBoundary::metres(delta)
+                            Rig::solve_world(c, f, &w)
+                            for p in w.pos:
+                                correction_admitted <- false if not PhysicsLengthBoundary::world_admitted(p.y + shift_metres)
+                if not correction_admitted:
+                    out.unavailable_ops <- out.unavailable_ops + 1
+                    return
+                for r in 0..<runs_first.count:
+                    a: i64 = runs_first[r] - 1
+                    b: i64 = runs_last[r] + 1
+                    n: i64 = b - a
+                    y0: i64 = Order::clamp(ys[a.usize()], -Balance::Domain::LENGTH_LIMIT, Balance::Domain::LENGTH_LIMIT)
+                    y1: i64 = Order::clamp(ys[b.usize()], -Balance::Domain::LENGTH_LIMIT, Balance::Domain::LENGTH_LIMIT)
                     for k in 1..<n:
                         f: i64 = a + k
                         delta: i64 = Balance::parabola(y0, y1, k, n, g) - ys[f.usize()]
                         continue if delta == 0
                         Rig::solve_world(c, f, &w)
                         parent: i64 = c.joints[hips.usize()].parent
-                        mutable shift: MotionQuat::V = Rig::v(0.0, Limb::unmicro(delta), 0.0)
+                        mutable shift: MotionQuat::V = Rig::v(0.0, PhysicsLengthBoundary::metres(delta), 0.0)
                         if parent >= 0:
                             ps: MotionQuat::V = w.scl[parent.usize()]
                             local: MotionQuat::V = MotionQuat::rotate(MotionQuat::conjugate(w.rot[parent.usize()]), shift)
@@ -406,7 +371,7 @@ module Physics:
                         _ = Rig::set_local_pos(c, f, hips, Rig::vadd(Rig::local_pos(c, f, hips), shift))
             after: darray[i64] = com_heights(c)
             for r in 0..<runs_first.count:
-                out.ballistic_after <- out.ballistic_after + residual(&after, runs_first[r], runs_last[r], g)
+                accumulate_residual(&out.ballistic_before, &out.ballistic_after, &out.ballistic_report_available, residual(&after, runs_first[r], runs_last[r], g), false)
 
         # ---- Momentum -------------------------------------------------------
 
@@ -572,3 +537,6 @@ module Physics:
             return out if out.ops == out.unavailable_ops
             out.changed <- Rig::store(doc, &c)
             return out
+
+include "balance_frames.elisa"
+include "residual_report.elisa"
