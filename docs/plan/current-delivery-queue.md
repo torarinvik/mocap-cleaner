@@ -312,7 +312,11 @@ negative controls, meaningful history entries and session/export parity.
   operation selection and background reconciliation are now connected.
   Qualify exact root/operation binding, stale replies, cancellation, capacity
   overflow and repeated moves. Complete safe resolution of retained uncertain
-  replies. Explicit remaining-handle Retry Release controls are implemented
+  replies. Exact Move/Restore Resolve Review source is connected to current
+  reconciliation and retained ledger identity; qualify it before accepting
+  repeated cleanup. Restore captures artifact/path before dispatch (`d274c70`)
+  and requires a new review/confirmation after acknowledgment. Explicit
+  remaining-handle Retry Release controls are implemented
   (`f06a8b7`), with whole-reply ownership transfer and admission laws. Qualify
   Busy/stale/uncertain native results, retained metadata, retry progress and
   cancellation; establish exact reconciliation before disposing of the reply or

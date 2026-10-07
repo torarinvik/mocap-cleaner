@@ -104,3 +104,33 @@ newer than its binary; no stale-product bypass was used for this observation.
 
 Native retry execution, Busy/uncertain fault cases, keyboard/VoiceOver interaction,
 authenticated laws and safe disposal after exact reconciliation remain open.
+
+## Exact recovery acknowledgment
+
+Move and Restore now expose **Resolve Review** for retained zero-handle replies.
+The selected recovery observation must be current for the current workspace,
+match the captured root, canonical operation, artifact ID and relative path,
+have a known Acquired native status and describe Quarantined, NotMoved or
+Restored. Both the old reply and reconciliation must report certain release;
+active jobs, queued close, mutation modals, missing metadata, absent ledger
+identity and every unresolved outcome refuse disposal.
+
+Move comparisons use the retained wire and canonical reply operation. Restore
+captures all four identity fields before dispatch (`d274c70`) and preserves them
+through reply/drain ownership. Starting Restore records the selected identity in
+the bounded ledger first; existing identities remain admissible at capacity.
+Acknowledgment clears only the owning reply and captured controller metadata.
+It retains the ledger identity and a scalar reconciliation summary. Move stays
+RecoveryPending rather than publishing an earlier canceled operation as success.
+Restore returns to Idle, requiring a new Review/Confirm sequence for a later
+Restore. The VoiceOver Restore control uses the same admission as the visible
+control, including retry and resolution cases.
+
+The thirteen resolution law declarations compile with the fresh UI diagnostic
+candidate before its next source edits. A Move-only integration reached the same
+11 backend declines without frontend diagnostics. Final Move/Restore integration
+compilation is pending the compiler rebuild: the candidate wrapper refused its
+changed source digest and no bypass was used. These observations are source
+compilation evidence only. Exact-byte native replay, repeated operations,
+cancellation, uncertain release, focus/VoiceOver and authenticated proof
+acceptance remain required before closing recovery.

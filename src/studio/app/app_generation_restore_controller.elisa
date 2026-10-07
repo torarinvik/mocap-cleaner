@@ -1,3 +1,4 @@
+include "app_generation_reply_resolution.elisa"
 include "../io/build_generation_handle_drain_worker.elisa"
 include "../state/generation_handle_drain_policy.elisa"
 include "../state/generation_storage_drain_policy.elisa"
@@ -18,6 +19,7 @@ extend Studio:
         global mutable generation_restore_task: Thread[StudioBuildGenerationRestoreWorker::Result, Joinable]? = null
         global mutable generation_restore_reply: StudioBuildGenerationRestoreWorker::Result? = null
         global mutable generation_restore_ticket: i64 = 0
+        global mutable generation_restore_resolution: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome = StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
 
         def generation_restore_capture_root(move_ticket: i64) -> bool can Memory.Allocate:
             return false if move_ticket <= 0
@@ -102,6 +104,8 @@ extend Studio:
                         relative_path: darray[u8] = generation_restore_copy_bytes(observed.observation.relative_path)
                         return false if not StudioGenerationRestoreReviewIdentityPolicy::valid(root, operation, artifact_id, relative_path)
                         return false if not StudioGenerationRestoreReviewIdentityPolicy::same_bytes(root, observed.root) or not StudioGenerationRestoreReviewIdentityPolicy::same_bytes(operation, observed.operation)
+                        admission: StudioGenerationRecoveryLedgerPolicy::Admission = StudioGenerationRecoveryLedger::record(&generation_recovery_ledger, root, operation)
+                        return false if admission != StudioGenerationRecoveryLedgerPolicy::Admission.Accepted and admission != StudioGenerationRecoveryLedgerPolicy::Admission.Duplicate
                         generation_restore_root <- move root
                         generation_restore_operation_id <- move operation
                         generation_restore_artifact_id <- move artifact_id
@@ -117,6 +121,7 @@ extend Studio:
                     for index in 0..<moved.operation_id_bytes.usize() |moved, operation_id|:
                         operation_id.push(moved.operation_id[index])
                     return false if operation_id.count.i64() != moved.operation_id_bytes
+                    return false if not record_generation_move_identity(moved.operation_id, moved.operation_id_bytes)
                     generation_restore_operation_id <- move operation_id
                     return true
             false
@@ -131,6 +136,7 @@ extend Studio:
         def generation_restore_action_label() -> sview:
             if generation_restore_reply is retained:
                 return "Retry Release" if retained.remaining_handle > 0
+                return "Resolve Review"
             match generation_restore_state:
                 StudioGenerationRestoreConfirmationPolicy::State.Idle: return "Review Restore"
                 StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): return "Confirm Restore"
@@ -142,15 +148,20 @@ extend Studio:
         def generation_restore_action_help() -> sview:
             if generation_restore_reply is retained:
                 return "Retry releasing the retained native handle. Operation details remain available for recovery review." if retained.remaining_handle > 0
+                return "Select this operation in Recovery Operations and reconcile it, then acknowledge the exact verified review. Further Restore requires a fresh confirmation."
             "Review the retained move operation and confirm before restoring the exact quarantined artifact to its original build directory."
 
         def generation_restore_action_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
             if generation_restore_reply is retained:
                 return generation_restore_release_retry_enabled() if retained.remaining_handle > 0
+                return generation_restore_resolution_enabled()
             return false if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
             return false if not storage_screen_open or not generation_review_open or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64() or storage_move_review or storage_restore_review or storage_release_uncertain
             return false if generation_move_task != null or generation_restore_task != null or generation_restore_reply != null
             return false if not generation_restore_current_source_valid()
+            if generation_review_recovery_mode:
+                if generation_recovery_scan_reply is scan:
+                    return false if not generation_recovery_identity_can_record(scan.root, scan.operation)
             key: StudioGenerationRestoreConfirmationPolicy::SourceKey = generation_restore_current_key()
             match generation_restore_state:
                 StudioGenerationRestoreConfirmationPolicy::State.Idle: generation_recovery_browser_restore_admitted() if generation_review_recovery_mode else StudioGenerationRestoreConfirmationPolicy::key_valid(key)
@@ -229,6 +240,9 @@ extend Studio:
             StudioGenerationRestoreReviewIdentityPolicy::exact_match(generation_restore_root, generation_restore_operation_id, generation_restore_artifact_id, generation_restore_relative_path, root, operation, artifact_id, relative_path)
 
         def generation_restore_action() -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            if generation_restore_resolution_enabled():
+                generation_restore_resolve_review()
+                return
             if generation_restore_release_retry_enabled():
                 if generation_restore_reply is retained:
                     ticket: i64 = retained.ticket
@@ -243,6 +257,7 @@ extend Studio:
             mutable current: StudioGenerationRestoreConfirmationPolicy::SourceKey = generation_restore_current_key()
             if generation_restore_state == StudioGenerationRestoreConfirmationPolicy::State.Idle:
                 return if not generation_restore_bind_operation_id()
+                generation_restore_resolution <- StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
                 current <- generation_restore_current_key()
                 if StudioGenerationRestoreConfirmationPolicy::may_review(generation_restore_state, current, generation_restore_current_source_valid(), false):
                     generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key: current)
@@ -278,6 +293,7 @@ extend Studio:
                 touch()
 
         def generation_restore_message() -> sview:
+            return "Recovery review complete; the operation identity remains retained. A further Restore needs a fresh review and confirmation." if generation_restore_reply == null and StudioGenerationReplyResolutionPolicy::terminal(generation_restore_resolution)
             return "Retrying native handle release; recovery details remain retained." if generation_restore_task != null and generation_restore_state == StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket: generation_restore_ticket)
             match generation_restore_state:
                 StudioGenerationRestoreConfirmationPolicy::State.Idle: return "Restore is available only for a verified retained move receipt."
@@ -288,6 +304,7 @@ extend Studio:
                 StudioGenerationRestoreConfirmationPolicy::State.Resolved(job_ticket): return "Generation restored and verified in its original build directory."
 
         def generation_restore_status_visible() -> bool:
+            return true if StudioGenerationReplyResolutionPolicy::terminal(generation_restore_resolution)
             match generation_restore_state:
                 StudioGenerationRestoreConfirmationPolicy::State.Idle: false
                 StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): true

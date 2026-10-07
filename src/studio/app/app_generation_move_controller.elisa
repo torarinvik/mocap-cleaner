@@ -1,3 +1,4 @@
+include "app_generation_reply_resolution.elisa"
 include "../io/build_generation_handle_drain_worker.elisa"
 include "../state/generation_handle_drain_policy.elisa"
 include "../state/generation_storage_drain_policy.elisa"
@@ -15,6 +16,7 @@ extend Studio:
         global mutable generation_move_task: Thread[StudioBuildGenerationMoveWorker::Result, Joinable]? = null
         global mutable generation_move_reply: StudioBuildGenerationMoveWorker::Result? = null
         global mutable generation_move_ticket: i64 = 0
+        global mutable generation_move_resolution: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome = StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
 
         def generation_move_release_retry_enabled() -> bool:
             if generation_move_reply is retained:
@@ -26,26 +28,29 @@ extend Studio:
         def generation_move_action_label() -> sview:
             if generation_move_reply is retained:
                 return "Retry Release" if retained.remaining_handle > 0
+                return "Resolve Review"
             match generation_move_state:
                 StudioGenerationMoveConfirmationPolicy::State.Reviewing(key): return "Confirm Move"
                 StudioGenerationMoveConfirmationPolicy::State.Inspecting: return "Review Move"
                 StudioGenerationMoveConfirmationPolicy::State.Confirmed(key): return "Confirm Move"
                 StudioGenerationMoveConfirmationPolicy::State.Running(key, job_ticket): return "Moving…"
                 StudioGenerationMoveConfirmationPolicy::State.Draining(key, job_ticket): return "Finishing…"
-                StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket): return "Releasing…" if generation_move_task != null else "Recovery pending"
+                StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket): return "Releasing…" if generation_move_task != null else "Review Move" if StudioGenerationReplyResolutionPolicy::terminal(generation_move_resolution) else "Recovery pending"
                 StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket): return "Review Move"
 
         def generation_move_action_help() -> sview:
             if generation_move_reply is retained:
                 return "Retry releasing the retained native handle. Operation details remain available for recovery review." if retained.remaining_handle > 0
+                return "Select this operation in Recovery Operations and reconcile it, then acknowledge the exact verified review. The operation identity stays retained."
             "Review one verified older generation, then confirm moving it to recoverable storage. Files remain on disk."
 
         def generation_move_current_key() -> StudioGenerationMoveConfirmationPolicy::ReviewKey:
             StudioGenerationMoveConfirmationPolicy::ReviewKey{scan_ticket: generation_scan_ticket, row_index: generation_inspected_row, retention_days: StudioStorageSelectionPolicy::retention_days(storage_retention_preset)}
 
-        def generation_move_action_enabled() -> bool:
+        def generation_move_action_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
             if generation_move_reply is retained:
                 return generation_move_release_retry_enabled() if retained.remaining_handle > 0
+                return generation_move_resolution_enabled()
             return false if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
             return false if not generation_recovery_has_capacity()
             return false if generation_move_task != null or generation_move_reply != null or generation_scan_task != null or generation_scan_requested or storage_release_uncertain
@@ -63,6 +68,9 @@ extend Studio:
             StudioBuildGenerationCandidateProvider::bytes_equal(generation_scan_root, current_root)
 
         def generation_move_review_action() -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            if generation_move_resolution_enabled():
+                generation_move_resolve_review()
+                return
             if generation_move_release_retry_enabled():
                 if generation_move_reply is retained:
                     ticket: i64 = retained.ticket
@@ -100,6 +108,7 @@ extend Studio:
                 root: darray[u8] = path_bytes(workspace_build_directory())
                 captured: StudioBuildGenerationMoveWire::Wire = StudioBuildGenerationMoveWire::capture(row, root)
                 if captured.valid:
+                    generation_move_resolution <- StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
                     generation_move_wire <- captured
                     generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Reviewing(key: current)
             touch()
@@ -135,6 +144,7 @@ extend Studio:
                 touch()
 
         def generation_move_message() -> sview:
+            return "Recovery reviewed; the operation identity remains retained. No new move was performed." if generation_move_reply == null and StudioGenerationReplyResolutionPolicy::terminal(generation_move_resolution)
             return "Retrying native handle release; recovery details remain retained." if generation_move_task != null and generation_move_state == StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: generation_move_ticket)
             if generation_move_reply is reply:
                 outcome: StudioGenerationMoveResultPolicy::Outcome = StudioGenerationMoveResultPolicy::classify_result(reply.remaining_handle, reply.recoverable, reply.operation_id_bytes, reply.release_status, reply.recovery)
