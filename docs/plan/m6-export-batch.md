@@ -251,6 +251,12 @@ qualifies the integrated application or native workflow.
 - [ ] Move synchronous publication, cancellation, resume and acknowledgement IO
       off the UI path with owned requests, explicit busy state, cancellation/drain
       semantics and stale-result rejection. Qualify responsiveness and cleanup.
+- [ ] Expose owned read-only destination projections for the GLB, JSON report and
+      text report. The current overview includes only source and GLB labels;
+      receipt stages alone do not identify the sidecar locations. Add complete
+      selected-item path inspection and explicit abbreviated-preview markers.
+      Keep queue identities and review authority private. Inspect all three exact
+      destinations when publication is partial or durability is uncertain.
 - [ ] Inspect glyph widths, Unicode report paging, long paths/status messages and
       minimum window size. Make every report segment readable without silent
       clipping; preserve explicit refusal for invalid or oversized reports.
