@@ -260,6 +260,16 @@ negative controls, meaningful history entries and session/export parity.
   unclosed native handle. Restore success requires committed restore, confirmed
   lock release and exact durable reconciliation; compilation of the worker and
   task instantiation does not qualify its runtime behavior.
+- Connect the owning reviewed move job (`8492253`, `aa19a87`) to explicit
+  confirmation and the progress/result UI. It captures inline native buffers,
+  independently admits age against the captured retention, matches reviewed
+  controls under retained locks, requires durable v2 intent evidence, closes
+  ownership and reconciles before recoverable success. Worker, law and concrete
+  result-consumer objects compile; no native execution or authenticated proof
+  qualification is established. A stale/cancelled reply must retain any new
+  operation identity and recovery evidence before it is discarded, as well as
+  draining any remaining native handle. An uncertain move can become recoverable
+  only after exact durable quarantine reconciliation and confirmed lock release.
 - Qualify the corrected native reconciliation parent comparison before runtime acceptance:
   a transaction begun at quarantine has the managed items directory as its
   source parent, while the receipt records the original parent. Compare each
