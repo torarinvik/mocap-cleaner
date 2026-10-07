@@ -151,94 +151,47 @@ acceptance. Qualification of parallel progress and failure reporting is pending.
       gizmo backend declines. Stripped optional-return and affine-view narrowing
       reductions compile, so their success does not explain the full-graph
       failures. Retain complete graph diagnostics and exact input snapshots.
-## Deferred edit completion feedback
 
-Worker-drain close approval now captures the pending draft as well as committed
-history metadata. Adding, removing or changing the draft invalidates that
-approval, requiring the normal close flow to review the current unsaved state.
-Four obligations cover optional-draft identity; compilation/replay awaits the
-repaired current compiler and native close ordering remains unqualified.
+## Edit transaction qualification remaining
 
-The immutable 9a952f8 full Studio source compile failed with five frontend
-diagnostics, with its 552-input snapshot check still passing afterward. Two
-incomplete Locate accessibility initializers now have explicit fallback values;
-the background-read accessibility summary also matches immediate cancellation.
-Three measured-path callback diagnostics remain under repair. A new current
-full-graph build is required; the earlier failed graph is retained as evidence.
+Source changes and their limits are recorded in
+[transaction source evidence](../acceptance/edit-transactions-source-2026-10-07.md).
+No transaction milestone is accepted by the source changes alone.
 
-Candidate-first transaction work remains required: build against an owned draft
-before recording history or moving an Undo/Redo cursor. A new base-ticket policy
-compares take, result/stack generations and history cursor/count; seven stale
-or invalid-base obligations compile with d2754a8e. The policy is not yet wired
-into publication. Deferred drafts must block save/export, coalesce explicitly,
-and preserve committed history, clip and readouts on failure. Qualify generation
-exhaustion rather than allowing ticket counters to wrap.
-Rebuild now keeps the proposed rig-source revision local and publishes it,
-readout values and readout timing only after candidate evaluation succeeds.
-Failure therefore preserves these visible values. History publication still
-precedes evaluation and must be repaired; actual UI-state frame conditions,
-generation overflow and native failure behavior remain unqualified.
-Candidate evaluation is now a separate helper with an idle-worker precondition.
-It returns the owned candidate and restores Memo ownership without publishing
-the visible clip or history. Rebuild uses this helper; edit/Undo/Redo admission
-still needs to call it before history mutation. Current full-graph compilation
-and authenticated ownership/frame-condition evidence remain pending.
-Publication is also a separate helper requiring a nonnull owned candidate;
-it installs the clip, built stack, generations, readouts, timeline and findings.
-This is a structural prerequisite, not completed transaction admission. Its
-ownership transfer and complete UI composition still need compiler qualification.
-Synchronous preview commits now evaluate first and validate their captured
-base ticket before recording history and publishing. Candidate failure or a
-stale base discards the candidate and preserves committed history/result.
-The gizmo consumes commit's Boolean result so refusal feedback is retained.
-Deferred edits, Undo/Redo and other callers' success messages still require
-integration. The seven ticket obligations have source-compile evidence only;
-actual transaction frame conditions and latest full-graph compilation are open.
-Synchronous Undo/Redo now read the adjacent snapshot, evaluate it and revalidate
-the base ticket before moving the cursor and publishing. Evaluation refusal
-preserves the previous cursor, saved point and result. Worker-active history
-movement still uses the old deferred path and remains to migrate. Accessor laws,
-transaction frame conditions and the complete latest source graph need current
-compiler/prover qualification; no native acceptance is claimed for this slice.
-Local retime, band removal, foot/hand toggles and blend controls now stop on
-commit refusal before publishing success feedback or clearing selection/focus.
-Other app callers and deferred draft admission remain under integration.
-Worker-active edits now retain an owned draft and base ticket, composing later
-edits through the draft stack without recording committed history. Worker drain
-validates the base, evaluates the draft and records/publishes only on success.
-Queued Undo/Redo retain typed intent and move the cursor only after evaluation;
-Undo cancels an existing draft first. A draft that returns to the committed
-stack adds no history. Save/close/dirty integration is still being completed,
-and current compiler/prover/native qualification of the full path remains open.
-Draft admission now also rejects an invalid observed base before accepting the
-first draft, and rejects stale existing drafts before composition. Four new
-admission obligations compile with d2754a8e (twelve transaction policy laws in
-total). Authenticated replay and actual discard/publication frame conditions
-remain pending.
-Completion feedback now has a shared admission rule: pending or failed results
-cannot replace waiting/failure feedback with an applied-edit message. Three
-additional obligations compile with d2754a8e. Local correction controls use
-the rule; remaining app callers and deferred session installation are being
-audited before full native qualification.
-Edit transaction generation increments now use an admitted, strictly increasing
-integer boundary. Exhausted/invalid stack or result counters refuse before
-history publication; unchanged rig identity can reuse its existing revision.
-Four boundary laws compile with d2754a8e. Other lifecycle counters still need
-their own exhaustion audit, and actual transaction replay/native cases remain open.
-Transaction ownership, pending intents, evaluation and publication now live in
-`src/studio/app/app_edit_transactions.elisa` (242 lines); correction controls
-remain in `app_corrections.elisa` (253 lines). All helpers stay private within
-Studio. The repository size gate passes for 830 maintained text files; complete
-current compilation and behavioral qualification remain pending.
-
-Both contact-worker drain paths now finish queued rebuilds through one helper.
-A successful new result replaces waiting feedback with a current-result message;
-failed builds retain their failure guidance. Three completion obligations
-compile with d2754a8e. Native worker drain, coalesced edits, failure and close
-ordering still require qualification; source compilation does not close M5.
-
-Undo and Redo now use the same typed outcome policy: ready results receive
-completion feedback, queued rebuilds receive waiting feedback, and failures
-keep rebuild's explanation instead of being overwritten by an Undo/Redo label.
-The helper explicitly refreshes the UI even when rebuilding fails. Qualify
-both history directions during a worker drain and after evaluation refusal.
+- [ ] Compile the complete latest Studio graph with rebuilt source-matched
+      compiler/runtime/UI/engine inputs. Retain the failed immutable 9a952f8
+      graph (five frontend diagnostics) and qualify its initializer and measured
+      callback repairs in the new graph; do not mutate the failed generation.
+- [ ] Replay all history-target, transaction-ticket, pending-draft identity,
+      completion-feedback and generation-boundary obligations with the current
+      authenticated prover. Add actual mutation-frame evidence: failed or stale
+      candidates preserve cursor/count/saved point, committed stack, clip,
+      readouts, result/rig generations and annotation arrays. Retained exact-key
+      cache updates must not create visible candidate state.
+- [ ] Qualify synchronous ordinary edits and both history directions with valid,
+      invalid-output, exhausted-capacity and stale-base candidates. A refusal
+      preserves the existing result and actionable feedback; a success creates
+      exactly one intended history transition and publishes matching derived
+      timeline/findings state. Undo/Redo must not move the cursor on refusal.
+- [ ] Qualify deferred drafts: compose multiple edits, return a draft to the
+      original stack, queue Undo/Redo, cancel via Undo and invalidate the take,
+      result or history base while draining. Confirm one accepted coalesced
+      history entry, no entry for unchanged/cancelled drafts, correct Memo
+      ownership and eventual worker/candidate disposal.
+- [ ] Qualify Save, Save As, direct export and prepared-export capture while a
+      draft exists. They must refuse the unevaluated draft; dirty indicators and
+      replacement/Locate/close prompts must account for it. Pending validated
+      session candidates and annotations must survive refusal, then install and
+      mark saved only after successful evaluation.
+- [ ] Qualify worker-drain close approval after adding, removing or changing a
+      draft, including an edit after Save/Discard approval. Stale approval must
+      re-enter the normal close review. Cancel preserves the current cleanup;
+      authorized replacement disposes the draft and late worker result safely.
+- [ ] Qualify all pointer, keyboard and accessibility success messages: queued
+      edits retain waiting feedback, failures retain recovery guidance, and
+      completed evaluation refreshes the UI. Include retime selection/focus,
+      contact drafts, suggestion closing, session installation and both history
+      directions; no caller may overwrite a refusal with completion feedback.
+- [ ] Audit remaining lifecycle counters for overflow. Qualify final admitted
+      increments, exhausted/invalid counters and unchanged rig revision reuse.
+      No ticket may become current through wrapped or reused generation values.

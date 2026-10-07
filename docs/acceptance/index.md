@@ -15,6 +15,7 @@ observations cannot qualify the current integrated application.
 | --- | --- | --- |
 | Current compiler and linked dependencies | [Dependency freshness](dependency-freshness.md) | Matched current products and a stable integrated application build. |
 | Integrated policies and inspector | [Pending policy qualification](pending-policy-qualification-2026-10-06.md) | Backend declines resolved; current composed graph compiled and exercised. |
+| Edit transaction publication | [Transaction source record](edit-transactions-source-2026-10-07.md) | Current full graph, authenticated frame conditions and native failure/worker/history flows. |
 | Full regression command | [Full check observations](current-check-2026-10-06.md) | Successful current `scripts/check.sh`, with exact source and tool provenance. |
 | Critical contracts and source correspondence | [Proof gap register](../proof-gaps.md) | Complete intended obligations, independent replay and authenticated source mapping. |
 | Native user journeys | [Workspace UI observations](mocap-studio-workspace-cua.md) | Current native controls, focus, keyboard and accessibility interactions. |
