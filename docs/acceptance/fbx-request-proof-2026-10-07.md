@@ -125,5 +125,18 @@ Root independently verified all five source/report hash pairs and both product
 hashes against `build/q02-cast-controls-56460af7-2ef1fa26/evidence.json`, SHA-256
 `f6ca5e6201f291d8f462c20ce69838c5578c75ae8f8bbb409c811fb04fe2d425`.
 This establishes the narrow type-witness control behavior, not FBX package
-source correspondence. Rerun the six current FBX laws against this pair.
+source correspondence. The six current FBX laws were rerun against this pair.
 An upstream fetch still resolves compiler/prover main to `665f40d7`/`ec4ceacd`.
+
+The current six-policy run is retained in the proof checkout under
+`build/q02-current-fbx-pair-27a76cce72424a72ba1a75bb0e8c2f96/`.
+Run record SHA-256:
+`1680e6bb29ef658e9bab7f9ce1a848c3119e03ea5d84faf69d6dbd481355c9f8`.
+Root independently verified all 24 report/package/replay/correspondence hashes.
+Pair integrity and compiler freshness pass. Request, staging, source-reference,
+native-output and copy exports fail admission; independent replay rejects them
+as source-inadmissible. Failure-policy export and replay pass with 26/26
+theorems, but all six correspondence checks exit 1, check zero functions and
+report coverage not-established. No policy has authenticated source coverage.
+The positive standalone terminated package independently replays 3/3 theorems;
+this remains a narrow result and does not close Q02.

@@ -84,9 +84,11 @@ Remaining work:
   smoke pass. Product SHA-256 is
   `a2ffcf2e6cf588d36bab15e6c13315f94258e8742d8db050a041413a81eec7b7`.
   Root inspected the retained automated log under `build/void-poll-2ef1fa26/`
-  and independently verified the product hash. The current proof pair is
-  rebuilding against this tuple; full client compatibility and promotion
-  gates remain open.
+  and independently verified the product hash. The current proof pair builds against this tuple and its narrow cast
+  controls pass. The native gate finishes 565/566: `stripped_contract_ensure_void`
+  incorrectly links despite an unmodeled contract helper, whereas main passes
+  566/566. Repair this fail-closed regression before reseeding and rerunning
+  promotion gates. Full client compatibility and promotion remain open.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
