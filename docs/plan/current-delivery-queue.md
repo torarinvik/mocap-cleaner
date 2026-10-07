@@ -256,7 +256,8 @@ negative controls, meaningful history entries and session/export parity.
   (`863be07`, `692360c`, `5e1b130`, `5cda1dd`). The controller rechecks the
   scan, selection, retention and workspace at confirmation and retains the owning
   reply even after cancellation. These remain source implementation evidence:
-  the full graph reports 14 backend declines and has no runtime acceptance.
+  later Restore integration captures still refuse backend emission (task-result
+  readers and ledger initialization); no full-app runtime acceptance exists.
   Complete result/recovery presentation, Restore wiring and long-path inspection. See the
   [integration diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
 - Connect the compiled owning Restore job to the controller. Cancellation or a
@@ -274,9 +275,15 @@ negative controls, meaningful history entries and session/export parity.
   operation identity and recovery evidence before it is discarded, as well as
   draining any remaining native handle. An uncertain move can become recoverable
   only after exact durable quarantine reconciliation and confirmed lock release.
-  The current retained reply blocks subsequent moves. Add outcome-specific
-  resolution, safe remaining-handle draining, Restore dispatch and a bounded
-  operation ledger before enabling another move. Enumerate durable receipts on
+  The current retained reply blocks subsequent moves. Outcome-specific copy and
+  bounded in-memory identity retention are implemented (`5882dbe`, `021a276`,
+  `80eb81c`, `5e2af2e`, `d644106`, `13f1245`). Recording uses owned root and
+  operation bytes, detects exact duplicates and refuses capacity overflow;
+  completion retains its reply if recording fails. Complete ledger browsing,
+  selection of earlier operations, native reconciliation state, safe reply
+  resolution and remaining-handle draining before enabling another move.
+  Qualify constructor/private-field handling in the compiler without exposing
+  ledger internals. Enumerate durable receipts on
   restart and reconcile them before enabling retry or Restore; retaining one
   in-memory reply does not satisfy restart recovery or repeated cleanup.
 - Qualify the corrected native reconciliation parent comparison before runtime acceptance:
