@@ -1,4 +1,5 @@
 include "app_state.elisa"
+include "../../core/bounded_path_policy.elisa"
 
 extend Studio:
     private:
@@ -6,51 +7,48 @@ extend Studio:
             return 0 if path_slot == 1
             1
 
-        def copy_path(p: cstr, slot: i64) -> bool can Unsafe.PointerCast:
-            return false if slot != 0 and slot != 1
+        # Validate without touching any retained destination buffer.
+        def bounded_path_length(p: cstr) -> i64:
             mutable i: usize = 0
             while i < PathCapacity::BYTES:
-                c: u8 = p[i]
-                if c == 0:
-                    if slot == 0:
-                        path_bytes0[i] <- 0
-                    else:
-                        path_bytes1[i] <- 0
-                    return true
-                return false if i == PathCapacity::BYTES - 1
-                if slot == 0:
-                    path_bytes0[i] <- c
-                else:
-                    path_bytes1[i] <- c
+                return i.i64() if p[i] == 0
                 i <- i + 1
-            false
+            -1
+
+        def copy_path(p: cstr, slot: i64) -> bool can Unsafe.PointerCast:
+            return false if slot != 0 and slot != 1
+            length: i64 = bounded_path_length(p)
+            return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
+            mutable i: usize = 0
+            while i <= length.usize():
+                if slot == 0:
+                    path_bytes0[i] <- p[i]
+                else:
+                    path_bytes1[i] <- p[i]
+                i <- i + 1
+            true
 
         def stored_path(slot: i64) -> cstr can Unsafe.PointerCast:
             return (&path_bytes0[0]).cast[cstr] if slot == 0
             (&path_bytes1[0]).cast[cstr]
 
         def stage_pending_path(p: cstr) -> bool can Unsafe.PointerCast:
+            length: i64 = bounded_path_length(p)
+            return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
             mutable i: usize = 0
-            while i < PathCapacity::BYTES:
-                c: u8 = p[i]
-                if c == 0:
-                    pending_path_bytes[i] <- 0
-                    return true
-                return false if i == PathCapacity::BYTES - 1
-                pending_path_bytes[i] <- c
+            while i <= length.usize():
+                pending_path_bytes[i] <- p[i]
                 i <- i + 1
-            false
+            true
 
         def pending_path() -> cstr can Unsafe.PointerCast:
             (&pending_path_bytes[0]).cast[cstr]
 
         def set_session_path(p: cstr) -> bool can Unsafe.PointerCast:
-            mutable i: usize = 0
-            while i < PathCapacity::BYTES and p[i] != 0:
-                i <- i + 1
-            return false if i == PathCapacity::BYTES
+            length: i64 = bounded_path_length(p)
+            return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
             mutable copied: usize = 0
-            while copied <= i:
+            while copied <= length.usize():
                 session_path_bytes[copied] <- p[copied]
                 copied <- copied + 1
             session_path <- (&session_path_bytes[0]).cast[cstr]
