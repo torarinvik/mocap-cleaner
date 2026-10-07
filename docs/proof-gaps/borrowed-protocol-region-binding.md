@@ -172,3 +172,18 @@ product refuses it at region inference. Source SHA-256:
 The driver similarly reassigns `compile_file` during static generation before
 its later calls. Investigate exact known-owner propagation through assignment
 and branch merging while retaining all shorter-lived/unknown-owner refusals.
+
+The assignment follow-up is committed as Go `1bc4fcc1`. Independent inspection
+of its rebuilt product confirms that revision and `vcs.modified=false`; SHA-256:
+`e2240faf766685cbb47b38cd94bd9207f55c7d0b4a71371b65b86f2cf0bc927d`.
+Root reran six compile-only cases from a retained product copy. Plain copy and
+same-owner reassignment each emit 624-byte objects; a conditional assignment
+between two live owners emits 656 bytes. Shorter-lived reassignment, expired
+owner and local escape each refuse with their expected lifetime diagnostics
+and no object. All source/product hashes remain stable across the run. Evidence:
+`build/region-inference-reduction/current-1bc4fcc1/evidence.json`.
+The conditional source is `conditional-owner-reassignment.elisa`, SHA-256
+`6eb23ba82491f18fc35658583539efdd37d615a767415bea9cbe8f6e9692b28f`.
+These results qualify only the isolated bootstrap behavior. Store conformance,
+the remaining seed diagnostics, current Stage1 provenance and the paired proof
+build still require qualification.
