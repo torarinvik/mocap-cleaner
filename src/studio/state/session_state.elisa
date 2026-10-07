@@ -33,6 +33,7 @@ include "session_impact_annotation_policy.elisa"
 include "../chrome.elisa"
 include "../../io/ops_file.elisa"
 include "session_state_io.elisa"
+include "session_source_reference_codec.elisa"
 
 module SessionState:
     public:
@@ -68,6 +69,7 @@ module SessionState:
             TooLarge = 7
             Close = 8
             Edits = 9
+            SourceReference = 10
 
         struct SourceIdentity:
             first: i64
@@ -76,8 +78,12 @@ module SessionState:
             frames: i64
             nodes: i64
 
+        affine struct SourceReferenceOutcome:
+            reference: mutable SessionSourceReferenceCodec::Record?
+            invalid: mutable bool
+
         def session_header() -> sview:
-            return "mocap-studio session 4"
+            return "mocap-studio session 5"
 
         def header_prefix() -> sview:
             return "mocap-studio session "
@@ -154,7 +160,7 @@ module SessionState:
                 return false if not SessionIssueAnnotationPolicy::valid(record.finding, record.analysis_frames)
             return false if not impact_records_valid(impact_records, impact_state, identity)
             out.clear()
-            Report::push_text(out, session_header())
+            Report::push_text(out, "mocap-studio session 4")
             out.push(10)
             Report::push_text(out, "# 1 feet blend | 2 operation | 3 contact edit | 4 correction | 5 hands | 6 source identity | 7 retime band | 8 ignored finding | 9 impact review")
             out.push(10)
@@ -219,6 +225,38 @@ module SessionState:
                 out.push(10)
             true
 
+        # V5 adds one bounded source-reference record to the compatible v4
+        # stack encoding. Existing callers can still write v4 until they can
+        # provide authenticated file digests; new saves must use this API.
+        def encode_session_with_source_reference(s: StackState::Stack&, identity: SourceIdentity,
+                                        source_reference: SessionSourceReferenceCodec::Record&,
+                                        records: darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: SessionImpactAnnotationPolicy::ReviewState,
+                                        impact_records: darray[SessionImpactAnnotationPolicy::Stored]&, out: mutable darray[u8]&) -> bool can Memory.Allocate:
+            mutable legacy: darray[u8] = []
+            return false if not encode_session_with_reviews(s, identity, records, impact_state, impact_records, &legacy)
+            mutable first_break: usize = legacy.count
+            mutable second_break: usize = legacy.count
+            mutable found_break: i64 = 0
+            for index in 0..<legacy.count |legacy, first_break, second_break, found_break|:
+                if legacy[index] == 10:
+                    first_break <- index if found_break == 0
+                    second_break <- index if found_break == 1
+                    found_break <- found_break + 1 if found_break < 2
+            return false if found_break != 2
+            mutable source_line: darray[u8] = []
+            return false if not SessionSourceReferenceCodec::encode(source_reference, &source_line)
+            out.clear()
+            Report::push_text(out, session_header())
+            out.push(10)
+            for index in (first_break + 1)..<(second_break + 1) |legacy, out|:
+                out.push(legacy[index])
+            for byte in source_line |byte, out|:
+                out.push(byte)
+            out.push(10)
+            for index in (second_break + 1)..<legacy.count |legacy, out|:
+                out.push(legacy[index])
+            true
+
         # The version on the header line, or 0 when it is missing or one
         # this build cannot read (StudioChrome::session_version_ok).
         def header_version(text: darray[u8]&) -> i64:
@@ -279,9 +317,9 @@ module SessionState:
             return Corrections::Correction{enabled: fields[1] != 0, node: fields[2], key: key if key >= lo and key <= hi else lo, first: lo, last: hi, rotation: Geometry::Quat{x: rx, y: ry, z: rz, w: rw}, translation: Geometry::Vec3{x: tx, y: ty, z: tz}}
 
         # Decode a session for a clip of `frames` frames and `nodes` document
-        # nodes. Versions 1..3 are parsed only when the caller has an explicit
-        # user-approved legacy migration path. V4 requires exactly one matching
-        # source/animation identity record; malformed data is refused.
+        # nodes. Versions 1..3 require explicit legacy approval. Versions 4
+        # and 5 require one matching identity; v5 also requires one valid
+        # source-reference record.
         def decode_session(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool) -> StackState::Stack?:
             mutable records: darray[SessionIssueAnnotationPolicy::Stored] = []
             decode_session_with_annotations(text, frames, nodes, expected, allow_legacy, &records)
@@ -294,21 +332,36 @@ module SessionState:
         def decode_session_with_reviews(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
                                         annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
                                         impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
+            mutable outcome: SourceReferenceOutcome = SourceReferenceOutcome{reference: null, invalid: false}
+            decode_session_with_source_reference(text, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations, &outcome)
+
+        # Return the decoded source binding with its stack. The caller owns
+        # this value, so concurrent decoders cannot consume shared scratch.
+        def decode_session_with_source_reference(text: darray[u8]&, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
+                                        annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                                        impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&, source_outcome: mutable SourceReferenceOutcome&) -> StackState::Stack?:
+            ensure result != null implies source_outcome.invalid == false
+            ensure result == null implies source_outcome.reference == null
+            ensure result != null implies header_version(text) != 5 or source_outcome.reference != null
             session_annotations_invalid <- false
             session_impact_invalid <- false
             session_edits_invalid <- false
+            source_outcome.reference <- null
+            source_outcome.invalid <- false
             session_source_comparison <- null
             return null if frames < 1 or frames > StudioChrome::Frame::MAX_FRAMES
             return null if not header_line(text)
             version: i64 = header_version(text)
-            return null if version == StudioChrome::Session::VERSION and not StudioSessionSourcePolicy::decode_context_matches(frames, nodes, expected.frames, expected.nodes)
-            return null if version < StudioChrome::Session::VERSION and not allow_legacy
+            return null if version >= 4 and not StudioSessionSourcePolicy::decode_context_matches(frames, nodes, expected.frames, expected.nodes)
+            return null if version < 4 and not allow_legacy
             mutable s: StackState::Stack = StackState::empty()
             mutable cur: darray[u8] = []
             mutable fields: darray[i64] = []
             mutable first_line: bool = true
             mutable identity_count: i64 = 0
             mutable identity_matches: bool = false
+            mutable source_reference_count: i64 = 0
+            mutable decoded_source_reference: SessionSourceReferenceCodec::Record? = null
             mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
             mutable decoded_impact: darray[SessionImpactAnnotationPolicy::Stored] = []
             mutable decoded_impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
@@ -324,9 +377,17 @@ module SessionState:
                     first_line <- false
                     cur.clear()
                     continue
-                if OpsFile::parse_fields(&cur, &fields) and fields.count > 0:
+                if SessionSourceReferenceCodec::has_prefix(&cur):
+                    source_reference_count <- source_reference_count + 1
+                    if version != 5 or source_reference_count != 1:
+                        source_outcome.invalid <- true
+                    elif SessionSourceReferenceCodec::decode(&cur) is source_reference:
+                        decoded_source_reference <- move source_reference
+                    else:
+                        source_outcome.invalid <- true
+                elif OpsFile::parse_fields(&cur, &fields) and fields.count > 0:
                     tag: i64 = fields[0]
-                    if version == StudioChrome::Session::VERSION:
+                    if version >= 4:
                         return reject_authored_edits() if not authored_record_shape_valid(tag, fields.count)
                         return reject_authored_edits() if tag == WireTag::OP and not StudioChrome::session_kind_ok(fields[1])
                         if tag == WireTag::FEET or tag == WireTag::HANDS:
@@ -346,7 +407,7 @@ module SessionState:
                             session_source_comparison <- comparison
                             identity_matches <- comparison == StudioSessionSourcePolicy::Comparison.Matching
                     elif tag == WireTag::OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
-                        if version == StudioChrome::Session::VERSION:
+                        if version >= 4:
                             return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[2]) or not SessionAuthoredValuePolicy::interval_valid(fields[3], fields[4], frames)
                             return reject_authored_edits() if not SessionAuthoredValuePolicy::operation_values_valid(fields[5], fields[6], fields[7])
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
@@ -354,16 +415,16 @@ module SessionState:
                         op: Ops::Operation = Ops::Operation{kind: kind_from(fields[1]), enabled: fields[2] != 0, first: a if a <= b else b, last: b if a <= b else a, bones: StudioChrome::session_bones(fields[5]), strength: StudioChrome::session_strength(fields[6]), edge: StudioChrome::session_edge(fields[7])}
                         return reject_authored_edits() if not StackState::add(&s, op)
                     elif tag == WireTag::EDIT and fields.count == 5:
-                        if version == StudioChrome::Session::VERSION:
+                        if version >= 4:
                             return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[4]) or not SessionAuthoredValuePolicy::interval_valid(fields[2], fields[3], frames)
                         a: i64 = StudioChrome::session_frame(fields[2], frames)
                         b: i64 = StudioChrome::session_frame(fields[3], frames)
                         return reject_authored_edits() if not StackState::add_edit(&s, fields[1], a if a <= b else b, b if a <= b else a, fields[4] != 0)
                     elif tag == WireTag::FIX and fields.count == 13:
-                        if version == StudioChrome::Session::VERSION:
+                        if version >= 4:
                             return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[1]) or not SessionAuthoredValuePolicy::key_valid(fields[4], fields[3], fields[5], frames)
                             return reject_authored_edits() if not SessionAuthoredValuePolicy::rotation_valid(fields[6], fields[7], fields[8], fields[9]) or not SessionAuthoredValuePolicy::translation_valid(fields[10], fields[11], fields[12])
-                        if fix_from(&fields, frames, nodes, version < StudioChrome::Session::VERSION) is fix:
+                        if fix_from(&fields, frames, nodes, version < 4) is fix:
                             return reject_authored_edits() if not StackState::add_fix(&s, fix)
                         else:
                             return reject_authored_edits()
@@ -383,7 +444,7 @@ module SessionState:
                         band.blend <- blend
                         band.enabled <- enabled == 1
                         s.bands[at] <- band
-                    elif tag == WireTag::ANNOTATION and version == StudioChrome::Session::VERSION:
+                    elif tag == WireTag::ANNOTATION and version >= 4:
                         return reject_annotations() if fields.count != 11
                         return reject_annotations() if fields[1] != SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA
                         record: SessionIssueAnnotationPolicy::Stored = SessionIssueAnnotationPolicy::Stored{analysis_frames: fields[2], finding: SessionIssueAnnotationPolicy::Record{first_frame: fields[3], last_frame: fields[4], issue_type: fields[5], subject_id: fields[6], peak_frame: fields[7], severity: fields[8], peak_value: fields[9], threshold: fields[10]}}
@@ -397,7 +458,7 @@ module SessionState:
                             if not duplicate:
                                 decoded_annotations.push(record)
                     elif tag == WireTag::IMPACT:
-                        if version != StudioChrome::Session::VERSION or fields.count != 10 or fields[1] != SessionImpactAnnotationPolicy::Schema::VERSION or (fields[2] != SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() and fields[2] != SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed.i64()):
+                        if version < 4 or fields.count != 10 or fields[1] != SessionImpactAnnotationPolicy::Schema::VERSION or (fields[2] != SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() and fields[2] != SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed.i64()):
                             session_impact_invalid <- true
                         else:
                             review: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.EventsMarked if fields[2] == SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() else SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed
@@ -408,10 +469,14 @@ module SessionState:
                                 decoded_impact_state <- review if decoded_impact.count.i64() == 0
                                 decoded_impact.push(record)
                 else:
-                    return reject_authored_edits() if version == StudioChrome::Session::VERSION
+                    return reject_authored_edits() if version >= 4
                 cur.clear()
             session_source_comparison <- null if identity_count != 1
-            return null if version == StudioChrome::Session::VERSION and (identity_count != 1 or not identity_matches)
+            return null if version >= 4 and (identity_count != 1 or not identity_matches)
+            if version == 5 and source_reference_count != 1:
+                source_outcome.invalid <- true
+                return null
+            return null if source_outcome.invalid
             session_annotations_invalid <- annotation_overflow
             return null if annotation_overflow
             session_impact_invalid <- true if not impact_records_valid(decoded_impact, decoded_impact_state, expected)
@@ -420,6 +485,7 @@ module SessionState:
             annotations <- move decoded_annotations
             impact_state <- decoded_impact_state
             impact_annotations <- move decoded_impact
+            source_outcome.reference <- move decoded_source_reference
             return s
 
         def save_session(s: StackState::Stack&, identity: SourceIdentity, path: cstr) -> bool:
@@ -456,7 +522,15 @@ module SessionState:
         def load_session_with_reviews(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
                                       annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
                                       impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
+            mutable outcome: SourceReferenceOutcome = SourceReferenceOutcome{reference: null, invalid: false}
+            load_session_with_source_reference(path, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations, &outcome)
+
+        def load_session_with_source_reference(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
+                                      annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                                      impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&, source_outcome: mutable SourceReferenceOutcome&) -> StackState::Stack?:
             session_load_error <- LoadError.None.i64()
+            source_outcome.reference <- null
+            source_outcome.invalid <- false
             session_source_comparison <- null
             session_impact_invalid <- false
             session_edits_invalid <- false
@@ -472,15 +546,16 @@ module SessionState:
             if version == 0:
                 session_load_error <- LoadError.Format.i64()
                 return null
-            if version < StudioChrome::Session::VERSION and not allow_legacy:
+            if version < 4 and not allow_legacy:
                 session_load_error <- LoadError.Legacy.i64()
                 return null
             session_annotations_invalid <- false
-            if decode_session_with_reviews(&text, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations) is decoded:
+            if decode_session_with_source_reference(&text, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations, source_outcome) is decoded:
                 return decoded
             session_load_error <- LoadError.Edits.i64() if session_edits_invalid
             session_load_error <- LoadError.Impact.i64() if session_impact_invalid
             session_load_error <- LoadError.Annotations.i64() if session_annotations_invalid and not session_impact_invalid
+            session_load_error <- LoadError.SourceReference.i64() if source_outcome.invalid
             session_load_error <- LoadError.Source.i64() if session_load_error == LoadError.None.i64() and version == StudioChrome::Session::VERSION
             session_load_error <- LoadError.Format.i64() if session_load_error == LoadError.None.i64()
             return null

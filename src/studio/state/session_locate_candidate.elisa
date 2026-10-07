@@ -3,7 +3,7 @@ include "../session_locate_policy.elisa"
 
 extend SessionState:
     public:
-        # Decode a v4 session against its own saved identity into a private
+        # Decode a v4/v5 session against its own saved identity into a private
         # pending candidate. This API never returns the stack; callers must
         # present the located take's identity to take_located_candidate.
         # Failed inspection retains the previous candidate; publish only after
@@ -18,21 +18,25 @@ extend SessionState:
                 session_load_error <- SessionState::LoadError.Read.i64() if read_status == BoundedReadPolicy::Status.OpenFailed or read_status == BoundedReadPolicy::Status.ReadFailed
                 session_load_error <- SessionState::LoadError.Format.i64() if read_status == BoundedReadPolicy::Status.InvalidLimit
                 return false
-            if SessionState::header_version(&text) != StudioChrome::Session::VERSION:
+            version: i64 = SessionState::header_version(&text)
+            if version < 4 or version > StudioChrome::Session::VERSION:
                 session_load_error <- SessionState::LoadError.Format.i64()
                 return false
             if SessionState::locate_identity_in_text(&text) is saved:
                 mutable annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
                 mutable impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
                 mutable impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = []
-                if SessionState::decode_session_with_reviews(&text, saved.frames, saved.nodes, saved, false, &annotations, &impact_state, &impact_annotations) is decoded:
+                mutable source_outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
+                if SessionState::decode_session_with_source_reference(&text, saved.frames, saved.nodes, saved, false, &annotations, &impact_state, &impact_annotations, &source_outcome) is decoded:
                     locate_candidate_stack <- decoded
                     locate_candidate_identity_value <- saved
                     locate_candidate_annotations <- move annotations
                     locate_candidate_impact_state <- impact_state
                     locate_candidate_impact_annotations <- move impact_annotations
+                    locate_candidate_reference <- move source_outcome.reference
                     locate_candidate_open <- true
                     return true
+                session_load_error <- SessionState::LoadError.SourceReference.i64() if source_outcome.invalid
             session_load_error <- SessionState::LoadError.Source.i64()
             false
 
@@ -47,12 +51,27 @@ extend SessionState:
                 annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&,
                 impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
                 impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
+            return null if locate_candidate_reference != null
+            mutable outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
+            take_located_candidate_with_source_reference(current, annotations, impact_state, impact_annotations, &outcome)
+
+        def take_located_candidate_with_source_reference(current: SourceIdentity,
+                annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&,
+                impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&,
+                source_outcome: mutable SessionState::SourceReferenceOutcome&) -> StackState::Stack?:
+            ensure result == null implies source_outcome.reference == null
+            ensure result != null implies source_outcome.invalid == false
+            source_outcome.reference <- null
+            source_outcome.invalid <- false
             if not SessionState::locate_candidate_source_matches(current):
                 return null
             restored: StackState::Stack = locate_candidate_stack
             annotations <- move locate_candidate_annotations
             impact_state <- locate_candidate_impact_state
             impact_annotations <- move locate_candidate_impact_annotations
+            source_outcome.reference <- move locate_candidate_reference
+            source_outcome.invalid <- false
             SessionState::discard_locate_candidate()
             restored
 
@@ -63,6 +82,7 @@ extend SessionState:
             locate_candidate_annotations <- zeroed
             locate_candidate_impact_state <- SessionImpactAnnotationPolicy::ReviewState.Unreviewed
             locate_candidate_impact_annotations <- zeroed
+            locate_candidate_reference <- null
 
     private:
         global mutable locate_candidate_open: bool = false
@@ -71,6 +91,7 @@ extend SessionState:
         global mutable locate_candidate_annotations: darray[SessionIssueAnnotationPolicy::Stored] = zeroed
         global mutable locate_candidate_impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
         global mutable locate_candidate_impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = zeroed
+        global mutable locate_candidate_reference: SessionSourceReferenceCodec::Record? = null
 
         def locate_candidate_source_matches(current: SourceIdentity) -> bool:
             if locate_candidate_identity_value is saved:
@@ -79,7 +100,8 @@ extend SessionState:
                 false
 
         def locate_identity_in_text(text: darray[u8]&) -> SourceIdentity? can Memory.Allocate:
-            return null if SessionState::header_version(text) != StudioChrome::Session::VERSION
+            version: i64 = SessionState::header_version(text)
+            return null if version < 4 or version > StudioChrome::Session::VERSION
             mutable line: darray[u8] = []
             mutable fields: darray[i64] = []
             mutable first_line: bool = true
