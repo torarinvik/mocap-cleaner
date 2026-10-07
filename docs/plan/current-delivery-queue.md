@@ -247,8 +247,14 @@ negative controls, meaningful history entries and session/export parity.
   bar. Full-app compilation currently refuses the concrete join result reader
   (`ctx_concurrency_result_read__Result`, index expression); resolve that
   compiler integration failure before claiming this UI usable. Task-start
-  compilation alone did not exercise the consuming path. The generation row
-  review list, accessible controls and move/Restore controller remain open.
+  compilation alone did not exercise the consuming path. The read-only
+  generation inspection screen is implemented (`c63de6c`) with 16 rows per page,
+  protection explanations, pointer selection, keyboard inspection and
+  Previous/Next/Refresh/Back controls. Its paging laws compile. The full graph
+  still refuses the result reader; the screen has no runtime acceptance yet.
+  Complete discoverable native accessibility, source-bound review/confirmation,
+  move/Restore controller wiring and long-path inspection. See the
+  [integration diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
 - Connect the compiled owning Restore job to the controller. Cancellation or a
   stale ticket suppresses UI publication but must drain the reply and retain any
   unclosed native handle. Restore success requires committed restore, confirmed
