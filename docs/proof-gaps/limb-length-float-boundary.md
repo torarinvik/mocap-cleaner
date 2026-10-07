@@ -4,7 +4,9 @@
 
 `Limb::solve_chain` uses 0.1 mm integer reach lengths. `LengthUnits` preserves
 nearest rounding with ties away from zero, bounds integer conversion without
-saturation, and exposes the canonical units-per-metre scale. Pole angles and
+saturation, and exposes the canonical units-per-metre scale. The float/engine adapter now rounds directly to the final scale, avoiding an
+intermediate micrometre rounding step. The integer micrometre converter remains
+available for integer wire/report boundaries. Pole angles and
 other angular rotation-vector values remain in microradians.
 
 Commit `33f00d5` refuses non-finite segment lengths, target distance and requested
