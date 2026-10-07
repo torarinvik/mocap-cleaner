@@ -85,6 +85,16 @@ Remaining work:
   `/tmp/elisa-compiler-baseline-665f40d7/build/baseline-665f40d7/`.
   Rebuild and rerun current main before using it as the promotion baseline;
   historical gate outcomes cannot qualify the three new performance commits.
+- Qualify the newly working Stage1 value-threading feature separately with
+  `test/parity/value_threading_smoke.sh` and
+  `test/parity/value_threading_codegen_smoke.sh` on current main and candidate;
+  the earlier 37-check profile does not establish their coverage. Preserve
+  owned field, loop capture/value and builtin container cases, plus dropped
+  result, borrowed field, moved-use and wrong tuple-target refusals. Read the
+  current STYLE_GUIDE before adoption. Use value forms for eligible owned data
+  only after compiler and source-proof qualification; keep reference forms for
+  borrowed data and FFI buffers. Verify that canonicalization preserves resolved
+  callee identity, region ownership and the scalar-result carrier rule.
 - Keep the preserved void-ensure behavior delta explicit: the old candidate native
   expectation yields 565/566; revised success/failure checks yield 567/567 and
   verify the exact guard/panic. This Stage0-built backend harness is not direct
