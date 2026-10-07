@@ -388,3 +388,18 @@ drift. Compilation exited 2, declined the same 25 bodies and emitted no object.
 Exact input inventory, failure log and result metadata are retained under
 `build/accessibility-domain-qualification/`. This is source-matched diagnostic
 evidence; it does not qualify the application or establish the failure's cause.
+
+## Accessibility dependency repair
+
+Commit `1183b87` resolves the preceding 25 field-expression declines by
+declaring accessibility.elisa's direct UiCore dependency. Its NO_NODE constant
+uses UiCore::MAX_ACCESSIBILITY_NODES. The focused law graph supplied UiCore
+explicitly, whereas the wider sheet graph did not; this was a missing source
+dependency, not an established compiler ownership collision.
+
+A fresh candidate O0 batch after the repair produced sheet laws (638,048
+bytes), report laws (544,656 bytes) and workspace accessibility laws (434,248
+bytes), all exit 0. Full input snapshot comparison passed with no drift.
+Repaired inventories, logs and results are retained in
+`build/accessibility-domain-qualification/`. Independent source-authenticated
+proof replay and native accessibility behavior remain required.

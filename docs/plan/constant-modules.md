@@ -43,10 +43,6 @@ remaining-work plan.
       bitmask combinations against prior behavior. Include negative sentinels,
       maximum values, round trips and malformed data. Preservation of literal
       values alone does not establish behavior preservation.
-- [ ] Resolve the current context-dependent accessibility backend declines.
-      The focused accessibility law graph compiles, while the wider export
-      batch-sheet graph refuses 25 bodies involving constant expressions.
-      Do not close this gate using focused compilation alone.
 - [ ] Compile all affected source, law and existing fixture graphs with current
       source-matched compiler, standard library and linked dependencies. Capture
       exact inputs before/after compilation and reject drift. Include complete
