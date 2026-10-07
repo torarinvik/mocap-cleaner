@@ -1,0 +1,45 @@
+include "generation_recovery_ledger_policy.elisa"
+
+# In-memory identity retention only. Durable receipt enumeration and native
+# reconciliation remain the adapter's responsibility. No native handles are
+# copied into this ledger; their owning replies must remain alive separately.
+module StudioGenerationRecoveryLedger:
+    public:
+        struct Identity:
+            root: darray[u8]
+            operation: darray[u8]
+
+        struct Ledger:
+            private:
+                identities: mutable darray[Identity]
+
+        def empty() -> Ledger:
+            Ledger{identities: []}
+
+        def count(ledger: Ledger&) -> i64:
+            ensure result == ledger.identities.count.i64()
+            ledger.identities.count.i64()
+
+        def find(ledger: Ledger&, root: darray[u8]&, operation: darray[u8]&) -> i64:
+            ensure result >= -1 and result < count(ledger)
+            for index in 0..<ledger.identities.count |index, ledger, root, operation|:
+                identity: Identity = ledger.identities[index]
+                return index.i64() if equal(identity.root, root) and equal(identity.operation, operation)
+            -1
+
+        def record(ledger: mutable Ledger&, root: darray[u8]&, operation: darray[u8]&) -> StudioGenerationRecoveryLedgerPolicy::Admission can Memory.Allocate:
+            admission: StudioGenerationRecoveryLedgerPolicy::Admission = StudioGenerationRecoveryLedgerPolicy::admission(count(ledger), root, operation, find(ledger, root, operation) >= 0)
+            return admission if admission != StudioGenerationRecoveryLedgerPolicy::Admission.Accepted
+            mutable root_copy: darray[u8] = []
+            mutable operation_copy: darray[u8] = []
+            root_copy.extend(root)
+            operation_copy.extend(operation)
+            ledger.identities.push(Identity{root: root_copy, operation: operation_copy})
+            admission
+
+    private:
+        def equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |index, left, right|:
+                return false if left[index] != right[index]
+            true
