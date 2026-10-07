@@ -61,3 +61,33 @@ behavior and cleanup-side exclusive acquisition remain unqualified. Legacy
 artifacts with no protocol record remain unknown and protected. Cleanup
 mutation remains unwired until exclusive-lease and recoverable receipt paths
 are implemented.
+
+## Explicit contents ownership inventory
+
+Commits `c23caed`, `c077c13` and `4fc9529` implement the inventory producer
+and bind it into Studio build and package sealing. Builders explicitly declare
+all produced noncontrol files and directories. Complete traversal rejects
+unknown descendants, symlinks, hard links, foreign owners and unstable reads.
+Limits are 4,096 entries, 32 path components, 4,095 UTF-8 path bytes, 1 MiB JSON
+and 10^15 total regular-file bytes. File entries contain `size_bytes` and
+`sha256`; directory entries contain only `path` and `kind`.
+
+Records use `mocap-studio-generation-inventory-v1` and live outside the artifact
+at `build/.studio-generation-inventory/<artifact-id>.json`. `root_device` and
+`root_inode` identify the artifact directory; `build_root_device` and
+`build_root_inode` identify its owning build directory. Creation is exclusive,
+requires the inherited global build lock, and syncs the external record before
+sealing. `contents_inventory_sha256` binds it into generation metadata and the
+lease. Package directory identity survives publication and backup renames.
+
+Build controls `inputs.json` and `.studio-generation.lease`, and package controls
+`Contents/Resources/{PACKAGE-GENERATION.json,BUILD-INPUTS.json,.studio-generation.lease}`,
+are excluded to avoid a digest cycle. Cleanup must verify those controls
+independently. External inventory records remain recovery dependencies after
+quarantine. Unregistered copies and incomplete generations remain protected;
+failed-generation ownership requires its separate creation journal.
+
+Shell syntax, Python AST parsing and diff whitespace checks passed. No build,
+package execution, crash recovery, inventory tampering or cleanup mutation
+qualification is claimed for this integration yet. Native validation and
+current end-to-end qualification remain open.
