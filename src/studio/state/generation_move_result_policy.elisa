@@ -1,0 +1,29 @@
+include "generation_handle_policy.elisa"
+
+module StudioGenerationMoveResultPolicy:
+    public:
+        const enum Outcome of i64:
+            RetainedHandle = 0
+            Recoverable = 1
+            NotMoved = 2
+            NeedsRecovery = 3
+
+        def classify_result(handle: i64, recoverable: bool, operation_bytes: i64,
+                            release: StudioBuildGenerationTrashBindingPolicy::DecodedStatus,
+                            recovery: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome) -> Outcome:
+            ensure handle != 0 implies result == Outcome.RetainedHandle
+            ensure result == Outcome.Recoverable implies handle == 0 and recoverable and operation_bytes > 0 and operation_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES and StudioGenerationHandlePolicy::release_certain(release) and recovery == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Quarantined
+            ensure result == Outcome.NotMoved implies handle == 0 and not recoverable and operation_bytes > 0 and operation_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES and StudioGenerationHandlePolicy::release_certain(release) and recovery == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.NotMoved
+            return Outcome.RetainedHandle if handle != 0
+            valid_identity: bool = operation_bytes > 0 and operation_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES
+            return Outcome.NeedsRecovery if not valid_identity or not StudioGenerationHandlePolicy::release_certain(release)
+            return Outcome.Recoverable if recoverable and recovery == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Quarantined
+            return Outcome.NotMoved if not recoverable and recovery == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.NotMoved
+            Outcome.NeedsRecovery
+
+        def message(outcome: Outcome) -> sview:
+            match outcome:
+                Outcome.RetainedHandle: return "Filesystem operation still owns a handle. Further moves are paused until it is safely released."
+                Outcome.Recoverable: return "Moved to recoverable storage. Files remain on disk; recovery evidence is retained."
+                Outcome.NotMoved: return "The generation was not moved. Its recovery receipt is retained."
+                Outcome.NeedsRecovery: return "The move outcome needs reconciliation. Recovery evidence is retained; further moves are paused."
