@@ -14,10 +14,12 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting every subsequent source slice.
 
-Compiler `9667344c` now has matched Stage1/runtime products. Prover/replay
-generation `ef1317585270400a8aa51deeb92ed517` passed pair integrity and current
-dependency freshness checks. These establish the tools available for the next
-qualification, not application behavior or law truth. Complete application
+Compiler `cc6570385d30090d0faa4e64a8f130f446764cec` now has matched
+Stage1/runtime products after incorporating fetched upstream changes. The
+complete Studio graph is being compiled against the captured current inputs.
+The earlier prover/replay generation `0729897f0fdc46ab8c0172974f1e42d3`
+was matched to compiler `9667344c`; it is now comparison evidence. Rebuild the
+pair against the current compiler before qualification. Complete application
 compilation/linking and the current full check remain open.
 
 - Qualify borrow-region propagation through compiler/std callers, including
@@ -52,8 +54,10 @@ this item. Keep native interaction and motion quality separately open.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
-- Repair current struct/const-enum correspondence refusal and control-flow fact
-  snapshot growth. The generation cleanup graph has 89 obligations, only 33
+- Repair current struct/const-enum correspondence refusal, authenticated
+  summaries for multi-branch enum/bool helpers and control-flow fact snapshot
+  growth. Extra enum disequality facts cannot substitute for the missing
+  checked relation between a helper result and its inputs. The generation cleanup graph has 89 obligations, only 33
   proven and replayed, and no authenticated source obligations. Preserve its
   safety contracts and fail-closed authentication while fixing these gaps;
   see [the exact qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).

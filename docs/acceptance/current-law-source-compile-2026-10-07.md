@@ -68,3 +68,23 @@ This narrow compile used the working-tree sources, without a copied snapshot.
 It does not qualify lease acquisition, filesystem identity, directory moves,
 receipt durability or Restore. Authenticated proof replay remains pending.
 The earlier d2754a8e batch is comparison evidence relative to this compiler.
+
+## Layout, truncation and creation laws: compiler cc657038
+
+The latest source-matched Stage1 product is
+`424fa9a82f6c0049bec123cec1786d36d32ca1fee874f27364d59c35886fbc23`, built
+from `cc6570385d30090d0faa4e64a8f130f446764cec`. Before/after provenance
+checks passed. Three working-tree O0 law graphs compiled with exit 0:
+
+| Graph | Laws | Object bytes |
+| --- | ---: | ---: |
+| Storage footer layout | 8 | 14016 |
+| Text truncation | 4 | 7320 |
+| Incomplete generation creation admission | 16 | 53192 |
+
+Seven source hashes and all object hashes are retained in
+`build/storage-layout-qualification/cc657038/source-object-evidence.json`.
+These are compile-only records, without executable tests, authenticated proof
+or a copied transitive closure. Native creation journals and cleanup controller
+integration remain open. All earlier compiler batches above are comparison
+evidence relative to this compiler revision.

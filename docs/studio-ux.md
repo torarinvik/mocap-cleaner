@@ -350,14 +350,22 @@ inspection and semantic row names. The top-level Storage panel currently owns
 its temporary clip state; nested clipping would need preserved/intersected
 caller clip state before this renderer is reused inside another clipped panel.
 
-Eight layout laws and four truncation laws accompany these changes. After
-fixing multiline expression parentheses in `7f64fa9`, their O0 law graphs
-compiled successfully with provenance-checked compiler `9667344` (product
-`bed23103851823084b365d825570394243564f99e1c6e1c4dd896d633194797b`):
-layout 14,016 bytes and truncation 7,320 bytes. Source/object hashes are retained
-in `build/storage-layout-qualification/source-object-evidence.json`. This
-qualifies source/type/backend acceptance of those small graphs only, not the
-composed panel, runtime behavior or authenticated proof. Still pending: native resize/keyboard/VoiceOver checks, font and scale validation,
-long introduction/overview/footer text, tiny-window minimum-size behavior,
-and an overflow marker when a name fits the byte slot but exceeds its pixel
-column. Source clipping alone does not close those presentation requirements.
+Eight layout laws and four truncation laws accompany these changes. Their O0
+law graphs, plus the sixteen creation-policy laws, compiled with source-matched
+compiler `cc6570385d30090d0faa4e64a8f130f446764cec` (Stage1 SHA-256
+`424fa9a82f6c0049bec123cec1786d36d32ca1fee874f27364d59c35886fbc23`).
+Objects are 14,016, 7,320 and 53,192 bytes respectively. Source/object hashes
+are retained in `build/storage-layout-qualification/cc657038/source-object-evidence.json`.
+Provenance checks passed before and after compilation. These working-tree
+compiles establish source/type/backend acceptance only; they are not immutable
+closure, composed-panel, runtime or authenticated proof qualification. Earlier
+`9667344` records remain comparison evidence.
+
+Pixel overflow now uses checked CoreText width measurements and a measured
+`...` indicator; unavailable measurements retain clipping. The marker is measured
+once per panel frame. Native visual and performance qualification remains open.
+The current app minimum window is 1100 × 720 and the Storage dialog is capped
+at 760 pixels wide; narrower policy cases are defensive layout coverage, not
+proof of currently reachable window sizes. Still pending: native resize,
+keyboard/VoiceOver, font and scale checks, long introduction/overview/footer
+text and minimum-size behavior.
