@@ -1,7 +1,21 @@
 include "app_state.elisa"
+include "../gizmo_target_policy.elisa"
 
 extend Studio:
     private:
+        global mutable gizmo_target: StudioGizmoTargetPolicy::Target = StudioGizmoTargetPolicy::Target{generation: -1, result_generation: -1, bone: -1, frame: -1, view: -1, mode: -1}
+
+        def current_gizmo_target(i: i64) -> StudioGizmoTargetPolicy::Target:
+            StudioGizmoTargetPolicy::Target{generation: stack_generation, result_generation: built, bone: bone, frame: frame_now(), view: i, mode: gizmo_mode}
+
+        def gizmo_target_current(i: i64) -> bool:
+            StudioGizmoTargetPolicy::current(gizmo_target, current_gizmo_target(i))
+
+        def gizmo_target_refused() -> void:
+            gizmo_cancel()
+            status <- "Correction target changed. Select the intended bone and frame, then drag again. Existing edits kept."
+            touch()
+
         def active_handle() -> i64:
             if gizmo_drag is d:
                 return d.handle
@@ -29,7 +43,16 @@ extend Studio:
         def gizmo_press(i: i64, x: f32, y: f32) -> bool:
             if view(i) is opened:
                 if clip is c:
-                    return false if bone < 0
+                    return false if bone < 0 or bone >= c.nodes.count.i64()
+                    return false if frame_now() < 0 or frame_now() >= c.frames
+                    if built_stack is evaluated:
+                        current: StackState::Stack = current_stack()
+                        if not StackState::same(evaluated, current):
+                            status <- "Wait for the current result before editing a correction."
+                            touch()
+                            return false
+                    else:
+                        return false
                     g: ViewportGizmo::Gizmo = StudioScene::gizmo_for(c, frame_now(), bone, gizmo_mode)
                     handle: i64 = ViewportGizmo::pick(&opened.camera, &g, view_px(i, x), view_py(i, y))
                     return false if handle == GizmoPolicy::NONE
@@ -40,8 +63,13 @@ extend Studio:
                         value: value
                         error failure: false
                     return false if not ok
+                    if timeline is t:
+                        mutable paused: TimelineState::State = t
+                        paused.playing <- false
+                        set_timeline(paused)
                     gizmo_drag <- d
                     gizmo_view <- i
+                    gizmo_target <- current_gizmo_target(i)
                     status <- "gizmo drag"
                     nudged_row <- -1
                     status_file <- null
@@ -53,6 +81,9 @@ extend Studio:
         def gizmo_preview(x: f32, y: f32) -> void:
             i: i64 = gizmo_view
             if gizmo_drag is d:
+                if not gizmo_target_current(i):
+                    gizmo_target_refused()
+                    return
                 if view(i) is opened:
                     goal: Geometry::Transform = ViewportGizmo::goal(d, &opened.camera, view_px(i, x), view_py(i, y))
                     gizmo_goal <- goal
@@ -66,6 +97,9 @@ extend Studio:
         # Key the dragged pose at the current frame as a correction.
         def gizmo_release(x: f32, y: f32) -> void:
             i: i64 = gizmo_view
+            if gizmo_drag != null and not gizmo_target_current(i):
+                gizmo_target_refused()
+                return
             gizmo_view <- -1
             if gizmo_drag is d:
                 if view(i) is opened:

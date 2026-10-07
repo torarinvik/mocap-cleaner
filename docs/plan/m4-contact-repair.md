@@ -132,6 +132,18 @@ proof discharge and document/history preservation through native refusal
 paths remain open. This integer policy does not establish finite transforms,
 valid rig-node ownership or preservation of a refused gizmo draft.
 
+Gizmo drags now capture stack and evaluated-result generations, selected bone,
+frame, view and tool mode. Preview and release reject a changed target before
+creating a correction; starting a drag pauses playback and requires the
+evaluated stack to match current edits. Eight target-policy laws compile from
+copied source inputs under `build/gizmo-target-qualification/`. The integrated
+controller compile was cancelled after its inputs changed, so it supplies no
+acceptance evidence. Qualify the complete controller with current products and
+exercise undo, take replacement, frame/bone changes, rebuild completion,
+playback, focus loss and repeated release. Cancellation must leave history and
+committed corrections unchanged; do not claim preview/release agreement until
+the native pose comparison passes.
+
 
 ### Endpoint no-op qualification
 
