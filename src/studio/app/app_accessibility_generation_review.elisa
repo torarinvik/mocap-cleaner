@@ -17,6 +17,11 @@ extend Studio:
         def generation_review_storage_busy() -> bool:
             storage_batch_state == StudioStorageBatchPolicy::State.Running.i64() or storage_move_review or storage_restore_review
 
+        def generation_review_control_enabled(action: StudioGenerationReviewAccessibilityPolicy::Action,
+                                              page: i64, pages: i64) -> bool:
+            return StudioGenerationReviewAccessibilityPolicy::review_action_enabled(generation_move_action_enabled()) if action == StudioGenerationReviewAccessibilityPolicy::Action.Review
+            StudioGenerationReviewAccessibilityPolicy::action_enabled(action, page, pages)
+
         def generation_review_accessibility_node(role: UiCore::AccessibilityRole,
             label: sview, help_text: sview, box: StudioPanels::Box, id: usize,
             parent_id: usize, first_child_id: usize, next_sibling_id: usize,
@@ -225,22 +230,23 @@ extend Studio:
             for policy_action in [StudioGenerationReviewAccessibilityPolicy::Action.Previous,
                                   StudioGenerationReviewAccessibilityPolicy::Action.Next,
                                   StudioGenerationReviewAccessibilityPolicy::Action.Refresh,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.Back] |policy_action, pages, generation_review_page, dialog, w, h|:
+                                  StudioGenerationReviewAccessibilityPolicy::Action.Back,
+                                  StudioGenerationReviewAccessibilityPolicy::Action.Review] |policy_action, pages, generation_review_page, dialog, w, h|:
                 action: i64 = policy_action.i64()
                 id: usize = StudioGenerationReviewAccessibilityPolicy::action_id(policy_action)
                 widget: usize = accessibility_generation_review_controls[action.usize()]
-                enabled: bool = StudioGenerationReviewAccessibilityPolicy::action_enabled(policy_action, generation_review_page, pages)
+                enabled: bool = generation_review_control_enabled(policy_action, generation_review_page, pages)
                 UiFlat::set_enabled(widget, enabled)
                 generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
-                    "Previous page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Previous else "Next page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Next else "Refresh generation inventory" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Refresh else "Back to Storage",
-                    "Activates the matching visible review control.",
+                    generation_move_action_label() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Review else "Previous page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Previous else "Next page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Next else "Refresh generation inventory" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Refresh else "Back to Storage",
+                    generation_move_action_help() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Review else "Activates the matching visible review control.",
                     generation_review_control_box(w, h, action), id,
                     StudioGenerationReviewAccessibilityPolicy::Node::DIALOG, none,
                     StudioGenerationReviewAccessibilityPolicy::next_sibling(id, visible),
                     widget, enabled, generation_review_focus == action, false, "")
 
     public:
-        def generation_review_accessibility_action(widget: usize, event: i32) -> bool:
+        def generation_review_accessibility_action(widget: usize, event: i32) -> bool can[Threads, Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             if generation_review_open:
                 if event == UiConst::WidgetEvent.Click.i32() and accessibility_generation_review_ready:
                     for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot, widget|:
@@ -252,8 +258,9 @@ extend Studio:
                     for action in [StudioGenerationReviewAccessibilityPolicy::Action.Previous,
                                    StudioGenerationReviewAccessibilityPolicy::Action.Next,
                                    StudioGenerationReviewAccessibilityPolicy::Action.Refresh,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.Back] |action, widget|:
-                        if widget == accessibility_generation_review_controls[action.i64().usize()] and StudioGenerationReviewAccessibilityPolicy::action_enabled(action, generation_review_page, StudioGenerationReviewListPolicy::page_count(generation_review_count())):
+                                   StudioGenerationReviewAccessibilityPolicy::Action.Back,
+                                   StudioGenerationReviewAccessibilityPolicy::Action.Review] |action, widget|:
+                        if widget == accessibility_generation_review_controls[action.i64().usize()] and generation_review_control_enabled(action, generation_review_page, StudioGenerationReviewListPolicy::page_count(generation_review_count())):
                             generation_review_focus <- action.i64()
                             generation_review_action(action.i64())
                             return true
