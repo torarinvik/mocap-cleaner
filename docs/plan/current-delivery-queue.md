@@ -14,15 +14,19 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-The current compiler repair is not qualified for promotion. Latest source
-`24271bee` includes the narrowed resolved-call carrier inference and explicit
-borrowed-view signatures. Its seed refuses 61 multi-input region mismatches;
-there is no fresh qualifying binary for this source. Earlier product/build
-observations remain comparison evidence in the linked records.
+The current compiler repair is not qualified for promotion. Committed source
+`22df50bf` replaces mixed-owner callee views with scalar table selectors;
+`dda25d1c` separately records the void-postcondition regression expectations.
+Further lifetime repairs are pending. Direct Stage0 diagnostic compile
+`build/descriptor-syntax7.log` cleared the six remaining static region-call
+errors but refused backend arena resolution for `Backend.resolved_error_family`.
+This diagnostic compile is not a qualifying seed or a fresh Stage1 product.
+Earlier product/build observations remain comparison evidence in the linked
+records.
 
 Remaining work:
 
-- Replace multi-source owner selectors with a source-qualified result descriptor
+- Finish replacing multi-source owner selectors with a source-qualified result descriptor
   or a supported lifetime-preserving representation. Preserve distinct FnTable,
   StructTable, GenericTable and AST owners. Do not unify unrelated input regions,
   erase lifetime tracking, or introduce copy allocations without measuring their
