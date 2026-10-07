@@ -101,6 +101,9 @@ def publish(project, artifact, artifact_id):
         if previous is not None:
             require(previous.st_uid == os.getuid() and previous.st_nlink == 1 and
                     (stat.S_ISLNK(previous.st_mode) or stat.S_ISREG(previous.st_mode)), "unsupported existing output")
+            if stat.S_ISLNK(previous.st_mode):
+                require(os.readlink(Publication.destination, dir_fd=build) != target,
+                        "generation is already current; reconcile uncertain publication before retry")
             if stat.S_ISREG(previous.st_mode):
                 owned(previous)
         os.symlink(target, Publication.temporary, dir_fd=root)

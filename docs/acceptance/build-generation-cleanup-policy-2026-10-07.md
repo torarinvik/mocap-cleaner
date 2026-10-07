@@ -194,3 +194,10 @@ native consumption of creation records remain open; the records alone do not
 establish cleanup eligibility. The existing journal transition policy and laws
 cover the intended Sealed/Published admission rules, but current authenticated
 proof qualification remains pending.
+
+Publication retries now refuse before pointer mutation when revision 4 already
+exists, or when the current pointer already names this generation without that
+record. The latter is an interrupted-publication reconciliation case, not
+permission to redo the rename. Two additional source laws reject Published to
+Published and Published to Building. The journal law count is now 26; their
+current compiler and authenticated proof qualification remain pending.
