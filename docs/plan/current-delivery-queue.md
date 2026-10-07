@@ -22,6 +22,14 @@ was matched to compiler `9667344c`; it is now comparison evidence. Rebuild the
 pair against the current compiler before qualification. Complete application
 compilation/linking and the current full check remain open.
 
+The current normal CLI compile finished successfully, without execution. The
+Studio compile refused nine binary expressions and produced no object/link;
+the earlier ListItem field refusal is resolved. Its captured input postcheck
+passed. A current proof-pair build then refused a build-recipe digest mismatch
+between the selected Stage1 provenance and the pinned compiler recipe. Resolve
+that discrepancy and repeat strict provenance/pair checks before accepting the
+toolchain; a passing narrower standalone provenance check cannot override it.
+
 - Qualify borrow-region propagation through compiler/std callers, including
   explicit short-lived allocation refusal, distinct owners and retained scratch
   capacity. Do not relax lifetime validation to bootstrap the compiler.

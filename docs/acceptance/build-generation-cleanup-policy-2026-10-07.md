@@ -120,3 +120,21 @@ authorize preparing an update; they do not prove a filesystem write succeeded.
 Initial journal creation, producer registration, durable persistence, startup
 reconciliation and cleanup integration remain to implement. These new laws
 have not yet compiled or received authenticated proof qualification.
+
+Initial producer registration is now implemented in `6926f46` and wired into
+Studio builds in `6eb048e`, before snapshot and native/Elisa product writes.
+The external `build/.studio-generation-creations/<artifact-id>.json` record
+uses schema `mocap-studio-generation-creation-v1`, phase `created`, revision 1,
+a random operation ID, original relative path, build/artifact/lease identities
+and explicitly declared entries (including control records). Registration
+requires the global exclusive lock, a private empty lease under an exclusive
+artifact lock, and an initial tree containing only declared directories and
+that lease. Unknown preexisting outputs refuse registration.
+
+The producer uses exclusive record publication, file/parent/build directory
+synchronization and repeated descriptor/path checks. It preserves uncertain
+published records and replaced temporary entries for inspection. The helper
+itself is a captured build input. Bash syntax and Python AST parsing passed;
+no helper execution or crash/race acceptance is claimed. Package registration,
+later phase updates, native record consumption and failed-generation cleanup
+remain open. A Created record never establishes failed/abandoned eligibility.
