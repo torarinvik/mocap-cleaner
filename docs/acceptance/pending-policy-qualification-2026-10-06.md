@@ -267,3 +267,25 @@ graph exited zero and emitted `build/length-units-qualification/laws.o`,
 `nm` lists all three kernel and ten law definitions. This establishes compiled
 source only: authenticated proof, overflow qualification, caller migration,
 threshold behavior and exported-metric compatibility remain open.
+
+Commit `820a963` strengthens the converter's own contracts with sign
+preservation and the signed 50 micrometre reconstruction error bound; the law
+graph now has twelve laws. Current source/law SHA-256 values are respectively
+`088b16fc58a7796eff6777a8dce956e50cb90d8c4da0dc3fdf5334fcd411d9b1`
+and `ef51d53dc586bcee7918b0b801070394280f65accb679e3e90845d31812d2240`.
+Its O0 compile exited zero, producing `laws-contracted.o` (26,352 bytes),
+SHA-256 `7cb461382834dc192cb8826220766aac1a4375299fb36ccc9508b10628632864`
+in the same build directory. The preceding generation remains comparison
+evidence; proof qualification must use these current source hashes.
+
+## Immutable integrated input staging
+
+The compiler worker staged `build/report-model-optional/immutable-20261007`
+with project/UI/engine sibling layout and the exact candidate compiler source,
+binary, standard library and runtime inputs. The root independently compared
+original before/after inventories (equal), rehashed all 529 staged manifest
+entries (zero mismatches), and mapped staged paths back to original sibling
+roots (all 529 hashes match). The graph includes `ui_paint_diagnostic.elisa`.
+This establishes staging consistency only. Preserve explicit standard-library
+root selection and verify the staged manifest after compilation before treating
+the eventual product as qualification evidence.
