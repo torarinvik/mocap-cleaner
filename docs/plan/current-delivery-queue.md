@@ -61,17 +61,18 @@ this item.
   captured baseline is pair `655657441d704884a881f28382b46321`, built against
   compiler `48dc78e2` after committed helper-purity repair `fed9a108`.
   TakeSourceRef had 59 obligations, 34 proven and 25 unproven; staging had
-  117 obligations, 21 proven and 96 unproven. Their 34 and 21 resource checks
+  115 obligations, 21 proven and 94 unproven. Their 34 and 21 resource checks
   replayed respectively, but both packages remained source-unauthenticated
   with unsupported correspondence. Pair integrity is not source authentication.
   Retain the exact immutable pair reports; do not treat package admissibility
   as verified predicates. Subsequent proof edits require a new current pair.
-- The retained staging report still marks `path_valid`, `bytes_equal`,
-  `path_bound`, `paths_bound` and `copy_digest_bound` as `pure:false`, despite
-  verified bodies. Two staging contract calls remain unsupported and their
-  postconditions remain unproved. The earlier purity-closure summary was wrong;
-  diagnose the remaining gate before claiming closure. Preserve shared reborrow,
-  mutation exclusion and owner-qualified generic-region constraints.
+- Latest `build/fbx-staging-current.json` (SHA-256
+  `b2a5e3148a4952f99d19de7837e24092004c997f1c1429e4dd5651db5721abce`)
+  marks the five staging helpers pure and verified, with no unsupported contract
+  calls. The older `current-owner-summary-repair-final/staging-current.json`
+  still rejects purity and must not be substituted for this report. Staging
+  postconditions remain unproved. Preserve shared reborrow, mutation exclusion
+  and owner-qualified generic-region constraints.
   Zero-argument generic calls need checked call-site region substitutions;
   matching an ambient region by spelling cannot establish a valid binding.
 - Qualify generation and creation-journal laws again with the repaired pair.

@@ -128,15 +128,20 @@ none authenticates source correspondence:
 | FBX staging | 117 | 21 | 96 | 21/21 | 0 checked, 38 unsupported |
 | FBX refusal mapping | 43 | 26 | 17 | 26/26 | 0 checked, 4 unsupported, 1 unmatched |
 
-The committed repair adds bounded-loop and restricted capture-wrapper handling,
-but the retained report does not establish purity closure. Root inspected
+The older retained report predates the bounded-loop/capture-wrapper repair. Root inspected
 `staging-current.json`, SHA-256
 `455d4671cd040a086a9ec18e8cbcd735847cfdd5842b8fa90772f1e1029d2285`:
 `path_valid`, `bytes_equal`, `path_bound`, `paths_bound` and `copy_digest_bound`
 have verified bodies but remain `pure:false`. `stage_admitted` still has two
 `contract-call-unsupported` findings at policy lines 85 and 89. The earlier
-summary claiming pure helpers and supported contract calls was incorrect.
-This repair does not authenticate the native staging implementation.
+summary that treated this older file as the current result was incorrect.
+
+Root independently inspected the actual latest `build/fbx-staging-current.json`,
+SHA-256 `b2a5e3148a4952f99d19de7837e24092004c997f1c1429e4dd5651db5721abce`.
+It has 115 obligations, 21 proven and 94 unproven, with 14 semantic diagnostics
+and no errors. All five helpers are pure and verified; `stage_admitted` is pure
+but body-unverified, with no `contract-call-unsupported` findings. Its
+postconditions remain unproved. Neither report authenticates native staging.
 The staging `good` fixture still has two `region-call-opaque` findings at line
 25: the zero-argument generic call `digest[@r]()` has no argument carrying its
 caller region in the compiler AST. The remaining `stage_admitted` ensures are
