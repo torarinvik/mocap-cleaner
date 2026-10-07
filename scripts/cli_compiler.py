@@ -5,19 +5,18 @@ import os
 import hashlib
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 
 
 def selected_toolchain(compiler):
-    selected = Path(compiler).resolve(strict=True)
+    selected = Path(shutil.which(compiler) or compiler).resolve(strict=True)
     if ((selected.name == "elisac_stage1.sh" and selected.parent.name == "scripts") or
             (selected.name == "elisac-stage1" and selected.parent.name == "bin")):
         compiler_root = selected.parent.parent
-    elif os.environ.get("ELISA_STAGE1"):
-        compiler_root = Path(os.environ["ELISA_STAGE1"]).resolve(strict=True)
     else:
-        raise ValueError("CLI compiler root is unknown; set ELISA_STAGE1 explicitly")
+        raise ValueError("CLI compiler must be the selected Stage1 wrapper or product")
     configured = os.environ.get("ELISA_STAGE1")
     if configured and Path(configured).resolve(strict=True) != compiler_root:
         raise ValueError("CLI compiler differs from ELISA_STAGE1 checkout")
@@ -40,9 +39,12 @@ def main() -> int:
     root = Path(__file__).resolve().parent.parent
     compiler = os.environ["MOCAP_CLI_COMPILER"]
     args = sys.argv[1:]
+    if "-emit" in args and args.index("-emit") + 1 == len(args):
+        print("CLI compiler -emit requires a value", file=sys.stderr)
+        return 2
     if "-emit" not in args or args[args.index("-emit") + 1] != "exe":
         return subprocess.call([compiler, *args])
-    if "-o" not in args:
+    if "-o" not in args or args.index("-o") + 1 == len(args):
         print("CLI native linking requires an explicit output path", file=sys.stderr)
         return 2
     output_index = args.index("-o") + 1
