@@ -90,3 +90,12 @@ in `build/fbx-snapshot-identity-law-rdnxbwlj/`, object SHA-256
 `805b8130c059ff46c67c2c0679235a85ff4bd09790a9aa45d810015469a275aa`.
 Inputs still matched after compilation. Runtime, authenticated proof and native
 correspondence remain unqualified; refresh the qualification snapshot again.
+
+The first current pair build stopped before compilation with a provenance
+mismatch: selected Stage1 source `665f40d7`, frontend source `96761822`.
+`ELISA_STAGE1_ROOT` selects the compiler product, while `compiler_snapshot.sh`
+independently defaults its frontend repository and revision. The supported
+`ELISA_COMPILER_SRC` and `ELISA_COMPILER_REV` overrides must select that same
+`665f40d7` source for this intended comparison tuple. Preserve the failed build
+record and record corrected immutable commands; do not disable the mismatch
+guard. A successful matching build is still required before package replay.
