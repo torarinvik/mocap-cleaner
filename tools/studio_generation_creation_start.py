@@ -39,8 +39,8 @@ def unique_object(pairs):
     return result
 
 
-def read_initial(parent, artifact_id):
-    fd = os.open(artifact_id + ".json", FILE_FLAGS, dir_fd=parent)
+def read_record(parent, filename):
+    fd = os.open(filename, FILE_FLAGS, dir_fd=parent)
     try:
         facts = os.fstat(fd)
         owned(facts)
@@ -55,33 +55,38 @@ def read_initial(parent, artifact_id):
         require(len(payload) == facts.st_size and version(os.fstat(fd)) == version(facts),
                 "creation record changed during read")
         record = json.loads(payload, object_pairs_hook=unique_object)
-        require(isinstance(record, dict) and set(record) == Event.initial_keys,
-                "unsupported initial creation record fields")
-        require(record["schema"] == Journal.schema and record["phase"] == Journal.phase and
-                type(record["revision"]) is int and record["revision"] == Journal.revision and
-                record["artifact_id"] == artifact_id, "unsupported initial creation state")
-        require(isinstance(record["operation_id"], str) and
-                re.fullmatch(r"[0-9a-f]{32}", record["operation_id"]), "invalid operation identity")
-        entries = record["declared_entries"]
-        require(isinstance(entries, list) and len(entries) <= Limits.entries, "invalid creation plan")
-        files, directories = [], []
-        for entry in entries:
-            require(isinstance(entry, dict) and set(entry) == {"path", "kind"} and
-                    isinstance(entry["path"], str), "invalid declared creation entry")
-            if entry["kind"] == "regular_file":
-                files.append(entry["path"])
-            else:
-                require(entry["kind"] == "directory", "unsupported creation entry kind")
-                directories.append(entry["path"])
-        plan = declared_plan(files, directories, record["artifact_kind"])
-        require(entries == [{"path": path, "kind": plan[path]} for path in sorted(plan)],
-                "noncanonical creation plan")
         os.fsync(fd)
-        require(version(os.stat(artifact_id + ".json", dir_fd=parent, follow_symlinks=False)) ==
+        require(version(os.stat(filename, dir_fd=parent, follow_symlinks=False)) ==
                 version(facts), "creation record binding changed")
         return record, bytes(payload), facts
     finally:
         os.close(fd)
+
+
+def read_initial(parent, artifact_id):
+    record, payload, facts = read_record(parent, artifact_id + ".json")
+    require(isinstance(record, dict) and set(record) == Event.initial_keys,
+            "unsupported initial creation record fields")
+    require(record["schema"] == Journal.schema and record["phase"] == Journal.phase and
+            type(record["revision"]) is int and record["revision"] == Journal.revision and
+            record["artifact_id"] == artifact_id, "unsupported initial creation state")
+    require(isinstance(record["operation_id"], str) and
+            re.fullmatch(r"[0-9a-f]{32}", record["operation_id"]), "invalid operation identity")
+    entries = record["declared_entries"]
+    require(isinstance(entries, list) and len(entries) <= Limits.entries, "invalid creation plan")
+    files, directories = [], []
+    for entry in entries:
+        require(isinstance(entry, dict) and set(entry) == {"path", "kind"} and
+                isinstance(entry["path"], str), "invalid declared creation entry")
+        if entry["kind"] == "regular_file":
+            files.append(entry["path"])
+        else:
+            require(entry["kind"] == "directory", "unsupported creation entry kind")
+            directories.append(entry["path"])
+    plan = declared_plan(files, directories, record["artifact_kind"])
+    require(entries == [{"path": path, "kind": plan[path]} for path in sorted(plan)],
+            "noncanonical creation plan")
+    return record, payload, facts
 
 
 def start_record(project, artifact, artifact_id):
