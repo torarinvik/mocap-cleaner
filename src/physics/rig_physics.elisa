@@ -533,7 +533,11 @@ module Physics:
 
         def run_clip(c: mutable Rig::Clip&, ops: darray[PhysOp]&) -> Findings:
             mutable out: Findings = empty_findings()
-            return out if ops.count == 0 or c.frames < 1
+            return out if ops.count == 0
+            if c.frames < 1 or c.times.count.i64() != c.frames:
+                out.ops <- ops.count.i64()
+                out.unavailable_ops <- ops.count.i64()
+                return out
             out.frames <- c.frames
             length: f64 = leg_length(c)
             contact_source: bool = PhysicsContactInputs::admitted(c, length)
@@ -544,7 +548,10 @@ module Physics:
                     is_balance: bool = op.kind == PhysKind.Balance
                     continue if (pass_index == 0) == is_balance
                     out.ops <- out.ops + 1
-                    if op.kind != PhysKind.Momentum and not contact_source:
+                    # Earlier fixes can change the solved world. Admission
+                    # belongs to this operation's actual input, not the clip
+                    # before the first operation ran.
+                    if op.kind != PhysKind.Momentum and (not contact_source or not PhysicsContactInputs::admitted(c, length)):
                         out.unavailable_ops <- out.unavailable_ops + 1
                         continue
                     left: darray[bool] = foot_flags(c, 0, floor, length) if op.kind != PhysKind.Momentum else []
