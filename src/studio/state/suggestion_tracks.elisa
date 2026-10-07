@@ -1,5 +1,6 @@
 # Per-frame fixed-point joint angles used by suggestion preservation review.
 include "clip_state.elisa"
+include "suggestion_angle_policy.elisa"
 
 module StudioSuggestionTracks:
     public:
@@ -42,13 +43,28 @@ module StudioSuggestionTracks:
                         lower: Geometry::Vec3 = Geometry::vec3_sub(models[end_slots[i].usize()].position, pivot)
                         upper_length: f32 = Geometry::vec3_length(upper)
                         lower_length: f32 = Geometry::vec3_length(lower)
-                        if upper_length <= 0.000001 or lower_length <= 0.000001:
+                        if not Geometry::vec3_is_finite(upper) or not Geometry::vec3_is_finite(lower) or not StudioSuggestionAnglePolicy::length_admitted(upper_length) or not StudioSuggestionAnglePolicy::length_admitted(lower_length):
                             valid <- false
                             angles.push(0)
                         else:
-                            mutable cosine: f32 = Geometry::vec3_dot(upper, lower) / (upper_length * lower_length)
+                            dot: f32 = Geometry::vec3_dot(upper, lower)
+                            denominator: f32 = upper_length * lower_length
+                            if not StudioSuggestionAnglePolicy::cosine_admitted(dot) or not StudioSuggestionAnglePolicy::denominator_admitted(denominator):
+                                valid <- false
+                                angles.push(0)
+                                continue
+                            mutable cosine: f32 = dot / denominator
+                            if not StudioSuggestionAnglePolicy::cosine_admitted(cosine):
+                                valid <- false
+                                angles.push(0)
+                                continue
                             cosine <- -1.0 if cosine < -1.0 else (1.0 if cosine > 1.0 else cosine)
                             radians: f64 = ElisaMath::acos(cosine.f64())
-                            milli_degrees: i64 = (ElisaMath::radians_to_degrees(radians) * Domain::ANGLE_SCALE.f64() + 0.5).i64()
+                            scaled_angle: f64 = ElisaMath::radians_to_degrees(radians) * Domain::ANGLE_SCALE.f64()
+                            if not StudioSuggestionAnglePolicy::angle_admitted(scaled_angle):
+                                valid <- false
+                                angles.push(0)
+                                continue
+                            milli_degrees: i64 = StudioSuggestionAnglePolicy::rounded_angle(scaled_angle)
                             angles.push(milli_degrees)
             return HingeAngles{values: move angles, valid: valid}

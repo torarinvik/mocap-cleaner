@@ -65,3 +65,15 @@ the overlay when there is no valid balance result.
   qualification is claimed by the source migration or proof-source edits.
 - Keep angular caps, acceleration and drift outputs unchanged by the length
   migration.
+
+### Suggestion hinge measurement admission
+
+The hinge preservation adapter now refuses nonfinite limb vectors, lengths,
+dot products, length products, cosine and scaled angles before integer casts.
+The denominator must be positive and finite, and the computed angle must be
+within 0–180000 thousandths of a degree. Invalid samples retain the track's
+unavailable state; inserted zeros remain sentinels and cannot supply evidence.
+The existing length threshold and preservation tolerances are unchanged.
+Ten companion laws cover nonfinite, collapsed, zero-denominator and angular
+boundaries. Current Stage1 law and complete app object compilation pass;
+authenticated proof discharge and runtime overflow fixtures remain open.
