@@ -90,8 +90,11 @@ extend Studio:
                 status_file <- null
                 touch()
 
-        def candidate_revision_for(s: StackState::Stack&) -> i64:
-            requires candidate_revision_available(s)
+        def candidate_admission(s: StackState::Stack&) -> StudioEditTransactionPolicy::Admission:
+            StudioEditTransactionPolicy::Admission{worker_active: contact_preview_task != null, result_generation: built, revision_available: candidate_revision_available(s)}
+
+        def candidate_revision_for(s: StackState::Stack&, admission: StudioEditTransactionPolicy::Admission) -> i64:
+            requires StudioEditTransactionPolicy::admitted(admission)
             if built_stack is prior:
                 return rig_source_revision if StackState::same_rig_source(prior, s)
             GenerationPolicy::advance(rig_source_revision)
@@ -99,8 +102,8 @@ extend Studio:
         # Evaluation owns Memo temporarily but does not publish history,
         # the visible clip, readouts or generations. Exact-keyed cache entries
         # may be retained even when a candidate correction is refused.
-        def evaluate_candidate(s: StackState::Stack&, candidate_revision: i64) -> StudioModel::Clip?:
-            requires contact_preview_task == null
+        def evaluate_candidate(s: StackState::Stack&, candidate_revision: i64, admission: StudioEditTransactionPolicy::Admission) -> StudioModel::Clip?:
+            requires StudioEditTransactionPolicy::admitted(admission)
             if memo == null:
                 memo <- StudioModel::load(path, anim_name)
             mutable result: StudioModel::Clip? = null
@@ -120,9 +123,9 @@ extend Studio:
             return move result
 
         # Publication accepts only a successfully evaluated owned candidate.
-        def publish_candidate(s: StackState::Stack, result: StudioModel::Clip?, candidate_revision: i64) -> void:
+        def publish_candidate(s: StackState::Stack, result: StudioModel::Clip?, candidate_revision: i64, admission: StudioEditTransactionPolicy::Admission) -> void:
             requires result != null
-            requires GenerationPolicy::can_advance(built)
+            requires StudioEditTransactionPolicy::admitted(admission)
             load_failed <- false
             if clip is old:
                 shown_slide <- readout_value(shown_slide, old.slide_after)
@@ -134,7 +137,7 @@ extend Studio:
             StudioPanels::set_rate(rate())
             sync_count()
             built_stack <- s
-            built <- GenerationPolicy::advance(built)
+            built <- GenerationPolicy::advance(admission.result_generation)
             if clip is c:
                 collect_issues(c)
             touch()
@@ -156,23 +159,24 @@ extend Studio:
             return false if StackState::same(active, s)
             if preview and contact_preview_task == null and path_slot >= 0:
                 base: StudioEditTransactionPolicy::Base = edit_transaction_base()
-                revision: i64 = candidate_revision_for(s)
-                mutable candidate: StudioModel::Clip? = evaluate_candidate(s, revision)
+                admission: StudioEditTransactionPolicy::Admission = candidate_admission(s)
+                revision: i64 = candidate_revision_for(s, admission)
+                mutable candidate: StudioModel::Clip? = evaluate_candidate(s, revision, admission)
                 if candidate == null:
                     status <- "Edit not applied: the proposed result could not be evaluated. Existing edits and result kept. Try a smaller change or reopen the source."
                     nudged_row <- -1
                     status_file <- null
                     touch()
                     return false
-                if not StudioEditTransactionPolicy::current(base, edit_transaction_base()):
-                    status <- "Edit not applied: its source or history changed during evaluation. Existing edits kept. Review the current result and try again."
+                if not StudioEditTransactionPolicy::current(base, edit_transaction_base()) or not StudioEditTransactionPolicy::admission_current(admission, candidate_admission(s)):
+                    status <- "Edit not applied: its source, history or preview worker changed during evaluation. Existing edits kept. Review the current result and try again."
                     nudged_row <- -1
                     status_file <- null
                     touch()
                     return false
                 return false if not HistoryState::record(&history, s)
                 stack_generation <- GenerationPolicy::advance(stack_generation)
-                publish_candidate(s, move candidate, revision)
+                publish_candidate(s, move candidate, revision, admission)
                 return true
             if history_ready:
                 changed: bool = HistoryState::record(&history, s)
@@ -238,21 +242,26 @@ extend Studio:
                     history_rebuild_feedback("Redo applied. Result updated.", "Redo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
 
         def apply_history_target(target: StackState::Stack&, redo_requested: bool) -> bool:
-            requires contact_preview_task == null
-            if not GenerationPolicy::can_advance(stack_generation) or not candidate_generations_available(target):
+            admission: StudioEditTransactionPolicy::Admission = candidate_admission(target)
+            if admission.worker_active:
+                status <- "History change is waiting for the current preview to finish. Existing history and result kept."
+                status_file <- null
+                touch()
+                return false
+            if not GenerationPolicy::can_advance(stack_generation) or not StudioEditTransactionPolicy::admitted(admission):
                 generation_refused()
                 return false
             base: StudioEditTransactionPolicy::Base = edit_transaction_base()
-            revision: i64 = candidate_revision_for(target)
-            mutable candidate: StudioModel::Clip? = evaluate_candidate(target, revision)
+            revision: i64 = candidate_revision_for(target, admission)
+            mutable candidate: StudioModel::Clip? = evaluate_candidate(target, revision, admission)
             if candidate == null:
                 status <- "History change not applied: its result could not be evaluated. Existing history position and result kept. Reopen the source if this continues."
                 nudged_row <- -1
                 status_file <- null
                 touch()
                 return false
-            if not StudioEditTransactionPolicy::current(base, edit_transaction_base()):
-                status <- "History change not applied: source or history changed during evaluation. Existing result kept. Try again from the current state."
+            if not StudioEditTransactionPolicy::current(base, edit_transaction_base()) or not StudioEditTransactionPolicy::admission_current(admission, candidate_admission(target)):
+                status <- "History change not applied: source, history or preview worker changed during evaluation. Existing result kept. Try again from the current state."
                 nudged_row <- -1
                 status_file <- null
                 touch()
@@ -260,7 +269,7 @@ extend Studio:
             moved: bool = HistoryState::redo(&history) if redo_requested else HistoryState::undo(&history)
             return false if not moved
             stack_generation <- GenerationPolicy::advance(stack_generation)
-            publish_candidate(target, move candidate, revision)
+            publish_candidate(target, move candidate, revision, admission)
             true
 
         def history_rebuild_feedback(ready_text: sview, pending_text: sview) -> void:
