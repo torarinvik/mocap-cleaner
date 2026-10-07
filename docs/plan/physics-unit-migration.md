@@ -28,6 +28,11 @@ against the current authenticated compiler/prover source and linked dependency
 set. Source implementation is complete; native Studio overlay behavior and
 corpus decision comparisons remain unverified.
 
+Balance inputs now classify malformed shape or length as unavailable and a
+well-formed take shorter than three samples as inapplicable. CLI reports both
+counts separately; Studio retains a typed balance availability state and omits
+the overlay when there is no valid balance result.
+
 ## Migrated dimensions
 
 | Boundary | Callers | Internal dimension |
