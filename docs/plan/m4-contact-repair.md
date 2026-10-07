@@ -184,6 +184,14 @@ applied correction. Five scalar-storage laws compile diagnostically. Qualify
 whole-document preservation, accessor aliasing, every intermediate weight and
 native failure feedback; include the additional pass in M5 performance budgets.
 This is source implementation, not a completed IEEE or transactional proof.
+Four additional obligations in `proof/correction_refusal_laws.elisa` call the
+actual correction API and compare document bytes and edit count before and
+after disabled, invalid-scope, invalid-transform and invalid-output paths.
+An O0 source compile with the matched d2754a8e compiler exited zero and emitted
+814400 bytes at `build/correction-refusal-current/laws.o`; this live-source
+compile is not a frozen qualification or proof result. Authenticated replay,
+successful-write atomicity and native unchanged-history evidence remain open.
+
 The preflight also refuses overlapping GLB byte spans among distinct tracks,
 and bounds each span before multiplying its key/component counts. Half-open
 range overlap uses start distances without overflowing endpoint addition;
