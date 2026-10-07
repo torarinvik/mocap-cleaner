@@ -161,3 +161,26 @@ The new cleanup transaction/controller is outside the app input closure and
 its reduced-unit backend declines remain open. Dependency integration with
 fetched engine upstream remains open. Newly added package verifier code has
 not been exercised by this earlier build and is not yet wired into packaging.
+
+### Integrated-engine and toolbar build
+
+The complete Studio compile/link/package passed with engine
+`dff5579b133d14cddf0a4cfc6270c7c7d1a3b350`, containing fetched main while
+preserving mocap providers. The selected engine stayed clean, and the current
+Undo/Redo toolbar and accessibility policy (`8d5afc7`) was captured.
+Build `studio-build.PNbTVf` and package `studio-package.tywpfe` both have
+Sealed revision 3 and Published revision 4 records. The package intent also
+binds the previous package's complete seal and filesystem/lease identities.
+
+Input record SHA256 is
+`4ea0e5582a8217c3080c5f9055d0738d5f08ecfe72e2e3d1b97ca45f2b98e94d`;
+main object SHA256 is
+`9a845d420c342ecf7a71bd9f80cfcf2a5faeec0529b80632feccaaafbc421fd8`;
+executable SHA256 is
+`33292cfa4158d6cdfd9787293cdfce8a97d8ccd490b4ebe0fa21bfa9c323c0df`.
+Package Published links intent SHA256
+`4b76e75d718d0957b665726f360fd77ba7267775947de8388348884fc4703806`.
+This qualifies the captured compile/link/package path; runtime interaction,
+reconciliation fault cases, cleanup controller/provider integration and full
+current checks remain open. The compiler/proof freshness recipe repair is
+still separately required.
