@@ -40,8 +40,8 @@ and runtime evidence exist.
 
 The selected runtime's `ctx_concurrency_box_new` allocates the outer argument
 box and shallowly assigns its value. That does not transfer ownership of nested
-darray backing storage. Studio constructs source, build-root and animation
-buffers inside `start_fbx_import`; moving the Job fields alone does not establish
+darray backing storage. Studio previously constructed source, build-root and animation
+buffers inside `start_fbx_import`; moving those Job fields alone did not establish
 that those buffers survive the caller's allocation region. The standalone probe
 keeps its main arena alive throughout polling and therefore cannot qualify this
 part of the UI lifetime.
@@ -52,6 +52,16 @@ region forwarding alone does not meet this obligation. Qualification must let
 the submitting frame end before the worker reads its request, then retain and
 grow returned arrays after join releases the worker state. These are separate
 checks of input and output ownership.
+
+Commit `15dd271` changes the FBX argument to a composed `RequestBuffers` value
+with inline source/build-root arrays of 4096 bytes and an animation array of
+1024 bytes. Bounded admission contracts precede copying; the worker allocates
+its dynamic arrays after receiving those bytes. Worker and companion law sources
+compile with selected clean compiler `48dc78e2` (product `461d377b`), with logs
+`build/fbx_inline_request_worker.log` and `build/fbx_inline_request_laws.log`.
+This is source compilation evidence only. The revised asynchronous probe and
+actual Studio import remain unqualified; the generic nested-reference capture
+problem and worker result-region repair remain open.
 
 Conservative rejection of unsupported callbacks may be an interim compiler
 safety measure; it does not deliver required background FBX import. Do not replace
