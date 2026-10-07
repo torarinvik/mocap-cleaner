@@ -46,6 +46,9 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 ## Delivery requirements
 
 - Commit each small improvement.
+- Extend arrays for fixed sequences of literals. The lexical
+  `scripts/check_literal_push_runs.py` gate rejects consecutive integer-literal
+  pushes to the same array; review other literal forms manually.
 - Use the latest compiler, proof assistant, Elisa UI and engine dependencies,
   retaining required mocap fixes.
   Record fetched upstream revisions, source changes and binary manifests; rebuild
