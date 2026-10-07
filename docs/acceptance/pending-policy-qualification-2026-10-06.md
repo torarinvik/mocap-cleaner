@@ -289,3 +289,14 @@ roots (all 529 hashes match). The graph includes `ui_paint_diagnostic.elisa`.
 This establishes staging consistency only. Preserve explicit standard-library
 root selection and verify the staged manifest after compilation before treating
 the eventual product as qualification evidence.
+
+The original comparison run (worker session 40404, PID 49071) terminated with
+exit 2 and no object. The worker reported 23 backend declines spanning export
+batch/report/destination calls, destination accessibility, a sheet field
+expression and camera/navigation binary expressions. The empty-global and
+external report-zeroed declines were absent from this diagnostic set, but that
+does not qualify their integrated repairs. The post-run check refused publication;
+the worker's detailed comparison records identify changed `ui_paint.elisa` and
+added `ui_paint_diagnostic.elisa` as the input drift. Keep this generation as
+comparison evidence. The staged generation has begun a separate compilation
+with its standard-library root explicitly set inside the immutable copy.
