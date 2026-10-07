@@ -184,3 +184,11 @@ This qualifies the captured compile/link/package path; runtime interaction,
 reconciliation fault cases, cleanup controller/provider integration and full
 current checks remain open. The compiler/proof freshness recipe repair is
 still separately required.
+
+## Maintained file size audit
+
+At primary commit `459e51c`, a read-only inventory of tracked `.elisa`, `.py`,
+`.sh`, `.md`, `.m` and `.h` files counted 859 readable maintained text files.
+None exceeded 600 lines. This observation covers tracked primary-repository
+files only; it does not qualify uncommitted provider additions or dependency
+repositories. The file-length gate remains required on each final snapshot.
