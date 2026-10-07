@@ -2,9 +2,6 @@
 # checks; this wrapper converts its bounded C strings into Elisa receipt data.
 include "storage_manifest.elisa"
 
-const STUDIO_TRASH_PATH_CAPACITY: usize = 4096
-const STUDIO_TRASH_ERROR_CAPACITY: usize = 512
-
 @link_name("elisa_file_trash_move_fields")
 extern studio_trash_move_fields(build_root: cstr, candidate: cstr,
     original_path: mutable u8&, trashed_path: mutable u8&, path_capacity: i32,
@@ -43,6 +40,11 @@ extern studio_trash_reconcile_fields(build_root: cstr, original_path: cstr,
     output_error: mutable u8&, error_capacity: i32) -> i32 can[Blocking.IO]
 
 module StudioFileTrash:
+    private:
+        const module Capacity:
+            PATH_BYTES: usize = 4096
+            ERROR_BYTES: usize = 512
+
     public:
         # Register only artifacts whose creation was completed by Studio.
         # This function captures their canonical path and current identity;
@@ -66,17 +68,17 @@ module StudioFileTrash:
             canonical_ptr: mutable u8& = (&canonical[0]).cast[mutable u8&] can Unsafe.PointerCast
             error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
             code: i32 = studio_trash_identity_fields(build_root, candidate,
-                canonical_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(), &device, &inode,
+                canonical_ptr, Capacity::PATH_BYTES.i32(), &device, &inode,
                 &size_bytes, &modified_seconds, &modified_nanoseconds,
-                error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
+                error_ptr, Capacity::ERROR_BYTES.i32())
             mutable error_index: usize = 0
-            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+            while error_index < Capacity::ERROR_BYTES and error_buffer[error_index] != 0:
                 message.push(error_buffer[error_index])
                 error_index <- error_index + 1
             return false if code != 0
             mutable path: darray[u8] = []
             mutable path_index: usize = 0
-            while path_index < STUDIO_TRASH_PATH_CAPACITY and canonical[path_index] != 0:
+            while path_index < Capacity::PATH_BYTES and canonical[path_index] != 0:
                 path.push(canonical[path_index])
                 path_index <- path_index + 1
             next: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
@@ -100,7 +102,7 @@ module StudioFileTrash:
                           entry: mutable StudioStorageManifest::Entry&,
                           message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
             message.clear()
-            return false if candidate.count == 0 or candidate.count >= STUDIO_TRASH_PATH_CAPACITY
+            return false if candidate.count == 0 or candidate.count >= Capacity::PATH_BYTES
             for byte in candidate:
                 return false if byte == 0
             mutable path: u8[4096] = zeroed
@@ -117,7 +119,7 @@ module StudioFileTrash:
                       message: mutable darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate]:
             message.clear()
             return false if not StudioStorageManifest::valid(record)
-            return false if record.original_path.count >= STUDIO_TRASH_PATH_CAPACITY
+            return false if record.original_path.count >= Capacity::PATH_BYTES
             mutable original: u8[4096] = zeroed
             mutable trashed: u8[4096] = zeroed
             mutable error_buffer: u8[512] = zeroed
@@ -129,16 +131,16 @@ module StudioFileTrash:
             code: i32 = studio_trash_reconcile_fields(build_root, original_path,
                 record.device, record.inode, record.size_bytes,
                 record.modified_seconds, record.modified_nanoseconds,
-                trashed_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(),
-                error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
+                trashed_ptr, Capacity::PATH_BYTES.i32(),
+                error_ptr, Capacity::ERROR_BYTES.i32())
             mutable error_index: usize = 0
-            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+            while error_index < Capacity::ERROR_BYTES and error_buffer[error_index] != 0:
                 message.push(error_buffer[error_index])
                 error_index <- error_index + 1
             return false if code != 0
             mutable trash_path: darray[u8] = []
             mutable path_index: usize = 0
-            while path_index < STUDIO_TRASH_PATH_CAPACITY and trashed[path_index] != 0:
+            while path_index < Capacity::PATH_BYTES and trashed[path_index] != 0:
                 trash_path.push(trashed[path_index])
                 path_index <- path_index + 1
             next: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
@@ -229,17 +231,17 @@ module StudioFileTrash:
                 code <- studio_trash_move_checked_fields(build_root, candidate,
                     expected_ptr, expected.device, expected.inode, expected.size_bytes,
                     expected.modified_seconds, expected.modified_nanoseconds,
-                    original_ptr, trashed_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(),
+                    original_ptr, trashed_ptr, Capacity::PATH_BYTES.i32(),
                     &device, &inode, &size_bytes, &modified_seconds,
-                    &modified_nanoseconds, error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
+                    &modified_nanoseconds, error_ptr, Capacity::ERROR_BYTES.i32())
             else:
                 code <- studio_trash_move_fields(build_root, candidate,
-                    original_ptr, trashed_ptr, STUDIO_TRASH_PATH_CAPACITY.i32(),
+                    original_ptr, trashed_ptr, Capacity::PATH_BYTES.i32(),
                     &device, &inode, &size_bytes, &modified_seconds,
-                    &modified_nanoseconds, error_ptr, STUDIO_TRASH_ERROR_CAPACITY.i32())
+                    &modified_nanoseconds, error_ptr, Capacity::ERROR_BYTES.i32())
             message.clear()
             mutable error_index: usize = 0
-            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+            while error_index < Capacity::ERROR_BYTES and error_buffer[error_index] != 0:
                 message.push(error_buffer[error_index])
                 error_index <- error_index + 1
             return false if code != 0
@@ -247,10 +249,10 @@ module StudioFileTrash:
             mutable trashed_bytes: darray[u8] = []
             mutable original_index: usize = 0
             mutable trashed_index: usize = 0
-            while original_index < STUDIO_TRASH_PATH_CAPACITY and original[original_index] != 0:
+            while original_index < Capacity::PATH_BYTES and original[original_index] != 0:
                 original_bytes.push(original[original_index])
                 original_index <- original_index + 1
-            while trashed_index < STUDIO_TRASH_PATH_CAPACITY and trashed[trashed_index] != 0:
+            while trashed_index < Capacity::PATH_BYTES and trashed[trashed_index] != 0:
                 trashed_bytes.push(trashed[trashed_index])
                 trashed_index <- trashed_index + 1
             next: StudioStorageManifest::Entry = StudioStorageManifest::Entry{
@@ -304,10 +306,10 @@ module StudioFileTrash:
                 record.device, record.inode, record.size_bytes,
                 record.modified_seconds, record.modified_nanoseconds,
                 error_ptr,
-                STUDIO_TRASH_ERROR_CAPACITY.i32())
+                Capacity::ERROR_BYTES.i32())
             message.clear()
             mutable error_index: usize = 0
-            while error_index < STUDIO_TRASH_ERROR_CAPACITY and error_buffer[error_index] != 0:
+            while error_index < Capacity::ERROR_BYTES and error_buffer[error_index] != 0:
                 message.push(error_buffer[error_index])
                 error_index <- error_index + 1
             code == 0
