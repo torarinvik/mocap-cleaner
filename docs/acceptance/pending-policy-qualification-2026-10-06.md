@@ -160,6 +160,19 @@ linked runtime provenance or qualify the composed Studio graph. Remaining
 private-field ownership and call/binary backend declines require separate
 reductions and an eventual fixed-snapshot integrated build.
 
+The root subsequently reran both reductions with the verified candidate
+product above. `global_empty.elisa` SHA-256
+`a55c2efe466b9ef1c7e77b04bf3921a922713b89a2ccb9104866a1816c1da1a5`
+compiled at O0 with exit zero to `global_empty-current.o` (544 bytes), with
+`_Batch.snapshots` and `_Batch.count_snapshots` symbols.
+`global_nonempty.elisa` SHA-256
+`8148c0c1dfc2f76e82a5799709588c2dbe1b70016dc7e89bf3d319cd249495a2`
+exited 2 with `global initializer snapshots`; the requested
+`global_nonempty-current.o` does not exist. Inputs and output paths are under
+`build/m5-runtime-origin-candidate/reductions-current/`. These observations
+independently establish the narrow compile/refusal behavior; the worker's LLVM
+representation observation and integrated application acceptance stay separate.
+
 ## Manifest path law compilation
 
 The nine new path-admission and entry-key laws in
