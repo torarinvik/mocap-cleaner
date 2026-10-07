@@ -172,10 +172,29 @@ negative controls, meaningful history entries and session/export parity.
   separately from freed disk space; retain external inventory and transaction
   records until their recovery dependencies are resolved. Provide restore from
   the journal identity even after the original generation name is reused.
-- Implement recoverable directory moves and receipts before exposing generation
-  deletion. Existing regular-file Trash support does not qualify directory
-  cleanup. Restore must refuse destination collisions and preserve recovery
-  evidence when durability or lock release is uncertain.
+- Integrate the implemented native generation move/Restore/reconciliation
+  adapter with the Elisa controller and review UI. Raw status/phase/location
+  decoders must reject unsupported values; native integer flags accept only
+  exact 0/1. Never publish a recoverable success from a parsed receipt alone:
+  verify identity, location, locks and durable journal/parent synchronization.
+- Qualify generation recovery through this outcome matrix before exposing it:
+
+  | Observed state | Required UI and action |
+  | --- | --- |
+  | Original present, quarantine absent | Report not moved only after exact identity checks; allow fresh review. |
+  | Original absent, exact quarantine present | Show recoverable moved state after durable reconciliation; offer Restore. |
+  | Original name reused | Keep recorded item identifiable; refuse overwriting the new occupant. |
+  | Both locations present, neither present or identity changed | Show unresolved/conflict with inspectable locations; protect both. |
+  | Intent exists after restart | Reconcile descriptors and journal before enabling retry or Restore. |
+  | Move succeeded but journal/parent flush failed | Show uncertain recovery; retain evidence and stop the batch. |
+  | Lease/global lock release uncertain | Refuse further mutation until admission is safely recovered. |
+
+- Complete a keyboard and VoiceOver journey through generation selection,
+  review, confirmation, progress, partial result, restart reconciliation and
+  Restore. Return focus to the triggering control or retained row. Disable
+  repeated activation while a transaction is active, announce updated totals,
+  and provide containing-folder access for unresolved recovery. Existing
+  regular-file Trash acceptance does not qualify directory cleanup.
 
 **Finish evidence:** source hashes unchanged, output reopens as reviewed, reports
 bind to that output, interrupted states reconcile, and restore cannot overwrite
