@@ -409,24 +409,23 @@ module StudioExportBatchReviewBinding:
         # Recovered warnings require a new explicit acknowledgement. Reopen
         # never restores approval or the private review marker.
         def acknowledge_recovered_warning[@r](queue: mutable BoundQueue&, index: i64,
-                current: StudioExportBatchIdentity::Identity,
                 explicit_review: bool, lock_descriptor: i32) -> bool @r can[Blocking.IO, Memory.Allocate, Memory.Release, Unsafe.PointerCast]:
             requires valid(queue)
             requires index >= 0 and index < queue.identities.count.i64()
             ensure valid(queue)
             ensure not result or StudioExportBatchQueue::item(queue.queue, index).approved or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
-            identity_matches: bool = StudioExportBatchIdentity::valid(current) and StudioExportBatchIdentity::equal(current, queue.identities[index.usize()])
             current_state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueue::item(queue.queue, index).state
             recovered_warning: bool = current_state == StudioExportBatchQueuePolicy::ItemState.Warning or current_state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
-            return false if not queue.durable or not review_ack_admitted(queue.attempts[index.usize()], identity_matches, explicit_review, recovered_warning)
+            return false if not queue.durable or not StudioExportBatchIdentity::valid(queue.identities[index.usize()]) or queue.attempts[index.usize()] <= 0 or not explicit_review or not recovered_warning
             return false if not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
             mutable checked_identity: StudioExportBatchIdentity::Identity = zeroed
             mutable checked_item: StudioExportBatchQueue::Item = zeroed
             return false if not StudioExportBatchQueueStore::recover_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, queue.journals[index.usize()], &checked_identity, &checked_item)
             return false if (checked_item.state != StudioExportBatchQueuePolicy::ItemState.Warning and checked_item.state != StudioExportBatchQueuePolicy::ItemState.AwaitingReview) or checked_item.approved
             return false if checked_item.state != current_state
-            return false if not StudioExportBatchIdentity::equal(checked_identity, current)
-            return false if not source_still_matches(current)
+            identity_matches: bool = StudioExportBatchIdentity::equal(checked_identity, queue.identities[index.usize()])
+            return false if not review_ack_admitted(queue.attempts[index.usize()], identity_matches, explicit_review, recovered_warning)
+            return false if not source_still_matches(queue.identities[index.usize()])
             approved: bool = true if current_state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview else StudioExportBatchQueue::approve_warning(&queue.queue, index, true)
             if approved:
                 queue.review_attempts[index.usize()] <- queue.attempts[index.usize()]
