@@ -165,3 +165,10 @@ This is an LLVM representation experiment, not a compiler implementation or
 runtime-equivalence proof. The compiler repair must still cover all return
 paths, ownership, snapshot mutations and contract failures, then qualify the
 complete current application graph without this hand transformation.
+
+The same transformed single-function module also completes standalone
+`default<O2>` with exit 0, producing 715 lines and 50,709 bytes. The output
+SHA-256 is `8d9a392159753f8cfd7181359df1497e28418326aa8a3dd1cd294e2cf65a12f6`;
+command and outcome are in `capture-frozen-snapshots-o2-record.json` in the
+same artifact directory. This isolated diagnostic is not a full-graph speed
+comparison or evidence that other hotspots have been resolved.
