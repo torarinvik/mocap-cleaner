@@ -64,6 +64,9 @@ from pathlib import Path
 project, engine, ui, compiler, executable, output = map(Path, sys.argv[1:7])
 input_record = Path(sys.argv[7]) if sys.argv[7] else None
 package_root = Path(sys.argv[8])
+sys.path.insert(0, str(project / "tools"))
+from studio_generation_lock import verified_lock
+from studio_generation_contents import verify_record
 
 def generated_id(directory, prefix):
     name = directory.name
@@ -91,6 +94,7 @@ input_paths.extend(engine / "native" / name for name in (
 input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/package_studio_app.sh",
                     project / "tools/svg_icons.py", project / "build/generated/studio_icon_paths.elisa",
                     project / "tools/studio_generation_lock.py",
+                    project / "tools/studio_generation_contents.py",
                     project / "tools/studio_build_identity.py", project / "build/generated/studio_build_identity.elisa",
                     compiler / "scripts/elisac_stage1.sh", compiler / "build/runtime/elisacore_runtime.o"))
 input_paths.extend(path for path in (project / "assets/icons").rglob("*.svg"))
@@ -158,8 +162,6 @@ lease_record = {
     "executable_sha256": executable_hash,
 }
 lease_path = package_root / "MocapStudio.app/Contents/Resources/.studio-generation.lease"
-lease_path.write_text(json.dumps(lease_record, sort_keys=True) + "\n", encoding="utf-8")
-lease_path.chmod(0o444)
 
 lines = [
     "Mocap Studio development bundle build provenance",
@@ -180,6 +182,27 @@ lines = [
     f"runtime_object_sha256={sha256(compiler / 'build/runtime/elisacore_runtime.o')}",
 ]
 Path(output).write_text("\n".join(lines) + "\n", encoding="utf-8")
+# Register only the paths produced above. An extra descendant refuses sealing.
+artifact = str((package_root / "MocapStudio.app").relative_to(project / "build"))
+command = [sys.executable, str(project / "tools/studio_generation_contents.py"),
+           "--project", str(project), "--artifact", artifact,
+           "--artifact-id", package_generation_id, "--kind", "studio-package"]
+for path in ("Contents", "Contents/MacOS", "Contents/Resources"):
+    command.extend(("--directory", path))
+for path in ("Contents/Info.plist", "Contents/PkgInfo", "Contents/MacOS/MocapStudio",
+             "Contents/Resources/BUILD-INFO.txt"):
+    command.extend(("--file", path))
+import os
+lock_fd, _, _ = verified_lock(project, os.environ)
+subprocess.run(command, pass_fds=(lock_fd,), check=True)
+inventory_hash = verify_record(project, artifact, package_generation_id, "studio-package")
+package_record["contents_inventory_sha256"] = inventory_hash
+lease_record["contents_inventory_sha256"] = inventory_hash
+(output.parent / "PACKAGE-GENERATION.json").write_text(
+    json.dumps(package_record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+lease_path.write_text(json.dumps(lease_record, sort_keys=True) + "\n", encoding="utf-8")
+lease_path.chmod(0o444)
+
 PY
 
 # Prepare the whole bundle before moving the previous one. Keep a recoverable
