@@ -1,6 +1,7 @@
 include "app_export_batch_sheet.elisa"
 include "../export_batch_report_view.elisa"
 include "../export_report_warning_parser.elisa"
+include "panels_export_batch_report.elisa"
 
 extend Studio:
     private:
@@ -19,12 +20,14 @@ extend Studio:
         global mutable prepared_report_buffer: u8[PreparedReportPage::BUFFER_BYTES] = zeroed
         global mutable prepared_report_lengths: usize[PreparedReportPage::ROWS] = zeroed
         global mutable prepared_report_lines: usize = 0
+        global mutable prepared_report_line_views: darray[sview] = []
         global mutable prepared_report_message: sview = ""
         global mutable prepared_report_focus: StudioExportBatchWarningReviewPolicy::Control = StudioExportBatchWarningReviewPolicy::Control.Back
 
         def close_prepared_report() -> void can Memory.Release:
             # Closed reports retain no payload or approval context.
             prepared_report_open <- false
+            prepared_report_line_views <- []
             prepared_report_layout <- false
             prepared_report_format_valid <- false
             prepared_report_lines <- 0
@@ -37,8 +40,9 @@ extend Studio:
             prepared_report_buffer <- zeroed
             prepared_report_lengths <- zeroed
 
-        def cache_prepared_report_page() -> void:
+        def cache_prepared_report_page() -> void can[Unsafe.PointerCast, Memory.Allocate]:
             prepared_report_layout <- false
+            prepared_report_line_views <- []
             prepared_report_lines <- 0
             return if StudioExportBatchReportView::status(prepared_report_model) != StudioExportBatchReportView::Status.Ready
             pages: usize = StudioExportBatchReportView::page_count(prepared_report_model)
@@ -54,6 +58,8 @@ extend Studio:
                 for byte in 0..<span.byte_count |byte, span, row|:
                     prepared_report_buffer[row * PreparedReportPage::LINE_BYTES + byte] <- prepared_report_snapshot.warning_text_bytes[span.byte_start + byte]
             prepared_report_lines <- count
+            for row in 0..<count |row|:
+                prepared_report_line_views.push(prepared_report_line(row))
             prepared_report_layout <- true
 
         def open_prepared_warning_review() -> void can[Unsafe.PointerCast, Memory.Allocate]:
@@ -126,13 +132,13 @@ extend Studio:
                 prepared_report_message <- "Warning approval was refused. Refresh and review the current report."
             touch()
 
-        def prepared_report_previous() -> void:
+        def prepared_report_previous() -> void can[Unsafe.PointerCast, Memory.Allocate]:
             return if prepared_report_page == 0
             prepared_report_page <- prepared_report_page - 1
             cache_prepared_report_page()
             touch()
 
-        def prepared_report_next() -> void:
+        def prepared_report_next() -> void can[Unsafe.PointerCast, Memory.Allocate]:
             return if prepared_report_page + 1 >= StudioExportBatchReportView::page_count(prepared_report_model)
             prepared_report_page <- prepared_report_page + 1
             cache_prepared_report_page()
@@ -161,7 +167,21 @@ extend Studio:
                 close_prepared_report()
                 touch()
 
+        def prepared_report_pointer(w: f32, h: f32, x: f32, y: f32) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if not prepared_report_open
+            if StudioPanels::export_batch_report_control_hit(w, h, x, y) is control:
+                return if not StudioExportBatchWarningReviewPolicy::control_enabled(control, prepared_report_controls())
+                prepared_report_focus <- control
+                prepared_report_action(control)
+
+        def draw_prepared_report(w: f32, h: f32) -> void:
+            return if not prepared_report_open
+            StudioPanels::export_batch_report_panel(w, h, prepared_report_line_views,
+                prepared_report_page, StudioExportBatchReportView::page_count(prepared_report_model),
+                prepared_report_focus, prepared_report_controls(), prepared_report_message)
+
         def prepared_report_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if not prepared_report_open
             if code == UiCore::Key.Escape:
                 prepared_report_action(StudioExportBatchWarningReviewPolicy::Control.Back)
             elif code == UiCore::Key.Tab:
