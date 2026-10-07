@@ -11,6 +11,18 @@ module StudioBuildGenerationTrashBindingPolicy:
             Known = 0
             Unknown = 1
 
+        const enum RecoveryOutcome of i64:
+            Quarantined = 0
+            RestorePending = 1
+            NotMoved = 2
+            Restored = 3
+            Busy = 4
+            Changed = 5
+            DurabilityUnknown = 6
+            Conflict = 7
+            Unknown = 8
+            Failed = 9
+
         struct DecodedStatus:
             status: StudioBuildGenerationTrashNative::Status
             known: bool
@@ -42,6 +54,15 @@ module StudioBuildGenerationTrashBindingPolicy:
             lease_protocol: i64
             lease_receipt_bytes: i64
             inventory_receipt_bytes: i64
+
+        struct RestoreEvidence:
+            call_acquired: bool
+            handle_valid: bool
+            phase_known: bool
+            phase: StudioBuildGenerationTrashPolicy::Phase
+            journal_durable: bool
+            artifact_id_bytes: i64
+            relative_path_bytes: i64
 
         def decode_status(raw: i32) -> DecodedStatus:
             if raw == 0:
@@ -152,6 +173,69 @@ module StudioBuildGenerationTrashBindingPolicy:
                 evidence.lease_protocol == StudioBuildGenerationTrashPolicy::Protocol::LEASE_VERSION and
                 evidence.lease_receipt_bytes > 0 and evidence.lease_receipt_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_RECEIPT_BYTES and
                 evidence.inventory_receipt_bytes > 0 and evidence.inventory_receipt_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_RECEIPT_BYTES)
+
+        def decode_restore_evidence(status_raw: i32, handle: i64,
+                                    phase_raw: i32, durable_raw: i32,
+                                    artifact_id_bytes: i64,
+                                    relative_path_bytes: i64) -> RestoreEvidence:
+            let status = decode_status(status_raw)
+            let phase = decode_phase(phase_raw)
+            let durable = decode_boolean(durable_raw)
+            RestoreEvidence(
+                status.known and status.status == StudioBuildGenerationTrashNative::Status.Acquired,
+                handle > 0, phase.known, phase.phase,
+                durable.valid and durable.value,
+                artifact_id_bytes, relative_path_bytes)
+
+        def restore_evidence_admitted(evidence: RestoreEvidence) -> bool:
+            ensure result == (evidence.call_acquired and evidence.handle_valid and
+                evidence.phase_known and evidence.phase == StudioBuildGenerationTrashPolicy::Phase.Quarantined and
+                evidence.journal_durable and evidence.artifact_id_bytes > 0 and
+                evidence.artifact_id_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES and
+                evidence.relative_path_bytes > 0 and
+                evidence.relative_path_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES)
+            (evidence.call_acquired and evidence.handle_valid and
+                evidence.phase_known and evidence.phase == StudioBuildGenerationTrashPolicy::Phase.Quarantined and
+                evidence.journal_durable and evidence.artifact_id_bytes > 0 and
+                evidence.artifact_id_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES and
+                evidence.relative_path_bytes > 0 and
+                evidence.relative_path_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES)
+
+        def recovery_outcome(status: DecodedStatus, phase: DecodedPhase,
+                             location: DecodedLocation) -> RecoveryOutcome:
+            if not status.known or not phase.known or not location.known:
+                return RecoveryOutcome.Unknown
+            if status.status == StudioBuildGenerationTrashNative::Status.ReleaseUncertain:
+                return RecoveryOutcome.DurabilityUnknown
+            if status.status == StudioBuildGenerationTrashNative::Status.DurabilityUnknown:
+                return RecoveryOutcome.DurabilityUnknown
+            if status.status == StudioBuildGenerationTrashNative::Status.Busy:
+                return RecoveryOutcome.Busy
+            if status.status == StudioBuildGenerationTrashNative::Status.Changed:
+                return RecoveryOutcome.Changed
+            if (status.status == StudioBuildGenerationTrashNative::Status.Conflict or
+                location.location == StudioBuildGenerationTrashPolicy::Location.Conflict):
+                return RecoveryOutcome.Conflict
+            if (location.location == StudioBuildGenerationTrashPolicy::Location.Unknown or
+                phase.phase == StudioBuildGenerationTrashPolicy::Phase.Unknown):
+                return RecoveryOutcome.Unknown
+            if (status.status == StudioBuildGenerationTrashNative::Status.Acquired and
+                phase.phase == StudioBuildGenerationTrashPolicy::Phase.Quarantined and
+                location.location == StudioBuildGenerationTrashPolicy::Location.InQuarantine):
+                return RecoveryOutcome.Quarantined
+            if (status.status == StudioBuildGenerationTrashNative::Status.Acquired and
+                phase.phase == StudioBuildGenerationTrashPolicy::Phase.RestoreIntent and
+                location.location == StudioBuildGenerationTrashPolicy::Location.InQuarantine):
+                return RecoveryOutcome.RestorePending
+            if (status.status == StudioBuildGenerationTrashNative::Status.NotMoved and
+                phase.phase == StudioBuildGenerationTrashPolicy::Phase.NotMoved and
+                location.location == StudioBuildGenerationTrashPolicy::Location.NotMoved):
+                return RecoveryOutcome.NotMoved
+            if (status.status == StudioBuildGenerationTrashNative::Status.Restored and
+                phase.phase == StudioBuildGenerationTrashPolicy::Phase.Restored and
+                location.location == StudioBuildGenerationTrashPolicy::Location.BackAtOriginal):
+                return RecoveryOutcome.Restored
+            RecoveryOutcome.Failed
             (evidence.call_acquired and evidence.handle_valid and
                 evidence.build_root_verified and evidence.source_verified and
                 evidence.manifest_verified and evidence.product_verified and
