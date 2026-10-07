@@ -46,8 +46,8 @@ dynamically sized struct fields. Its resulting report is included below.
 
 The current focused reports were generated after proof checkout commit
 `0e7db7228fd9e6235a803525150ee94ed78ef5fc`, using matched generation
-`4e06a5da0664477aaaed1824045674db`. Proof and replay product SHA-256 values are
-`385209cad94057ed77a11088cffd168a285d67452db185e356d12a3666fe738a` and
+`ce0b63a0ae264349a74f818057e5c107`. Proof and replay product SHA-256 values are
+`0d08a39dca5ea6b8d120afb82f779203b0b849e87e7e5e20998031bd83b486e6` and
 `94b2c658fa5cd2e8acdfce00abec351df3204984d919e857e6e56bcf25ef8180`.
 `verify_product_pair.py check-current` passed. The manifest records proof
 source tree `cb66cbe4b308ef6a752fbbb2261e42007bed7d2febd4edfcc6aa081aea392ae3`
@@ -70,9 +70,11 @@ correspondence.
 | FBX staging | 117 | 21 | 96 | 21/21 | 0 checked, 38 unsupported |
 | FBX refusal mapping | 43 | 26 | 17 | 26/26 | 0 checked, 4 unsupported, 1 unmatched |
 
-The owner-aware resource-summary repair now proves `path_valid`, `bytes_equal`,
-`path_bound`, `paths_bound` and `copy_digest_bound`. `stage_admitted` still has
-13 unproved ensures, including two unsupported helper calls in its contracts.
+The owner-aware resource-summary repair now verifies the resource bodies for
+`path_valid`, `bytes_equal`, `path_bound`, `paths_bound` and
+`copy_digest_bound`. The purity checker still marks these functions impure, so
+`stage_admitted` has two unsupported helper calls in its contracts and 13
+unproved ensures.
 The `good` staging fixture still has two `region-call-opaque` findings because
 its zero-argument generic `digest[@r]()` call has no argument from which to
 derive the caller region. These are source-checker limitations; they do not
