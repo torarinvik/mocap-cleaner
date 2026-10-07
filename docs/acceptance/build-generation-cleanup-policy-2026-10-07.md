@@ -141,3 +141,31 @@ control/file/directory plan captured. The producer also verifies exact published
 record bytes and stable bindings before and after parent synchronization
 (`739248b`). Later phase updates, native record consumption and failed-generation
 cleanup remain open. A Created record never establishes failed/abandoned eligibility.
+
+## Immutable start and failure events
+
+`a2f4ad2` / `211723d` append `<id>.revision-2.json` before any build or
+package product writes. It retains the initial ownership record, links its exact
+bytes with `previous_sha256`, and records Building at revision 2. The bounded
+reader refuses duplicate JSON keys, unsupported fields, noncanonical declared
+plans, changed prior records, replaced ancestors and mismatched lease identity.
+
+`74bb2f2` / `acd76f3` add `<id>.revision-3.json` for owned unsealed build
+failures. It links the exact Building event, retains exit status and observed
+file/directory entries with file sizes and digests. Recording requires retained
+global/artifact exclusive locks, the original private empty lease, matching
+build/artifact identities and a stable tree containing only declared paths.
+Unknown descendants or a nonempty/replaced lease preserve unresolved state.
+The build EXIT handler attempts this only before successful product sealing;
+later publication, packaging or check failures cannot mark a sealed build failed.
+Package failure events, Sealed/Published events and restart consumption remain
+open. SIGINT/SIGTERM exit statuses are retained; abrupt process death still
+requires inactive-builder reconciliation, not an invented failure event.
+
+Creation-journal contracts now include explicit verified-unsealed evidence and
+refuse contradictory sealed/unsealed flags. There are 24 public laws and two
+private fixture helpers. The earlier 23-law version compiled on `0fb79267`;
+the final 24-law source still needs current compilation and authenticated proof.
+Bash syntax, Python AST and repository line-length checks passed for the new
+failure path. No runtime, crash, cancellation or filesystem race acceptance is
+claimed from those source checks.
