@@ -26,6 +26,7 @@ class Publication:
     suffix = ".revision-4.json"
     destination = "MocapStudio.app"
     backup = "previous.app"
+    intent_suffix = ".publication-intent.json"
     fields = ("executable_sha256", "contents_inventory_sha256", "package_record_sha256",
               "input_record_sha256", "lease_record_sha256", "build_generation_id")
     facts = ("metadata_facts", "inputs_facts", "lease_facts")
@@ -93,6 +94,12 @@ def publish_package(project, artifact, artifact_id):
         else:
             raise ValueError("Published event already exists; reconcile before retry")
         try:
+            os.stat(artifact_id + Publication.intent_suffix, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError("publication intent already exists; reconcile before retry")
+        try:
             os.stat(Publication.backup, dir_fd=pending, follow_symlinks=False)
         except FileNotFoundError:
             pass
@@ -145,6 +152,23 @@ def publish_package(project, artifact, artifact_id):
             require(version(os.stat(".studio-generation.lease", dir_fd=old_resources, follow_symlinks=False)) ==
                     version(old_facts) and identity(os.stat(Publication.destination, dir_fd=build,
                     follow_symlinks=False)) == identity(previous), "previous package binding changed")
+        intent = dict(seal_record, phase="publication-intent", revision=Publication.revision,
+                      previous_revision=Seal.revision, previous_sha256=hashlib.sha256(seal_payload).hexdigest(),
+                      current_relative_path=Publication.destination)
+        if previous is not None:
+            intent.update(previous_root_device=previous.st_dev, previous_root_inode=previous.st_ino,
+                          previous_relative_path=artifact_id + "/" + Publication.backup,
+                          previous_lease_device=old_facts.st_dev, previous_lease_inode=old_facts.st_ino)
+        intent_payload = (json.dumps(intent, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        require(len(intent_payload) <= Limits.json_bytes, "publication intent size exceeded")
+        publish_initial(build, intent_payload, artifact_id + Publication.intent_suffix, revalidate)
+        intent_record, durable_intent_payload, intent_facts = read_record(parent, artifact_id + Publication.intent_suffix)
+        require(intent_record == intent and durable_intent_payload == intent_payload, "durable intent differs")
+        prior += ((artifact_id + Publication.intent_suffix, intent_payload, intent_facts),)
+        revalidate()
+        if previous is not None:
+            require(identity(os.stat(Publication.destination, dir_fd=build, follow_symlinks=False)) == identity(previous) and
+                    version(os.fstat(old_lease)) == version(old_facts), "previous bundle changed before move")
             rename_exclusive(build, Publication.destination, pending, Publication.backup)
             namespace_changed = True
             os.fsync(pending)
@@ -169,7 +193,8 @@ def publish_package(project, artifact, artifact_id):
         revalidate()
         record = dict(seal_record, phase=Publication.phase, revision=Publication.revision,
                       previous_revision=Seal.revision, previous_sha256=hashlib.sha256(seal_payload).hexdigest(),
-                      current_relative_path=Publication.destination)
+                      current_relative_path=Publication.destination,
+                      publication_intent_sha256=hashlib.sha256(intent_payload).hexdigest())
         if previous is not None:
             record.update(previous_root_device=previous.st_dev, previous_root_inode=previous.st_ino,
                           previous_relative_path=artifact_id + "/" + Publication.backup)
