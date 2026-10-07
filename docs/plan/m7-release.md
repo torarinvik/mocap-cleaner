@@ -11,9 +11,10 @@
       exact source/dependency snapshots and separate compile, runtime, proof,
       native interaction, motion-quality and external usability evidence.
 - [ ] Complete the constant-module migration using
-      `scripts/inventory_constant_modules.py`. The lexical inventory currently
-      identifies 34 ordinary module scopes with multiple constant declarations;
-      it includes proof/test owners and extension modules, and excludes const
+      `scripts/inventory_constant_modules.py`. Run the lexical inventory for the
+      current source snapshot to identify ordinary module scopes with multiple
+      constant declarations. It includes proof/test owners and extension modules,
+      and excludes const
       modules, enum variants and function-local declarations. Review each group
       for a const module, const enum or algebraic data type; do not mechanically
       classify bit masks or unrelated domains as enums. The 600-line gate is
