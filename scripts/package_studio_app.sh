@@ -31,8 +31,18 @@ fi
 pending_package="$(mktemp -d "$ROOT/build/studio-package.XXXXXX")"
 APP="$pending_package/MocapStudio.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp -p "$EXECUTABLE" "$APP/Contents/MacOS/MocapStudio"
 install -m 0600 /dev/null "$APP/Contents/Resources/.studio-generation.lease"
+# Bind the initial package tree and complete declared output plan before copies.
+python3 "$ROOT/tools/studio_generation_creation.py" --project "$ROOT" \
+  --artifact "$(basename "$pending_package")/MocapStudio.app" \
+  --artifact-id "$(basename "$pending_package")" --kind studio-package \
+  --directory Contents --directory Contents/MacOS --directory Contents/Resources \
+  --file Contents/Info.plist --file Contents/PkgInfo \
+  --file Contents/MacOS/MocapStudio --file Contents/Resources/BUILD-INFO.txt \
+  --file Contents/Resources/PACKAGE-GENERATION.json \
+  --file Contents/Resources/BUILD-INPUTS.json \
+  --file Contents/Resources/.studio-generation.lease
+cp -p "$EXECUTABLE" "$APP/Contents/MacOS/MocapStudio"
 cat >"$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -107,6 +117,7 @@ input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/pack
                     project / "tools/studio_generation_lock.py",
                     project / "tools/studio_generation_contents.py",
                     project / "tools/studio_generation_controls.py",
+                    project / "tools/studio_generation_creation.py",
                     project / "tools/studio_build_identity.py", project / "build/generated/studio_build_identity.elisa",
                     compiler / "scripts/elisac_stage1.sh", compiler / "build/runtime/elisacore_runtime.o"))
 input_paths.extend(path for path in (project / "assets/icons").rglob("*.svg"))
