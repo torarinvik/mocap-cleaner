@@ -1,3 +1,4 @@
+include "../state/generation_recovery_message_policy.elisa"
 include "../state/generation_storage_drain_policy.elisa"
 include "../io/build_generation_recovery_scan_worker.elisa"
 include "../io/build_generation_recovery_discovery_worker.elisa"
@@ -237,23 +238,35 @@ extend Studio:
             "unknown; protected"
 
         def generation_recovery_browser_message() -> sview can[Unsafe.PointerCast, Memory.Allocate]:
-            return "Scanning recovery receipts in the background." if not generation_recovery_discovery_ready
-            return "Recovery discovery exceeded the 512 operation limit; listing and restore are refused." if generation_recovery_discovery_overflow
-            return "Durable receipt discovery was refused; known session ledger entries still require reconciliation." if generation_recovery_discovery_outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Refused
-            if generation_recovery_discovery_outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Complete and generation_recovery_pending_records > 0:
+            facts: StudioGenerationRecoveryMessagePolicy::Facts = StudioGenerationRecoveryMessagePolicy::Facts{closing: storage_close_requested, discovery_ready: generation_recovery_discovery_ready, overflow: generation_recovery_discovery_overflow, selected: generation_recovery_scan_selected >= 0, observation_current: generation_recovery_scan_current(), scan_queued: generation_recovery_scan_requested, scan_active: generation_recovery_scan_task != null, discovery_refused: generation_recovery_discovery_outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Refused, pending_records: generation_recovery_pending_records, operation_count: generation_recovery_browser_count()}
+            status: StudioGenerationRecoveryMessagePolicy::Status = StudioGenerationRecoveryMessagePolicy::classify(facts)
+            return "Recovery metadata is invalid; operations remain protected." if status == StudioGenerationRecoveryMessagePolicy::Status.Invalid
+            return "Finishing background operations before closing Storage." if status == StudioGenerationRecoveryMessagePolicy::Status.Closing
+            return "Scanning recovery receipts in the background." if status == StudioGenerationRecoveryMessagePolicy::Status.Discovering
+            return "Recovery discovery exceeded the 512 operation limit; listing and restore are refused." if status == StudioGenerationRecoveryMessagePolicy::Status.Overflow
+            return "Reconciling selected recovery operation in the background." if status == StudioGenerationRecoveryMessagePolicy::Status.Reconciling
+            return "Recovery review is queued; waiting for background operations to finish." if status == StudioGenerationRecoveryMessagePolicy::Status.Waiting
+            return "Selected recovery evidence is stale. Refresh or reselect the operation; it remains protected." if status == StudioGenerationRecoveryMessagePolicy::Status.Stale
+            if status == StudioGenerationRecoveryMessagePolicy::Status.Selected:
+                if generation_recovery_scan_reply is reply:
+                    StudioText::begin()
+                    StudioText::put("Selected operation: ")
+                    StudioText::put(generation_recovery_outcome_name(reply.observation.outcome))
+                    if generation_recovery_pending_records > 0:
+                        StudioText::put(". Unresolved pending receipt files: ")
+                        StudioText::put_i(generation_recovery_pending_records)
+                    if facts.discovery_refused:
+                        StudioText::put(". Receipt listing is incomplete; other operations remain protected.")
+                    return StudioText::view()
+                return "Recovery scan unavailable; operations remain protected."
+            return "Durable receipt discovery was refused; known session ledger entries still require reconciliation." if status == StudioGenerationRecoveryMessagePolicy::Status.DiscoveryRefused
+            if status == StudioGenerationRecoveryMessagePolicy::Status.Pending:
                 StudioText::begin()
                 StudioText::put_i(generation_recovery_pending_records)
                 StudioText::put(" unresolved pending receipt files remain. Listed operation IDs are candidates only; select one to reconcile its durable evidence.")
                 return StudioText::view()
-            return "No retained recovery operation IDs were found; discovery does not validate the complete receipt inventory." if generation_recovery_browser_count() == 0
-            return "Select an operation to reconcile its receipt and current location." if generation_recovery_scan_selected < 0
-            return "Reconciling selected recovery operation in the background." if not generation_recovery_scan_current()
-            if generation_recovery_scan_reply is reply:
-                StudioText::begin()
-                StudioText::put("Selected operation: ")
-                StudioText::put(generation_recovery_outcome_name(reply.observation.outcome))
-                StudioText::view()
-            "Recovery scan unavailable; operations remain protected."
+            return "No retained recovery operation IDs were found; discovery does not validate the complete receipt inventory." if status == StudioGenerationRecoveryMessagePolicy::Status.Empty
+            "Select an operation to reconcile its receipt and current location."
 
         def generation_recovery_row_name(index: i64) -> sview can Memory.Allocate:
             if index >= 0 and index < generation_recovery_browser_count():

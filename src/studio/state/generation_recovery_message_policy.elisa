@@ -1,0 +1,52 @@
+module StudioGenerationRecoveryMessagePolicy:
+    public:
+        const module Limit:
+            OPERATIONS: i64 = 512
+            PENDING_RECORDS: i64 = 8192
+
+        const enum Status:
+            Invalid
+            Closing
+            Discovering
+            Overflow
+            Reconciling
+            Waiting
+            Stale
+            Selected
+            DiscoveryRefused
+            Pending
+            Empty
+            Choose
+
+        struct Facts:
+            closing: bool
+            discovery_ready: bool
+            overflow: bool
+            selected: bool
+            observation_current: bool
+            scan_queued: bool
+            scan_active: bool
+            discovery_refused: bool
+            pending_records: i64
+            operation_count: i64
+
+        def valid(facts: Facts) -> bool:
+            ensure result == (facts.pending_records >= 0 and facts.pending_records <= Limit::PENDING_RECORDS and facts.operation_count >= 0 and facts.operation_count <= Limit::OPERATIONS)
+            facts.pending_records >= 0 and facts.pending_records <= Limit::PENDING_RECORDS and facts.operation_count >= 0 and facts.operation_count <= Limit::OPERATIONS
+
+        def classify(facts: Facts) -> Status:
+            ensure valid(facts) or result == Status.Invalid
+            ensure result != Status.Selected or (facts.selected and facts.observation_current and facts.discovery_ready and not facts.overflow and not facts.closing)
+            return Status.Invalid if not valid(facts)
+            return Status.Closing if facts.closing
+            return Status.Discovering if not facts.discovery_ready
+            return Status.Overflow if facts.overflow
+            if facts.selected:
+                return Status.Selected if facts.observation_current
+                return Status.Reconciling if facts.scan_active
+                return Status.Waiting if facts.scan_queued
+                return Status.Stale
+            return Status.DiscoveryRefused if facts.discovery_refused
+            return Status.Pending if facts.pending_records > 0
+            return Status.Empty if facts.operation_count == 0
+            Status.Choose
