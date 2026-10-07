@@ -12,14 +12,19 @@ include "../../core/retime.elisa"
 
 module StackState:
     public:
-        const MAX_STRENGTH: i64 = 64
-        const MAX_EDGE: i64 = 120
-        # Hand contact edits kept per stack (timeline contact-bar edits).
-        const MAX_EDITS: i64 = StudioContactEditor::MAX_EDITS
-        const LEFT: i64 = 0
-        const RIGHT: i64 = 1
-        const LEFT_HAND: i64 = 2
-        const RIGHT_HAND: i64 = 3
+        const module Limit:
+            MAX_STRENGTH: i64 = 64
+            MAX_EDGE: i64 = 120
+
+        const module Capacity:
+            MAX_EDITS: i64 = StudioContactEditor::MAX_EDITS
+            MAX_BANDS: i64 = 8
+
+        const enum ContactSide of i64:
+            LeftFoot = 0
+            RightFoot = 1
+            LeftHand = 2
+            RightHand = 3
 
         # One hand edit of a foot's contact track: frames [first, last] of
         # `side` forced planted or lifted. Later edits win.
@@ -37,8 +42,6 @@ module StackState:
             speed: mutable i64
             blend: mutable i64
             enabled: mutable bool
-
-        const MAX_BANDS: i64 = 8
 
         struct Stack:
             ops: mutable Ops::Operation[16]
@@ -82,8 +85,8 @@ module StackState:
 
         # Append a contact edit; ignored when full or empty.
         def add_edit(s: mutable Stack&, side: i64, first: i64, last: i64, planted: bool) -> bool:
-            return false if s.edit_count < 0 or s.edit_count >= MAX_EDITS
-            return false if first > last or first < 0 or last >= StudioContactEditor::MAX_FRAMES or side < LEFT or side > RIGHT_HAND
+            return false if s.edit_count < 0 or s.edit_count >= Capacity::MAX_EDITS
+            return false if first > last or first < 0 or last >= StudioContactEditor::MAX_FRAMES or side < ContactSide.LeftFoot.i64() or side > ContactSide.RightHand.i64()
             s.edits[s.edit_count] <- FootEdit{side: side, first: first, last: last, planted: planted}
             s.edit_count <- s.edit_count + 1
             return true
@@ -93,7 +96,7 @@ module StackState:
         # detected state for its full interval.
         def edit_index_at(s: Stack&, side: i64, frame: i64) -> i64:
             requires s.edit_count >= 0
-            requires s.edit_count <= MAX_EDITS
+            requires s.edit_count <= Capacity::MAX_EDITS
             ensure result >= -1
             ensure result < s.edit_count
             mutable found: i64 = -1
@@ -106,7 +109,7 @@ module StackState:
         # Prefer the following entry so repeated Merge presses walk forward.
         def merge_neighbor_index(s: Stack&, index: i64) -> i64:
             requires s.edit_count >= 0
-            requires s.edit_count <= MAX_EDITS
+            requires s.edit_count <= Capacity::MAX_EDITS
             ensure result >= -1
             ensure result < s.edit_count
             return -1 if index < 0 or index >= s.edit_count
@@ -122,7 +125,7 @@ module StackState:
             -1
 
         def remove_edit_index(s: mutable Stack&, removed: i64) -> bool:
-            return false if s.edit_count <= 0 or s.edit_count > MAX_EDITS or removed < 0 or removed >= s.edit_count
+            return false if s.edit_count <= 0 or s.edit_count > Capacity::MAX_EDITS or removed < 0 or removed >= s.edit_count
             old_count: i64 = s.edit_count
             for i in 0..<(old_count - 1) |i, s, removed, old_count|:
                 source: i64 = StudioContactEditor::delete_source_index(i, removed, old_count)
@@ -132,14 +135,14 @@ module StackState:
 
         def can_merge_edit_at(s: Stack&, side: i64, frame: i64) -> bool:
             requires s.edit_count >= 0
-            requires s.edit_count <= MAX_EDITS
+            requires s.edit_count <= Capacity::MAX_EDITS
             index: i64 = edit_index_at(s, side, frame)
             index >= 0 and merge_neighbor_index(s, index) >= 0
 
         def can_split_edit_at(s: Stack&, side: i64, frame: i64) -> bool:
             requires s.edit_count >= 0
-            requires s.edit_count <= MAX_EDITS
-            return false if s.edit_count >= MAX_EDITS or side < LEFT or side > RIGHT_HAND or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
+            requires s.edit_count <= Capacity::MAX_EDITS
+            return false if s.edit_count >= Capacity::MAX_EDITS or side < ContactSide.LeftFoot.i64() or side > ContactSide.RightHand.i64() or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
             index: i64 = edit_index_at(s, side, frame)
             return false if index < 0
             e: FootEdit = s.edits[index]
@@ -149,8 +152,8 @@ module StackState:
         # selected frame. A temporary list makes capacity and construction
         # atomic; later edits remain later and keep precedence.
         def split_edit_at(s: mutable Stack&, side: i64, frame: i64) -> bool:
-            return false if s.edit_count < 1 or s.edit_count >= MAX_EDITS or s.edit_count > MAX_EDITS
-            return false if side < LEFT or side > RIGHT_HAND or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
+            return false if s.edit_count < 1 or s.edit_count >= Capacity::MAX_EDITS or s.edit_count > Capacity::MAX_EDITS
+            return false if side < ContactSide.LeftFoot.i64() or side > ContactSide.RightHand.i64() or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
             selected: i64 = edit_index_at(s, side, frame)
             return false if selected < 0
             original: FootEdit = s.edits[selected]
@@ -177,8 +180,8 @@ module StackState:
         # adjacent interval of the same side and state. Preserve list order so
         # all older and newer overrides retain their meaning.
         def merge_edit_at(s: mutable Stack&, side: i64, frame: i64) -> bool:
-            return false if s.edit_count <= 1 or s.edit_count > MAX_EDITS
-            return false if side < LEFT or side > RIGHT_HAND or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
+            return false if s.edit_count <= 1 or s.edit_count > Capacity::MAX_EDITS
+            return false if side < ContactSide.LeftFoot.i64() or side > ContactSide.RightHand.i64() or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
             selected: i64 = edit_index_at(s, side, frame)
             return false if selected < 0
             neighbor: i64 = merge_neighbor_index(s, selected)
@@ -196,8 +199,8 @@ module StackState:
         # the whole interval is explicit and undoable; it does not split the
         # underlying edit or disturb neighboring entries.
         def delete_edit_at(s: mutable Stack&, side: i64, frame: i64) -> bool:
-            return false if s.edit_count <= 0 or s.edit_count > MAX_EDITS
-            return false if side < LEFT or side > RIGHT_HAND or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
+            return false if s.edit_count <= 0 or s.edit_count > Capacity::MAX_EDITS
+            return false if side < ContactSide.LeftFoot.i64() or side > ContactSide.RightHand.i64() or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
             removed: i64 = edit_index_at(s, side, frame)
             return false if removed < 0
             remove_edit_index(s, removed)
@@ -209,8 +212,8 @@ module StackState:
         # Splitting each affected range preserves its order, so later edits
         # continue to win on every frame except the one reset to detection.
         def reset_edit_at(s: mutable Stack&, side: i64, frame: i64) -> bool:
-            return false if s.edit_count < 0 or s.edit_count > MAX_EDITS
-            return false if side < LEFT or side > RIGHT_HAND or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
+            return false if s.edit_count < 0 or s.edit_count > Capacity::MAX_EDITS
+            return false if side < ContactSide.LeftFoot.i64() or side > ContactSide.RightHand.i64() or frame < 0 or frame >= StudioContactEditor::MAX_FRAMES
             mutable next: FootEdit[32] = zeroed
             mutable next_count: i64 = 0
             mutable changed: bool = false
@@ -220,19 +223,19 @@ module StackState:
                     changed <- true
                     p: StudioContactEditor::ResetPlan = StudioContactEditor::reset_interval(e.first, e.last, frame)
                     if p.count >= 1:
-                        return false if next_count >= MAX_EDITS
+                        return false if next_count >= Capacity::MAX_EDITS
                         next[next_count] <- FootEdit{side: e.side, first: p.left_first, last: p.left_end - 1, planted: e.planted}
                         next_count <- next_count + 1
                     if p.count == 2:
-                        return false if next_count >= MAX_EDITS
+                        return false if next_count >= Capacity::MAX_EDITS
                         next[next_count] <- FootEdit{side: e.side, first: p.right_first, last: p.right_end - 1, planted: e.planted}
                         next_count <- next_count + 1
                 else:
-                    return false if next_count >= MAX_EDITS
+                    return false if next_count >= Capacity::MAX_EDITS
                     next[next_count] <- e
                     next_count <- next_count + 1
             return false if not changed
-            for i in 0..<MAX_EDITS |i, s, next|:
+            for i in 0..<Capacity::MAX_EDITS |i, s, next|:
                 s.edits[i] <- next[i]
             s.edit_count <- next_count
             return true
@@ -298,14 +301,14 @@ module StackState:
 
         # Add a band (speed clamped); false when full, malformed or overlapping.
         def add_band(s: mutable Stack&, first: i64, last: i64, speed: i64, frames: i64) -> bool:
-            return false if s.band_count < 0 or s.band_count >= MAX_BANDS
+            return false if s.band_count < 0 or s.band_count >= Capacity::MAX_BANDS
             return false if not band_fits(s, first, last, frames, -1)
             s.bands[s.band_count] <- Band{first: first, last: last, speed: Retime::clamp_speed(speed), blend: Retime::Defaults::DEFAULT_BLEND, enabled: true}
             s.band_count <- s.band_count + 1
             return true
 
         def set_band_speed(s: mutable Stack&, at: i64, speed: i64) -> bool:
-            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            return false if at < 0 or at >= s.band_count or at >= Capacity::MAX_BANDS
             mutable b: Band = s.bands[at]
             v: i64 = Retime::clamp_speed(speed)
             return false if v == b.speed
@@ -315,7 +318,7 @@ module StackState:
 
         # Move a band's start (`last_edge` false) or end edge to `frame`.
         def move_band_edge(s: mutable Stack&, at: i64, last_edge: bool, frame: i64, frames: i64) -> bool:
-            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            return false if at < 0 or at >= s.band_count or at >= Capacity::MAX_BANDS
             mutable b: Band = s.bands[at]
             first: i64 = b.first if last_edge else frame
             last: i64 = frame if last_edge else b.last
@@ -327,14 +330,14 @@ module StackState:
             return true
 
         def toggle_band(s: mutable Stack&, at: i64) -> bool:
-            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            return false if at < 0 or at >= s.band_count or at >= Capacity::MAX_BANDS
             mutable b: Band = s.bands[at]
             b.enabled <- not b.enabled
             s.bands[at] <- b
             return true
 
         def remove_band(s: mutable Stack&, at: i64) -> bool:
-            return false if at < 0 or at >= s.band_count or at >= MAX_BANDS
+            return false if at < 0 or at >= s.band_count or at >= Capacity::MAX_BANDS
             for i in at..<(s.band_count - 1) |i, s|:
                 s.bands[i] <- s.bands[i + 1]
             s.band_count <- s.band_count - 1
@@ -419,9 +422,9 @@ module StackState:
         def nudge_strength(s: mutable Stack&, at: i64, delta: i64) -> bool:
             return false if not valid(s, at)
             mutable op: Ops::Operation = s.ops[at]
-            v: i64 = op.strength if op.strength >= 0 and op.strength <= MAX_STRENGTH else 1
-            d: i64 = -MAX_STRENGTH if delta < -MAX_STRENGTH else (MAX_STRENGTH if delta > MAX_STRENGTH else delta)
-            op.strength <- StackPolicy::nudge(v, d, 1, MAX_STRENGTH)
+            v: i64 = op.strength if op.strength >= 0 and op.strength <= Limit::MAX_STRENGTH else 1
+            d: i64 = -Limit::MAX_STRENGTH if delta < -Limit::MAX_STRENGTH else (Limit::MAX_STRENGTH if delta > Limit::MAX_STRENGTH else delta)
+            op.strength <- StackPolicy::nudge(v, d, 1, Limit::MAX_STRENGTH)
             s.ops[at] <- op
             return true
 
