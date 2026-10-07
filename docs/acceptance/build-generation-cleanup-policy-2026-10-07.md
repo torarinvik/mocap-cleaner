@@ -306,3 +306,15 @@ command does not establish automatic restart recovery or a user-facing UI
 flow. Source AST, wrapper shell syntax and diff checks pass; the reconciliation
 command has not yet been exercised or fault-injected, and authenticated native
 I/O correspondence remains open.
+
+### Bounded generation JSON decoding
+
+Contents inventory and creation/control readers now share duplicate-field
+refusal and a pre-decode structural nesting limit of 32. The scan distinguishes
+JSON strings and escaped quotes/backslashes, so brackets inside string values
+do not consume structural depth. Existing byte limits, descriptor ownership,
+no-follow reads and before/after identity/version checks remain required.
+Malformed or over-deep JSON refuses instead of reaching unbounded parser
+recursion. Python AST and diff checks passed; malformed/fault-case runtime
+qualification remains open. A successful normal build alone cannot establish
+those refusal cases.
