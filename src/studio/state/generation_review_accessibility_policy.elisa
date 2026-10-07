@@ -1,0 +1,95 @@
+# Semantic identities and action admission for read-only generated-build review.
+# The range is shared with other modal sheets, which lifecycle publication excludes.
+include "generation_review_list_policy.elisa"
+include "../accessibility.elisa"
+include "../storage_accessibility_policy.elisa"
+
+module StudioGenerationReviewAccessibilityPolicy:
+    public:
+        const module Node:
+            DIALOG: usize = 274
+            STATUS: usize = 275
+            PAGE: usize = 276
+            LIST: usize = 277
+            ROW_FIRST: usize = 278
+            ROW_COUNT: i64 = 16
+            DETAILS: usize = 294
+            PREVIOUS: usize = 295
+            NEXT: usize = 296
+            REFRESH: usize = 297
+            BACK: usize = 298
+            STORAGE_ENTRY: usize = 299
+
+        const enum Action of i64:
+            Previous = 0
+            Next = 1
+            Refresh = 2
+            Back = 3
+
+        const module ActionLimit:
+            COUNT: i64 = 4
+
+        def row_id(slot: usize) -> usize:
+            requires slot < Node::ROW_COUNT.usize()
+            ensure result >= Node::ROW_FIRST and result < Node::ROW_FIRST + Node::ROW_COUNT.usize()
+            Node::ROW_FIRST + slot
+
+        def row_slot(id: usize) -> i64:
+            return (id - Node::ROW_FIRST).i64() if id >= Node::ROW_FIRST and id < Node::ROW_FIRST + Node::ROW_COUNT.usize()
+            -1
+
+        def action_id(action: Action) -> usize:
+            requires action >= Action.Previous and action <= Action.Back
+            return Node::PREVIOUS if action == Action.Previous
+            return Node::NEXT if action == Action.Next
+            return Node::REFRESH if action == Action.Refresh
+            Node::BACK
+
+        def action_for_id(id: usize) -> i64:
+            return Action.Previous.i64() if id == Node::PREVIOUS
+            return Action.Next.i64() if id == Node::NEXT
+            return Action.Refresh.i64() if id == Node::REFRESH
+            return Action.Back.i64() if id == Node::BACK
+            -1
+
+        def action_enabled(action: Action, page: i64, pages: i64) -> bool:
+            requires page >= 0 and pages >= 0
+            ensure result == (page > 0 if action == Action.Previous else page + 1 < pages if action == Action.Next else true)
+            return page > 0 if action == Action.Previous
+            return page + 1 < pages if action == Action.Next
+            true
+
+        def entry_enabled(storage_open: bool, review_open: bool,
+                          batch_running: bool) -> bool:
+            ensure result == (storage_open and not review_open and not batch_running)
+            storage_open and not review_open and not batch_running
+
+        def consumes_widget_event(review_open: bool) -> bool:
+            ensure result == review_open
+            review_open
+
+        def parent(id: usize) -> usize:
+            return Node::LIST if row_slot(id) >= 0
+            return Node::DIALOG if id == Node::STATUS or id == Node::PAGE or id == Node::LIST or id == Node::DETAILS or (id >= Node::PREVIOUS and id <= Node::BACK)
+            return StudioStorageAccessibilityPolicy::Node::DIALOG if id == Node::STORAGE_ENTRY
+            StudioAccessibility::SemanticId::NO_NODE
+
+        def first_child(id: usize, visible_rows: i64) -> usize:
+            requires visible_rows >= 0 and visible_rows <= Node::ROW_COUNT
+            return Node::STATUS if id == Node::DIALOG
+            return Node::ROW_FIRST if id == Node::LIST and visible_rows > 0
+            StudioAccessibility::SemanticId::NO_NODE
+
+        def next_sibling(id: usize, visible_rows: i64) -> usize:
+            requires visible_rows >= 0 and visible_rows <= Node::ROW_COUNT
+            row: i64 = row_slot(id)
+            return row_id((row + 1).usize()) if row >= 0 and row + 1 < visible_rows
+            return StudioAccessibility::SemanticId::NO_NODE if row >= 0
+            return Node::PAGE if id == Node::STATUS
+            return Node::LIST if id == Node::PAGE
+            return Node::DETAILS if id == Node::LIST
+            return Node::PREVIOUS if id == Node::DETAILS
+            return Node::NEXT if id == Node::PREVIOUS
+            return Node::REFRESH if id == Node::NEXT
+            return Node::BACK if id == Node::REFRESH
+            StudioAccessibility::SemanticId::NO_NODE
