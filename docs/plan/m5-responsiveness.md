@@ -174,6 +174,13 @@ Publication is also a separate helper requiring a nonnull owned candidate;
 it installs the clip, built stack, generations, readouts, timeline and findings.
 This is a structural prerequisite, not completed transaction admission. Its
 ownership transfer and complete UI composition still need compiler qualification.
+Synchronous preview commits now evaluate first and validate their captured
+base ticket before recording history and publishing. Candidate failure or a
+stale base discards the candidate and preserves committed history/result.
+The gizmo consumes commit's Boolean result so refusal feedback is retained.
+Deferred edits, Undo/Redo and other callers' success messages still require
+integration. The seven ticket obligations have source-compile evidence only;
+actual transaction frame conditions and latest full-graph compilation are open.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;

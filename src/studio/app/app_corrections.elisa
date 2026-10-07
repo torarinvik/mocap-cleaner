@@ -1,5 +1,6 @@
 include "app_state.elisa"
 include "../correction_result_policy.elisa"
+include "../edit_transaction_policy.elisa"
 
 extend Studio:
     private:
@@ -24,11 +25,7 @@ extend Studio:
                 load_failed <- false
                 return
             s: StackState::Stack = current_stack()
-            mutable candidate_rig_revision: i64 = rig_source_revision
-            if built_stack is prior:
-                candidate_rig_revision <- candidate_rig_revision + 1 if not StackState::same_rig_source(prior, s)
-            else:
-                candidate_rig_revision <- candidate_rig_revision + 1
+            candidate_rig_revision: i64 = candidate_revision_for(s)
             mutable result: StudioModel::Clip? = evaluate_candidate(s, candidate_rig_revision)
             if result == null:
                 if clip != null:
@@ -40,6 +37,11 @@ extend Studio:
                 load_failed <- true
                 return
             publish_candidate(s, move result, candidate_rig_revision)
+
+        def candidate_revision_for(s: StackState::Stack&) -> i64:
+            if built_stack is prior:
+                return rig_source_revision if StackState::same_rig_source(prior, s)
+            rig_source_revision + 1
 
         # Evaluation owns Memo temporarily but does not publish history,
         # the visible clip, readouts or generations. Exact-keyed cache entries
@@ -248,15 +250,44 @@ extend Studio:
 
         # Record an edited stack and preview it; selection-only edits are
         # recorded too so undo restores the row the user was on.
-        def commit(s: StackState::Stack, preview: bool) -> void:
+        def commit(s: StackState::Stack, preview: bool) -> bool:
             foot_press <- FootState::idle()
             contact_preview_active <- false
+            return false if not history_ready
+            active: StackState::Stack = current_stack()
+            return false if StackState::same(active, s)
+            if preview and contact_preview_task == null and path_slot >= 0:
+                base: StudioEditTransactionPolicy::Base = edit_transaction_base()
+                revision: i64 = candidate_revision_for(s)
+                mutable candidate: StudioModel::Clip? = evaluate_candidate(s, revision)
+                if candidate == null:
+                    status <- "Edit not applied: the proposed result could not be evaluated. Existing edits and result kept. Try a smaller change or reopen the source."
+                    nudged_row <- -1
+                    status_file <- null
+                    touch()
+                    return false
+                if not StudioEditTransactionPolicy::current(base, edit_transaction_base()):
+                    status <- "Edit not applied: its source or history changed during evaluation. Existing edits kept. Review the current result and try again."
+                    nudged_row <- -1
+                    status_file <- null
+                    touch()
+                    return false
+                return false if not HistoryState::record(&history, s)
+                stack_generation <- stack_generation + 1
+                publish_candidate(s, move candidate, revision)
+                return true
             if history_ready:
                 changed: bool = HistoryState::record(&history, s)
                 stack_generation <- stack_generation + 1 if changed
                 if changed and preview:
                     rebuild()
                 touch()
+                return changed
+            false
+
+        def edit_transaction_base() -> StudioEditTransactionPolicy::Base:
+            StudioEditTransactionPolicy::Base{take: take_serial, result_generation: built,
+                stack_generation: stack_generation, cursor: history.cursor, count: history.count}
 
         def undo() -> void:
             foot_press <- FootState::idle()
