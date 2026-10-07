@@ -226,7 +226,14 @@ values = []
 for label, root in (("PROJECT", project), ("ENGINE", engine),
                     ("UI", ui), ("COMPILER", compiler)):
     values.extend(fields(label, root))
+importer_paths = [engine / "native/fbx_to_glb.c",
+                  engine / "native/studio_fbx_import_stage.c",
+                  engine / "dependencies/ufbx/ufbx.c",
+                  engine / "dependencies/ufbx/ufbx.h"]
+importer_identity = hashlib.sha256(("studio-fbx-importer-v1\n" +
+    "\n".join(digest(path) for path in importer_paths) + "\n").encode()).hexdigest()
 values.extend([
+    ("FBX_IMPORTER_SHA256", importer_identity),
     ("COMPILER_SHA256", digest(compiler / "bin/elisac-stage1")),
     ("RUNTIME_SHA256", digest(compiler / "build/runtime/elisacore_runtime.o"))])
 text = "# Generated build-input identity; dirty revisions are not exact source identities.\n"
