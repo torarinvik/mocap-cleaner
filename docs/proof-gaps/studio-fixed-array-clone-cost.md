@@ -107,6 +107,10 @@ This size ranking does not identify an optimization hotspot. The compiler
 prints LLVM after its optimization pipeline, so the O0 success and O2 guard
 refusal narrow the next investigation to that pipeline; a sampled pass or
 isolated reproduction is still required to identify the cause.
+The O2 path also calls `inline_aos_store_record` before LLVM's default O2
+passes; the O0 path skips it. Both this transformation and the LLVM passes
+remain candidates, so running standalone `opt` on the O0 file would not
+reproduce the complete O2 pipeline by itself.
 
 No object, linked application, FBX import or user journey was qualified by
 this diagnostic. Subsequent compiler source repairs require a fresh product
