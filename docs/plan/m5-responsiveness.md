@@ -202,6 +202,11 @@ first draft, and rejects stale existing drafts before composition. Four new
 admission obligations compile with d2754a8e (twelve transaction policy laws in
 total). Authenticated replay and actual discard/publication frame conditions
 remain pending.
+Completion feedback now has a shared admission rule: pending or failed results
+cannot replace waiting/failure feedback with an applied-edit message. Three
+additional obligations compile with d2754a8e. Local correction controls use
+the rule; remaining app callers and deferred session installation are being
+audited before full native qualification.
 Transaction ownership, pending intents, evaluation and publication now live in
 `src/studio/app/app_edit_transactions.elisa` (242 lines); correction controls
 remain in `app_corrections.elisa` (253 lines). All helpers stay private within
