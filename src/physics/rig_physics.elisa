@@ -44,6 +44,7 @@ module Physics:
 
         struct Findings:
             ops: mutable i64
+            unavailable_ops: mutable i64
             frames: mutable i64
             planted: mutable i64
             unbalanced: mutable i64
@@ -71,10 +72,11 @@ module Physics:
             return PhysOp{kind: PhysKind.Momentum, fix: fix, amount: cap, edge: 8}
 
         def empty_findings() -> Findings:
-            return Findings{ops: 0, frames: 0, planted: 0, unbalanced: 0, unbalanced_runs: 0, stepped: 0, worst_run: 0, worst_first: -1, airborne: 0, flights: 0, ballistic_before: 0, ballistic_after: 0, momentum_cap: 0, momentum_before: 0, momentum_after: 0, momentum_drift: 0, changed: 0}
+            return Findings{ops: 0, unavailable_ops: 0, frames: 0, planted: 0, unbalanced: 0, unbalanced_runs: 0, stepped: 0, worst_run: 0, worst_first: -1, airborne: 0, flights: 0, ballistic_before: 0, ballistic_after: 0, momentum_cap: 0, momentum_before: 0, momentum_after: 0, momentum_drift: 0, changed: 0}
 
         def add(total: mutable Findings&, f: Findings&):
             total.ops <- total.ops + f.ops
+            total.unavailable_ops <- total.unavailable_ops + f.unavailable_ops
             total.frames <- total.frames + f.frames
             total.planted <- total.planted + f.planted
             total.unbalanced <- total.unbalanced + f.unbalanced
@@ -534,12 +536,16 @@ module Physics:
             out.frames <- c.frames
             length: f64 = leg_length(c)
             floor: i64 = floor_of(c)
+            contact_source: bool = PhysicsTrackShapePolicy::contact_source_admitted(Rig::node_of(c, Roles::Joint.LeftFoot.i64()), Rig::node_of(c, Roles::Joint.RightFoot.i64()), length)
             # Ballistic and momentum fixes first; balance looks at the result.
             for pass_index in 0..<2:
                 for op in ops:
                     is_balance: bool = op.kind == PhysKind.Balance
                     continue if (pass_index == 0) == is_balance
                     out.ops <- out.ops + 1
+                    if op.kind != PhysKind.Momentum and not contact_source:
+                        out.unavailable_ops <- out.unavailable_ops + 1
+                        continue
                     left: darray[bool] = foot_flags(c, 0, floor, length)
                     right: darray[bool] = foot_flags(c, 1, floor, length)
                     match op.kind:
@@ -555,5 +561,6 @@ module Physics:
             return empty_findings() if ops.count == 0
             mutable c: Rig::Clip = Rig::load(doc, animation)
             mutable out: Findings = run_clip(&c, ops)
+            return out if out.ops == out.unavailable_ops
             out.changed <- Rig::store(doc, &c)
             return out
