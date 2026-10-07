@@ -26,10 +26,10 @@ def same_op(a: RigOps::RigOp, b: RigOps::RigOp) -> bool:
 
 # Ops file round trip, in memory and through a file. No take needed.
 def ops_file_checks() -> i32:
-    mutable ops: darray[RigOps::RigOp] = [RigOps::twist(RigOps::Selection::ALL, 280000, 500), RigOps::pole(RigOps::Selection::ALL, 2, 0), RigOps::pelvis(4), RigOps::foot_lock(4), RigOps::foot_pivot(6), RigOps::pin(Roles::HEAD, 20, 60, 4), RigOps::offset(Roles::LEFT_LEG, 2, -174532, 10, 50, 4), RigOps::contact_edit(Roles::LEFT_FOOT, 5, 9, false)]
+    mutable ops: darray[RigOps::RigOp] = [RigOps::twist(RigOps::Selection::ALL, 280000, 500), RigOps::pole(RigOps::Selection::ALL, 2, 0), RigOps::pelvis(4), RigOps::foot_lock(4), RigOps::foot_pivot(6), RigOps::pin(Roles::Joint.Head.i64(), 20, 60, 4), RigOps::offset(Roles::Joint.LeftLeg.i64(), 2, -174532, 10, 50, 4), RigOps::contact_edit(Roles::Joint.LeftFoot.i64(), 5, 9, false)]
     frames: darray[i64] = [10, 30, 50]
     angles: darray[i64] = [0, -200000, 0]
-    for seg in RigOps::keyed(Roles::RIGHT_LEG, 1, &frames, &angles):
+    for seg in RigOps::keyed(Roles::Joint.RightLeg.i64(), 1, &frames, &angles):
         ops.push(seg)
     mutable off: RigOps::RigOp = RigOps::pelvis(9)
     off.enabled <- false
@@ -67,7 +67,7 @@ def ops_file_checks() -> i32:
     Report::push_text(&empty, "# saved stack\n\nmocap-cleaner ops 1\n")
     return 51 if not OpsFile::decode(&empty, &none) or none.count != 0
     # Keys become one segment per gap; only the last owns its end key.
-    keyed: darray[RigOps::RigOp] = RigOps::keyed(Roles::RIGHT_LEG, 1, &frames, &angles)
+    keyed: darray[RigOps::RigOp] = RigOps::keyed(Roles::Joint.RightLeg.i64(), 1, &frames, &angles)
     return 52 if keyed.count != 2 or keyed[0].edge != 0 or keyed[1].edge != 1
     return 0
 
@@ -89,12 +89,12 @@ def main() -> i32:
 
     # Head pin: the head holds its frame-20 place and orientation over 20..60.
     mutable h: Rig::Clip = fresh(&doc, anim)
-    head: i64 = Rig::node_of(&h, Roles::HEAD)
+    head: i64 = Rig::node_of(&h, Roles::Joint.Head.i64())
     return 2 if head < 0
     anchor: (pos: MotionQuat::V, rot: MotionQuat::Q) = world(&h, 20, head)
     moved_before: f64 = Rig::vlen(Rig::vsub(world(&h, 40, head).pos, anchor.pos))
     turn_before: f64 = turned(world(&h, 40, head).rot, anchor.rot)
-    mutable ops: darray[RigOps::RigOp] = [RigOps::pin(Roles::HEAD, 20, 60, 4)]
+    mutable ops: darray[RigOps::RigOp] = [RigOps::pin(Roles::Joint.Head.i64(), 20, 60, 4)]
     sh: RigOps::Summary = RigOps::run_clip(&h, &ops, threshold)
     return 3 if sh.ops != 1
     moved_after: f64 = Rig::vlen(Rig::vsub(world(&h, 40, head).pos, anchor.pos))
@@ -105,10 +105,10 @@ def main() -> i32:
 
     # Keyed offset: 0 at frame 10, -0.2 rad about y at 30, 0 at 50.
     mutable k: Rig::Clip = fresh(&doc, anim)
-    knee: i64 = Rig::node_of(&k, Roles::RIGHT_LEG)
+    knee: i64 = Rig::node_of(&k, Roles::Joint.RightLeg.i64())
     frames: darray[i64] = [10, 30, 50]
     angles: darray[i64] = [0, -200000, 0]
-    ops <- RigOps::keyed(Roles::RIGHT_LEG, 1, &frames, &angles)
+    ops <- RigOps::keyed(Roles::Joint.RightLeg.i64(), 1, &frames, &angles)
     _ = RigOps::run_clip(&k, &ops, threshold)
     return 10 if MotionQuat::dot(Rig::local_rot(&k, 10, knee), Rig::local_rot(&src, 10, knee)) < 0.999999
     return 11 if MotionQuat::dot(Rig::local_rot(&k, 50, knee), Rig::local_rot(&src, 50, knee)) < 0.999999
@@ -121,7 +121,7 @@ def main() -> i32:
     # Contact edits: forced frames take the edit, all others the detection.
     detected: darray[bool] = RigOps::foot_contacts(&src, 0, &ops)
     return 20 if detected.count.i64() != src.frames
-    edits: darray[RigOps::RigOp] = [RigOps::contact_edit(Roles::LEFT_FOOT, 5, 15, true), RigOps::contact_edit(Roles::LEFT_FOOT, 12, 20, false), RigOps::contact_edit(Roles::RIGHT_FOOT, 0, 1000, true)]
+    edits: darray[RigOps::RigOp] = [RigOps::contact_edit(Roles::Joint.LeftFoot.i64(), 5, 15, true), RigOps::contact_edit(Roles::Joint.LeftFoot.i64(), 12, 20, false), RigOps::contact_edit(Roles::Joint.RightFoot.i64(), 0, 1000, true)]
     edited: darray[bool] = RigOps::foot_contacts(&src, 0, &edits)
     return 21 if edited.count != detected.count
     for f in 0..<edited.count:
@@ -134,9 +134,9 @@ def main() -> i32:
         return 23 if not b
     # An edit alone changes nothing; with a lock it is honoured.
     mutable e: Rig::Clip = fresh(&doc, anim)
-    ops <- [RigOps::contact_edit(Roles::LEFT_FOOT, 0, 1000, false)]
+    ops <- [RigOps::contact_edit(Roles::Joint.LeftFoot.i64(), 0, 1000, false)]
     _ = RigOps::run_clip(&e, &ops, threshold)
-    ankle: i64 = Rig::node_of(&e, Roles::LEFT_FOOT)
+    ankle: i64 = Rig::node_of(&e, Roles::Joint.LeftFoot.i64())
     for f in 0..<e.frames:
         return 24 if Rig::vlen(Rig::vsub(world(&e, f, ankle).pos, world(&src, f, ankle).pos)) > 0.000001
     ops <- [RigOps::contact_edit(RigOps::Selection::ALL, 0, 1000, false), RigOps::foot_lock(4)]
