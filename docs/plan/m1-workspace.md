@@ -19,6 +19,10 @@ in the diagnostic graph. Legacy versions retain their explicitly approved
 migration behavior; valid numeric unknown tags remain forward compatible.
 Qualify malformed records with the decoder and user-facing Edits error before
 accepting restoration integrity.
+Blank space/tab/CR lines and comments beginning after indentation are ignored;
+a comment marker after record content does not hide a malformed record. Seven
+line-policy laws compile diagnostically. Qualify CRLF, indented comments and
+malformed record tails with the complete decoder before format acceptance.
 V4 authored ranges and correction keys now require their original ordered,
 in-clip values; non-boolean enable fields refuse. They no longer become altered
 edits through frame clamping, endpoint sorting or truthiness. Five integer laws
