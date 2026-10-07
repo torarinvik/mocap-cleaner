@@ -3,6 +3,7 @@
 # The controller publishes only a current, uncancelled, fully loaded result.
 include "app/model.elisa"
 include "fbx_import_policy.elisa"
+include "take_source_ref_policy.elisa"
 include "../../build/generated/studio_runtime.elisa"
 
 module StudioFbxImportWorker:
@@ -63,7 +64,10 @@ module StudioFbxImportWorker:
                     animation_name: cstr = (&animation[0]).cast[cstr]
                     for index in 0..<64 |index, source_digest, digest_bytes|:
                         source_digest.push(digest_bytes[index])
-                    status <- convert(snapshot, destination_path, rate)
+                    snapshot_owned: darray[u8] = path_copy(&snapshot_bytes)
+                    status <- Status.InvalidJob.i64()
+                    if StudioFbxImportPolicy::terminated(&snapshot_owned, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&destination, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioTakeSourceRefPolicy::sha256_valid(&source_digest) and not StudioFbxImportPolicy::same_path(&source, &destination) and not StudioFbxImportPolicy::same_path(&snapshot_owned, &destination):
+                        status <- convert(snapshot, destination_path, rate)
                     if status == 0:
                         memo <- StudioModel::load(destination_path, animation_name)
                         status <- Status.UnreadableAnimation.i64() if memo == null else 0
