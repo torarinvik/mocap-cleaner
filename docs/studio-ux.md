@@ -350,9 +350,14 @@ inspection and semantic row names. The top-level Storage panel currently owns
 its temporary clip state; nested clipping would need preserved/intersected
 caller clip state before this renderer is reused inside another clipped panel.
 
-Eight layout laws and four truncation laws accompany these changes. Their
-current compilation and authenticated proof qualification are pending. Also
-pending: native resize/keyboard/VoiceOver checks, font and scale validation,
+Eight layout laws and four truncation laws accompany these changes. After
+fixing multiline expression parentheses in `7f64fa9`, their O0 law graphs
+compiled successfully with provenance-checked compiler `9667344` (product
+`bed23103851823084b365d825570394243564f99e1c6e1c4dd896d633194797b`):
+layout 14,016 bytes and truncation 7,320 bytes. Source/object hashes are retained
+in `build/storage-layout-qualification/source-object-evidence.json`. This
+qualifies source/type/backend acceptance of those small graphs only, not the
+composed panel, runtime behavior or authenticated proof. Still pending: native resize/keyboard/VoiceOver checks, font and scale validation,
 long introduction/overview/footer text, tiny-window minimum-size behavior,
 and an overflow marker when a name fits the byte slot but exceeds its pixel
 column. Source clipping alone does not close those presentation requirements.
