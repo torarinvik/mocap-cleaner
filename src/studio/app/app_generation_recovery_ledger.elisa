@@ -1,0 +1,27 @@
+include "../state/generation_recovery_ledger.elisa"
+
+extend Studio:
+    private:
+        global mutable generation_recovery_ledger: StudioGenerationRecoveryLedger::Ledger = StudioGenerationRecoveryLedger::empty()
+
+        def generation_recovery_has_capacity() -> bool:
+            StudioGenerationRecoveryLedgerPolicy::may_reserve(StudioGenerationRecoveryLedger::count(generation_recovery_ledger), 0)
+
+        # Copy identity metadata before transferring the owning reply. Even if
+        # recording fails, the reply and captured wire remain retained.
+        def record_generation_move_identity(operation: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&, bytes: i64) -> bool can Memory.Allocate:
+            return false if bytes <= 0 or bytes > StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES
+            return false if operation[bytes.usize()] != 0
+            if generation_move_wire is captured:
+                mutable root: darray[u8] = []
+                mutable index: usize = 0
+                while index < StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize() and captured.root[index] != 0:
+                    root.push(captured.root[index])
+                    index <- index + 1
+                return false if index == StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()
+                mutable identity: darray[u8] = []
+                for offset in 0..<bytes.usize() |offset, operation, identity|:
+                    identity.push(operation[offset])
+                admission: StudioGenerationRecoveryLedgerPolicy::Admission = StudioGenerationRecoveryLedger::record(&generation_recovery_ledger, root, identity)
+                return admission == StudioGenerationRecoveryLedgerPolicy::Admission.Accepted or admission == StudioGenerationRecoveryLedgerPolicy::Admission.Duplicate
+            false

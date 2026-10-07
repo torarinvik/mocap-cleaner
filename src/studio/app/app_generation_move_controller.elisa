@@ -2,6 +2,7 @@ include "app_generation_review.elisa"
 include "../io/build_generation_move_worker.elisa"
 include "../state/generation_move_confirmation_policy.elisa"
 include "../state/generation_move_result_policy.elisa"
+include "app_generation_recovery_ledger.elisa"
 
 extend Studio:
     private:
@@ -28,6 +29,7 @@ extend Studio:
             StudioGenerationMoveConfirmationPolicy::ReviewKey{scan_ticket: generation_scan_ticket, row_index: generation_inspected_row, retention_days: StudioStorageSelectionPolicy::retention_days(storage_retention_preset)}
 
         def generation_move_action_enabled() -> bool:
+            return false if not generation_recovery_has_capacity()
             return false if generation_move_task != null or generation_move_reply != null or generation_scan_task != null or generation_scan_requested or storage_release_uncertain
             return false if storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
             if generation_inventory is snapshot:
@@ -54,13 +56,17 @@ extend Studio:
                 return if generation_move_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
                 if generation_move_wire is captured:
                     generation_move_ticket <- generation_move_ticket + 1
-                    review: StudioGenerationReviewBindingPolicy::Review = StudioGenerationReviewBindingPolicy::Review{selected: true, reviewed: true, confirmed: true, inventory_revision: current.scan_ticket, confirmed_revision: current.scan_ticket, reviewed_retention_days: current.retention_days, current_retention_days: current.retention_days}
-                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Confirmed(key: current)
-                    if StudioGenerationMoveConfirmationPolicy::may_start(generation_move_state, current, true, true, false):
-                        job: StudioBuildGenerationMoveWorker::Job = StudioBuildGenerationMoveWorker::Job{ticket: generation_move_ticket, review: review, wire: captured}
-                        generation_move_task <- StudioBuildGenerationMoveWorker::start(move job)
-                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Running(key: current, job_ticket: generation_move_ticket)
-                        UiCore::request_frame_after(0.016)
+                    if generation_restore_capture_root(generation_move_ticket):
+                        review: StudioGenerationReviewBindingPolicy::Review = StudioGenerationReviewBindingPolicy::Review{selected: true, reviewed: true, confirmed: true, inventory_revision: current.scan_ticket, confirmed_revision: current.scan_ticket, reviewed_retention_days: current.retention_days, current_retention_days: current.retention_days}
+                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Confirmed(key: current)
+                        if StudioGenerationMoveConfirmationPolicy::may_start(generation_move_state, current, true, true, false):
+                            job: StudioBuildGenerationMoveWorker::Job = StudioBuildGenerationMoveWorker::Job{ticket: generation_move_ticket, review: review, wire: captured}
+                            generation_move_task <- StudioBuildGenerationMoveWorker::start(move job)
+                            generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Running(key: current, job_ticket: generation_move_ticket)
+                            UiCore::request_frame_after(0.016)
+                    else:
+                        generation_move_wire <- null
+                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Inspecting
             elif generation_inventory is snapshot:
                 row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
                 root: darray[u8] = path_bytes(workspace_build_directory())
@@ -85,7 +91,8 @@ extend Studio:
                 mutable reply: StudioBuildGenerationMoveWorker::Result = join(move readiness.thread)
                 completed_ticket: i64 = reply.ticket
                 recovered: bool = reply.recoverable
-                publish: bool = StudioGenerationMoveConfirmationPolicy::may_publish_success(generation_move_state, completed_ticket, recovered, true, reply.remaining_handle)
+                recorded: bool = record_generation_move_identity(reply.operation_id, reply.operation_id_bytes)
+                publish: bool = StudioGenerationMoveConfirmationPolicy::may_publish_success(generation_move_state, completed_ticket, recovered, recorded, reply.remaining_handle)
                 # Retain the entire owning reply even after cancellation. The
                 # operation ID and any native handle must survive UI suppression.
                 generation_move_reply <- move reply
