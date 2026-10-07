@@ -1,0 +1,46 @@
+include "../src/studio/export_batch_destination_inspector_policy.elisa"
+
+module StudioExportBatchDestinationInspectorLaws:
+    public:
+        def captured_paths_are_exact(snapshot: StudioExportBatchDestinationProjection::Snapshot&) -> bool:
+            requires StudioExportBatchDestinationProjection::valid(snapshot)
+            ensure result
+            paths: StudioExportBatchDestinationInspectorPolicy::Paths = StudioExportBatchDestinationInspectorPolicy::capture(snapshot)
+            StudioExportBatchDestinationInspectorPolicy::bytes_equal(paths.source, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.Source)) and StudioExportBatchDestinationInspectorPolicy::bytes_equal(paths.glb, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.Glb)) and StudioExportBatchDestinationInspectorPolicy::bytes_equal(paths.json_report, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.JsonReport)) and StudioExportBatchDestinationInspectorPolicy::bytes_equal(paths.text_report, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.TextReport))
+
+        def preview_mark_matches_truncation(path: darray[u8]&) -> bool:
+            requires StudioExportBatchDestinationInspectorPolicy::path_admitted(path)
+            ensure result
+            StudioExportBatchDestinationInspectorPolicy::path_abbreviated(path) == (StudioExportBatchDestinationInspectorPolicy::preview_range(path).count < path.count)
+
+        def path_lines_cover_bytes(path: darray[u8]&, line: i64) -> bool:
+            requires StudioExportBatchDestinationInspectorPolicy::path_admitted(path)
+            requires line >= 0 and line < StudioExportBatchDestinationInspectorPolicy::line_count(path)
+            ensure result
+            range: StudioExportBatchDestinationInspectorPolicy::ByteRange = StudioExportBatchDestinationInspectorPolicy::line_range(path, line)
+            end: usize = range.start + range.count
+            range.count > 0 and end <= path.count and StudioExportBatchDestinationInspectorPolicy::utf8_width(path, range.start) > 0 and (end == path.count or StudioExportBatchDestinationInspectorPolicy::utf8_width(path, end) > 0)
+
+        def page_line_ranges_match_global_lines(path: darray[u8]&, page: i64, row: i64) -> bool:
+            requires StudioExportBatchDestinationInspectorPolicy::path_admitted(path)
+            requires page >= 0 and page < StudioExportBatchDestinationInspectorPolicy::page_count(path)
+            requires row >= 0 and row < StudioExportBatchDestinationInspectorPolicy::page_line_count(path, page)
+            ensure result
+            page_range: StudioExportBatchDestinationInspectorPolicy::ByteRange = StudioExportBatchDestinationInspectorPolicy::page_line_range(path, page, row)
+            line_range: StudioExportBatchDestinationInspectorPolicy::ByteRange = StudioExportBatchDestinationInspectorPolicy::line_range(path, page * StudioExportBatchDestinationInspectorPolicy::Limit::LINES_PER_PAGE + row)
+            page_range.start == line_range.start and page_range.count == line_range.count
+
+        def location_change_resets_page(state: StudioExportBatchDestinationInspectorPolicy::State,
+                location: StudioExportBatchDestinationInspectorPolicy::Location) -> bool:
+            requires StudioExportBatchDestinationInspectorPolicy::valid(state)
+            ensure result
+            selected: StudioExportBatchDestinationInspectorPolicy::State = StudioExportBatchDestinationInspectorPolicy::select_location(state, location)
+            selected.location == location and selected.page == 0 and selected.opened == state.opened
+
+        def selecting_done_closes_and_preserves_navigation(paths: StudioExportBatchDestinationInspectorPolicy::Paths,
+                state: StudioExportBatchDestinationInspectorPolicy::State) -> bool:
+            requires StudioExportBatchDestinationInspectorPolicy::paths_admitted(paths)
+            requires StudioExportBatchDestinationInspectorPolicy::valid(state)
+            ensure result
+            closed: StudioExportBatchDestinationInspectorPolicy::State = StudioExportBatchDestinationInspectorPolicy::activate(state, StudioExportBatchDestinationInspectorPolicy::Focus::Done, paths)
+            not closed.opened and closed.location == state.location and closed.page == state.page and closed.focus == StudioExportBatchDestinationInspectorPolicy::Focus.Done

@@ -1,0 +1,363 @@
+include "export_batch_destination_projection.elisa"
+include "../core/json_scalar.elisa"
+
+# Read-only inspection of exact paths retained by one selected queue item.
+module StudioExportBatchDestinationInspectorPolicy:
+    public:
+        const module Limit:
+            LOCATION_COUNT: i64 = 4
+            MAX_PATH_BYTES: usize = StudioExportBatchIdentity::Limit::MAX_PATH_BYTES
+            PREVIEW_SCALARS: usize = 20
+            SCALARS_PER_LINE: usize = 32
+            LINES_PER_PAGE: i64 = 5
+            MAX_PAGES: i64 = 26
+            MAX_UTF8_BYTES: usize = 4
+
+        const enum Location of i64:
+            Source = 0
+            Glb = 1
+            JsonReport = 2
+            TextReport = 3
+
+        const enum Focus of i64:
+            Source = 0
+            Glb = 1
+            JsonReport = 2
+            TextReport = 3
+            Previous = 4
+            Next = 5
+            Done = 6
+
+        const enum Status of i64:
+            Ready = 0
+            Empty = 1
+            Oversized = 2
+            InvalidUtf8 = 3
+            UnsupportedControl = 4
+
+        struct Paths:
+            source: darray[u8]
+            glb: darray[u8]
+            json_report: darray[u8]
+            text_report: darray[u8]
+
+        struct ByteRange:
+            start: usize
+            count: usize
+
+        struct State:
+            opened: bool
+            location: Location
+            page: i64
+            focus: Focus
+
+        def bytes_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |index, left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def capture(snapshot: StudioExportBatchDestinationProjection::Snapshot&) -> Paths:
+            requires StudioExportBatchDestinationProjection::valid(snapshot)
+            ensure bytes_equal(result.source, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.Source))
+            ensure bytes_equal(result.glb, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.Glb))
+            ensure bytes_equal(result.json_report, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.JsonReport))
+            ensure bytes_equal(result.text_report, StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.TextReport))
+            Paths{source: StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.Source),
+                glb: StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.Glb),
+                json_report: StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.JsonReport),
+                text_report: StudioExportBatchDestinationProjection::path(snapshot, StudioExportBatchDestinationProjection::Location.TextReport)}
+
+        def path(paths: Paths&, location: Location) -> darray[u8]:
+            return StudioExportBatchDisplayProjection::copy_bytes(paths.source) if location == Location.Source
+            return StudioExportBatchDisplayProjection::copy_bytes(paths.glb) if location == Location.Glb
+            return StudioExportBatchDisplayProjection::copy_bytes(paths.json_report) if location == Location.JsonReport
+            return StudioExportBatchDisplayProjection::copy_bytes(paths.text_report)
+
+        def utf8_width(path: darray[u8]&, at: usize) -> usize:
+            requires at < path.count
+            lead: i64 = path[at].i64()
+            width: usize = 1 if lead < 128 else 2 if lead >= 194 and lead <= 223 else 3 if lead >= 224 and lead <= 239 else 4 if lead >= 240 and lead <= 244 else 0
+            return 0 if width == 0 or path.count - at < width
+            mutable scalar: i64 = lead if width == 1 else lead - (192 if width == 2 else 224 if width == 3 else 240)
+            for offset in 1..<width:
+                continuation: i64 = path[at + offset].i64()
+                return 0 if continuation < 128 or continuation > 191
+                scalar <- scalar * 64 + continuation - 128
+            minimum: i64 = 0 if width == 1 else 128 if width == 2 else 2048 if width == 3 else 65536
+            return 0 if scalar < minimum or not JsonScalar::valid(scalar)
+            width
+
+        def control_scalar(scalar: i64) -> bool:
+            scalar < 32 or scalar >= 127 and scalar <= 159 or scalar == 8232 or scalar == 8233 or scalar == 8206 or scalar == 8207 or scalar >= 8234 and scalar <= 8238 or scalar >= 8294 and scalar <= 8297
+
+        def status(path: darray[u8]&) -> Status:
+            outcome: mutable Status = Status::Ready
+            outcome <- Status::Empty if path.count == 0
+            outcome <- Status::Oversized if path.count > Limit::MAX_PATH_BYTES
+            mutable at: usize = 0
+            while at < path.count and outcome == Status::Ready:
+                if path[at] == 0:
+                    outcome <- Status::UnsupportedControl
+                    at <- path.count
+                    continue
+                width: usize = utf8_width(path, at)
+                if width == 0:
+                    outcome <- Status::InvalidUtf8
+                    at <- path.count
+                    continue
+                scalar: mutable i64 = path[at].i64() if width == 1 else -1
+                if width > 1:
+                    lead: i64 = path[at].i64()
+                    scalar <- lead - (192 if width == 2 else 224 if width == 3 else 240)
+                    for offset in 1..<width:
+                        scalar <- scalar * 64 + path[at + offset].i64() - 128
+                if control_scalar(scalar):
+                    outcome <- Status::UnsupportedControl
+                else:
+                    at <- at + width
+            outcome
+
+        def path_admitted(path: darray[u8]&) -> bool:
+            status(path) == Status::Ready
+
+        def paths_admitted(paths: Paths&) -> bool:
+            path_admitted(paths.source) and path_admitted(paths.glb) and path_admitted(paths.json_report) and path_admitted(paths.text_report)
+
+        def path_scalar_count(path: darray[u8]&) -> usize:
+            requires path_admitted(path)
+            mutable at: usize = 0
+            mutable count: usize = 0
+            while at < path.count:
+                at <- at + utf8_width(path, at)
+                count <- count + 1
+            count
+
+        def path_abbreviated(path: darray[u8]&) -> bool:
+            requires path_admitted(path)
+            ensure result == (path_scalar_count(path) > Limit::PREVIEW_SCALARS)
+            path_scalar_count(path) > Limit::PREVIEW_SCALARS
+
+        def preview_range(path: darray[u8]&) -> ByteRange:
+            requires path_admitted(path)
+            ensure result.start == 0 and result.count <= path.count
+            mutable at: usize = 0
+            mutable scalars: usize = 0
+            while at < path.count and scalars < Limit::PREVIEW_SCALARS:
+                at <- at + utf8_width(path, at)
+                scalars <- scalars + 1
+            ByteRange{start: 0, count: at}
+
+        def line_count(path: darray[u8]&) -> i64:
+            requires path_admitted(path)
+            ensure result >= 1 and result <= Limit::MAX_PAGES * Limit::LINES_PER_PAGE
+            scalar_count: usize = path_scalar_count(path)
+            ((scalar_count + Limit::SCALARS_PER_LINE - 1) / Limit::SCALARS_PER_LINE).i64()
+
+        def page_count(path: darray[u8]&) -> i64:
+            requires path_admitted(path)
+            ensure result >= 1 and result <= Limit::MAX_PAGES
+            lines: i64 = line_count(path)
+            (lines + Limit::LINES_PER_PAGE - 1) / Limit::LINES_PER_PAGE
+
+        def line_range(path: darray[u8]&, line: i64) -> ByteRange:
+            requires path_admitted(path)
+            requires line >= 0 and line < line_count(path)
+            ensure result.count > 0 and result.start + result.count <= path.count
+            mutable at: usize = 0
+            mutable current: i64 = 0
+            while current < line:
+                for scalar in 0..<Limit::SCALARS_PER_LINE:
+                    break if at >= path.count
+                    at <- at + utf8_width(path, at)
+                current <- current + 1
+            start: usize = at
+            mutable scalars: usize = 0
+            while at < path.count and scalars < Limit::SCALARS_PER_LINE:
+                at <- at + utf8_width(path, at)
+                scalars <- scalars + 1
+            ByteRange{start: start, count: at - start}
+
+        def page_line_count(path: darray[u8]&, page: i64) -> i64:
+            requires path_admitted(path)
+            requires page >= 0 and page < page_count(path)
+            start: i64 = page * Limit::LINES_PER_PAGE
+            remaining: i64 = line_count(path) - start
+            Limit::LINES_PER_PAGE if remaining > Limit::LINES_PER_PAGE else remaining
+
+        def page_line_range(path: darray[u8]&, page: i64, row: i64) -> ByteRange:
+            requires path_admitted(path)
+            requires page >= 0 and page < page_count(path)
+            requires row >= 0 and row < page_line_count(path, page)
+            line_range(path, page * Limit::LINES_PER_PAGE + row)
+
+        def create() -> State:
+            ensure valid(result)
+            State{opened: true, location: Location.Source, page: 0, focus: Focus.Source}
+
+        def valid(state: State) -> bool:
+            state.page >= 0 and state.page < Limit::MAX_PAGES and state.focus.i64() >= 0 and state.focus.i64() < 7
+
+        def selected_path_length(paths: Paths&, location: Location) -> usize:
+            return paths.source.count if location == Location.Source
+            return paths.glb.count if location == Location.Glb
+            return paths.json_report.count if location == Location.JsonReport
+            paths.text_report.count
+
+        def selected_path_byte(paths: Paths&, location: Location, index: usize) -> u8:
+            requires index < selected_path_length(paths, location)
+            return paths.source[index] if location == Location.Source
+            return paths.glb[index] if location == Location.Glb
+            return paths.json_report[index] if location == Location.JsonReport
+            paths.text_report[index]
+
+        def selected_status(paths: Paths&, location: Location) -> Status:
+            return status(paths.source) if location == Location.Source
+            return status(paths.glb) if location == Location.Glb
+            return status(paths.json_report) if location == Location.JsonReport
+            status(paths.text_report)
+
+        def selected_page_count(paths: Paths&, location: Location) -> i64:
+            return page_count(paths.source) if location == Location.Source and path_admitted(paths.source)
+            return page_count(paths.glb) if location == Location.Glb and path_admitted(paths.glb)
+            return page_count(paths.json_report) if location == Location.JsonReport and path_admitted(paths.json_report)
+            return page_count(paths.text_report) if location == Location.TextReport and path_admitted(paths.text_report)
+            0
+
+        def selected_line_count(paths: Paths&, location: Location) -> i64:
+            return line_count(paths.source) if location == Location.Source and path_admitted(paths.source)
+            return line_count(paths.glb) if location == Location.Glb and path_admitted(paths.glb)
+            return line_count(paths.json_report) if location == Location.JsonReport and path_admitted(paths.json_report)
+            return line_count(paths.text_report) if location == Location.TextReport and path_admitted(paths.text_report)
+            0
+
+        def selected_page_line_count(paths: Paths&, location: Location, page: i64) -> i64:
+            return page_line_count(paths.source, page) if location == Location.Source and path_admitted(paths.source) and page >= 0 and page < page_count(paths.source)
+            return page_line_count(paths.glb, page) if location == Location.Glb and path_admitted(paths.glb) and page >= 0 and page < page_count(paths.glb)
+            return page_line_count(paths.json_report, page) if location == Location.JsonReport and path_admitted(paths.json_report) and page >= 0 and page < page_count(paths.json_report)
+            return page_line_count(paths.text_report, page) if location == Location.TextReport and path_admitted(paths.text_report) and page >= 0 and page < page_count(paths.text_report)
+            0
+
+        def selected_page_line_range(paths: Paths&, location: Location, page: i64, row: i64) -> ByteRange:
+            requires selected_status(paths, location) == Status.Ready
+            requires page >= 0 and page < selected_page_count(paths, location)
+            requires row >= 0 and row < selected_page_line_count(paths, location, page)
+            return page_line_range(paths.source, page, row) if location == Location.Source
+            return page_line_range(paths.glb, page, row) if location == Location.Glb
+            return page_line_range(paths.json_report, page, row) if location == Location.JsonReport
+            page_line_range(paths.text_report, page, row)
+
+        def selected_preview_range(paths: Paths&, location: Location) -> ByteRange:
+            requires selected_status(paths, location) == Status.Ready
+            return preview_range(paths.source) if location == Location.Source
+            return preview_range(paths.glb) if location == Location.Glb
+            return preview_range(paths.json_report) if location == Location.JsonReport
+            preview_range(paths.text_report)
+
+        def selected_abbreviated(paths: Paths&, location: Location) -> bool:
+            requires selected_status(paths, location) == Status.Ready
+            return path_abbreviated(paths.source) if location == Location.Source
+            return path_abbreviated(paths.glb) if location == Location.Glb
+            return path_abbreviated(paths.json_report) if location == Location.JsonReport
+            path_abbreviated(paths.text_report)
+
+        def page_admitted(state: State, paths: Paths&) -> bool:
+            return false if not valid(state)
+            return false if selected_status(paths, state.location) != Status.Ready
+            state.page < selected_page_count(paths, state.location)
+
+        def action_enabled(focus: Focus, state: State, paths: Paths&) -> bool:
+            return true if focus == Focus.Source or focus == Focus.Glb or focus == Focus.JsonReport or focus == Focus.TextReport or focus == Focus.Done
+            return false if not page_admitted(state, paths)
+            return state.page > 0 if focus == Focus.Previous
+            return state.page + 1 < selected_page_count(paths, state.location) if focus == Focus.Next
+            false
+
+        def select_location(state: State, location: Location) -> State:
+            requires valid(state)
+            ensure result.opened == state.opened and result.location == location and result.page == 0
+            State{opened: state.opened, location: location, page: 0, focus: focus_for_location(location)}
+
+        def focus_for_location(location: Location) -> Focus:
+            return Focus.Source if location == Location.Source
+            return Focus.Glb if location == Location.Glb
+            return Focus.JsonReport if location == Location.JsonReport
+            Focus.TextReport
+
+        def move_page(state: State, direction: i64, paths: Paths&) -> State:
+            requires valid(state)
+            requires direction == -1 or direction == 1
+            requires selected_status(paths, state.location) == Status::Ready
+            requires direction != -1 or state.page > 0
+            requires direction != 1 or state.page + 1 < selected_page_count(paths, state.location)
+            page: i64 = state.page + direction
+            focus: Focus = Focus::Previous if direction == -1 else Focus::Next
+            State{opened: state.opened, location: state.location, page: page,
+                focus: focus}
+
+        def next_focus(current: Focus, reverse: bool) -> Focus:
+            next: i64 = (6 if current.i64() == 0 else current.i64() - 1) if reverse else (0 if current.i64() == 6 else current.i64() + 1)
+            focus_for_code(next)
+
+        def focus_for_code(code: i64) -> Focus:
+            requires code >= 0 and code < 7
+            return Focus.Source if code == 0
+            return Focus.Glb if code == 1
+            return Focus.JsonReport if code == 2
+            return Focus.TextReport if code == 3
+            return Focus.Previous if code == 4
+            return Focus.Next if code == 5
+            Focus.Done
+
+        def move_focus(state: State, reverse: bool, paths: Paths&) -> State:
+            requires valid(state)
+            ensure action_enabled(result.focus, result, paths)
+            mutable candidate: Focus = state.focus
+            for step in 0..<7 |step, candidate, reverse, state, paths|:
+                candidate <- next_focus(candidate, reverse)
+                return State{opened: state.opened, location: state.location, page: state.page, focus: candidate} if action_enabled(candidate, state, paths)
+            State{opened: state.opened, location: state.location, page: state.page, focus: Focus.Done}
+
+        def activate(state: State, focus: Focus, paths: Paths&) -> State:
+            requires valid(state)
+            requires action_enabled(focus, state, paths)
+            if focus == Focus.Source or focus == Focus.Glb or focus == Focus.JsonReport or focus == Focus.TextReport:
+                return select_location(state, location_for_focus(focus))
+            if focus == Focus.Previous:
+                return move_page(state, -1, paths)
+            if focus == Focus.Next:
+                return move_page(state, 1, paths)
+            State{opened: false, location: state.location, page: state.page, focus: Focus.Done}
+
+        def location_for_focus(focus: Focus) -> Location:
+            return Location.Source if focus == Focus.Source
+            return Location.Glb if focus == Focus.Glb
+            return Location.JsonReport if focus == Focus.JsonReport
+            Location.TextReport
+
+        def focus_label(focus: Focus) -> sview:
+            return "Source take" if focus == Focus.Source
+            return "GLB output" if focus == Focus.Glb
+            return "JSON report" if focus == Focus.JsonReport
+            return "Text report" if focus == Focus.TextReport
+            return "Previous page" if focus == Focus.Previous
+            return "Next page" if focus == Focus.Next
+            "Done"
+
+        def focus_help(focus: Focus, enabled: bool) -> sview:
+            return "Select and inspect the exact captured source path." if focus == Focus.Source
+            return "Select and inspect the exact captured GLB destination." if focus == Focus.Glb
+            return "Select and inspect the exact captured JSON report destination." if focus == Focus.JsonReport
+            return "Select and inspect the exact captured text report destination." if focus == Focus.TextReport
+            return "Show the preceding path page." if focus == Focus.Previous and enabled
+            return "No preceding path page is available." if focus == Focus.Previous
+            return "Show the following path page." if focus == Focus.Next and enabled
+            return "No following path page is available." if focus == Focus.Next
+            "Return to prepared exports. This view cannot change destinations or publication state."
+
+        def status_message(status: Status) -> sview:
+            return "Exact path shown in bounded lines; use page controls to inspect the complete value." if status == Status.Ready
+            return "No path bytes are available for this location." if status == Status.Empty
+            return "Path exceeds the identity limit; exact display is refused." if status == Status.Oversized
+            return "Path contains invalid UTF-8; exact display is refused and retained bytes are unchanged." if status == Status.InvalidUtf8
+            "Path contains control characters; display is refused and retained bytes are unchanged."
