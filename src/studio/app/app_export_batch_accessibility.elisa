@@ -1,25 +1,47 @@
 include "app_export_batch_report_accessibility.elisa"
+include "app_export_batch_sheet_accessibility.elisa"
 
 extend Studio:
     private:
         global mutable prepared_report_widgets: darray[usize] = []
         global mutable prepared_report_accessibility_ready: bool = false
+        global mutable prepared_sheet_row_widgets: darray[usize] = []
+        global mutable prepared_sheet_action_widgets: darray[usize] = []
+        global mutable prepared_sheet_accessibility_ready: bool = false
 
         def init_prepared_batch_accessibility() -> void:
             prepared_report_accessibility_ready <- false
             prepared_report_widgets <- []
+            prepared_sheet_accessibility_ready <- false
+            prepared_sheet_row_widgets <- []
+            prepared_sheet_action_widgets <- []
             transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
             for slot in 0..<StudioExportBatchReportAccessibilityPolicy::Node::CONTROL_COUNT:
                 widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
                 return if widget == UiFlat::NONE
                 prepared_report_widgets.push(widget)
             prepared_report_accessibility_ready <- true
+            for slot in 0..<StudioExportBatchSheetAccessibilityPolicy::Node::ROW_COUNT:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                return if widget == UiFlat::NONE
+                prepared_sheet_row_widgets.push(widget)
+            for slot in 0..<StudioExportBatchSheetAccessibilityPolicy::Node::ACTION_COUNT:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                return if widget == UiFlat::NONE
+                prepared_sheet_action_widgets.push(widget)
+            prepared_sheet_accessibility_ready <- true
 
         def publish_prepared_batch_accessibility(w: f32, h: f32) -> void:
-            return if not prepared_report_open or not prepared_report_accessibility_ready
-            publish_export_batch_report_accessibility(w, h, prepared_report_line_views,
-                prepared_report_page, StudioExportBatchReportView::page_count(prepared_report_model),
-                prepared_report_message, prepared_report_focus, prepared_report_controls(), prepared_report_widgets, revision.usize())
+            if prepared_report_open:
+                return if not prepared_report_accessibility_ready
+                publish_export_batch_report_accessibility(w, h, prepared_report_line_views,
+                    prepared_report_page, StudioExportBatchReportView::page_count(prepared_report_model),
+                    prepared_report_message, prepared_report_focus, prepared_report_controls(), prepared_report_widgets, revision.usize())
+            elif prepared_sheet_open() and prepared_sheet_accessibility_ready:
+                publish_export_batch_sheet_accessibility(w, h, prepared_rows, prepared_row_details,
+                    prepared_sheet.first, prepared_sheet.total, prepared_sheet.selected,
+                    prepared_sheet.focus, prepared_controls(), prepared_message,
+                    prepared_sheet_row_widgets, prepared_sheet_action_widgets, revision.usize())
 
     public:
         def prepared_batch_accessibility_action(widget: usize, event: i32) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
@@ -28,5 +50,17 @@ extend Studio:
                 if export_batch_report_accessibility_event(widget, event, prepared_report_widgets, prepared_report_controls()) is control:
                     prepared_report_focus <- control
                     prepared_report_action(control)
+            elif not prepared_report_open and prepared_sheet_open() and prepared_sheet_accessibility_ready:
+                visible: i64 = StudioExportBatchPanelPolicy::visible_count(prepared_sheet.first, prepared_sheet.total)
+                row: i64 = export_batch_sheet_accessibility_row(widget, event,
+                    prepared_sheet_row_widgets, prepared_sheet.first, visible)
+                if row >= 0:
+                    prepared_sheet <- StudioExportBatchSheetState::select(prepared_sheet, row)
+                    _ = UiFlat::request_focus(widget)
+                    touch()
+                elif export_batch_sheet_accessibility_action(widget, event,
+                        prepared_sheet_action_widgets, prepared_controls()) is control:
+                    prepared_sheet.focus <- control
+                    prepared_control_action(control)
             # Consume stale background widget events while either modal is open.
             true
