@@ -101,3 +101,16 @@ and binds the live optional clip in an explicit statement before comparing its
 animation to the captured animation ID. The new full compile must qualify these
 repairs together. Standalone objects do not establish integrated success, and
 the new conversion laws still require independent proof replay.
+
+The current direct native-path report uses proof pair
+`8147b64172c74ca5b5f92ba3eb065033`, law SHA-256
+`5504f3c05112ac76bbc9c14b42eb590179bf1cf2eeba583fded70bd100c5a134`
+and policy SHA-256
+`ff5d53ceebb59d6666d13bda7fee72a078475a11316835f24ff6dd9abcf34f2a`.
+Both hashes match the inspected source. It reports 45 obligations, 24 proved
+and 21 unproven, with 20 unsupported/unknown findings and no counterexample.
+Contract calls and function summaries remain unverified; return/termination
+ensures and index bounds remain unresolved. An imported `equal` goal also has
+one kernel replay gap. This direct report does not qualify the conversion or
+its source correspondence. Preserve the full contracts and investigate the
+summary/replay boundaries before changing acceptance baselines.
