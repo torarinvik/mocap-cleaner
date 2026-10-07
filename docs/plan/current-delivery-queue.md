@@ -57,27 +57,29 @@ this item.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
-- Rebuild the matched pair after every proof-source repair. Pair `261b821b` was
-  built against compiler `48dc78e2` and passed freshness checks before the next
-  owner-aware resource-summary repair. Its focused TakeSourceRef report had
-  59 obligations, 34 proven and 25 unproven; staging had 128 obligations,
-  17 proven and 111 unproven. Both packages were admissible but unauthenticated,
-  with no checked replay theorems and unsupported source correspondence.
+- Rebuild the matched pair after every proof-source repair. The last clean
+  captured baseline is pair `ce0b63a0ae264349a74f818057e5c107`, built against
+  compiler `48dc78e2` after owner-aware resource-summary repair `0e7db722`.
+  TakeSourceRef had 59 obligations, 34 proven and 25 unproven; staging had
+  117 obligations, 21 proven and 96 unproven. Their 34 and 21 resource checks
+  replayed respectively, but both packages remained source-unauthenticated
+  with unsupported correspondence. Pair integrity is not source authentication.
   Retain the exact immutable pair reports; do not treat package admissibility
   as verified predicates. Subsequent proof edits require a new current pair.
-- Repair resource helper summary lookup to respect qualified declaration owners.
-  Repeated leaf names such as `path_valid` and `bytes_equal` must not make an
-  unambiguous qualified call opaque or select the wrong owner's summary.
-  Preserve shared reborrow, mutation exclusion and generic-region constraints.
+- Qualify helper purity after the owner-aware summary lookup repair. The next
+  committed repair `fed9a108` handles bounded loops and restricted immutable
+  darray capture wrappers; its fresh pair is still being built. Preserve shared
+  reborrow, mutation exclusion and owner-qualified generic-region constraints.
+  Zero-argument generic calls need checked call-site region substitutions;
+  matching an ambient region by spelling cannot establish a valid binding.
 - Qualify generation and creation-journal laws again with the repaired pair.
   Historical reports remain unauthenticated and cannot close Q02. Exact gaps
   are tracked in [proof gaps](../proof-gaps.md).
 - Continue reducing connective/source admission gaps and fact growth. Extra
   enum disequality facts cannot substitute for the checked relation between a
   helper result and its inputs. Preserve fail-closed authentication and keep
-  unresolved laws open. A candidate owner-aware function-signature projection
-  is committed in the isolated proof worktree but is not compiled or qualified;
-  the matched-pair results above remain the current evidence. See [the exact
+  unresolved laws open. New repairs require fresh matched products and reports;
+  the clean baseline above remains the captured evidence until then. See [the exact
   qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
 
 **Finish evidence:** authenticated intended predicates, negative controls and
