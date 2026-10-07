@@ -13,22 +13,23 @@ include "../../../../elisa-engine-mocap/src/viewport/balance_overlay.elisa"
 
 module StudioScene:
     public:
-        # Overlay switches (a bit mask).
-        const TRAILS: i64 = 1
-        const CONTACTS: i64 = 2
-        const HEAT: i64 = 4
-        const ONION: i64 = 8
-        const GHOST: i64 = 16
-        const XRAY: i64 = 32
-        const MESH: i64 = 64
-        # Centre of mass and support polygon (Phase 4).
-        const BALANCE: i64 = 128
-        const DEFAULT_FLAGS: i64 = 1 + 2 + 16 + 32 + 128
+        # Independent overlay switches combine as a bit mask.
+        const module Flags:
+            TRAILS: i64 = 1
+            CONTACTS: i64 = 2
+            HEAT: i64 = 4
+            ONION: i64 = 8
+            GHOST: i64 = 16
+            XRAY: i64 = 32
+            MESH: i64 = 64
+            BALANCE: i64 = 128
+            DEFAULT_FLAGS: i64 = 1 + 2 + 16 + 32 + 128
 
-        const TRAIL_BEFORE: i64 = 60
-        const TRAIL_AFTER: i64 = 60
-        const ONION_COUNT: i64 = 3
-        const ONION_STEP: i64 = 8
+        const module Sampling:
+            TRAIL_BEFORE: i64 = 60
+            TRAIL_AFTER: i64 = 60
+            ONION_COUNT: i64 = 3
+            ONION_STEP: i64 = 8
 
         def on(flags: i64, bit: i64) -> bool:
             return (flags / bit) % 2 == 1
@@ -38,18 +39,18 @@ module StudioScene:
 
         def style(flags: i64) -> SkeletonOverlay::Style:
             mutable s: SkeletonOverlay::Style = SkeletonOverlay::default_style()
-            s.xray <- on(flags, XRAY)
+            s.xray <- on(flags, Flags::XRAY)
             # The mesh itself is drawn by `build` (MeshOverlay).
-            s.show_mesh <- on(flags, MESH)
+            s.show_mesh <- on(flags, Flags::MESH)
             return s
 
         def draw_trail(list: mutable ViewportDraw::List&, track: darray[Geometry::Vec3]&, frame: i64, flags: i64, color: u32, fps: i64) -> i64:
-            if on(flags, HEAT):
+            if on(flags, Flags::HEAT):
                 heat: MotionOverlay::Heat = MotionOverlay::Heat{mode: MotionOverlay::ACCELERATION, low: 0.0, high: 60.0, fps: fps.f32()}
-                return catch MotionOverlay::heat_trail(list, track, frame, TRAIL_BEFORE, TRAIL_AFTER, &heat, ViewportDraw::TOP):
+                return catch MotionOverlay::heat_trail(list, track, frame, Sampling::TRAIL_BEFORE, Sampling::TRAIL_AFTER, &heat, ViewportDraw::TOP):
                     value: value.i64()
                     error failure: 0
-            return catch MotionOverlay::trail(list, track, frame, TRAIL_BEFORE, TRAIL_AFTER, color, ViewportDraw::TOP):
+            return catch MotionOverlay::trail(list, track, frame, Sampling::TRAIL_BEFORE, Sampling::TRAIL_AFTER, color, ViewportDraw::TOP):
                 value: value.i64()
                 error failure: 0
 
@@ -59,8 +60,8 @@ module StudioScene:
         def draw_planted(list: mutable ViewportDraw::List&, track: darray[Geometry::Vec3]&, planted: darray[bool]&, frame: i64, color: u32) -> i64:
             n: i64 = track.count.i64()
             return 0 if n < 2 or planted.count.i64() != n
-            lo: i64 = frame - TRAIL_BEFORE if frame - TRAIL_BEFORE > 0 else 0
-            hi: i64 = frame + TRAIL_AFTER if frame + TRAIL_AFTER < n - 1 else n - 1
+            lo: i64 = frame - Sampling::TRAIL_BEFORE if frame - Sampling::TRAIL_BEFORE > 0 else 0
+            hi: i64 = frame + Sampling::TRAIL_AFTER if frame + Sampling::TRAIL_AFTER < n - 1 else n - 1
             mutable drawn: i64 = 0
             for f in lo..<hi |f, list, track, planted, color, drawn|:
                 if planted[f.usize()] and planted[(f + 1).usize()]:
@@ -77,7 +78,7 @@ module StudioScene:
             return drawn
 
         def draw_contacts(list: mutable ViewportDraw::List&, cam: ViewportCamera::Camera&, track: darray[Geometry::Vec3]&, frame: i64, ground: f32, color: u32, fps: i64) -> i64:
-            return catch MotionOverlay::contacts(list, cam, track, frame, TRAIL_BEFORE, TRAIL_AFTER, fps.f32(), ground, 0.04, 0.4, 4.0, color, ViewportDraw::TOP):
+            return catch MotionOverlay::contacts(list, cam, track, frame, Sampling::TRAIL_BEFORE, Sampling::TRAIL_AFTER, fps.f32(), ground, 0.04, 0.4, 4.0, color, ViewportDraw::TOP):
                 value: value.i64()
                 error failure: 0
 
@@ -98,36 +99,36 @@ module StudioScene:
             _ = catch ViewportDraw::grid(&list, 0.25, 12, ViewportDraw::rgba(70, 74, 84, 255)):
                 value: 0
                 error failure: 1
-            if on(flags, MESH) and skinned.count > 0 and skinned.count == mesh.positions.count:
+            if on(flags, Flags::MESH) and skinned.count > 0 and skinned.count == mesh.positions.count:
                 light: Geometry::Vec3 = Geometry::Vec3{x: 0.4, y: 0.8, z: 0.6}
                 _ = catch MeshOverlay::draw(&list, mesh, skinned, light, MeshOverlay::default_style()):
                     value: value
                     error failure: 0
             r: PoseOverride::Rig = StudioModel::rig(c)
-            if on(flags, GHOST):
+            if on(flags, Flags::GHOST):
                 raw: darray[Geometry::Transform] = StudioModel::models(c, r, frame, true)
                 _ = catch MotionOverlay::ghost(&list, r, raw, ViewportDraw::rgba(235, 80, 120, 200), ViewportDraw::TOP):
                     value: value
                     error failure: 0
-            if on(flags, ONION):
-                for i in 0..<(2 * ONION_COUNT) |i, list, r, c, frame|:
-                    k: i64 = i.i64() - ONION_COUNT if i.i64() < ONION_COUNT else i.i64() - ONION_COUNT + 1
-                    f: i64 = MotionOverlay::ghost_frame(frame, k, ONION_STEP, c.frames)
+            if on(flags, Flags::ONION):
+                for i in 0..<(2 * Sampling::ONION_COUNT) |i, list, r, c, frame|:
+                    k: i64 = i.i64() - Sampling::ONION_COUNT if i.i64() < Sampling::ONION_COUNT else i.i64() - Sampling::ONION_COUNT + 1
+                    f: i64 = MotionOverlay::ghost_frame(frame, k, Sampling::ONION_STEP, c.frames)
                     m: darray[Geometry::Transform] = StudioModel::models(c, r, f, false)
-                    _ = catch MotionOverlay::ghost(&list, r, m, MotionOverlay::ghost_color(k, ONION_COUNT), ViewportDraw::DEPTH):
+                    _ = catch MotionOverlay::ghost(&list, r, m, MotionOverlay::ghost_color(k, Sampling::ONION_COUNT), ViewportDraw::DEPTH):
                         value: value
                         error failure: 0
-            if on(flags, TRAILS) or on(flags, HEAT):
+            if on(flags, Flags::TRAILS) or on(flags, Flags::HEAT):
                 _ = draw_trail(&list, c.left_hand, frame, flags, ViewportDraw::rgba(80, 200, 255, 255), c.rate)
                 _ = draw_trail(&list, c.right_hand, frame, flags, ViewportDraw::rgba(255, 120, 80, 255), c.rate)
                 _ = draw_trail(&list, c.left_foot, frame, flags, ViewportDraw::rgba(120, 220, 120, 255), c.rate)
                 _ = draw_trail(&list, c.right_foot, frame, flags, ViewportDraw::rgba(240, 220, 90, 255), c.rate)
                 _ = draw_planted(&list, c.left_foot, c.left_contact, frame, ViewportDraw::rgba(220, 255, 230, 255))
                 _ = draw_planted(&list, c.right_foot, c.right_contact, frame, ViewportDraw::rgba(255, 250, 215, 255))
-            if on(flags, CONTACTS):
+            if on(flags, Flags::CONTACTS):
                 _ = draw_contacts(&list, cam, c.left_foot, frame, c.ground, ViewportDraw::rgba(120, 255, 140, 255), c.rate)
                 _ = draw_contacts(&list, cam, c.right_foot, frame, c.ground, ViewportDraw::rgba(255, 230, 90, 255), c.rate)
-            if on(flags, BALANCE):
+            if on(flags, Flags::BALANCE):
                 _ = draw_balance(&list, cam, c, frame)
             if preview.count > 0:
                 _ = catch MotionOverlay::ghost(&list, r, preview, ViewportDraw::rgba(255, 170, 40, 255), ViewportDraw::TOP):
