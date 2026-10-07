@@ -66,3 +66,9 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 - Record unresolved evidence in [proof gaps](docs/proof-gaps.md).
 - Apply the shared evidence and dependency requirements before closing any
   milestone; distinguish implementation from native and user acceptance.
+
+## Current user priority: FBX and character review
+
+Deliver [FBX opening and Character/Skeleton review](docs/plan/fbx-character-import.md)
+with source-preserving import and editable posed surfaces. This remains part of
+the full roadmap and precedes further cleanup expansion.
