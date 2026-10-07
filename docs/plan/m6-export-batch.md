@@ -288,6 +288,17 @@ qualifies the integrated application or native workflow.
       ellipses must never be presented as complete paths. Qualify node IDs
       100–113 against the full native tree, text capacities and widget exhaustion;
       source-level range checks alone do not establish native usability.
+- [ ] Replace scalar-count-only path segmentation with one retained model
+      shared by drawing and accessibility. Pack complete grapheme clusters using
+      the active text-width provider, the actual row width and an explicit
+      margin, while preserving exact original byte offsets and node text budgets.
+      Qualify combining marks, joined emoji, fallback fonts and changes in scale
+      or width. A cluster larger than a text node's budget needs an explicit,
+      faithful inspection fallback; do not silently split, omit or normalize
+      path bytes. Bound model construction and rebuild only when the captured
+      path or relevant layout metrics change. Revalidate paging and focus when
+      the segment count changes. Current 32-scalar chunks are UTF-8 safe, but
+      that alone does not establish grapheme or rendered-width fidelity.
 - [ ] Inspect glyph widths, Unicode report paging, long paths/status messages and
       minimum window size. Make every report segment readable without silent
       clipping; preserve explicit refusal for invalid or oversized reports.
