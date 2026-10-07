@@ -170,20 +170,22 @@ this item.
 
 **Depends on:** Q01. Package/source correspondence work may proceed beforehand.
 
-The latest retained six-policy run uses proof `16c8f6e3`, compiler `36f7dcba`
-and pair `099073e2db5748a5b9079843ab873a74`, against frozen application
-closure from `935c9b34` (named status contracts from `b0adec6`). Five packages
-fail source admission. Failure policy passes admission and independently replays
-10/10 theorems, but every correspondence check covers zero functions and remains
-unauthenticated. Cast typing, both qualified receiver spellings and return
-substitution now pass focused controls; custom hooks and wrong metadata refuse.
-Focused controls now also prove enum casts in verified helper arguments and
-preconditions. The failure-policy call-site refusals follow an unverified
-`classify` summary: its CFG fact budget reports 182 facts against a limit of 64.
-Reduce or precisely account for those facts without weakening admission, then
-repeat the frozen policy checks. Checked numeric member provenance remains open.
-Earlier six-package results are
-historical source snapshots. See
+The latest retained seven-law run uses proof `89925919`, compiler `e24c29e6`
+and pair `084b640a8e334e84845ea6332a7faf15`, against frozen application closure
+from `aeb57c5`. Five packages fail source admission. Failure policy replays
+35 theorems but has 77/112 unproven obligations; feedback proves and replays 7/7.
+Every correspondence check covers zero functions and remains unauthenticated.
+Root inspected all seven report/replay summaries in
+`build/q02-e24-r2-root-audit.json`. The correspondence collector visits only
+top-level functions; repair owner-aware module traversal and qualified calls,
+with sibling-name collision and owner-tampering refusal controls.
+
+Cast typing, qualified receiver spellings, return substitution and verified
+helper arguments/preconditions pass focused controls. The redundant enum-member
+exclusion repair reduced the classifier's fact-budget problem; its remaining
+ensures now fail connective reasoning. Contract proposition formation still
+blocks the other policies. Checked numeric member provenance remains open.
+Earlier six-package results are historical source snapshots. See
 [the exact proof record](../acceptance/fbx-request-proof-2026-10-07.md).
 
 - Finish exact lexical owner propagation for nested constants and function
