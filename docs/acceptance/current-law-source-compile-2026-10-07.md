@@ -1,6 +1,8 @@
 # Recent law source compilation (2026-10-07)
 
-Eleven recent law graphs compile at O0 with the matched repaired compiler
+## Earlier batch: compiler d2754a8e
+
+Eleven law graphs compiled at O0 with the matched repaired compiler
 `d2754a8eebfeaffbe137ed9201afdeb21735a29b`. All produced nonempty objects.
 The 87-file transitive source closure was copied before compilation; original
 hashes matched before/after copying, and copied hashes matched after compiling.
@@ -34,3 +36,35 @@ Future runnable compiler copies must retain them as well.
 This is source compatibility evidence. Authenticated IEEE/integer proof replay,
 complete app compilation, native refusal/undo behavior and corpus quality gates
 remain open. No milestone closes on these object files.
+
+## Generation cleanup policy: compiler 9667344c
+
+The expanded `proof/studio_build_generation_policy_laws.elisa` at primary
+commit `ab94857` compiled through the selected compiler wrapper with exit 0.
+The object is 35,024 bytes. Eight added laws cover inclusive retention, changed
+identity, symlinks, paths outside build, unverified manifests, invalid age/size,
+and active/current protection despite complete selection/review/confirmation.
+
+Command from the repository root:
+
+```sh
+../Elisa-compiler-m5-numeric-call-lowering/scripts/elisac_stage1.sh \
+  -emit obj -o build/generation-policy-qualification/laws-966.o \
+  proof/studio_build_generation_policy_laws.elisa
+```
+
+The retained log is `build/generation-policy-qualification/compile-966.log`.
+Compiler source revision: `9667344cf0fd2e955a4e233ada1ea60033a16837`.
+
+| Input/product | SHA-256 |
+| --- | --- |
+| Policy source | `7e4fbcccb30fbfe28264387de9fa70b074d3e5e5679c2864ee7398c154e5ccb7` |
+| Law source | `2032823d9708a5f44ff488d476b1ec8164cf75dfebd712c490cb875b09235f2e` |
+| Law object | `d53d8180d70c77319a65a7deed536b1bfa40b8f0d77b868fa2f1251bf7604aa7` |
+| Stage1 product | `bed23103851823084b365d825570394243564f99e1c6e1c4dd896d633194797b` |
+| Runtime product | `51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee` |
+
+This narrow compile used the working-tree sources, without a copied snapshot.
+It does not qualify lease acquisition, filesystem identity, directory moves,
+receipt durability or Restore. Authenticated proof replay remains pending.
+The earlier d2754a8e batch is comparison evidence relative to this compiler.
