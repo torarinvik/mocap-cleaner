@@ -105,6 +105,13 @@ the repair avoids the prior 297/286 fact overflows but does not establish the
 missing comparison premises or improve the proof counts. Findings include 25
 unsupported and 31 unknown obligations; unknown refusal gates are connective
 (18), non-comparison-goal (12), and ambiguous-constant-goal (1).
+The report's first `eligible` ensure failure is goal 3 at law line 91:
+`not (protection_reason(item) == Protection.None) or facts_valid(item)`. This
+shows the remaining connective refusal depends on a verified summary for the
+conditional enum-returning `protection_reason` helper (and the bool-returning
+`facts_valid` helper). The enum-demand scan alone supplies no such summary; the
+report's corresponding helper call is still unverified. Do not treat adding a
+constructor disequality fact as a repair for this missing return relation.
 
 The package independently replayed 33/33 theorems with zero rejected. Replay
 reports `source_authenticated: false`. Source correspondence remains open:
