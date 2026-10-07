@@ -1,5 +1,27 @@
 # FBX topology and skin pose comparison
 
+## Subsequent eight-influence implementation
+
+Engine commit `1cbed086` supersedes the four-influence implementation described
+below. Conversion and loading preserve eight influences through paired
+`JOINTS_0`/`WEIGHTS_0` and `JOINTS_1`/`WEIGHTS_1` attributes, with normalization
+across the complete row. More than eight positive source influences are refused.
+The converter joint limit is now 256; the user's Unreal fixture has 89 joints.
+
+The repeated independent Blender comparison is recorded in
+`build/fbx-user-highblock-influence8/skin-pose.json` and
+`build/fbx-bladed-influence8/skin-pose.json`. Those records cover five phases
+with fixed rest correspondence and full source weights. The engine worker also
+ran the Unreal fixture through the viewport path, loading 89 joints and drawing
+87,280 faces. This remains focused fixture evidence: rebuilding Studio and
+exercising its Character/Skeleton and edited-pose journey are still required.
+
+The earlier native Python driver declared the sampling-rate argument as an
+integer despite the native `double` ABI. Its rate claims cannot qualify the
+converter. The corrected conversion checks use `ctypes.c_double(30)`; see
+`fbx-native-checks-2026-10-07.md`. The earlier top-four comparison below is retained
+as historical attribution evidence, not current implementation qualification.
+
 ## Captured conversion
 
 This comparison used `bladed_cross.fbx` (SHA-256 `4aac7f8dda4a03d9a452dcec450ced74e7057cdb807434eb7314b2d3ce28fec8`) and the successful Studio generation `build/studio-build.yOXPzH`. The captured Studio executable SHA-256 is `97ea9a61994205f488848d198df163c631fd9d24e562648455eacd74a0486585`; the `studio_fbx_to_glb.o` SHA-256 is `409a3c59043415f9ba04fd62271687e3461fac6c0d89cad05deb87726c2b8817`; and the linked ufbx object SHA-256 is `47a6e89d77f927c99e09d17500438ceb342ef8a0445840bee15ad96dc46d43a0`. The captured compiler and runtime product hashes are `36389f6b18268d4266bd68aacd813c703cd788956b611b9fad9964da11a2aa32` and `51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`.
