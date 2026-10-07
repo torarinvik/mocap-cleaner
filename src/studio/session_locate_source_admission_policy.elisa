@@ -1,0 +1,66 @@
+# Session edits are admitted only after the located take and its source
+# reference agree with the saved record and the background worker's verified
+# resolution path.
+include "take_source_ref_policy.elisa"
+include "state/session_source_reference_codec.elisa"
+
+module StudioSessionLocateSourceAdmissionPolicy:
+    public:
+        const enum Method of i64:
+            LegacyGlb = 0
+            DirectGlb = 1
+            FbxCache = 2
+            FbxRegenerated = 3
+
+        affine struct WorkerResolution:
+            ready: bool
+            method: Method
+
+        # Success result values owned by SessionLocateWorker. Failures never
+        # map to a ready method, even when their numeric value is unknown.
+        def classify_worker_status(status: i64) -> WorkerResolution:
+            ensure result.ready implies status >= 0 and status <= 3
+            return WorkerResolution{ready: true, method: Method.LegacyGlb} if status == 0
+            return WorkerResolution{ready: true, method: Method.DirectGlb} if status == 1
+            return WorkerResolution{ready: true, method: Method.FbxCache} if status == 2
+            return WorkerResolution{ready: true, method: Method.FbxRegenerated} if status == 3
+            WorkerResolution{ready: false, method: Method.LegacyGlb}
+
+        def legacy_admit(method: Method, has_saved_reference: bool,
+                         has_loaded_reference: bool, take_identity_matches: bool) -> bool:
+            ensure result implies take_identity_matches
+            method == Method.LegacyGlb and not has_saved_reference and not has_loaded_reference and take_identity_matches
+
+        def source_admit(method: Method, saved: SessionSourceReferenceCodec::Record&,
+                         loaded: StudioTakeSourceRefPolicy::TakeSourceRef&,
+                         selected_path: darray[u8]&, take_identity_matches: bool,
+                         processing_identity_matches: bool, worker_verified: bool,
+                         animation_verified: bool) -> bool:
+            ensure result implies take_identity_matches and worker_verified and animation_verified
+            ensure result implies method == Method.DirectGlb or method == Method.FbxCache or method == Method.FbxRegenerated
+            ensure result implies StudioTakeSourceRefPolicy::bytes_equal(saved.reference.original_sha256, loaded.original_sha256)
+            ensure result implies StudioTakeSourceRefPolicy::bytes_equal(saved.reference.runtime_glb_sha256, loaded.runtime_glb_sha256)
+            ensure result implies method == Method.DirectGlb or processing_identity_matches
+            ensure result implies method != Method.FbxCache or StudioTakeSourceRefPolicy::bytes_equal(saved.reference.runtime_glb_path, loaded.runtime_glb_path)
+            return false if method == Method.LegacyGlb or not worker_verified or not animation_verified or not take_identity_matches
+            return false if not StudioTakeSourceRefPolicy::valid(saved.reference) or not StudioTakeSourceRefPolicy::valid(loaded)
+            return false if not StudioTakeSourceRefPolicy::path_valid(selected_path)
+            return false if saved.animation_name.count == 0
+            return false if saved.reference.format != loaded.format
+            return false if not StudioTakeSourceRefPolicy::bytes_equal(selected_path, loaded.original_path)
+            return false if not StudioTakeSourceRefPolicy::bytes_equal(saved.reference.original_sha256, loaded.original_sha256)
+            return false if not StudioTakeSourceRefPolicy::bytes_equal(saved.reference.runtime_glb_sha256, loaded.runtime_glb_sha256)
+            if method == Method.DirectGlb:
+                return false if loaded.format != StudioTakeSourceRefPolicy::SourceFormat.DirectGlb
+                return false if not StudioTakeSourceRefPolicy::bytes_equal(loaded.original_path, loaded.runtime_glb_path)
+                return false if not StudioTakeSourceRefPolicy::bytes_equal(loaded.runtime_glb_path, selected_path)
+                return false if saved.reference.importer_revision.count != 0 or saved.reference.options_sha256.count != 0
+                true
+            if method == Method.FbxCache or method == Method.FbxRegenerated:
+                return false if loaded.format != StudioTakeSourceRefPolicy::SourceFormat.FbxDerived or not processing_identity_matches
+                return false if not StudioTakeSourceRefPolicy::bytes_equal(saved.reference.importer_revision, loaded.importer_revision)
+                return false if not StudioTakeSourceRefPolicy::bytes_equal(saved.reference.options_sha256, loaded.options_sha256)
+                if method == Method.FbxCache:
+                    return false if not StudioTakeSourceRefPolicy::bytes_equal(saved.reference.runtime_glb_path, loaded.runtime_glb_path)
+                true
+            false
