@@ -69,3 +69,12 @@ This is compile/lowering evidence, not a runtime correctness result for main.
 Resolve qualified concrete calls as well as generic specialization; retain the
 fail-closed guard. A scalar caller with no other allocations must acquire the
 needed carrier only when its resolved result owns storage.
+
+Repair `d355c139` subsequently emits this identical frozen reducer at O0,
+exit 0, with product SHA-256
+`9466ea923c6d7c26cc78fba2dd7168f5535c4b8d01b48e147f6d45c1d665c6ff`.
+Root retained `d355c139-record.json` and LLVM SHA-256
+`7ff4507534b2a8f48b3244377e6fec147ff4ffeddfbee81115d7e7c377c86ed2`
+beside the original failed run. This independently verifies that qualified
+concrete lowering is accepted; it does not prove the complete proof/Studio
+graphs, runtime performance or all carrier counts. Keep those gates open.
