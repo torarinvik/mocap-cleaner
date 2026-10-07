@@ -18,7 +18,21 @@ Compile-only reductions under the immutable `22cf6e5b` Studio generation show:
 - A tied implementation and tied direct use compile in a Stage1 protocol
   reduction. The Go Stage0 conformance checker nevertheless requires exact
   region-parameter/return-region equality with the unannotated protocol shape.
-- Protocol declarations currently reject explicit region annotation syntax.
+- An earlier protocol syntax reduction refused annotation; the subsequent
+  current Go repair uses an explicitly tied Store declaration. The earlier
+  refusal does not describe the repaired source.
+
+Current Go repair `91be03e0` canonicalizes the specialized protocol container
+borrow using the same container-region stamping as source type resolution.
+Previously, `Self& @r` retained its region on the outer reference after
+substitution, while source `darray[T]& @r` stored it on the container. This
+representation mismatch declined the correctly tied darray implementation.
+The fresh committed Go build passes its provenance check. A compile-only
+generic protocol dispatch reduction now passes; a wrong-owner return refuses
+with region escape and `@b` versus `@a` diagnostics. These artifacts are in
+the compiler worker's `build/borrowed-return-reductions/protocol-current/`.
+The complete Stage1 seed is running as attempt 5; no matched new product is
+yet established by this record.
 
 These reductions do not establish full std compatibility, sound interface
 dispatch, proof authentication or runtime ownership. Failed seed attempts
