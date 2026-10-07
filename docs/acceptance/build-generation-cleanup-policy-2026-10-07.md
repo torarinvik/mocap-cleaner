@@ -210,3 +210,19 @@ produce publication durability. Five additional laws cover that distinction,
 existing-event refusal, already-current refusal, terminal-phase refusal and
 exclusive-lease admission. There are now 31 public journal laws. These are
 source contracts awaiting current compiler and authenticated proof evidence.
+
+### Unsealed package failure recording
+
+The failure event writer now accepts both original studio-build and
+studio-package creation records. For packages it opens the nested Resources
+lease through directory descriptors and rechecks that ancestor's identity,
+the original lease identity, the prior journal records and the observed
+subtree. Unknown descendants, a sealed/nonempty lease or replaced ancestors
+refuse the event. The package script installs its failure handler immediately
+after Started and disables it after product sealing. SIGINT/SIGTERM preserve
+nonzero status; SIGKILL still requires inactivity/reconciliation evidence.
+
+Python source and embedded package Python blocks parse successfully, shell
+syntax and diff checks pass. Runtime failure injection and authenticated proof
+qualification remain pending. This adds failure records, not native cleanup
+consumption or package Sealed/Published terminal events.
