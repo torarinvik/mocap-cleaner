@@ -158,3 +158,9 @@ A successful new result replaces waiting feedback with a current-result message;
 failed builds retain their failure guidance. Three completion obligations
 compile with d2754a8e. Native worker drain, coalesced edits, failure and close
 ordering still require qualification; source compilation does not close M5.
+
+Undo and Redo now use the same typed outcome policy: ready results receive
+completion feedback, queued rebuilds receive waiting feedback, and failures
+keep rebuild's explanation instead of being overwritten by an Undo/Redo label.
+The helper explicitly refreshes the UI even when rebuilding fails. Qualify
+both history directions during a worker drain and after evaluation refusal.
