@@ -82,6 +82,8 @@ def snapshot(project, engine, ui, compiler):
             "workspace_root_appkit.m", "storage_manifest_lock.c",
             "studio_generation_lease_appkit.m",
             "studio_build_generation_trash_io_appkit.m",
+            "studio_build_generation_trash_lifecycle_appkit.m",
+            "studio_build_generation_trash_candidate_appkit.m",
             "studio_build_generation_trash_current_appkit.m",
             "studio_build_generation_trash_path_appkit.m",
             "studio_build_generation_trash_inventory_appkit.m",
