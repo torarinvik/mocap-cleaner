@@ -73,3 +73,21 @@ exact Resolve Review, restart discovery, Restore, small windows, Unicode paths,
 keyboard and VoiceOver. Preserve source hashes and all unresolved recovery files.
 Failed/partial artifact admission remains an implementation gap; this successful
 build does not establish that those protected rows can be cleaned up.
+
+## Subsequent UI checkpoint verification
+
+The downstream source bundle at
+`../elisa-ui/build/goal-dependency-checkpoint/elisa-ui-0.1.0` was independently
+read and hashed. All 816 regular-file manifest entries matched; duplicate and
+unsafe relative paths were rejected by the verification procedure. The manifest
+SHA-256 is
+`403073966832730fc28a61955d4984e1a73082345f44107b3917aa5b490a9b4f`.
+The retained result is
+`build/latest-compiler-qualification/ui-checkpoint-verification.json`.
+
+At this observation, the live checkout differed only in the validation document,
+C++ header-check example, two performance budget files and release descriptor.
+The packaged `src/`, `include/` and `bindings/` entries matched. This verifies
+bundle content and a source checkpoint; it does not qualify the earlier Studio
+binary against the changed text-metrics source. A fresh Studio build must capture
+and revalidate its actual live include/native closure before and after building.
