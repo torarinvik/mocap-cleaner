@@ -47,6 +47,27 @@ Complete all applicable categories before removing a task from this roadmap.
   native, quality or usability acceptance explicitly. Preserve history in Git
   and evidence records rather than rebuilding shipped policies.
 
+## Language safety and foreign boundaries
+
+- Use `can` grants to propagate unsafe capabilities through adapters and their
+  callers. Introduce `trusted` only where tracking deliberately ends; document
+  that stopping point and the obligations it assumes. Passing compilation by
+  hiding missing contracts is not boundary qualification.
+- Declare foreign calling conventions, input/output extents, nullability,
+  termination, failure initialization and blocking effects. Qualify the emitted
+  ABI against the actual native definitions. Treat pointer non-retention and
+  native filesystem facts as external obligations unless independently checked.
+- Use supported checked typestate or derived-state features for resource
+  transitions. Verify support in the selected compiler; unchecked tags cannot
+  stand in for an unavailable protocol feature. Keep affine handle consumption,
+  cancellation and uncertain-release recovery explicit.
+- Audit task inputs and outputs separately. A moved struct with dynamic arrays
+  does not by itself establish allocation ownership. Capture bounded values
+  inline or establish an explicit owner transfer; qualify retained results after
+  the submitting frame, worker frame and publication frame have all ended.
+- A deep copy must preserve the intended bytes and choose a region that survives
+  its consumer. Array-count proofs alone cannot establish either requirement.
+
 ## Decisions that block dependent work
 
 | ID | Decision/result required | Dependent work and acceptance |
