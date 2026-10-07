@@ -187,6 +187,9 @@ preserves the previous cursor, saved point and result. Worker-active history
 movement still uses the old deferred path and remains to migrate. Accessor laws,
 transaction frame conditions and the complete latest source graph need current
 compiler/prover qualification; no native acceptance is claimed for this slice.
+Local retime, band removal, foot/hand toggles and blend controls now stop on
+commit refusal before publishing success feedback or clearing selection/focus.
+Other app callers and deferred draft admission remain under integration.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;
