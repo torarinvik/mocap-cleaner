@@ -89,13 +89,19 @@ Remaining work:
   reference-field reads and loop-value slot binding. Its clean Stage0 seed
   produced compiler SHA-256 `16a373d5f9ba605016d84fa8216c4e9e05aa73986d05bd73b1bf839dc59a09e3`
   and runtime SHA-256 `ca40ba1db8a74110936ad5cdaf808707020c5c74ebb6e491bda2198696d13b8a`.
-  The fresh fast profile selects 37 checks and is still running;
+  The frozen fast profile selected 32 checks and all 32 now have terminal
+  records (24 pass, 8 fail). Its registered command list matches the profile's
+  source patterns; the earlier 37-check count was incorrect and is superseded.
   `emit_annotated_list_parity_smoke` passes 354 cases, while
   `emit_ast_parity_smoke` reports 28 differing cases. The resumed baseline also
   reports header parity failure (58 divergent cases; the final refusal is
   `zeroed_relative_nested_module_reference_alias`) and interface parity failure
   (63 of 336 cases). Its `emit_interpret` check is active; these failures are
-  terminal baseline results, not interruptions or candidate results. Retain
+  terminal baseline results, not interruptions or candidate results. Remaining
+  failed scripts are interpret, packed, test-runner, unsafe and slice-real,
+  alongside AST, header and interface. Slice-real fails generated Stage0 inputs
+  on missing arena-cache lock intrinsics, rather than a measured Stage1 parity
+  difference. The exact failure lists must still match the candidate. Retain
   terminal results and
   exact failure lists before comparing the repair. Neither a baseline seed nor
   an installed upstream compiler qualifies project repairs or the Studio graph.
