@@ -47,3 +47,25 @@ must both be represented correctly.
 Changing only state region annotations or placing temporary formal names in
 the node arena did not remove the two full-source refusals in scratch probes.
 No such workaround has been accepted into source.
+
+## Bounded Stage1 path controls
+
+The reporter-extended path-control harness at source SHA-256
+`ec2d127c440ff4bf26c73af3b8012217ad47dca593eaf3e7d1365d4ad45e167e`
+compiles and runs with exit 0 on frozen diagnostic compiler `b35b5bc3`.
+Compiler provenance validation exits 0; the observed compilation process-group
+RSS peak is 187,648 KiB under a 2 GiB watchdog, with no watchdog termination.
+The harness exercises field identity, index matching and node-budget refusal.
+It includes the actual reporters, but its main calls only path controls;
+it does not execute the concrete report entry from the original reproduction.
+The original reporter gap therefore remains open pending that matching check
+and current producer/replay qualification.
+
+Retained record in the dedicated proof checkout:
+`build/q02-reporter-lifetime-reducer-20261007/resource-place-controls-ec2d-b35b5bc3.json`.
+Record SHA-256:
+`7ea49be39f309065c5c4a9010b4c16f7e8e1999763cd373d0c66db4417b8584b`.
+Log SHA-256:
+`f4a7b24df270c2033fb9a1b004e8f3dcde135befc3146f5002c1326793441619`.
+This compiler product is diagnostic while its separate malformed-metadata
+repair is pending; these controls do not qualify that repair or promotion.
