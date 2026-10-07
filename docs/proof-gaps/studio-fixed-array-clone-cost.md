@@ -42,6 +42,22 @@ known storage-free arrays and makes unmodeled storage classification fail closed
 Region-backed arrays, views, references, opaque representations and unresolved
 shapes must retain conservative handling. This source change is not yet qualified.
 
+The diagnostic product `ba3aa590` compiled a 20 KB fixed-byte-array rehome
+reproducer in 6.58 seconds, producing a 516 KB object. That narrow result did
+not resolve the integrated cost: an isolated copy of Studio at `f6f8a6ec`
+again sampled in SelectionDAG Combine/FoldingSet with a 29.4 GiB physical
+footprint. The initial 4 GiB RSS guard refused the run with exit 125; the
+subsequent 10 GiB RSS limit did not constrain compressed physical footprint.
+After identifying the repeated hotspot, the agent intentionally interrupted
+the second run: session 76182 exited 130 and PID 86421 was absent afterward.
+
+Retained diagnostic artifacts are
+`/tmp/mocap-void-main/build/main.compile-10g.log` and
+`/tmp/mocap-void-main/build/main.sample.txt`. These temporary artifacts are
+diagnostic evidence, not durable release qualification. The next investigation
+must identify the expensive generated function/IR rather than infer that the
+fixed-array shortcut has solved the full graph or repeat O2 builds blindly.
+
 Required evidence:
 
 - Fresh committed compiler/runtime provenance and exact source closure.
