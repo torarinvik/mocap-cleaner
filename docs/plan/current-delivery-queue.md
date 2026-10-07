@@ -98,7 +98,16 @@ Remaining work:
   diagnostic. This Stage0-built backend harness does not establish direct
   Stage1 CLI enforcement or unchanged-main failure-list parity. Self-host,
   fast-list comparison, full carrier counts and runtime benchmark remain open.
-  Full client compatibility and promotion remain open.
+  Candidate self-host Stage A fails: compiler helper results borrowed from
+  table/scope parameters omit their return-region ties. An independent compile
+  of the frozen common main source graph likewise refuses with 67 lifetime
+  diagnostics; main emits successfully. Preserve lifetime enforcement and audit
+  helper ownership before adding region-polymorphic signatures; blanket ties
+  or weakened checking are not fixes. The three common small LLVM controls
+  are byte-identical, with local carrier counts 0/0/4 in both products. They
+  establish no full-graph ratio or performance result. Root independently
+  compared their bytes and refusal log hash under baseline build directory
+  `carrier-counts-2ef1fa26/`. Full client compatibility and promotion remain open.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
