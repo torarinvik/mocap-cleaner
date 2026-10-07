@@ -1,0 +1,80 @@
+# Move-owned job and reply for background generation Restore. UI cancellation
+# drains an admitted filesystem operation; it cannot interrupt a rename safely.
+include "../../../build/generated/studio_runtime.elisa"
+include "build_generation_trash_transaction.elisa"
+include "../state/generation_restore_worker_policy.elisa"
+
+module StudioBuildGenerationRestoreWorker:
+    public:
+        struct Paths:
+            build_root: darray[u8]
+            operation_id: darray[u8]
+
+        affine struct Job:
+            ticket: i64
+            confirmed: bool
+            paths: Paths
+
+        affine struct Result:
+            ticket: i64
+            restored: bool
+            remaining_handle: i64
+            commit_status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus
+            release_status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus
+            recovery: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome
+            explanation: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()]
+            explanation_bytes: i64
+            explanation_truncated: bool
+
+        def restore(job: Job) -> Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            ensure result.explanation_bytes >= 0 and result.explanation_bytes < StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.i64()
+            ticket: i64 = job.ticket
+            confirmed: bool = job.confirmed
+            mutable paths: Paths = move job.paths
+            mutable root: darray[u8] = move paths.build_root
+            mutable operation: darray[u8] = move paths.operation_id
+            mutable explanation: darray[u8] = []
+            mutable handle: i64 = 0
+            mutable commit: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashBindingPolicy::decode_status(StudioBuildGenerationTrashNative::Status.Invalid.i32())
+            mutable release: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashBindingPolicy::decode_status(-1)
+            mutable recovery: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome = StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
+            mutable details: bool = false
+            if ticket > 0 and confirmed and path_bytes_valid(root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES) and path_bytes_valid(operation, StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES):
+                root.push(0)
+                operation.push(0)
+                root_ptr: cstr = (&root[0]).cast[cstr]
+                operation_ptr: cstr = (&operation[0]).cast[cstr]
+                begin: StudioBuildGenerationTrashTransaction::RestoreStartResult = StudioBuildGenerationTrashTransaction::begin_restore(root_ptr, operation_ptr, &handle, &explanation)
+                commit <- begin.status
+                if StudioBuildGenerationTrashBindingPolicy::restore_evidence_admitted(begin.evidence):
+                    mutable receipt_bytes: i64 = 0
+                    commit <- StudioBuildGenerationTrashTransaction::persist_restore_intent(handle, &receipt_bytes, &explanation)
+                    if commit.known and commit.status == StudioBuildGenerationTrashNative::Status.Acquired and receipt_bytes > 0 and receipt_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_RECEIPT_BYTES:
+                        commit <- StudioBuildGenerationTrashTransaction::commit_restore(handle, &explanation)
+                if handle > 0:
+                    release <- StudioBuildGenerationTrashTransaction::close_owned(&handle)
+                if handle == 0 and StudioGenerationHandlePolicy::release_certain(release):
+                    mutable recovery_explanation: darray[u8] = []
+                    observed: StudioBuildGenerationTrashTransaction::ReconcileResult = StudioBuildGenerationTrashTransaction::reconcile(root_ptr, operation_ptr, &recovery_explanation)
+                    recovery <- observed.outcome
+                    details <- observed.output_details_valid
+                    if not (commit.known and commit.status == StudioBuildGenerationTrashNative::Status.Restored):
+                        explanation.clear()
+                        explanation.extend(recovery_explanation)
+            success: bool = StudioGenerationRestoreWorkerPolicy::restored(commit, release, recovery, details, handle)
+            mutable message: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()] = zeroed
+            maximum: usize = StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize() - 1
+            count: usize = maximum if explanation.count > maximum else explanation.count
+            for index in 0..<count |index, message, explanation|:
+                message[index] <- explanation[index]
+            Result{ticket: ticket, restored: success, remaining_handle: handle, commit_status: commit, release_status: release, recovery: recovery, explanation: message, explanation_bytes: count.i64(), explanation_truncated: explanation.count > maximum}
+
+    private:
+        def path_bytes_valid(bytes: darray[u8]&, maximum: i64) -> bool:
+            return false if bytes.count == 0 or bytes.count.i64() > maximum
+            for byte in bytes:
+                return false if byte == 0
+            true
+
+def restore_build_generation_job(job: StudioBuildGenerationRestoreWorker::Job) -> StudioBuildGenerationRestoreWorker::Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+    StudioBuildGenerationRestoreWorker::restore(move job)
