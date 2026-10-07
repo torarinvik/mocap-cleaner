@@ -135,7 +135,7 @@ valid rig-node ownership or preservation of a refused gizmo draft.
 Gizmo drags now capture stack and evaluated-result generations, selected bone,
 frame, view and tool mode. Preview and release reject a changed target before
 creating a correction; starting a drag pauses playback and requires the
-evaluated stack to match current edits. Eight target-policy laws compile from
+evaluated stack to match current edits. Nine target-policy laws compile from
 copied source inputs under `build/gizmo-target-qualification/`. The integrated
 controller compile was cancelled after its inputs changed, so it supplies no
 acceptance evidence. Qualify the complete controller with current products and
@@ -143,6 +143,14 @@ exercise undo, take replacement, frame/bone changes, rebuild completion,
 playback, focus loss and repeated release. Cancellation must leave history and
 committed corrections unchanged; do not claim preview/release agreement until
 the native pose comparison passes.
+
+All drag exits now clear the goal, handle, readouts and captured target;
+switching tools must not retain a ghost preview. Release at the original
+pointer position closes the draft without adding a correction or history;
+two further laws specify unchanged/stale commit refusal. Qualify click-only
+and out-and-back drags, tool switching, repeated release and capacity usage.
+Pointer movement alone does not establish that a constrained pose changed;
+complete transform no-op detection separately with declared numerical bounds.
 
 
 ### Endpoint no-op qualification
