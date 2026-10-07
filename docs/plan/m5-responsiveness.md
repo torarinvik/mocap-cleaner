@@ -165,6 +165,11 @@ readout values and readout timing only after candidate evaluation succeeds.
 Failure therefore preserves these visible values. History publication still
 precedes evaluation and must be repaired; actual UI-state frame conditions,
 generation overflow and native failure behavior remain unqualified.
+Candidate evaluation is now a separate helper with an idle-worker precondition.
+It returns the owned candidate and restores Memo ownership without publishing
+the visible clip or history. Rebuild uses this helper; edit/Undo/Redo admission
+still needs to call it before history mutation. Current full-graph compilation
+and authenticated ownership/frame-condition evidence remain pending.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;

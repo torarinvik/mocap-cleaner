@@ -29,22 +29,7 @@ extend Studio:
                 candidate_rig_revision <- candidate_rig_revision + 1 if not StackState::same_rig_source(prior, s)
             else:
                 candidate_rig_revision <- candidate_rig_revision + 1
-            if memo == null:
-                memo <- StudioModel::load(path, anim_name)
-            mutable result: StudioModel::Clip? = null
-            if memo is held:
-                mutable m: StudioModel::Memo = held
-                memo <- null
-                w: mutable StudioPerf::Window = StudioPerf::full(m.frames)
-                if clip is c:
-                    if built_stack is old:
-                        w <- StudioPerf::edit_window(old, s, m.frames, m.shortest)
-                    result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w, candidate_rig_revision)
-                else:
-                    none_p: darray[Geometry::Vec3] = []
-                    none_i: darray[i64] = []
-                    result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w, candidate_rig_revision)
-                memo <- move m
+            mutable result: StudioModel::Clip? = evaluate_candidate(s, candidate_rig_revision)
             if result == null:
                 if clip != null:
                     status <- "Result could not be rebuilt. The previous result remains visible. Use Undo to remove the last edit, or reopen the source."
@@ -69,6 +54,29 @@ extend Studio:
             if clip is c:
                 collect_issues(c)
             touch()
+
+        # Evaluation owns Memo temporarily but does not publish history,
+        # the visible clip, readouts or generations. Exact-keyed cache entries
+        # may be retained even when a candidate correction is refused.
+        def evaluate_candidate(s: StackState::Stack&, candidate_revision: i64) -> StudioModel::Clip?:
+            requires contact_preview_task == null
+            if memo == null:
+                memo <- StudioModel::load(path, anim_name)
+            mutable result: StudioModel::Clip? = null
+            if memo is held:
+                mutable m: StudioModel::Memo = held
+                memo <- null
+                w: mutable StudioPerf::Window = StudioPerf::full(m.frames)
+                if clip is c:
+                    if built_stack is old:
+                        w <- StudioPerf::edit_window(old, s, m.frames, m.shortest)
+                    result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w, candidate_revision)
+                else:
+                    none_p: darray[Geometry::Vec3] = []
+                    none_i: darray[i64] = []
+                    result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w, candidate_revision)
+                memo <- move m
+            move result
 
         # A retime changes the clip length: keep the playhead on the same
         # source frame.
