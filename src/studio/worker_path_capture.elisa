@@ -1,0 +1,37 @@
+# A task argument copies this complete value, including all path bytes.
+# The dynamic path is reconstructed only inside the receiving worker region.
+module StudioWorkerPathCapture:
+    public:
+        const module Limit:
+            MAX_PATH_BYTES: usize = 4095
+            STORAGE_BYTES: usize = 4096
+
+        struct Path:
+            bytes: u8[4096]
+            count: usize
+
+        def source_valid(bytes: darray[u8]&) -> bool:
+            ensure result implies bytes.count > 0 and bytes.count <= Limit::MAX_PATH_BYTES
+            return false if bytes.count == 0 or bytes.count > Limit::MAX_PATH_BYTES
+            for byte in bytes:
+                return false if byte == 0
+            true
+
+        def capture(bytes: darray[u8]&) -> Path:
+            ensure result.count <= Limit::MAX_PATH_BYTES
+            ensure result.count > 0 implies result.count == bytes.count
+            mutable storage: u8[4096] = zeroed
+            return Path{bytes: storage, count: 0} if not source_valid(bytes)
+            for index in 0..<bytes.count |index, bytes, storage|:
+                storage[index] <- bytes[index]
+            Path{bytes: storage, count: bytes.count}
+
+        def restore[@r](path: Path&) -> darray[u8] @r can Memory.Allocate:
+            ensure result.count <= Limit::MAX_PATH_BYTES
+            ensure result.count == 0 or result.count == path.count
+            mutable out: darray[u8] @r = []
+            return move out if path.count == 0 or path.count > Limit::MAX_PATH_BYTES
+            for index in 0..<path.count |index, path, out|:
+                return [] if path.bytes[index] == 0
+                out.push(path.bytes[index])
+            return move out
