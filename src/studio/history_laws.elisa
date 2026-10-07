@@ -1,6 +1,7 @@
 # Laws of the undo/redo policy: undo and redo are inverse, recording drops
 # redo, and recording never loses the shown snapshot.
 include "history.elisa"
+include "state/history_state.elisa"
 
 module HistoryLaws:
     public:
@@ -108,3 +109,57 @@ module HistoryLaws:
             requires cursor != saved
             ensure result
             return HistoryPolicy::dirty(cursor, saved, true)
+
+        # Reading an undo target returns the prior snapshot and preserves the
+        # cursor, count, and save-point metadata.
+        def undo_target_preserves_history(h: mutable HistoryState::History&) -> bool:
+            requires h.count >= 2
+            requires h.count <= HistoryState::CAPACITY
+            requires h.cursor >= 1
+            requires h.cursor < h.count
+            ensure result
+            before_cursor: i64 = h.cursor
+            before_count: i64 = h.count
+            before_saved_cursor: i64 = h.saved_cursor
+            before_saved_valid: bool = h.saved_valid
+            if HistoryState::undo_target(&h) is target:
+                return StackState::same(target, h.states[before_cursor - 1]) and h.cursor == before_cursor and h.count == before_count and h.saved_cursor == before_saved_cursor and h.saved_valid == before_saved_valid
+            false
+
+        # Reading a redo target returns the next snapshot and preserves the
+        # cursor, count, and save-point metadata.
+        def redo_target_preserves_history(h: mutable HistoryState::History&) -> bool:
+            requires h.count >= 2
+            requires h.count <= HistoryState::CAPACITY
+            requires h.cursor >= 0
+            requires h.cursor + 1 < h.count
+            ensure result
+            before_cursor: i64 = h.cursor
+            before_count: i64 = h.count
+            before_saved_cursor: i64 = h.saved_cursor
+            before_saved_valid: bool = h.saved_valid
+            if HistoryState::redo_target(&h) is target:
+                return StackState::same(target, h.states[before_cursor + 1]) and h.cursor == before_cursor and h.count == before_count and h.saved_cursor == before_saved_cursor and h.saved_valid == before_saved_valid
+            false
+
+        # At the oldest/newest boundary, target lookup is unavailable and does
+        # not alter the history metadata.
+        def undo_target_unavailable_at_start() -> bool:
+            ensure result
+            h: mutable HistoryState::History = zeroed
+            HistoryState::reset(&h, StackState::empty())
+            before_count: i64 = h.count
+            before_saved_cursor: i64 = h.saved_cursor
+            before_saved_valid: bool = h.saved_valid
+            absent: bool = HistoryState::undo_target(&h) == null
+            return absent and h.cursor == 0 and h.count == before_count and h.saved_cursor == before_saved_cursor and h.saved_valid == before_saved_valid
+
+        def redo_target_unavailable_at_end() -> bool:
+            ensure result
+            h: mutable HistoryState::History = zeroed
+            HistoryState::reset(&h, StackState::empty())
+            before_count: i64 = h.count
+            before_saved_cursor: i64 = h.saved_cursor
+            before_saved_valid: bool = h.saved_valid
+            absent: bool = HistoryState::redo_target(&h) == null
+            return absent and h.cursor == 0 and h.count == before_count and h.saved_cursor == before_saved_cursor and h.saved_valid == before_saved_valid
