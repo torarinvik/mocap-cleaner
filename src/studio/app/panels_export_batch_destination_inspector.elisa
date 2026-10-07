@@ -1,0 +1,148 @@
+include "panels_geometry.elisa"
+include "../export_batch_destination_inspector_policy.elisa"
+
+# Read-only four-location inspector. Exact byte snapshots are owned by the
+# caller for the inspector's lifetime; previews are visibly abbreviated.
+extend StudioPanels:
+    private:
+        const module DestinationLayout:
+            WIDTH: f32 = 920.0
+            HEIGHT: f32 = 600.0
+            INSET: f32 = 24.0
+            SELECTOR_TOP: f32 = 116.0
+            SELECTOR_HEIGHT: f32 = 46.0
+            SELECTOR_GAP_Y: f32 = 8.0
+            SELECTOR_GAP_X: f32 = 10.0
+            PATH_TOP: f32 = 246.0
+            PATH_ROW_HEIGHT: f32 = 38.0
+            PATH_ROW_GAP: f32 = 5.0
+            CONTROL_TOP: f32 = 536.0
+            CONTROL_WIDTH: f32 = 120.0
+            CONTROL_HEIGHT: f32 = 36.0
+            CONTROL_GAP: f32 = 14.0
+
+        def selector_box(w: f32, h: f32, location: StudioExportBatchDestinationInspectorPolicy::Location) -> Box:
+            d: Box = export_batch_destination_inspector_box(w, h)
+            row: i64 = location.i64() / 2
+            column: i64 = location.i64() % 2
+            box(d.x + DestinationLayout::INSET + column.as_f32() * (d.w - 2.0 * DestinationLayout::INSET + DestinationLayout::SELECTOR_GAP_X) / 2.0,
+                d.y + DestinationLayout::SELECTOR_TOP + row.as_f32() * (DestinationLayout::SELECTOR_HEIGHT + DestinationLayout::SELECTOR_GAP_Y),
+                (d.w - 2.0 * DestinationLayout::INSET - DestinationLayout::SELECTOR_GAP_X) / 2.0,
+                DestinationLayout::SELECTOR_HEIGHT)
+
+        def control_slot(focus: StudioExportBatchDestinationInspectorPolicy::Focus) -> i64:
+            return 0 if focus == StudioExportBatchDestinationInspectorPolicy::Focus.Previous
+            return 1 if focus == StudioExportBatchDestinationInspectorPolicy::Focus.Next
+            2
+
+    public:
+        def export_batch_destination_inspector_box(w: f32, h: f32) -> Box:
+            box((w - DestinationLayout::WIDTH) / 2.0, (h - DestinationLayout::HEIGHT) / 2.0,
+                DestinationLayout::WIDTH, DestinationLayout::HEIGHT)
+
+        def export_batch_destination_location_box(w: f32, h: f32,
+                location: StudioExportBatchDestinationInspectorPolicy::Location) -> Box:
+            selector_box(w, h, location)
+
+        def export_batch_destination_path_line_box(w: f32, h: f32, row: i64) -> Box:
+            requires row >= 0 and row < StudioExportBatchDestinationInspectorPolicy::Limit::LINES_PER_PAGE
+            d: Box = export_batch_destination_inspector_box(w, h)
+            box(d.x + DestinationLayout::INSET,
+                d.y + DestinationLayout::PATH_TOP + row.as_f32() * (DestinationLayout::PATH_ROW_HEIGHT + DestinationLayout::PATH_ROW_GAP),
+                d.w - 2.0 * DestinationLayout::INSET, DestinationLayout::PATH_ROW_HEIGHT)
+
+        def export_batch_destination_control_box(w: f32, h: f32,
+                focus: StudioExportBatchDestinationInspectorPolicy::Focus) -> Box:
+            requires focus == StudioExportBatchDestinationInspectorPolicy::Focus.Previous or focus == StudioExportBatchDestinationInspectorPolicy::Focus.Next or focus == StudioExportBatchDestinationInspectorPolicy::Focus.Done
+            d: Box = export_batch_destination_inspector_box(w, h)
+            box(d.x + DestinationLayout::INSET + control_slot(focus).as_f32() * (DestinationLayout::CONTROL_WIDTH + DestinationLayout::CONTROL_GAP),
+                d.y + DestinationLayout::CONTROL_TOP, DestinationLayout::CONTROL_WIDTH, DestinationLayout::CONTROL_HEIGHT)
+
+        def export_batch_destination_inspector_hit(w: f32, h: f32, x: f32, y: f32,
+                state: StudioExportBatchDestinationInspectorPolicy::State,
+                paths: StudioExportBatchDestinationInspectorPolicy::Paths&) -> StudioExportBatchDestinationInspectorPolicy::Focus?:
+            requires StudioExportBatchDestinationInspectorPolicy::valid(state)
+            for code in 0..<StudioExportBatchDestinationInspectorPolicy::Limit::LOCATION_COUNT |code, w, h, x, y|:
+                location: StudioExportBatchDestinationInspectorPolicy::Location = StudioExportBatchDestinationInspectorPolicy::location_for_focus(StudioExportBatchDestinationInspectorPolicy::focus_for_code(code))
+                return StudioExportBatchDestinationInspectorPolicy::focus_for_location(location) if inside(selector_box(w, h, location), x, y)
+            for code in 4..<7 |code, w, h, x, y, state, paths|:
+                focus: StudioExportBatchDestinationInspectorPolicy::Focus = StudioExportBatchDestinationInspectorPolicy::focus_for_code(code)
+                return focus if StudioExportBatchDestinationInspectorPolicy::action_enabled(focus, state, paths) and inside(export_batch_destination_control_box(w, h, focus), x, y)
+            null
+
+        def export_batch_destination_inspector_panel(w: f32, h: f32,
+                state: StudioExportBatchDestinationInspectorPolicy::State,
+                paths: StudioExportBatchDestinationInspectorPolicy::Paths&) -> void:
+            return if not state.opened
+            path_status: StudioExportBatchDestinationInspectorPolicy::Status = StudioExportBatchDestinationInspectorPolicy::selected_status(paths, state.location)
+            pages: i64 = StudioExportBatchDestinationInspectorPolicy::selected_page_count(paths, state.location)
+            d: Box = export_batch_destination_inspector_box(w, h)
+            StudioDraw::rect(0.0, 0.0, w, h, UiCore::Color{r: 0, g: 0, b: 0, a: 155})
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.3, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + DestinationLayout::INSET, d.y + 22.0, 19.0, "Selected export locations", StudioDraw::ink())
+            StudioDraw::text(d.x + DestinationLayout::INSET, d.y + 51.0, 11.0,
+                "Read-only snapshot of the source and all three captured destinations. Select a path to inspect it completely.", StudioDraw::muted())
+            StudioDraw::text(d.x + DestinationLayout::INSET, d.y + 86.0,
+                StudioExportBatchDestinationInspectorPolicy::status_message(path_status),
+                StudioDraw::color(232, 190, 116) if path_status != StudioExportBatchDestinationInspectorPolicy::Status.Ready else StudioDraw::muted())
+            draw_selector(w, h, StudioExportBatchDestinationInspectorPolicy::Location.Source, paths.source, state)
+            draw_selector(w, h, StudioExportBatchDestinationInspectorPolicy::Location.Glb, paths.glb, state)
+            draw_selector(w, h, StudioExportBatchDestinationInspectorPolicy::Location.JsonReport, paths.json_report, state)
+            draw_selector(w, h, StudioExportBatchDestinationInspectorPolicy::Location.TextReport, paths.text_report, state)
+            StudioText::begin()
+            StudioText::put("Complete recorded path · ")
+            StudioText::put(StudioExportBatchDestinationProjection::location_label(state.location))
+            StudioDraw::bold(d.x + DestinationLayout::INSET, d.y + 222.0, 12.0, StudioText::view(), StudioDraw::ink())
+            if path_status == StudioExportBatchDestinationInspectorPolicy::Status.Ready:
+                visible: i64 = StudioExportBatchDestinationInspectorPolicy::selected_page_line_count(paths, state.location, state.page)
+                for row in 0..<visible |row, paths, state, d, w, h|:
+                    range: StudioExportBatchDestinationInspectorPolicy::ByteRange = StudioExportBatchDestinationInspectorPolicy::selected_page_line_range(paths, state.location, state.page, row)
+                    line: Box = export_batch_destination_path_line_box(w, h, row)
+                    StudioDraw::rect(line.x, line.y, line.w, line.h, StudioDraw::panel())
+                    StudioText::begin()
+                    for offset in 0..<range.count |offset, paths, state, range|:
+                        StudioText::byte(StudioExportBatchDestinationInspectorPolicy::selected_path_byte(paths, state.location, range.start + offset))
+                    StudioDraw::text(line.x + 12.0, line.y + 11.0, 12.0, StudioText::view(), StudioDraw::ink())
+                StudioText::begin()
+                StudioText::put("Page ")
+                StudioText::put_i(state.page + 1)
+                StudioText::put(" of ")
+                StudioText::put_i(pages)
+                StudioText::put(" · full path continues across pages without omission")
+                StudioDraw::text(d.x + DestinationLayout::INSET, d.y + 462.0, 10.0, StudioText::view(), StudioDraw::muted())
+            else:
+                StudioDraw::text(d.x + DestinationLayout::INSET, d.y + 270.0, 12.0,
+                    "This path cannot be rendered safely. Its captured bytes remain unchanged.", StudioDraw::muted())
+            for code in 4..<7 |code, state, paths, w, h|:
+                focus: StudioExportBatchDestinationInspectorPolicy::Focus = StudioExportBatchDestinationInspectorPolicy::focus_for_code(code)
+                enabled: bool = StudioExportBatchDestinationInspectorPolicy::action_enabled(focus, state, paths)
+                b: Box = export_batch_destination_control_box(w, h, focus)
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(65, 78, 102) if focus == state.focus else StudioDraw::panel())
+                StudioDraw::text(b.x + 12.0, b.y + 11.0, 11.0,
+                    StudioExportBatchDestinationInspectorPolicy::focus_label(focus),
+                    StudioDraw::ink() if enabled else StudioDraw::color(95, 99, 108))
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if focus == state.focus
+            StudioDraw::text(d.x + 470.0, d.y + 552.0, 10.0,
+                "Read-only · Esc returns to prepared exports · queue identity stays private", StudioDraw::muted())
+
+    private:
+        def draw_selector(w: f32, h: f32,
+                location: StudioExportBatchDestinationInspectorPolicy::Location,
+                path: darray[u8]&, state: StudioExportBatchDestinationInspectorPolicy::State) -> void:
+            b: Box = selector_box(w, h, location)
+            selected: bool = state.location == location
+            StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(52, 60, 75) if selected else StudioDraw::panel())
+            StudioDraw::segment(b.x + 4.0, b.y + 5.0, b.x + 4.0, b.y + b.h - 5.0, 2.0, StudioDraw::accent()) if selected
+            StudioDraw::text(b.x + 12.0, b.y + 7.0, 10.0,
+                StudioExportBatchDestinationProjection::location_label(location), StudioDraw::ink())
+            StudioText::begin()
+            range: StudioExportBatchDestinationInspectorPolicy::ByteRange = StudioExportBatchDestinationInspectorPolicy::preview_range(path) if StudioExportBatchDestinationInspectorPolicy::path_admitted(path) else StudioExportBatchDestinationInspectorPolicy::ByteRange{start: 0, count: 0}
+            for offset in 0..<range.count |offset, path, range|:
+                StudioText::byte(path[range.start + offset])
+            StudioText::put("…") if StudioExportBatchDestinationInspectorPolicy::path_admitted(path) and StudioExportBatchDestinationInspectorPolicy::path_abbreviated(path)
+            StudioText::put("Path unavailable") if not StudioExportBatchDestinationInspectorPolicy::path_admitted(path)
+            StudioDraw::text(b.x + 12.0, b.y + 27.0, 9.0, StudioText::view(), StudioDraw::muted())
