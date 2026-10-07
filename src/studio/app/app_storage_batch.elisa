@@ -5,20 +5,20 @@ extend Studio:
         def begin_storage_batch() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             descriptor: i32 = begin_storage_transaction()
             if descriptor == -1:
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopInvalid.i64()
                 touch()
                 return
             begin_storage_batch_locked()
             _ = end_storage_transaction(descriptor)
 
         def begin_storage_batch_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            return if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
+            return if storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
             reviewed: darray[StudioStorageManifest::Entry] = storage_review_selection
             retention: i64 = storage_review_retention
             refresh_storage_inventory()
             if storage_manifest_state != 1 or not storage_preferences_valid or not storage_exemptions_valid or storage_release_uncertain:
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
-                if reviewed.count > 0 and reviewed.count.i64() <= StudioStorageBatchPolicy::MAX_ITEMS:
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopInvalid.i64()
+                if reviewed.count > 0 and reviewed.count.i64() <= StudioStorageBatchPolicy::Capacity::MAX_ITEMS:
                     storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(reviewed.count.i64(), 0)
                 touch()
                 return
@@ -28,19 +28,19 @@ extend Studio:
                 for index in 0..<reviewed.count |reviewed, current, unchanged|:
                     unchanged <- false if not storage_identity_matches(reviewed[index], current[index])
             total: i64 = reviewed.count.i64()
-            if total < 1 or total > StudioStorageBatchPolicy::MAX_ITEMS:
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+            if total < 1 or total > StudioStorageBatchPolicy::Capacity::MAX_ITEMS:
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopInvalid.i64()
                 touch()
                 return
             recovery_required: bool = not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome)
             if not StudioStorageBatchPolicy::may_start(storage_batch_state, total, true, unchanged, recovery_required):
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_RECOVERY_REQUIRED if recovery_required else StudioStorageBatchPolicy::STATE_STOP_REVIEW_CHANGED
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopRecoveryRequired.i64() if recovery_required else StudioStorageBatchPolicy::State.StopReviewChanged.i64()
                 storage_message <- 15 if recovery_required else 9
                 touch()
                 return
             mutable items: darray[i64] = []
             for index in 0..<reviewed.count |items|:
-                items.push(StudioStorageBatchPolicy::ITEM_NOT_ATTEMPTED)
+                items.push(StudioStorageBatchPolicy::ItemStatus.NotAttempted.i64())
             storage_batch_entries <- reviewed
             storage_batch_manifest_version <- storage_review_manifest_version
             storage_batch_items <- items
@@ -49,7 +49,7 @@ extend Studio:
             storage_batch_failed <- 0
             storage_batch_untouched <- total
             storage_batch_cancel <- false
-            storage_batch_state <- StudioStorageBatchPolicy::STATE_RUNNING
+            storage_batch_state <- StudioStorageBatchPolicy::State.Running.i64()
             touch()
             UiCore::request_frame_after(0.008)
 
@@ -65,39 +65,39 @@ extend Studio:
             true
 
         def advance_storage_batch() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            return if storage_batch_state != StudioStorageBatchPolicy::STATE_RUNNING
+            return if storage_batch_state != StudioStorageBatchPolicy::State.Running.i64()
             descriptor: i32 = begin_storage_transaction()
             if descriptor == -1:
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopInvalid.i64()
                 touch()
                 return
             advance_storage_batch_locked()
             _ = end_storage_transaction(descriptor)
 
         def advance_storage_batch_locked() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            return if storage_batch_state != StudioStorageBatchPolicy::STATE_RUNNING
+            return if storage_batch_state != StudioStorageBatchPolicy::State.Running.i64()
             entries: darray[StudioStorageManifest::Entry] = storage_batch_entries
             total: i64 = entries.count.i64()
             index: i64 = storage_batch_index
-            if total < 1 or total > StudioStorageBatchPolicy::MAX_ITEMS or index < 0 or index >= total:
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+            if total < 1 or total > StudioStorageBatchPolicy::Capacity::MAX_ITEMS or index < 0 or index >= total:
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopInvalid.i64()
                 touch()
                 return
             recovery_required: bool = not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome)
             if storage_batch_cancel or recovery_required:
                 storage_batch_state <- StudioStorageBatchPolicy::next_state(storage_batch_state, total, index,
-                    StudioStorageBatchPolicy::ITEM_NOT_ATTEMPTED, storage_batch_cancel, true, recovery_required)
+                    StudioStorageBatchPolicy::ItemStatus.NotAttempted.i64(), storage_batch_cancel, true, recovery_required)
                 storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, index)
                 touch()
                 return
             refresh_storage_inventory()
             if storage_manifest_state != 1 or storage_release_uncertain:
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopInvalid.i64()
                 storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, index)
                 touch()
                 return
             if not StudioStorageManifestVersion::matches(storage_batch_manifest_version, storage_entries, storage_manifest_state == 1) or not storage_batch_remaining_is_fresh():
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_REVIEW_CHANGED
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopReviewChanged.i64()
                 storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_known(total, index)
                 storage_message <- 9
                 touch()
@@ -105,8 +105,8 @@ extend Studio:
             storage_move_entry <- entries[index]
             move_storage_reviewed_entry(entries[index], true)
             item: i64 = StudioStorageBatchPolicy::item_status(storage_move_outcome)
-            if not StudioStorageBatchPolicy::valid_item_status(item) or storage_batch_completed < 0 or storage_batch_completed >= StudioStorageBatchPolicy::MAX_ITEMS or storage_batch_failed < 0 or storage_batch_failed >= StudioStorageBatchPolicy::MAX_ITEMS:
-                storage_batch_state <- StudioStorageBatchPolicy::STATE_STOP_INVALID
+            if not StudioStorageBatchPolicy::valid_item_status(item) or storage_batch_completed < 0 or storage_batch_completed >= StudioStorageBatchPolicy::Capacity::MAX_ITEMS or storage_batch_failed < 0 or storage_batch_failed >= StudioStorageBatchPolicy::Capacity::MAX_ITEMS:
+                storage_batch_state <- StudioStorageBatchPolicy::State.StopInvalid.i64()
                 touch()
                 return
             mutable items: darray[i64] = storage_batch_items
@@ -116,14 +116,14 @@ extend Studio:
             storage_batch_completed <- StudioStorageBatchPolicy::next_completed(storage_batch_completed, item)
             storage_batch_failed <- StudioStorageBatchPolicy::next_failed(storage_batch_failed, item)
             storage_batch_index <- StudioStorageBatchPolicy::next_index(index, total, item)
-            storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_unknown(total, index) if item == StudioStorageBatchPolicy::ITEM_UNKNOWN else StudioStorageBatchPolicy::untouched_after_known(total, storage_batch_index)
+            storage_batch_untouched <- StudioStorageBatchPolicy::untouched_after_unknown(total, index) if item == StudioStorageBatchPolicy::ItemStatus.Unknown.i64() else StudioStorageBatchPolicy::untouched_after_known(total, storage_batch_index)
             storage_batch_state <- StudioStorageBatchPolicy::next_state(storage_batch_state, total, index, item,
-                storage_batch_cancel, item != StudioStorageBatchPolicy::ITEM_NOT_ATTEMPTED, not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome))
+                storage_batch_cancel, item != StudioStorageBatchPolicy::ItemStatus.NotAttempted.i64(), not StudioStorageMovePolicy::may_start_new_move(storage_retained_receipt != null, storage_move_outcome))
             touch()
-            UiCore::request_frame_after(0.008) if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING
+            UiCore::request_frame_after(0.008) if storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
 
         def storage_action(action: i64) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING:
+            if storage_batch_state == StudioStorageBatchPolicy::State.Running.i64():
                 storage_batch_cancel <- true if action == StudioPanels::StorageAction::DONE
                 touch()
                 return
@@ -171,7 +171,7 @@ extend Studio:
                     storage_move_entry <- entries[0]
                     storage_review_selection <- entries
                     storage_review_retention <- storage_retention_preset
-                    storage_batch_state <- StudioStorageBatchPolicy::STATE_IDLE
+                    storage_batch_state <- StudioStorageBatchPolicy::State.Idle.i64()
                     storage_batch_completed <- 0
                     storage_batch_failed <- 0
                     storage_batch_untouched <- entries.count.i64()
@@ -198,7 +198,7 @@ extend Studio:
 
         def storage_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             if code == UiCore::Key.Escape:
-                if storage_batch_state == StudioStorageBatchPolicy::STATE_RUNNING:
+                if storage_batch_state == StudioStorageBatchPolicy::State.Running.i64():
                     storage_batch_cancel <- true
                     touch()
                 elif storage_restore_review or storage_move_review:

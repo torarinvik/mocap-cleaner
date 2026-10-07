@@ -3,11 +3,36 @@ include "../src/studio/storage_batch_policy.elisa"
 
 module StudioStorageBatchPolicyLaws:
     public:
+        def nonrunning_state_stays_sticky(state: i64, cancel: bool,
+                                         unchanged: bool, recovery: bool) -> bool:
+            requires state >= 0 and state < StudioStorageBatchPolicy::Capacity::STATE_COUNT
+            requires state != StudioStorageBatchPolicy::State.Running.i64()
+            ensure result
+            StudioStorageBatchPolicy::next_state(state, 1, 0, StudioStorageBatchPolicy::ItemStatus.NotAttempted.i64(), cancel, unchanged, recovery) == state
+
+        def unknown_item_stops_before_next_row(cancel: bool,
+                                               unchanged: bool, recovery: bool) -> bool:
+            ensure result
+            StudioStorageBatchPolicy::next_state(StudioStorageBatchPolicy::State.Running.i64(), 1, 0, StudioStorageBatchPolicy::ItemStatus.Unknown.i64(), cancel, unchanged, recovery) == StudioStorageBatchPolicy::State.StopUnknown.i64()
+
+        def recovery_item_stops_before_completion(cancel: bool,
+                                                  unchanged: bool, recovery: bool) -> bool:
+            ensure result
+            StudioStorageBatchPolicy::next_state(StudioStorageBatchPolicy::State.Running.i64(), 1, 0, StudioStorageBatchPolicy::ItemStatus.RecoveryRequired.i64(), cancel, unchanged, recovery) == StudioStorageBatchPolicy::State.StopRecoveryRequired.i64()
+
+        def cancellation_precedes_review_change() -> bool:
+            ensure result
+            StudioStorageBatchPolicy::next_state(StudioStorageBatchPolicy::State.Running.i64(), 1, 0, StudioStorageBatchPolicy::ItemStatus.NotAttempted.i64(), true, false, true) == StudioStorageBatchPolicy::State.Cancelled.i64()
+
+        def review_change_precedes_recovery_gate() -> bool:
+            ensure result
+            StudioStorageBatchPolicy::next_state(StudioStorageBatchPolicy::State.Running.i64(), 1, 0, StudioStorageBatchPolicy::ItemStatus.NotAttempted.i64(), false, false, true) == StudioStorageBatchPolicy::State.StopReviewChanged.i64()
+
         def known_rows_partition_total(index: i64, completed: i64,
                                        failed: i64, untouched: i64,
                                        total: i64) -> bool:
             requires index >= 0 and index <= total
-            requires total >= 0 and total <= StudioStorageBatchPolicy::MAX_ITEMS
+            requires total >= 0 and total <= StudioStorageBatchPolicy::Capacity::MAX_ITEMS
             requires completed >= 0 and failed >= 0 and untouched >= 0
             requires completed + failed == index
             requires index + untouched == total
@@ -20,7 +45,7 @@ module StudioStorageBatchPolicyLaws:
                                                      untouched: i64,
                                                      total: i64) -> bool:
             requires index >= 0 and index < total
-            requires total >= 1 and total <= StudioStorageBatchPolicy::MAX_ITEMS
+            requires total >= 1 and total <= StudioStorageBatchPolicy::Capacity::MAX_ITEMS
             requires completed >= 0 and failed >= 0 and untouched >= 0
             requires completed + failed == index
             requires index + untouched + 1 == total
