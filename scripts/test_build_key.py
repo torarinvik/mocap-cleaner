@@ -35,8 +35,7 @@ def add_repo(digest, repo):
             stderr=subprocess.DEVNULL,
         )
     except (OSError, subprocess.CalledProcessError):
-        digest.update(f"missing-git:{repo.resolve()}".encode() + b"\0")
-        return
+        raise SystemExit(f"test build key: cannot inventory repository {repo.resolve()}")
     digest.update(str(repo.resolve()).encode() + b"\0")
     paths = set(filter(None, tracked.split(b"\0")))
     paths.update(filter(None, untracked.split(b"\0")))
@@ -60,20 +59,13 @@ def main():
         compiler_root = configured_root or ROOT.parent / "Elisa-compiler"
     if configured_root is not None and compiler_root != configured_root:
         raise SystemExit("test build key: selected compiler differs from ELISA_STAGE1 checkout")
-    digest = hashlib.sha256(b"mocap-cleaner-test-build-v4\0")
+    digest = hashlib.sha256(b"mocap-cleaner-test-build-v5\0")
     digest.update(f"{platform.system()}:{platform.machine()}:{sys.version}\0".encode())
     digest.update((sys.argv[1] + "\0-emit exe").encode())
     add_file(digest, selected_compiler)
-    tool_env = {
-        "ELISAC", "ELISA_STAGE1_BIN", "ELISA_RUNTIME_OBJ", "ELISA_CLANG",
-        "ELISA_AR", "LLVM_CONFIG", "ELISA_ALLOW_STALE_STAGE1",
-    }
-    tool_env.update(
-        name for name in os.environ
-        if name.startswith(("ELISA_HOST_", "ELISA_TARGET_"))
-    )
-    for name in sorted(tool_env & os.environ.keys()):
-        digest.update(f"{name}={os.environ[name]}\0".encode())
+    sys.path.insert(0, str(ROOT / "tools"))
+    from build_environment import build_environment_digest
+    digest.update(build_environment_digest().encode() + b"\0")
 
     # Compiler source changes invalidate cached executables even when the product
     # has not been rebuilt yet. The next compile then reaches the wrapper
