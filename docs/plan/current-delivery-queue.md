@@ -14,15 +14,16 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-The current compiler repair is not qualified for promotion. Committed source
-`22df50bf` replaces mixed-owner callee views with scalar table selectors;
-`dda25d1c` separately records the void-postcondition regression expectations.
-Further lifetime repairs are pending. Direct Stage0 diagnostic compile
-`build/descriptor-syntax7.log` cleared the six remaining static region-call
-errors but refused backend arena resolution for `Backend.resolved_error_family`.
-This diagnostic compile is not a qualifying seed or a fresh Stage1 product.
-Earlier product/build observations remain comparison evidence in the linked
-records.
+The current compiler repair is not qualified for promotion. Clean source
+`b6e132d2` is rebased onto main `341f72ba`; all 22 prior repair commits retain
+unchanged patches. Mixed-owner callee lookups now carry scalar table selectors,
+and error-family consumers project views locally. Diagnostic compile
+`build/descriptor-current-projection.log` exits 0 and emits an object with
+SHA-256 `9a0b4fdde56af68c209b1e89162fc421dba0910b7d2190cd5fa3b7508cb0f564`.
+Its Stage0 includes diagnostic instrumentation, so this is not a qualifying seed
+or a fresh Stage1 product. The current-main baseline seed has started with the
+clean selected Stage0; candidate seeding follows that build window. Earlier
+product/build observations remain comparison evidence in the linked records.
 
 Remaining work:
 
