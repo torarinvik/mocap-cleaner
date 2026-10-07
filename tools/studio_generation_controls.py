@@ -84,4 +84,5 @@ if __name__ == "__main__":
     try:
         sync_publication_directories(args.project.absolute(), args.directory)
     except (ValueError, OSError) as error:
-        raise SystemExit("Studio publication durability: " + str(error)) from error
+        raise SystemExit("Studio publication durability is unverified for build directories " +
+                         ", ".join(args.directory) + ": " + str(error)) from error

@@ -221,7 +221,7 @@ restore_previous_bundle() {
   if [[ ! -e "$final_app" && ! -L "$final_app" ]] &&
      [[ -e "$pending_package/previous.app" || -L "$pending_package/previous.app" ]]; then
     if ! mv "$pending_package/previous.app" "$final_app" || ! sync_package_publication; then
-      echo "previous Studio bundle retained at $pending_package/previous.app; restore failed" >&2
+      echo "previous Studio bundle restore or durability check failed; inspect $final_app and $pending_package/previous.app" >&2
       package_status=1
     fi
   fi
