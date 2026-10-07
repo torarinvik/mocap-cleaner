@@ -100,39 +100,39 @@ this item.
 
 **Depends on:** Q01. Package/source correspondence work may proceed beforehand.
 
-The current d5 compiler request-policy run has 99 obligations, 60 proven,
-39 unproven and four replay gaps; its package is source-inadmissible. See
-[the exact request proof record](../acceptance/fbx-request-proof-2026-10-07.md).
-This does not supersede the separate staging-policy report below.
+The latest retained six-policy run uses proof `56460af7`, compiler `2ef1fa26`
+and pair `27a76cce72424a72ba1a75bb0e8c2f96`. Five packages fail source admission;
+failure policy replays 26/26 theorems. All six correspondence checks cover zero
+functions and remain unauthenticated. These results supersede historical d5/48dc
+counts for current status. See
+[the exact proof record](../acceptance/fbx-request-proof-2026-10-07.md).
 
+- Finish exact lexical owner propagation for nested constants and function
+  signatures in producer and independent replay. Preserve ordered module paths,
+  validate complete owner-record shape and reject ambiguous, duplicate,
+  inconsistent and out-of-range records. Reopened identical paths may coalesce;
+  different paths sharing an identity must refuse. See
+  [owner typing gap](../proof-gaps/lexical-owner-typing.md).
+- Run the new qualified/bare-call, repeated leaf-name, wrong-sort and malformed
+  owner controls on a fresh source-matched compiler. The current repair source
+  is unqualified; planned controls are not passing evidence. Flat named-type
+  lookup still refuses repeated module-local user types. Track that conservative
+  coverage gap separately, including parameter and result types.
+- Rebuild a matched producer/replay pair after every proof repair. Verify exact
+  product input closures and linked runtime before reuse. An unchanged-product
+  cache notice, generation id or whole-tree manifest alone does not establish
+  that changed implementation was compiled. Retain original failed attempts.
 - Qualify exact expanded bytes, ordered imports and lexical declaration owners.
   Changed bytes, order, paths, duplicate names and unsupported scopes refuse
   authentication. Portable replay must remain labelled unauthenticated.
 - Prioritize document preservation, candidate publication, history, source
   identity, export admission and storage mutation contracts before secondary
-  convenience policies.
+  convenience policies. Rerun the six FBX policies and report declaration
+  verification, certificate replay and authenticated correspondence separately.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
-- Rebuild the matched pair after every proof-source repair. The earlier clean
-  captured baseline was pair `655657441d704884a881f28382b46321`, built against
-  compiler `48dc78e2` after committed helper-purity repair `fed9a108`.
-  TakeSourceRef had 59 obligations, 34 proven and 25 unproven; staging had
-  115 obligations, 21 proven and 94 unproven. Their 34 and 21 resource checks
-  replayed respectively, but both packages remained source-unauthenticated
-  with unsupported correspondence. Pair integrity is not source authentication.
-  Retain the exact immutable pair reports; do not treat package admissibility
-  as verified predicates. Subsequent proof edits require a new current pair.
-- Current clean pair `1c9666c5f95e4e2d9b355e4c677100e8` follows proof commit
-  `af85ea4f`, using compiler `48dc78e2`. Its immutable `staging.report.json`
-  has 98 obligations, 36 proven and 62 unproven, with 36/36 replay. All thirteen
-  `stage_admitted` postconditions and its resource check are proven. The owner-resolved atom rule admits
-  only verified total-pure Bool helpers without preconditions, retaining exact
-  call arguments. Source correspondence remains 0 checked, 38 unsupported and
-  unauthenticated; neither this result nor earlier reports closes Q02.
-  Exact hashes and the immutable run mapping are in
-  [the staging proof record](../proof-gaps/fbx-source-staging-admission.md).
-  Preserve shared reborrow, mutation exclusion and owner-qualified constraints.
+- Retain shared reborrow, mutation exclusion and owner-qualified constraints.
   Zero-argument generic calls need checked call-site region substitutions;
   matching an ambient region by spelling cannot establish a valid binding.
 - Qualify generation and creation-journal laws again with the repaired pair.
@@ -142,7 +142,7 @@ This does not supersede the separate staging-policy report below.
   enum disequality facts cannot substitute for the checked relation between a
   helper result and its inputs. Preserve fail-closed authentication and keep
   unresolved laws open. New repairs require fresh matched products and reports;
-  the clean pair above remains the captured evidence until then. See [the exact
+  historical pairs remain comparison evidence until then. See [the exact
   qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
 
 **Finish evidence:** authenticated intended predicates, negative controls and
