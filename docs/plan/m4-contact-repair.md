@@ -175,6 +175,15 @@ retained insertion or channel writes. Five laws compile under the immutable
 NaN, infinity, overflow and zero-norm refusal with unchanged document/history.
 Admission does not prove finite downstream additions or normalized interpolation
 for every intermediate weight; those numerical boundaries remain open.
+Correction evaluation now preflights every affected output component against
+the engine's storage domain before its first write, and refuses shared output
+accessors that could couple channels or invalidate the preflight. Invalid
+dimensions, overflow/nonfinite output and zero/nonfinite resulting quaternion
+norms return -1; the model rejects that candidate instead of showing a partially
+applied correction. Five scalar-storage laws compile diagnostically. Qualify
+whole-document preservation, accessor aliasing, every intermediate weight and
+native failure feedback; include the additional pass in M5 performance budgets.
+This is source implementation, not a completed IEEE or transactional proof.
 
 Gizmo release also refuses an exactly identity correction before history
 insertion, including pointer movement that produces no transform change.

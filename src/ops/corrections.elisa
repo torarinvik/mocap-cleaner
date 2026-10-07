@@ -11,6 +11,9 @@ module Corrections:
     public:
         const MAX: i64 = 16
 
+        const module StoreDomain:
+            MAX_COMPONENT: f32 = 3.4e38
+
         struct Correction:
             enabled: bool
             # Document node of the corrected bone.
@@ -56,10 +59,50 @@ module Corrections:
             s: f32 = 1.0 - t
             Geometry::quat_normalize(Geometry::Quat{x: d.x * t, y: d.y * t, z: d.z * t, w: s + d.w * t})
 
-        # Apply one correction to animation `anim`; the number of keys moved.
+        def scalar_storable(value: f32) -> bool:
+            ensure result == (value - value == 0.0 and value >= -StoreDomain::MAX_COMPONENT and value <= StoreDomain::MAX_COMPONENT)
+            value - value == 0.0 and value >= -StoreDomain::MAX_COMPONENT and value <= StoreDomain::MAX_COMPONENT
+
+        # Preflight every affected key before the first channel write. The
+        # engine refuses individual invalid components; without this pass an
+        # overflowing translation could otherwise update only two axes.
+        def outputs_admitted(doc: GlbDocument::Document&, anim: usize, c: Correction&) -> bool:
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, c|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                continue if held.node.i64() != c.node or held.interpolation == GlbDocument::Interpolation.CubicSpline
+                rotation: bool = held.path == GlbDocument::TargetPath.Rotation
+                translation: bool = held.path == GlbDocument::TargetPath.Translation
+                continue if not rotation and not translation
+                # A shared output accessor would couple different channels
+                # or apply this correction twice after a one-pass preflight.
+                for other_at in 0..<GlbDocument::channel_count(doc, anim) |other_at, at, doc, anim, held|:
+                    continue if other_at == at
+                    other: GlbDocument::Channel = GlbDocument::channel(doc, anim, other_at)
+                    return false if other.output == held.output
+                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                return false if track.components != (4 if rotation else 3)
+                for k in 0..<track.count |k, doc, held, c, rotation|:
+                    continue if not KeyWeight::admits_index(k, c.first, c.last)
+                    weight: i64 = KeyWeight::weight(k.i64(), c.first, c.key, c.last)
+                    continue if weight <= 0
+                    if rotation:
+                        q: Geometry::Quat = Geometry::Quat{x: GlbDocument::track_value(doc, held.output, k, 0), y: GlbDocument::track_value(doc, held.output, k, 1), z: GlbDocument::track_value(doc, held.output, k, 2), w: GlbDocument::track_value(doc, held.output, k, 3)}
+                        r: Geometry::Quat = Geometry::quat_normalize(Geometry::quat_mul(partial(c.rotation, weight), q))
+                        return false if not scalar_storable(r.x) or not scalar_storable(r.y) or not scalar_storable(r.z) or not scalar_storable(r.w)
+                        norm: f32 = Geometry::quat_length(r)
+                        return false if norm - norm != 0.0 or norm <= 0.0
+                    else:
+                        t: f32 = weight.f32() / KeyWeight::Domain::FULL_PERMILLE.f32()
+                        return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 0) + c.translation.x * t)
+                        return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 1) + c.translation.y * t)
+                        return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 2) + c.translation.z * t)
+            true
+
+        # Number of keys moved, or -1 on refusal before any channel write.
         def apply(doc: mutable GlbDocument::Document&, anim: usize, c: Correction&) -> i64:
-            return 0 if not c.enabled or not CorrectionScopePolicy::valid(c.node, c.first, c.key, c.last)
-            return 0 if not transform_admitted(c)
+            return 0 if not c.enabled
+            return -1 if not CorrectionScopePolicy::valid(c.node, c.first, c.key, c.last) or not transform_admitted(c)
+            return -1 if not outputs_admitted(doc, anim, c)
             mutable moved: i64 = 0
             for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, c, moved|:
                 held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
