@@ -50,7 +50,7 @@ inventory_arguments=(
   --file studio_file_panel.o --file studio_file_trash.o --file studio_file_path.o
   --file studio_file_path_namespace.o --file studio_workspace_root.o
   --file studio_generation_lease_appkit.o --file studio_storage_manifest_lock.o
-  --file studio_fbx_to_glb.o --file studio_ufbx.o --file studio_fbx_import_stage.o
+  --file studio_fbx_to_glb.o --file studio_ufbx.o --file studio_fbx_import_stage.o --file studio_fbx_cache_verify.o
   --file studio_native_fallbacks.o
 )
 for source in "${build_trash_sources[@]}"; do
@@ -109,6 +109,8 @@ done
 clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
 clang -std=c11 -O2 -Wall -Wextra -Werror -Wno-deprecated-declarations \
   -c -o "$pending_directory/studio_fbx_import_stage.o" "$ENGINE/native/studio_fbx_import_stage.c"
+clang -std=c11 -O2 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+  -c -o "$pending_directory/studio_fbx_cache_verify.o" "$ENGINE/native/studio_fbx_cache_verify.c"
 python3 "$ROOT/tools/studio_verify_fbx_abi.py" "$ROOT" "$ENGINE"
 python3 "$ROOT/tools/studio_verify_ufbx.py" "$ENGINE"
 clang -std=c99 -O2 -Wall -Wextra -Werror -I "$ENGINE/dependencies/ufbx" \
@@ -122,7 +124,7 @@ python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE
 clang -o "$pending_directory/mocap_studio" \
   "$pending_object" "$pending_directory/studio_canvas_shim.o" "$pending_directory/studio_viewport_metal.o" "$pending_directory/studio_file_panel.o" "$pending_directory/studio_file_trash.o" "$pending_directory/studio_file_path.o" "$pending_directory/studio_file_path_namespace.o" "$pending_directory/studio_workspace_root.o" "$pending_directory/studio_generation_lease_appkit.o" \
   "${build_trash_objects[@]}" "$pending_directory/studio_storage_manifest_lock.o" \
-  "$pending_directory/studio_fbx_to_glb.o" "$pending_directory/studio_ufbx.o" "$pending_directory/studio_fbx_import_stage.o" \
+  "$pending_directory/studio_fbx_to_glb.o" "$pending_directory/studio_ufbx.o" "$pending_directory/studio_fbx_import_stage.o" "$pending_directory/studio_fbx_cache_verify.o" \
   "$pending_directory/studio_native_fallbacks.o" "$RUNTIME" \
   -framework Cocoa -framework Foundation -framework CoreText -framework CoreGraphics -framework ImageIO \
   -framework QuartzCore -framework IOSurface -framework Metal -framework UniformTypeIdentifiers

@@ -84,6 +84,7 @@ def snapshot(project, engine, ui, compiler):
         *(engine / "native" / name for name in (
             "viewport_metal.m", "file_panel_appkit.m", "file_trash_appkit.m",
             "fbx_to_glb.c", "studio_fbx_import_stage.c",
+            "studio_fbx_cache_verify.c", "studio_fbx_cache_verify.h",
             "file_path.c", "file_path_namespace_appkit.m",
             "workspace_root_appkit.m", "storage_manifest_lock.c",
             "studio_generation_lease_appkit.m",
