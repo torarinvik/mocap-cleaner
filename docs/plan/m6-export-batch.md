@@ -212,104 +212,47 @@ Compile-only evidence and exact limits are recorded in
   approved outputs remain unchanged. Compile success and Boolean IO wrappers
   do not prove crash durability or atomic recovery semantics.
 
-### Prepared-export panel integration status
+### Prepared-export panel: remaining integration and qualification
 
-The panel now uses the shared policy's typed Action, Focus, Row and Controls
-instead of separate copies. Publication receipts use the extracted publication
-module. Durability-unknown evidence takes precedence over a verified-byte label;
-partial/conflicting destinations direct the user to inspect files. The empty
-sheet explains how to add a reviewed capture and states that no production
-result exists. Previous/Next enablement is supplied through the same Controls
-projection. Bounded seven-row paging clamps empty/shrinking queues and preserves
-the final partial page. Unknown action/direction codes refuse navigation.
+The saved, uncomposed implementation includes shared typed sheet controls,
+bounded selection/paging/focus state, owned overview snapshots, captured warning
+report paging, exact-attempt acknowledgement, and publication/cancel/resume
+controller routes. Report pages use stable cached line views; closing releases
+payloads and invalidates approval context. Overview refresh does not copy report
+payloads, and per-frame admission does not parse or copy full reports. The bound
+queue independently checks durable source/journal/attempt facts under its lock.
+Receipt copy distinguishes durability uncertainty, partial reports and residue.
 
-The current policy/law graph compiles at O0 to a fresh 235,464-byte object with
-paging/admission/uncertainty functions retained. This is compile-only evidence;
-current certificate replay and native UI acceptance remain open. Neither the
-panel nor capture extension is composed into the app yet. Still required:
-controller composition, warning report rendering, pointer/keyboard/native
-accessibility routing, queue entry
-and return-focus behavior, followed by current integrated/native qualification.
-The full multi-take input/evaluation pipeline remains part of M6; prepared export
-captures alone do not satisfy that production workflow.
+Compile-only evidence exists for the pure panel/state/report policies and their
+laws. The closed-report refusal law most recently emitted a fresh 71,904-byte O0
+object with law and admission symbols retained. Independent replay still has
+return-binding/call-summary gaps. Neither standalone rendering nor this evidence
+qualifies the integrated application or native workflow.
 
-Batch keyboard focus now has a checked native-ID decoder, shared forward/reverse
-wrapping, disabled-control skipping and one focus-to-action mapping reused by
-pointer hit routing. Close remains available. Five accompanying focus laws
-compile at O0 in a fresh 253,432-byte object with decoder/traversal symbols
-retained. This establishes the shared policy; actual modal keyboard/native
-accessibility event wiring and return-focus behavior are still required, as is
-current independent proof replay. The panel is still outside app composition.
-
-`StudioExportBatchSheetState` now owns bounded display/navigation state. Refresh
-preserves a surviving selected row, shrinking queues clamp it, empty queues use
-no selection, page changes keep selection visible, and closing preserves display
-position. Focus traversal uses the shared admission policy. These transitions
-carry validity contracts and eight laws; their current O0 graph emitted a fresh
-264,648-byte object with reconciliation/selection/paging/focus symbols retained.
-This state carries no review or publication authority. It still needs controller
-composition and native event/refresh qualification; proof replay is pending.
-
-The first prepared-sheet controller is now saved in
-`app_export_batch_sheet.elisa`, outside app composition. It retains owned display
-snapshots before creating path views, refreshes bounded sheet state, pauses
-playback on open, restores prior widget focus on close, and routes publication,
-cancel and resume through per-call workspace transactions. Modified queue state
-is stored back before lock release; uncertain release is reported. Shared
-publication-control admission has five laws and a fresh 257,776-byte O0 graph.
-Controller integration and native retained-view lifetime have not been qualified.
-Warning report rendering, recovery reopen, retry, pointer/native
-accessibility routes, review-to-enqueue entry and app composition still require
-implementation. Disabled placeholder controls do not satisfy those requirements.
-
-Warning acknowledgement now has a UI-context policy for captured versus current
-refresh epoch, row and attempt, exact report bytes, complete layout and explicit
-review. Refresh advances a nonwrapping epoch; exhaustion keeps acknowledgement
-unavailable. Eight laws compile to a fresh 62,600-byte O0 object. The controller now establishes these observations against its frozen report;
-this policy carries no IO authority. Current independent replay still has
-return-binding and call-summary gaps, so compilation does not qualify its proofs.
-
-Receipt vocabulary/result decoding now lives in a pure policy module; publication
-IO extends the same namespace. Panel and receipt-law imports no longer pull in
-filesystem/engine adapters. Fresh O0 panel/receipt-law objects are 142,032 and
-12,896 bytes; the unchanged publication IO also compiles to 124,480 bytes with
-its durable entry point retained. Current replay is pending after this split.
-Controller label lifetime and refused-pause status were corrected. Overview-only
-row projection and selected-report loading are being added to avoid copying all
-warning bytes on every refresh. The prepared sheet's Run-labelled control now
-says Resume queue, matching its implemented resume action; full production
-worker launch remains a separate open M6 requirement.
-
-Selected warning review now retains the exact JSON/text report and attempt,
-validates their warning count once, and caches bounded UTF-8 report pages in
-stable row buffers. Overview refresh copies paths and metadata without report
-payloads. Per-frame acknowledgement admission checks scalar queue metadata;
-exact report byte comparison occurs only on explicit acknowledgement. The bound
-queue independently revalidates durable source, journal and attempt facts under
-the workspace lock. Already approved captures do not offer redundant approval.
-
-The sheet's Review action now opens this captured-report controller. Shared typed
-Previous/Next/Acknowledge/Back controls provide keyboard traversal and disabled
-control admission, with three additional laws; their fresh O0 law graph emitted
-71,152 bytes. These modules remain outside app composition. Report rendering,
-pointer routes, native accessibility, integrated compilation and native behavior
-remain open. Publication, cancellation, resume and acknowledgement currently use
-synchronous workspace IO; worker routing and responsiveness qualification are
-required before claiming the final user experience.
-
-Sheet pointer routing now shares row geometry and action admission with keyboard
-controls. Closing report review clears its owned snapshot/model payload, cached
-text buffers and approval ticket; it preserves the durable queue and selected
-sheet row. A closed-context refusal law emitted a fresh 71,904-byte O0 object
-with both law and admission symbols retained. Current replay and native lifetime
-qualification remain required. Modal pointer priority must prevent the underlying
-sheet receiving input while report review is open.
-
-The separate report panel is now connected to the controller's cached line
-views and typed pointer controls. Views are rebuilt on page changes and released
-before their backing cache is cleared; drawing does not allocate report copies.
-Underlying sheet pointer/keyboard handlers refuse input while review is open.
-The panel policy has accompanying laws and compile-only evidence. Full app
-composition, native accessibility, glyph-width/minimum-window inspection and
-current integrated/native qualification remain open; the saved renderer and
-controller alone do not establish a usable end-to-end workflow.
+- [ ] Compose `app_export_batch_ui.elisa` into the current application. Use its
+      report-first keyboard/pointer dispatch and sheet-then-report drawing. Consume
+      modal input before timeline, viewport, menus and other dialogs. Verify
+      opening/closing, focus restoration and disabled-action refusal end to end.
+- [ ] Wire native accessibility widgets, stable node IDs, parent/sibling metadata,
+      focus, complete cached report line values, page status and announcements.
+      Native actions must use the same admission and controller routes as pointer
+      and keyboard actions; stale UI observations cannot authorize writes.
+- [ ] Add the review-to-enqueue entry, recovery inventory/reopen and selected
+      failed/cancelled retry routes. Establish native preflight facts and immutable
+      source/recipe/result bindings before exposing each action.
+- [ ] Implement the full multi-take input/evaluation/worker pipeline, compatible
+      recipe selection, progress and worker limits. Prepared captures and Resume
+      queue alone do not satisfy production launch or the batch workflow.
+- [ ] Move synchronous publication, cancellation, resume and acknowledgement IO
+      off the UI path with owned requests, explicit busy state, cancellation/drain
+      semantics and stale-result rejection. Qualify responsiveness and cleanup.
+- [ ] Inspect glyph widths, Unicode report paging, long paths/status messages and
+      minimum window size. Make every report segment readable without silent
+      clipping; preserve explicit refusal for invalid or oversized reports.
+- [ ] Qualify exact warning counts/bytes, refresh invalidation, changed attempt,
+      already-approved capture, lock failure/uncertain release, pause/cancel and
+      partial publication using current source-matched compiler and proof tools.
+      Close independent proof replay gaps without weakened contracts or baselines.
+- [ ] Run current integrated build and native acceptance, including report view
+      lifetime, cleanup on close, accessibility traversal and durable recovery.
+      Retain fresh input/product manifests; diagnostic objects are insufficient.
