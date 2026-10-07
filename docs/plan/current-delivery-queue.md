@@ -62,6 +62,18 @@ Remaining work:
   qualification remain open. Correctness builds may overlap corpus checks
   with measured memory headroom; performance measurements require a quiet,
   matched comparison window.
+  Follow-up candidate `cd6c98b9` resolves qualified explicit generic result
+  types and keeps touched files below 600 lines. Its exact seed and automated
+  lifetime smoke pass: O0/O2 and LLVM-instrumented ASan return 42; leak
+  detection is disabled, so this is not a leak qualification. Root checked
+  the retained automated log and ASan executable hash `c23ca347` under
+  `build/void-poll-result-region-20261007T184001Z-23185` in the compiler checkout.
+  Isolated scalar controls have zero carriers; two owned-result controls have
+  one each. Full before/after counts, performance and required gates remain open.
+  The current proof build is refused by nine backend allocation-arena guards;
+  reduce the exact callees and distinguish borrowed views, owned packed AST
+  handles and unresolved qualified concrete calls before changing ABI demand.
+  This client build failure must be resolved before promotion.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
