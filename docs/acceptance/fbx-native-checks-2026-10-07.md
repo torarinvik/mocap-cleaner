@@ -16,8 +16,11 @@ Corrected `c_double` calls at 30.0 fps are recorded in
 `build/fbx-correct-rate-h32e__xd/results.json`. The bladed fixture succeeds and
 produces the identical GLB digest recorded below. The user
 `high block_Unreal5.6.fbx` still refuses with skin status -6 and no output. Both
-sources retain their original digests. Repeat the full conversion/refusal matrix
-with the correct ABI before current qualification.
+sources retain their original digests. The corrected matrix in `build/fbx-correct-rate-h32e__xd/matrix.json` also
+confirms deterministic repeat, existing-destination refusal with unchanged bytes,
+and malformed/truncated refusal with no output and preserved source bytes.
+These results still describe the captured old native objects; qualify the new
+eight-influence/joint-limit implementation separately.
 
 ## Original observed results (sampling rate unqualified)
 
