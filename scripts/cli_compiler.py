@@ -2,10 +2,38 @@
 """Link console tools with the engine's portable filesystem path adapter."""
 
 import os
+import hashlib
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+
+
+def selected_toolchain(compiler):
+    selected = Path(compiler).resolve(strict=True)
+    if ((selected.name == "elisac_stage1.sh" and selected.parent.name == "scripts") or
+            (selected.name == "elisac-stage1" and selected.parent.name == "bin")):
+        compiler_root = selected.parent.parent
+    elif os.environ.get("ELISA_STAGE1"):
+        compiler_root = Path(os.environ["ELISA_STAGE1"]).resolve(strict=True)
+    else:
+        raise ValueError("CLI compiler root is unknown; set ELISA_STAGE1 explicitly")
+    configured = os.environ.get("ELISA_STAGE1")
+    if configured and Path(configured).resolve(strict=True) != compiler_root:
+        raise ValueError("CLI compiler differs from ELISA_STAGE1 checkout")
+    expected_runtime = (compiler_root / "build/runtime/elisacore_runtime.o").resolve(strict=True)
+    runtime = Path(os.environ.get("MOCAP_CLI_RUNTIME", expected_runtime)).resolve(strict=True)
+    if runtime != expected_runtime:
+        raise ValueError("CLI runtime must belong to the selected compiler checkout")
+    return compiler_root, runtime
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def main() -> int:
@@ -20,10 +48,17 @@ def main() -> int:
     output_index = args.index("-o") + 1
     output = Path(args[output_index]).resolve()
     engine = Path(os.environ.get("ELISA_ENGINE_ROOT", root.parent / "elisa-engine-mocap"))
-    runtime = Path(os.environ.get("MOCAP_CLI_RUNTIME", root.parent / "Elisa-compiler/build/runtime/elisacore_runtime.o"))
-    if not runtime.is_file():
-        print(f"Missing Elisa runtime: {runtime}", file=sys.stderr)
+    try:
+        compiler_root, runtime = selected_toolchain(compiler)
+    except (OSError, ValueError) as error:
+        print(f"CLI toolchain selection: {error}", file=sys.stderr)
         return 2
+    provenance_check = [sys.executable, str(compiler_root / "scripts/stage1_provenance.py"),
+                        "check", str(compiler_root), str(compiler_root / "bin/elisac-stage1")]
+    status = subprocess.call(provenance_check)
+    if status:
+        return status
+    runtime_digest = file_digest(runtime)
     output.parent.mkdir(parents=True, exist_ok=True)
     # A failed compile or link leaves the previous executable intact.
     with tempfile.TemporaryDirectory(prefix="cli-link-", dir=output.parent) as temporary:
@@ -48,6 +83,12 @@ def main() -> int:
             status = subprocess.call(command)
             if status:
                 return status
+        status = subprocess.call(provenance_check)
+        if status:
+            return status
+        if file_digest(runtime) != runtime_digest:
+            print("CLI runtime changed during compilation/linking; refusing publication", file=sys.stderr)
+            return 2
         os.replace(directory / "executable", output)
     return 0
 
