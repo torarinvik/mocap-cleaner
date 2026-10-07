@@ -200,3 +200,9 @@ No transaction milestone is accepted by the source changes alone.
 - [ ] Audit remaining lifecycle counters for overflow. Qualify final admitted
       increments, exhausted/invalid counters and unchanged rig revision reuse.
       No ticket may become current through wrapped or reused generation values.
+      Take replacement now reserves two result generations before changing the
+      document, and checks take, stack and rig generations. Initialization
+      checks stack capacity before resetting history. These source guards and
+      their shared generation laws still require current compilation/replay.
+      Redraw/playback revision overflow remains under audit: saturation alone
+      would leave viewport and accessibility caches stale.
