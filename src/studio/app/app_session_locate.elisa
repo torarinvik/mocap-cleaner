@@ -1,4 +1,5 @@
 include "app_state.elisa"
+include "../../core/bounded_path_policy.elisa"
 
 extend Studio:
     private:
@@ -23,12 +24,25 @@ extend Studio:
                 say_file("the previous source check is still finishing; try again shortly", pending_path())
                 touch()
                 return
-            if not stage_pending_path(p):
+            length: i64 = bounded_path_length(p)
+            if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64()):
                 say_file("session path exceeds 4095 bytes", p)
                 touch()
                 return
-            if not SessionState::inspect_locate_candidate(pending_path()):
+            # Inspect owned bytes before replacing any retained candidate path.
+            # File chooser storage must not become the pending path's owner.
+            mutable candidate_bytes: u8[4096] = zeroed
+            mutable index: usize = 0
+            while index <= length.usize():
+                candidate_bytes[index] <- p[index]
+                index <- index + 1
+            candidate_path: cstr = (&candidate_bytes[0]).cast[cstr]
+            if not SessionState::inspect_locate_candidate(candidate_path):
                 say_file(session_locate_failure(), p)
+                touch()
+                return
+            if not stage_pending_path(candidate_path):
+                say_file("Session path could not be retained; the current document is unchanged.", p)
                 touch()
                 return
             gizmo_cancel() if gizmo_view >= 0
