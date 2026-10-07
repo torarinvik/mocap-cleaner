@@ -1,5 +1,21 @@
 # Recent law source compilation (2026-10-07)
 
+## Session source-reference decode ownership: current-main source check
+
+The retained law's identity declaration lacked an initializer `=` at the
+earlier reported variable-declaration failure. After correcting that source,
+its frozen 81-file graph compiled at O0 with clean compiler `665f40d7`, product
+`16a373d5f9ba605016d84fa8216c4e9e05aa73986d05bd73b1bf839dc59a09e3`:
+exit 0, 2,552,392-byte object, SHA-256
+`a22c0fd9dcee249b65cdb0a9c9706d438b252f1ba85eaa16447f59dec99bd5a4`.
+Source and compiler hashes matched before/after compilation.
+
+`build/session-decode-ownership-nqtcccg6/` retains the original law bytes,
+copied `frozen/` graph, `inputs.json`, `compile.log` and `result.json`. The
+graph includes captured engine sources; their current dependency qualification
+is not established by this compile. No runtime was linked or executed, and no
+authenticated proof ran. The law's assertions remain pending those checks.
+
 ## Earlier batch: compiler d2754a8e
 
 Eleven law graphs compiled at O0 with the matched repaired compiler
