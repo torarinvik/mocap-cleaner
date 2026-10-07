@@ -10,9 +10,17 @@
       [shared acceptance requirements](acceptance-and-dependencies.md). Record
       exact source/dependency snapshots and separate compile, runtime, proof,
       native interaction, motion-quality and external usability evidence.
-- [ ] Add mechanical checks for the 600-line maximum and remaining ungrouped
-      constants, including proof/test owners and extension modules. Validate
-      public/private APIs and callers without suppressing failing proof gates.
+- [ ] Complete the constant-module migration using
+      `scripts/inventory_constant_modules.py`. The lexical inventory currently
+      identifies 44 ordinary module scopes with multiple constant declarations;
+      it includes proof/test owners and extension modules, and excludes const
+      modules, enum variants and function-local declarations. Review each group
+      for a const module, const enum or algebraic data type; do not mechanically
+      classify bit masks or unrelated domains as enums. The 600-line gate is
+      already implemented in `scripts/check_file_lengths.py` and called by
+      `scripts/check.sh`. Validate public/private APIs and callers, then make
+      reviewed inventory results a regression gate without suppressing failing
+      proof gates. The inventory is review evidence, not semantic validation.
 - [ ] Extend focused state tests for command enablement, focus/text input,
       transactional drafts, dirty state, migration, capacities and job revisions.
 - [ ] Add numerical regressions for the expanded motion corpus, including
