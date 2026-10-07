@@ -93,6 +93,14 @@ qualification scope; it does not establish that all ten paths fail at runtime.
 
 ## Acceptance still required
 
+Cleanup restoration, recovery reconciliation and recovery discovery now capture
+`StudioWorkerPathCapture::Path` values instead of submitting dynamic path arrays.
+Each value contains its bytes and count inline; reconstruction occurs inside the
+worker. The existing capture/restore contracts and seven companion laws cover
+bounded counts and refusal, but do not prove task ABI correctness or result-region
+publication. Current compiler qualification for these three callback integrations
+remains open, alongside the previously converted candidate scan.
+
 Rebuild the current compiler and runtime with source provenance, rerun the focused
 FBX task probe, and exercise actual Studio import, display switching and edited
 surfaces. Retain source-preservation and malformed-input controls. Compile and
