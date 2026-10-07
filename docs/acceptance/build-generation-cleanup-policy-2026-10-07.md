@@ -244,3 +244,26 @@ compiler `scripts/platform.sh` is also captured. AST, embedded-Python parsing,
 shell syntax and diff checks passed. A fresh full build exercising this new
 package event is pending. Package Published events and interrupted bundle
 publication reconciliation remain open.
+
+### Current package Published events
+
+The current package path now holds the new package lease exclusively before
+publication and retains it through parent syncs and Published revision 4.
+An existing current bundle is opened by directory descriptor and its readonly
+lease is also locked exclusively before moving it to `previous.app`. Both
+moves use Darwin `renameatx_np(RENAME_EXCL)`; a replacement destination refuses
+atomically, without a check-then-overwrite fallback. Unsupported exclusive
+rename support refuses publication.
+
+Published links the exact Sealed event, records the current relative path and,
+when present, the previous root identity and backup path. The new seal and
+journal chain are rechecked after the move and through event publication.
+Failures after either move preserve both generations and report uncertainty;
+restart reconciliation and a user-facing recovery action remain required.
+This replaces the automatic shell rollback only for current protocol-1 builds.
+Unrecorded legacy packaging stays outside current cleanup qualification.
+
+Source AST/embedded Python, shell syntax and diff checks passed. A fresh full
+build exercising package Published is in progress. The preceding successful
+`studio-build.r2TDoB` build includes the redo-draft fix, but its package reached
+Sealed revision 3 only and cannot qualify this newly wired helper.
