@@ -226,3 +226,21 @@ Python source and embedded package Python blocks parse successfully, shell
 syntax and diff checks pass. Runtime failure injection and authenticated proof
 qualification remain pending. This adds failure records, not native cleanup
 consumption or package Sealed/Published terminal events.
+
+### Current package seal events
+
+Current protocol-1 packages now append Sealed revision 3 after verifying the
+PACKAGE-GENERATION record, copied BUILD-INPUTS product/generation identity,
+complete contents inventory, readonly lease and actual copied executable.
+Resources and MacOS are opened and rebound through directory descriptors.
+The event retains the original creation root/lease identity, links Started
+revision 2 bytes and records the package, input and lease control digests.
+Both locks remain held through durable journal publication.
+
+Unrecorded protocol-0 legacy packaging does not produce a Sealed creation
+event and remains outside current cleanup qualification. The new helper is
+wired into current packaging and captured in build/package input snapshots;
+compiler `scripts/platform.sh` is also captured. AST, embedded-Python parsing,
+shell syntax and diff checks passed. A fresh full build exercising this new
+package event is pending. Package Published events and interrupted bundle
+publication reconciliation remain open.
