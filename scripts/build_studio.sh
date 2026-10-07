@@ -119,13 +119,10 @@ creation_failure_enabled=0
 python3 "$ROOT/tools/studio_generation_creation_seal.py" --project "$ROOT" \
   --artifact "$(basename "$pending_directory")" \
   --artifact-id "$(basename "$pending_directory")"
-# Keep each executable beside its immutable objects and sealed input record.
-# Renaming one symlink publishes that complete generation atomically.
-ln -s "$(basename "$pending_directory")/mocap_studio" "$pending_directory/current-executable"
-[[ ! -d "$OUT/mocap_studio" ]] || { echo "Studio output is a directory; refusing to replace it" >&2; exit 1; }
-mv -f "$pending_directory/current-executable" "$OUT/mocap_studio"
-python3 "$ROOT/tools/studio_generation_controls.py" --project "$ROOT" \
-  --directory "$(basename "$pending_directory")" --directory .
+# Publish and record durability while retaining the exclusive artifact lease.
+python3 "$ROOT/tools/studio_generation_creation_publish.py" --project "$ROOT" \
+  --artifact "$(basename "$pending_directory")" \
+  --artifact-id "$(basename "$pending_directory")"
 echo "built $OUT/mocap_studio"
 bash "$ROOT/scripts/package_studio_app.sh" "$OUT/mocap_studio" "$pending_inputs"
 
