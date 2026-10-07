@@ -1,0 +1,55 @@
+# Bounded reconciliation for one selected identity. The native call can
+# finish a durable recovery journal record, but it never renames the artifact.
+include "../../../build/generated/studio_runtime.elisa"
+include "build_generation_trash_transaction.elisa"
+include "../state/generation_recovery_ledger_policy.elisa"
+include "../state/generation_operation_identity_policy.elisa"
+
+module StudioBuildGenerationRecoveryScanWorker:
+    public:
+        affine struct Job:
+            ticket: i64
+            index: i64
+            paths: Paths
+
+        struct Paths:
+            root: darray[u8]
+            operation: darray[u8]
+
+        affine struct Result:
+            ticket: i64
+            index: i64
+            root: darray[u8]
+            operation: darray[u8]
+            observation: StudioBuildGenerationTrashTransaction::ReconcileResult
+
+        def reconcile(job: Job) -> Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            mutable owned_job: Job = move job
+            ticket: i64 = owned_job.ticket
+            index: i64 = owned_job.index
+            mutable paths: Paths = move owned_job.paths
+            mutable root: darray[u8] = move paths.root
+            mutable operation: darray[u8] = move paths.operation
+            mutable root_for_result: darray[u8] = []
+            mutable operation_for_result: darray[u8] = []
+            root_for_result.extend(root)
+            operation_for_result.extend(operation)
+            mutable error_bytes: darray[u8] = []
+            mutable observation: StudioBuildGenerationTrashTransaction::ReconcileResult = unknown_observation()
+            if ticket > 0 and index >= 0 and valid_identity(root, operation):
+                root.push(0)
+                operation.push(0)
+                root_pointer: cstr = (&root[0]).cast[cstr]
+                operation_pointer: cstr = (&operation[0]).cast[cstr]
+                observation <- StudioBuildGenerationTrashTransaction::reconcile(root_pointer, operation_pointer, &error_bytes)
+            Result{ticket: ticket, index: index, root: root_for_result, operation: operation_for_result, observation: observation}
+
+    private:
+        def valid_identity(root: darray[u8]&, operation: darray[u8]&) -> bool:
+            StudioGenerationRecoveryLedgerPolicy::valid_bytes(root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES) and StudioGenerationOperationIdentityPolicy::valid(operation)
+
+        def unknown_observation() -> StudioBuildGenerationTrashTransaction::ReconcileResult:
+            StudioBuildGenerationTrashTransaction::ReconcileResult{status: StudioBuildGenerationTrashBindingPolicy::decode_status(-1), phase: StudioBuildGenerationTrashBindingPolicy::decode_phase(-1), location: StudioBuildGenerationTrashBindingPolicy::decode_location(-1), outcome: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown, artifact_id: [], relative_path: [], output_details_valid: false}
+
+def generation_recovery_scan_job(job: StudioBuildGenerationRecoveryScanWorker::Job) -> StudioBuildGenerationRecoveryScanWorker::Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+    StudioBuildGenerationRecoveryScanWorker::reconcile(move job)

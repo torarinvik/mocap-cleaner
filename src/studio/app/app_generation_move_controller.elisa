@@ -3,6 +3,7 @@ include "../io/build_generation_move_worker.elisa"
 include "../state/generation_move_confirmation_policy.elisa"
 include "../state/generation_move_result_policy.elisa"
 include "app_generation_recovery_ledger.elisa"
+include "../state/generation_move_reply_disposal_policy.elisa"
 
 extend Studio:
     private:
@@ -93,10 +94,16 @@ extend Studio:
                 recovered: bool = reply.recoverable
                 recorded: bool = record_generation_move_identity(reply.operation_id, reply.operation_id_bytes)
                 publish: bool = StudioGenerationMoveConfirmationPolicy::may_publish_success(generation_move_state, completed_ticket, recovered, recorded, reply.remaining_handle)
-                # Retain the entire owning reply even after cancellation. The
-                # operation ID and any native handle must survive UI suppression.
-                generation_move_reply <- move reply
-                generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket: completed_ticket) if publish else StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: completed_ticket)
+                discard: bool = StudioGenerationMoveReplyDisposalPolicy::may_discard(publish, recorded, reply.remaining_handle, reply.release_status)
+                if discard:
+                    generation_move_reply <- null
+                    generation_move_wire <- null
+                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket: completed_ticket)
+                else:
+                    # Keep the full reply, including any handle or uncertain
+                    # release evidence, when publication or ledger capture fails.
+                    generation_move_reply <- move reply
+                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: completed_ticket)
                 request_generation_inventory()
                 touch()
 
