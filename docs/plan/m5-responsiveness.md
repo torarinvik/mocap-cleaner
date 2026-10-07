@@ -160,6 +160,11 @@ or invalid-base obligations compile with d2754a8e. The policy is not yet wired
 into publication. Deferred drafts must block save/export, coalesce explicitly,
 and preserve committed history, clip and readouts on failure. Qualify generation
 exhaustion rather than allowing ticket counters to wrap.
+Rebuild now keeps the proposed rig-source revision local and publishes it,
+readout values and readout timing only after candidate evaluation succeeds.
+Failure therefore preserves these visible values. History publication still
+precedes evaluation and must be repaired; actual UI-state frame conditions,
+generation overflow and native failure behavior remain unqualified.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;
