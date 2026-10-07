@@ -149,3 +149,30 @@ Ten status law declarations accompany the pure classifier. Their first compile
 attempt was refused because the compiler candidate source digest had changed
 while it was rebuilding; no stale-product bypass was used. Qualification awaits
 the rebuilt product. UI/runtime and authenticated proof acceptance remain open.
+
+## Status and path source compilation after representation fixes
+
+`bca09c3` gives the new finite status enums explicit i64 representation, matching
+repository conventions. Their eight review-status and ten recovery-message law
+declarations compile as objects, as do the responsive/Unicode path laws including
+the oversized-line bound from `49292cb`. The candidate wrapper accepted the
+source/product identity at invocation: product SHA256
+`3222e44429ef3158f2f05aa492db7755b5434c0b0d375d3e299841222710dab6`,
+source base dd0312ee with captured tree
+`6da30810bb9e296751161af5e5dfd04c068a3a1f628d2dfbfce9e86763bf248b`.
+These are comparison source-compilation observations: the compiler agent then
+committed its repairs and merged fetched upstream 218c2c22 at ac0f4423, requiring
+a new matched product before current qualification.
+
+Visible and VoiceOver path segments now share responsive geometry and explain
+whole-path hexadecimal escapes for invalid/control bytes. Small panels retain a
+Done exit; no off-screen path labels are published as visible segments. Settled
+Restore summaries no longer mask Recovery Operations; closing, actual workers
+and a live Restore confirmation take precedence. Path traversal computes escape
+mode once per traversal, and oversized line requests stop at the end. No measured
+latency or native/assistive-technology runtime acceptance is claimed.
+
+The main compile started with the earlier candidate remains diagnostic because
+its compiler source changed before terminal completion. Retain its terminal log
+at `build/latest-compiler-qualification/generation-status-path-main.compile.log`;
+it cannot qualify the merged compiler or the whole current application.
