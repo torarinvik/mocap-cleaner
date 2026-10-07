@@ -21,8 +21,11 @@ and error-family consumers project views locally. Diagnostic compile
 `build/descriptor-current-projection.log` exits 0 and emits an object with
 SHA-256 `9a0b4fdde56af68c209b1e89162fc421dba0910b7d2190cd5fa3b7508cb0f564`.
 Its Stage0 includes diagnostic instrumentation, so this is not a qualifying seed
-or a fresh Stage1 product. The current-main baseline seed has started with the
-clean selected Stage0; candidate seeding follows that build window. Earlier
+or a fresh Stage1 product. The subsequent clean-Stage0 candidate seed exits 0;
+Stage1 SHA-256 is `76687087d31873332811e73508596ec5eb007e4dfa2bb963713ff4237eaa81ce`,
+and independent provenance validation passes. Current-main baseline products
+also pass freshness checks; their wrapper exit code was not captured. Required
+gates, speed comparison and application acceptance remain open. Earlier
 product/build observations remain comparison evidence in the linked records.
 
 Remaining work:
@@ -45,12 +48,15 @@ Remaining work:
   after all producing frames end. Retain O0/O2 and LLVM-instrumented ASan evidence;
   disabled leak detection cannot qualify leaks. The production path remains
   nonblocking. See [lifetime evidence](../proof-gaps/fbx-join-buffer-lifetime.md).
-- Compare the required seed, self-host, native and registered 32-script fast gates
+- Compare the required seed, self-host, native and registered fast gates
   against fetched main `341f72ba` or newer. The latest fetch adds semantic
   indexing, a view-origin fixpoint optimization and runtime AST lookup inlining.
   Preserve those changes alongside the project repairs. Match exact failing fixture lists,
-  preserving original expectations. The historical `665f40d7` baseline has 24 passing/8 failing fast
-  scripts, native 566/566 and self-host A–D passing. Logs are retained under
+  preserving original expectations. The current fast profile registers 37 checks:
+  32 profile scripts plus five standing checks. Match all 37 names and their
+  failing fixtures, not only the profile-script subset. The historical
+  `665f40d7` subset has 24 passing/8 failing profile scripts, native 566/566 and
+  self-host A–D passing. Logs are retained under
   `/tmp/elisa-compiler-baseline-665f40d7/build/baseline-665f40d7/`.
   Rebuild and rerun current main before using it as the promotion baseline;
   historical gate outcomes cannot qualify the three new performance commits.
