@@ -24,11 +24,13 @@ records the repair and qualification evidence.
 
 ## Remaining qualification (2026-10-07)
 
-The current lexical inventory reports zero ordinary module scopes requiring
-constant grouping. The migration task now consists of representation review
-and qualification. Completed source migrations are recorded in Git; the old
-module table and historical compile narratives have been removed from this
-remaining-work plan.
+The inventory now includes file-level declarations as separate owners instead
+of silently excluding them. It identifies one remaining group in
+`src/studio/state/session_state.elisa`: the session path and temporary capacities.
+Move these into a purpose-specific private const module while extracting the
+FBX session codec. The Trash adapter capacities have been grouped and compiled
+with the current compiler. Representation review and proof qualification remain
+required after source migrations.
 
 - [ ] Re-run `scripts/inventory_constant_modules.py --check` after subsequent changes.
       Inspect its coverage before treating zero findings as sufficient: include
