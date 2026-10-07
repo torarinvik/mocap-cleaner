@@ -296,3 +296,11 @@ pointer routes, native accessibility, integrated compilation and native behavior
 remain open. Publication, cancellation, resume and acknowledgement currently use
 synchronous workspace IO; worker routing and responsiveness qualification are
 required before claiming the final user experience.
+
+Sheet pointer routing now shares row geometry and action admission with keyboard
+controls. Closing report review clears its owned snapshot/model payload, cached
+text buffers and approval ticket; it preserves the durable queue and selected
+sheet row. A closed-context refusal law emitted a fresh 71,904-byte O0 object
+with both law and admission symbols retained. Current replay and native lifetime
+qualification remain required. Modal pointer priority must prevent the underlying
+sheet receiving input while report review is open.
