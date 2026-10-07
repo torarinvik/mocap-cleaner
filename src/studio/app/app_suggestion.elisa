@@ -145,6 +145,12 @@ extend Studio:
         def suggestion_unknown_evidence() -> StudioMetricEvidencePolicy::State:
             StudioMetricEvidencePolicy::classify(true, false, 0, 0)
 
+        def suggestion_sample_domain_ready() -> bool:
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    return StudioPanels::suggestion_sample_domains_match(current, candidate)
+            false
+
         def suggestion_contact_difference(lhs: darray[bool]&, rhs: darray[bool]&, frames: i64) -> i64:
             return -1 if frames <= 0 or lhs.count.i64() != frames or rhs.count.i64() != frames
             for frame in 0..<frames |differences: i64 = 0| -> differences:
@@ -152,6 +158,7 @@ extend Studio:
 
         def suggestion_contacts_evidence() -> StudioMetricEvidencePolicy::State:
             return suggestion_unknown_evidence() if suggestion_stale()
+            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
             if clip is current:
                 if suggestion_candidate is candidate:
                     mutable valid: bool = current.frames > 0 and candidate.frames == current.frames and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
@@ -172,6 +179,7 @@ extend Studio:
 
         def suggestion_boundary_evidence() -> StudioMetricEvidencePolicy::State:
             return suggestion_unknown_evidence() if suggestion_stale()
+            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
             if clip is current:
                 if suggestion_candidate is candidate:
                     tracks_valid: bool = current.frames > 0 and candidate.frames > 0 and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
@@ -187,13 +195,18 @@ extend Studio:
                             if not Geometry::vec3_is_finite(a) or not Geometry::vec3_is_finite(b):
                                 available <- false
                             else:
-                                delta_um: i64 = (Geometry::vec3_distance(a, b).f64() * 1000000.0 + 0.5).i64()
-                                failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta_um, StudioSuggestionMetricPolicy::Tolerance::BOUNDARY_MICROMETERS)
+                                scaled_delta: f64 = Geometry::vec3_distance(a, b).f64() * 1000000.0
+                                if not StudioSuggestionMetricPolicy::scaled_admitted(scaled_delta):
+                                    available <- false
+                                else:
+                                    delta_um: i64 = StudioSuggestionMetricPolicy::rounded_scaled(scaled_delta)
+                                    failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta_um, StudioSuggestionMetricPolicy::Tolerance::BOUNDARY_MICROMETERS)
                     return StudioMetricEvidencePolicy::classify(true, available, 8, failures)
             suggestion_unknown_evidence()
 
         def suggestion_joint_evidence() -> StudioMetricEvidencePolicy::State:
             return suggestion_unknown_evidence() if suggestion_stale()
+            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
             if clip is current:
                 if suggestion_candidate is candidate:
                     samples: i64 = current.hinge_angles.count.i64()
@@ -210,6 +223,7 @@ extend Studio:
 
         def suggestion_velocity_evidence() -> StudioMetricEvidencePolicy::State:
             return suggestion_unknown_evidence() if suggestion_stale()
+            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
             if clip is current:
                 if suggestion_candidate is candidate:
                     valid: bool = current.frames >= 2 and current.frames == candidate.frames and current.rate > 0 and candidate.rate == current.rate and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
@@ -227,10 +241,12 @@ extend Studio:
                             else:
                                 current_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(p1, p0), current.rate.f32())
                                 candidate_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(q1, q0), candidate.rate.f32())
-                                delta: i64 = (Geometry::vec3_distance(current_velocity, candidate_velocity).f64() * 1000000.0 + 0.5).i64()
-                                mutable checked_delta: i64 = delta
-                                checked_delta <- 0 - delta if delta < 0
-                                failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(checked_delta, StudioSuggestionMetricPolicy::Tolerance::VELOCITY_MICROMETERS_PER_SECOND)
+                                scaled_delta: f64 = Geometry::vec3_distance(current_velocity, candidate_velocity).f64() * 1000000.0
+                                if not StudioSuggestionMetricPolicy::scaled_admitted(scaled_delta):
+                                    available <- false
+                                else:
+                                    delta: i64 = StudioSuggestionMetricPolicy::rounded_scaled(scaled_delta)
+                                    failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta, StudioSuggestionMetricPolicy::Tolerance::VELOCITY_MICROMETERS_PER_SECOND)
                     return StudioMetricEvidencePolicy::classify(true, available, 4 * (current.frames - 1), failures)
             suggestion_unknown_evidence()
 
@@ -365,10 +381,18 @@ extend Studio:
             "NOT APPLICABLE"
 
         def suggestion_evidence_admits() -> bool:
-            StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_impact_evidence())
+            balance_measured: bool = false
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    balance_measured <- StudioBalanceStatusPolicy::comparison_admitted(current.balance_availability, candidate.balance_availability, StudioPanels::suggestion_sample_domains_match(current, candidate))
+            balance_measured and StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_impact_evidence())
 
         def suggestion_evidence_measured() -> bool:
-            suggestion_contacts_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_joint_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_boundary_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_velocity_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_impact_evidence() != StudioMetricEvidencePolicy::State.Unknown
+            balance_measured: bool = false
+            if clip is current:
+                if suggestion_candidate is candidate:
+                    balance_measured <- StudioBalanceStatusPolicy::comparison_admitted(current.balance_availability, candidate.balance_availability, StudioPanels::suggestion_sample_domains_match(current, candidate))
+            balance_measured and suggestion_contacts_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_joint_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_boundary_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_velocity_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_impact_evidence() != StudioMetricEvidencePolicy::State.Unknown
 
         def suggestion_stale() -> bool:
             suggestion_state == StudioSuggestionPolicy::State.Open and (suggestion_document_generation != built or suggestion_stack_generation != stack_generation)

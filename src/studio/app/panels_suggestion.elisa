@@ -90,6 +90,31 @@ extend StudioPanels:
             StudioText::put(unit)
             StudioDraw::text(d.x + 32.0, d.y + 168.0 + row.f32() * 20.0, 9.0, StudioText::view(), StudioDraw::ink())
 
+        def suggestion_sample_domains_match(current: StudioModel::Clip&, candidate: StudioModel::Clip&) -> bool:
+            return false if current.frames != candidate.frames or current.source_frames != candidate.source_frames or current.retimed != candidate.retimed or current.times.count != candidate.times.count
+            return false if not StudioSampleClock::ready(current.sample_clock) or not StudioSampleClock::ready(candidate.sample_clock)
+            return false if StudioSampleClock::count(current.sample_clock) != current.frames or StudioSampleClock::count(candidate.sample_clock) != candidate.frames
+            return false if StudioSampleClock::origin_us(current.sample_clock) != StudioSampleClock::origin_us(candidate.sample_clock) or StudioSampleClock::end_us(current.sample_clock) != StudioSampleClock::end_us(candidate.sample_clock)
+            for index in 0..<current.times.count |index, current, candidate|:
+                return false if current.times[index] != candidate.times[index]
+            for frame in 0..<current.frames |frame, current, candidate|:
+                return false if StudioSampleClock::start_us(current.sample_clock, frame) != StudioSampleClock::start_us(candidate.sample_clock, frame)
+            true
+
+        def suggestion_balance_row(d: Box, current: StudioModel::Clip&, candidate: StudioModel::Clip&) -> void:
+            comparable: bool = StudioBalanceStatusPolicy::comparison_admitted(current.balance_availability, candidate.balance_availability, suggestion_sample_domains_match(current, candidate))
+            if comparable:
+                suggestion_metric_row(d, 4, "Balance impossible", current.impossible_frames, candidate.impossible_frames, "frames")
+            else:
+                StudioText::begin()
+                StudioText::put("Balance comparison unavailable (current ")
+                StudioText::put(StudioBalanceStatusPolicy::short_label(current.balance_availability))
+                StudioText::put("; suggested ")
+                StudioText::put(StudioBalanceStatusPolicy::short_label(candidate.balance_availability))
+                StudioText::put("): ")
+                StudioText::put(StudioBalanceStatusPolicy::comparison_reason(current.balance_availability, candidate.balance_availability, suggestion_sample_domains_match(current, candidate)))
+                StudioDraw::text(d.x + 32.0, d.y + 248.0, 9.0, StudioText::view(), StudioDraw::color(245, 175, 95))
+
         def suggestion_review_panel(w: f32, h: f32, opened: bool,
                                     adjustment: SuggestionAdjustment, stale: bool,
                                     candidate_changed: bool, show_candidate: bool, foot_available: bool, hand_available: bool,
@@ -122,7 +147,7 @@ extend StudioPanels:
                 suggestion_metric_row(d, 1, "Foot slide", current.slide_after, candidate.slide_after, "µm")
                 suggestion_metric_row(d, 2, "Foot sink", current.sink_after, candidate.sink_after, "µm")
                 suggestion_metric_row(d, 3, "Hand slide", current.hand_slide_after, candidate.hand_slide_after, "µm")
-                suggestion_metric_row(d, 4, "Balance impossible", current.impossible_frames, candidate.impossible_frames, "frames")
+                suggestion_balance_row(d, current, candidate)
             StudioText::begin()
             StudioText::put("Contact timing: ")
             StudioText::put(contact_status)

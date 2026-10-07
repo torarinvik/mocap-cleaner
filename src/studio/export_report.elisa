@@ -3,6 +3,7 @@
 include "source_fingerprint.elisa"
 include "export_report_policy.elisa"
 include "export_time_map_report.elisa"
+include "balance_status_policy.elisa"
 
 module StudioExportReport:
     public:
@@ -37,7 +38,11 @@ module StudioExportReport:
             foot_sink_after_um: i64
             hand_slide_before_um: i64
             hand_slide_after_um: i64
-            balance_impossible_frames: i64
+            balance_source_availability: StudioBalanceStatusPolicy::Availability
+            balance_source_impossible_frames: i64
+            balance_cleaned_availability: StudioBalanceStatusPolicy::Availability
+            balance_cleaned_impossible_frames: i64
+            balance_same_sample_domain: bool
 
         struct Data:
             source_name: sview
@@ -81,7 +86,7 @@ module StudioExportReport:
             true
 
         def nonnegative_metrics(m: Metrics) -> bool:
-            m.changed_channels >= 0 and m.spikes_before >= 0 and m.spikes_after >= 0 and m.foot_slide_before_um >= 0 and m.foot_slide_after_um >= 0 and m.foot_sink_before_um >= 0 and m.foot_sink_after_um >= 0 and m.hand_slide_before_um >= 0 and m.hand_slide_after_um >= 0 and m.balance_impossible_frames >= 0
+            m.changed_channels >= 0 and m.spikes_before >= 0 and m.spikes_after >= 0 and m.foot_slide_before_um >= 0 and m.foot_slide_after_um >= 0 and m.foot_sink_before_um >= 0 and m.foot_sink_after_um >= 0 and m.hand_slide_before_um >= 0 and m.hand_slide_after_um >= 0 and StudioBalanceStatusPolicy::count_admitted(m.balance_source_availability, m.balance_source_impossible_frames) and StudioBalanceStatusPolicy::count_admitted(m.balance_cleaned_availability, m.balance_cleaned_impossible_frames)
 
         # `first` and `second` are the source identity's bounded residues;
         # they are explicitly not cryptographic hashes.
@@ -172,8 +177,18 @@ module StudioExportReport:
             push_number(&out, data.metrics.hand_slide_before_um)
             push_text(&out, ", \"hand_slide_after_um\": ")
             push_number(&out, data.metrics.hand_slide_after_um)
-            push_text(&out, ",\n    \"balance_impossible_frames\": ")
-            push_number(&out, data.metrics.balance_impossible_frames)
+            push_text(&out, ",\n    \"balance\": {\"source\": ")
+            push_balance_json(&out, data.metrics.balance_source_availability, data.metrics.balance_source_impossible_frames)
+            push_text(&out, ", \"cleaned\": ")
+            push_balance_json(&out, data.metrics.balance_cleaned_availability, data.metrics.balance_cleaned_impossible_frames)
+            push_text(&out, ", \"comparison\": {\"available\": ")
+            push_text(&out, "true" if StudioBalanceStatusPolicy::comparison_admitted(data.metrics.balance_source_availability, data.metrics.balance_cleaned_availability, data.metrics.balance_same_sample_domain) else "false")
+            push_text(&out, ", \"reason\": ")
+            if StudioBalanceStatusPolicy::comparison_admitted(data.metrics.balance_source_availability, data.metrics.balance_cleaned_availability, data.metrics.balance_same_sample_domain):
+                push_text(&out, "null")
+            else:
+                push_json_string(&out, StudioBalanceStatusPolicy::comparison_reason(data.metrics.balance_source_availability, data.metrics.balance_cleaned_availability, data.metrics.balance_same_sample_domain))
+            push_text(&out, "}}")
             push_text(&out, "\n  },\n  \"warnings\": [")
             for index in 0..<data.warnings.count |out, data|:
                 warning: Warning = data.warnings[index]
@@ -202,10 +217,46 @@ module StudioExportReport:
             out
 
     private:
+        def push_balance_json(out: mutable darray[u8]&, availability: StudioBalanceStatusPolicy::Availability, impossible_frames: i64) -> void:
+            push_text(&out, "{\"availability\": ")
+            push_json_string(&out, StudioBalanceStatusPolicy::short_label(availability))
+            push_text(&out, ", \"impossible_frames\": ")
+            if availability == StudioBalanceStatusPolicy::Availability.Available:
+                push_number(&out, impossible_frames)
+            else:
+                push_text(&out, "null")
+            push_text(&out, ", \"reason\": ")
+            if availability == StudioBalanceStatusPolicy::Availability.Available:
+                push_text(&out, "null")
+            else:
+                push_json_string(&out, StudioBalanceStatusPolicy::help(availability))
+            push_text(&out, "}")
+
+        def push_balance_summary(out: mutable darray[u8]&, label: sview, availability: StudioBalanceStatusPolicy::Availability, impossible_frames: i64) -> void:
+            push_text(&out, "- ")
+            push_text(&out, label)
+            push_text(&out, " (")
+            push_text(&out, StudioBalanceStatusPolicy::short_label(availability))
+            push_text(&out, "; not a pass score): impossible frames ") if availability == StudioBalanceStatusPolicy::Availability.Available
+            if availability != StudioBalanceStatusPolicy::Availability.Available:
+                push_text(&out, "): ")
+                push_text(&out, StudioBalanceStatusPolicy::help(availability))
+            else:
+                push_number(&out, impossible_frames)
+            push_text(&out, "\n")
+
+        def push_balance_comparison_summary(out: mutable darray[u8]&, data: Data&) -> void:
+            same_domain: bool = data.metrics.balance_same_sample_domain
+            push_text(&out, "- Source/cleaned balance comparison: comparable sample domain.\n") if StudioBalanceStatusPolicy::comparison_admitted(data.metrics.balance_source_availability, data.metrics.balance_cleaned_availability, same_domain)
+            if not StudioBalanceStatusPolicy::comparison_admitted(data.metrics.balance_source_availability, data.metrics.balance_cleaned_availability, same_domain):
+                push_text(&out, "- Source/cleaned balance comparison unavailable: ")
+                push_text(&out, StudioBalanceStatusPolicy::comparison_reason(data.metrics.balance_source_availability, data.metrics.balance_cleaned_availability, same_domain))
+                push_text(&out, "\n")
+
         def summary_for(data: Data&, time_map: darray[u8]&) -> darray[u8]:
             mutable out: darray[u8] = []
             return out if not valid(data)
-            push_text(&out, "Mocap Studio export quality report v2\nSource: ")
+            push_text(&out, "Mocap Studio export quality report v3\nSource: ")
             push_json_string(&out, data.source_name)
             push_text(&out, "\nSource fingerprint (non-cryptographic studio-residue-v1): ")
             push_number(&out, data.source_fingerprint_first)
@@ -271,8 +322,10 @@ module StudioExportReport:
             push_number(&out, data.metrics.hand_slide_before_um)
             push_text(&out, " → ")
             push_number(&out, data.metrics.hand_slide_after_um)
-            push_text(&out, " µm\n- Impossible-balance frames: ")
-            push_number(&out, data.metrics.balance_impossible_frames)
+            push_text(&out, " µm\n")
+            push_balance_summary(&out, "Source balance", data.metrics.balance_source_availability, data.metrics.balance_source_impossible_frames)
+            push_balance_summary(&out, "Cleaned balance", data.metrics.balance_cleaned_availability, data.metrics.balance_cleaned_impossible_frames)
+            push_balance_comparison_summary(&out, data)
             push_text(&out, "\n\nWarnings (categorized):\n")
             if data.warnings.count == 0:
                 push_text(&out, "- None\n")

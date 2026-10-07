@@ -1,4 +1,6 @@
 include "../export_publication_policy.elisa"
+include "../export_policy.elisa"
+include "../balance_status_policy.elisa"
 include "panels_geometry.elisa"
 
 extend StudioPanels:
@@ -173,7 +175,7 @@ extend StudioPanels:
 
     public:
         def export_warning_detail_title(kind: i64) -> sview:
-            return "Unresolved balance frames" if kind == StudioExportReview::Warning.BALANCE_WARNING.i64()
+            return "Balance evidence needs review" if kind == StudioExportReview::Warning.BALANCE_WARNING.i64()
             return "Spikes increased" if kind == StudioExportReview::Warning.SPIKE_WARNING.i64()
             return "Foot slide increased" if kind == StudioExportReview::Warning.FOOT_SLIDE_WARNING.i64()
             return "Foot sink increased" if kind == StudioExportReview::Warning.FOOT_SINK_WARNING.i64()
@@ -182,7 +184,18 @@ extend StudioPanels:
 
         def export_warning_detail_metric(c: StudioModel::Clip&, kind: i64) -> sview:
             if kind == StudioExportReview::Warning.BALANCE_WARNING.i64():
-                return StudioText::number("Unresolved output frames: ", c.impossible_frames)
+                same_domain: bool = not c.retimed and c.source_frames == c.frames
+                if StudioBalanceStatusPolicy::comparison_admitted(c.source_balance_availability, c.balance_availability, same_domain):
+                    StudioText::begin()
+                    StudioText::put("Source impossible: ")
+                    StudioText::put_i(c.source_impossible_frames)
+                    StudioText::put("; cleaned: ")
+                    StudioText::put_i(c.impossible_frames)
+                    return StudioText::view()
+                StudioText::begin()
+                StudioText::put("Comparison unavailable: ")
+                StudioText::put(StudioBalanceStatusPolicy::comparison_reason(c.source_balance_availability, c.balance_availability, same_domain))
+                return StudioText::view()
             elif kind == StudioExportReview::Warning.SPIKE_WARNING.i64():
                 return StudioText::pair("Source spikes: ", c.spikes_before, "  Cleaned spikes: ", c.spikes_after)
             elif kind == StudioExportReview::Warning.FOOT_SLIDE_WARNING.i64():
@@ -349,12 +362,12 @@ extend StudioPanels:
 
             StudioDraw::bold(d.x + 24.0, d.y + 406.0, 12.0, "Quality review", StudioDraw::ink())
             if warnings == 0:
-                StudioDraw::text(d.x + 24.0, d.y + 432.0, 11.0, "No unresolved balance frames or worsened tracked metrics.", StudioDraw::color(150, 210, 160))
+                StudioDraw::text(d.x + 24.0, d.y + 432.0, 11.0, "Balance evidence is comparable; no unresolved frames or tracked regressions.", StudioDraw::color(150, 210, 160))
             else:
                 StudioDraw::text(d.x + 24.0, d.y + 430.0, 11.0, StudioText::number("Review required · warning categories: ", warnings), StudioDraw::color(245, 175, 95))
                 mutable warning_row: i64 = 0
-                if c.impossible_frames > 0:
-                    export_warning_row(w, h, warning_row, focus == StudioExportReview::Control.INSPECT_WARNINGS.i64() and warning_row == selected_warning, StudioText::number("Unresolved balance frames: ", c.impossible_frames))
+                if StudioExportPolicy::balance_review_required(c.source_balance_availability, c.balance_availability, c.impossible_frames, not c.retimed and c.source_frames == c.frames):
+                    export_warning_row(w, h, warning_row, focus == StudioExportReview::Control.INSPECT_WARNINGS.i64() and warning_row == selected_warning, export_warning_detail_metric(c, StudioExportReview::Warning.BALANCE_WARNING.i64()))
                     warning_row <- warning_row + 1
                 if c.spikes_after > c.spikes_before:
                     export_warning_row(w, h, warning_row, focus == StudioExportReview::Control.INSPECT_WARNINGS.i64() and warning_row == selected_warning, StudioText::pair("Spikes increased: ", c.spikes_before, " -> ", c.spikes_after))

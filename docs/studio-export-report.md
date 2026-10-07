@@ -1,6 +1,6 @@
 # Studio export report format
 
-`StudioExportReport` formats a version 2 JSON report and a readable text
+`StudioExportReport` formats a version 3 JSON report and a readable text
 summary from a snapshot of the values Studio has already computed. JSON keys
 and their order are stable. Settings, assumptions, and warnings retain their
 input order, so callers must provide them in a deterministic order.
@@ -10,17 +10,26 @@ and output frame counts, integer frame-rate estimates, floored duration in
 milliseconds, active cleanup settings, ordered operation parameters, retime
 bands, scope assumptions, quality metrics, and categorized warnings with
 severity. Distance fields ending in `_um` are
-micrometres. Spike fields count detected frames, changed channels count GLB
-animation channels, and the balance field counts frames marked impossible by
-the Studio detector. These are detector outputs, not certification thresholds.
+micrometres. Spike fields count detected frames, and changed channels count
+GLB animation channels. The nested `metrics.balance` object records source and
+cleaned evidence independently. Each side has an `availability` string, an
+`impossible_frames` count, and a `reason`. For an available measurement, the
+count is numeric and the reason is JSON `null`. For unavailable or
+inapplicable evidence, the count is JSON `null` and the reason is explicit.
+The `comparison` object says whether source and cleaned counts share an
+admitted sample domain; retimed domains are reported separately, with a reason,
+instead of being presented as a before/after delta. `available` means the
+detector ran, not that the motion passes a quality threshold.
 
 The JSON `unavailable` array names provenance fields that this export snapshot
 does not provide and gives a reason for each omission: application/tool
 versions, dependency versions, detector thresholds, detailed rig configuration,
 and the per-frame retime map. The text summary has a matching
 unavailable-provenance section. Consumers should treat these fields as
-unavailable, not infer defaults from their absence. The schema version was
-bumped to 2 when these explicit markers were added.
+unavailable, not infer defaults from their absence. Version 3 replaces the
+version 2 scalar `balance_impossible_frames` field, which could not represent
+missing evidence. Version-aware readers must not infer the new availability
+from a version 2 report.
 
 Source and output identity values use `studio-residue-v1`, the existing pair
 of bounded integer residues used to identify session inputs. They are labeled

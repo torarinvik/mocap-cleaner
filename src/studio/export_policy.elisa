@@ -1,6 +1,7 @@
 # Pure authorization rules for publishing a cleaned take. Filesystem facts
 # (canonical paths, links and file identity) come from the host adapter; this
 # kernel decides whether those facts permit an export.
+include "balance_status_policy.elisa"
 module StudioExportPolicy:
     public:
         const enum Reason of i64:
@@ -42,24 +43,38 @@ module StudioExportPolicy:
             return Reason.OVERWRITE_UNCONFIRMED.i64() if target_exists and not overwrite_confirmed
             Reason.ALLOW.i64()
 
-        # Material review warnings are remaining impossible balance frames or
-        # a cleanup result that worsens a source metric. Count categories, not
-        # frame totals, so the acknowledgement remains understandable.
+        # Material review warnings include unresolved balance frames, missing
+        # balance comparison evidence, or a cleanup result that worsens a
+        # source metric. Count categories, not frame totals.
         def warning_flag(condition: bool) -> i64:
             ensure result >= 0
             ensure result <= 1
             return 1 if condition else 0
 
-        def warning_count(impossible_frames: i64,
+        def balance_review_required(source: StudioBalanceStatusPolicy::Availability,
+                                    cleaned: StudioBalanceStatusPolicy::Availability,
+                                    impossible_frames: i64,
+                                    same_sample_domain: bool) -> bool:
+            requires impossible_frames >= 0
+            requires StudioBalanceStatusPolicy::count_admitted(cleaned, impossible_frames)
+            ensure result implies not (source == StudioBalanceStatusPolicy::Availability.Available and cleaned == StudioBalanceStatusPolicy::Availability.Available and impossible_frames == 0 and same_sample_domain)
+            ensure (source != StudioBalanceStatusPolicy::Availability.Available or cleaned != StudioBalanceStatusPolicy::Availability.Available or impossible_frames > 0 or not same_sample_domain) implies result
+            not StudioBalanceStatusPolicy::comparison_admitted(source, cleaned, same_sample_domain) or impossible_frames > 0
+
+        def warning_count(source_balance: StudioBalanceStatusPolicy::Availability,
+                          cleaned_balance: StudioBalanceStatusPolicy::Availability,
+                          impossible_frames: i64,
+                          same_sample_domain: bool,
                           spikes_before: i64, spikes_after: i64,
                           slide_before: i64, slide_after: i64,
                           sink_before: i64, sink_after: i64,
                           hand_slide_before: i64, hand_slide_after: i64) -> i64:
             requires impossible_frames >= 0
+            requires StudioBalanceStatusPolicy::count_admitted(cleaned_balance, impossible_frames)
             requires spikes_before >= 0 and spikes_after >= 0
             requires slide_before >= 0 and slide_after >= 0
             requires sink_before >= 0 and sink_after >= 0
             requires hand_slide_before >= 0 and hand_slide_after >= 0
             ensure result >= 0
             ensure result <= 5
-            warning_flag(impossible_frames > 0) + warning_flag(spikes_after > spikes_before) + warning_flag(slide_after > slide_before) + warning_flag(sink_after > sink_before) + warning_flag(hand_slide_after > hand_slide_before)
+            warning_flag(balance_review_required(source_balance, cleaned_balance, impossible_frames, same_sample_domain)) + warning_flag(spikes_after > spikes_before) + warning_flag(slide_after > slide_before) + warning_flag(sink_after > sink_before) + warning_flag(hand_slide_after > hand_slide_before)
