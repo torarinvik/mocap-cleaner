@@ -168,6 +168,9 @@ No transaction milestone is accepted by the source changes alone.
       candidates preserve cursor/count/saved point, committed stack, clip,
       readouts, result/rig generations and annotation arrays. Retained exact-key
       cache updates must not create visible candidate state.
+      Include invalid count/cursor extremes: redo target lookup now compares
+      against the guarded count-minus-one boundary before adding to its cursor,
+      with three invalid-metadata obligations awaiting current qualification.
 - [ ] Qualify synchronous ordinary edits and both history directions with valid,
       invalid-output, exhausted-capacity and stale-base candidates. A refusal
       preserves the existing result and actionable feedback; a success creates
