@@ -1,0 +1,100 @@
+include "fbx_import_native_policy.elisa"
+
+# Raw pointers exist only during synchronous calls in this adapter.
+# Native implementations must not retain any input/output pointer after return.
+module StudioFbxImportNative:
+    private:
+        const module Limit:
+            MAX_FILE_BYTES: u64 = 536870912
+            PATH_BYTES: usize = 4096
+            DIGEST_BYTES: usize = 65
+
+        @link_name("elisa_fbx_to_glb")
+        @trusted("Native converter synchronously borrows terminated paths; rate uses C double; source bytes are read only.")
+        extern raw_convert(source: cstr, destination: cstr, rate: f64) -> i64 can Blocking.IO
+        @link_name("elisa_studio_fbx_stage")
+        @trusted("Native staging synchronously borrows paths and writes at most capacity bytes to each path output and 65 digest bytes; retains no pointers.")
+        extern raw_stage(root: cstr, source: cstr, snapshot: mutable u8&, destination: mutable u8&, digest: mutable u8&, capacity: u32) -> i64 can Blocking.IO
+        @link_name("elisa_studio_fbx_file_digest")
+        @trusted("Native digest synchronously borrows a terminated path and writes at most 65 bytes to initialized digest storage; retains no pointers.")
+        extern raw_digest(path: cstr, digest: mutable u8&, maximum: u64) -> i64 can Blocking.IO
+        @link_name("elisa_studio_fbx_cache_verify")
+        @trusted("Native cache verification synchronously borrows terminated paths and digest strings; retains no pointers and does not modify the original source.")
+        extern raw_verify_cache(root: cstr, runtime: cstr, source_digest: cstr, runtime_digest: cstr) -> i64 can Blocking.IO
+
+        def path_bytes[@r](bytes: u8[4096]&) -> darray[u8] @r:
+            ensure result.count <= Limit::PATH_BYTES
+            mutable out: darray[u8] @r = []
+            for index in 0..<4096 |index, bytes, out|:
+                out.push(bytes[index])
+                return move out if bytes[index] == 0
+            []
+
+        def digest_bytes[@r](bytes: u8[65]&) -> darray[u8] @r:
+            ensure result.count == 0 or result.count == 64
+            return [] if bytes[64] != 0
+            mutable out: darray[u8] @r = []
+            for index in 0..<64 |index, bytes, out|:
+                out.push(bytes[index])
+            return [] if not StudioTakeSourceRefPolicy::sha256_valid(&out)
+            return move out
+
+    public:
+        affine struct StagingResult:
+            status: i64
+            snapshot: darray[u8]
+            destination: darray[u8]
+            source_sha256: darray[u8]
+
+        affine struct DigestResult:
+            status: i64
+            bytes: darray[u8]
+
+        def stage[@r](root: darray[u8]&, source: darray[u8]&) -> StagingResult @r can[Blocking.IO, Memory.Allocate]:
+            mutable status: i64 = -100
+            mutable snapshot: darray[u8] @r = []
+            mutable destination: darray[u8] @r = []
+            mutable digest: darray[u8] @r = []
+            if StudioFbxImportPolicy::terminated(root, 4096) and StudioFbxImportPolicy::terminated(source, 4096):
+                mutable snapshot_raw: u8[4096] = zeroed
+                mutable destination_raw: u8[4096] = zeroed
+                mutable digest_raw: u8[65] = zeroed
+                trusted [Unsafe.PointerCast, Unsafe.RawExtern]:
+                    status <- raw_stage((&root[0]).cast[cstr], (&source[0]).cast[cstr], &snapshot_raw[0], &destination_raw[0], &digest_raw[0], 4096.u32())
+                if status == 0:
+                    snapshot <- path_bytes(&snapshot_raw)
+                    destination <- path_bytes(&destination_raw)
+                    digest <- digest_bytes(&digest_raw)
+                    status <- -100 if not StudioFbxImportNativePolicy::staging_output_valid(source, &snapshot, &destination, &digest)
+            result: StagingResult = StagingResult{status: status, snapshot: move snapshot, destination: move destination, source_sha256: move digest}
+            return move result
+
+        def convert(source: darray[u8]&, destination: darray[u8]&, rate: i64) -> i64 can Blocking.IO:
+            return -100 if not StudioFbxImportPolicy::terminated(source, 4096) or not StudioFbxImportPolicy::terminated(destination, 4096)
+            return -100 if not StudioFbxImportPolicy::rate_valid(rate) or StudioFbxImportPolicy::same_path(source, destination)
+            trusted [Unsafe.PointerCast, Unsafe.RawExtern]:
+                return raw_convert((&source[0]).cast[cstr], (&destination[0]).cast[cstr], rate.f64())
+
+        def digest[@r](path: darray[u8]&) -> DigestResult @r can[Blocking.IO, Memory.Allocate]:
+            mutable status: i64 = -100
+            mutable bytes: darray[u8] @r = []
+            if StudioFbxImportPolicy::terminated(path, 4096):
+                mutable raw: u8[65] = zeroed
+                trusted [Unsafe.PointerCast, Unsafe.RawExtern]:
+                    status <- raw_digest((&path[0]).cast[cstr], &raw[0], Limit::MAX_FILE_BYTES)
+                if status == 0:
+                    bytes <- digest_bytes(&raw)
+                    status <- -100 if not StudioTakeSourceRefPolicy::sha256_valid(&bytes)
+            result: DigestResult = DigestResult{status: status, bytes: move bytes}
+            return move result
+
+        def verify_cache(root: darray[u8]&, runtime: darray[u8]&, source_digest: darray[u8]&, runtime_digest: darray[u8]&) -> i64 can Blocking.IO:
+            return -100 if not StudioFbxImportPolicy::terminated(root, 4096) or not StudioFbxImportPolicy::terminated(runtime, 4096)
+            return -100 if not StudioTakeSourceRefPolicy::sha256_valid(source_digest) or not StudioTakeSourceRefPolicy::sha256_valid(runtime_digest)
+            mutable source_raw: u8[65] = zeroed
+            mutable runtime_raw: u8[65] = zeroed
+            for index in 0..<64 |index, source_raw, runtime_raw, source_digest, runtime_digest|:
+                source_raw[index] <- source_digest[index]
+                runtime_raw[index] <- runtime_digest[index]
+            trusted [Unsafe.PointerCast, Unsafe.RawExtern]:
+                return raw_verify_cache((&root[0]).cast[cstr], (&runtime[0]).cast[cstr], (&source_raw[0]).cast[cstr], (&runtime_raw[0]).cast[cstr])
