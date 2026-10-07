@@ -1,9 +1,10 @@
 # Build generation policy proof and replay (2026-10-07)
 
-Status: the matched producer and independent replay qualify for this exact
-source snapshot, but the policy law graph is incomplete and source
-correspondence is not established. This is focused evidence, not a full-corpus
-or application qualification.
+Status: the producer/replay products passed integrity and dependency freshness
+checks. The policy law graph is incomplete and source correspondence is not
+established. Replaying its 33 emitted theorems does not qualify the source
+snapshot. This is focused evidence, not a full-corpus or application
+qualification.
 
 ## Current tool pair
 
