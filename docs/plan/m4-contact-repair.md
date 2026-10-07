@@ -155,10 +155,14 @@ complete transform no-op detection separately with declared numerical bounds.
 Gizmo activation now checks the selected bone's requested rotation/translation
 channel before retaining a drag: the current evaluator needs an existing
 non-cubic key at that index. Missing channels, cubic interpolation and missing
-indices are explained instead of recording an ineffective correction. Four
-policy laws cover admission. Qualify actual channel extraction and native
-refusal; sparse and irregular sample times still need explicit timeline-to-key
-mapping. Creating channels or inserting keys remains separate unfinished work.
+indices are explained instead of recording an ineffective correction. Admission
+also requires the clip's validated shared sample clock and one channel key per
+reviewed frame. A constant key cannot safely represent a scoped correction.
+Four
+policy laws cover basic admission. Qualify actual channel extraction, shared-grid
+checks and native refusal; aligned nonuniform times are admitted by the sample
+clock, while sparse/mismatched grids require time-based mapping. Creating
+channels or inserting keys remains separate unfinished work.
 
 
 ### Endpoint no-op qualification
