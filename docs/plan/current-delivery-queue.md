@@ -208,6 +208,19 @@ unchanged regression expectations. Unresolved laws retain their gap records.
 Qualify synchronous edits, queued/coalesced edits, Undo/Redo, no-op drafts,
 cancellation, take replacement and close approval as one state machine:
 
+Repair the current status-message presentation: `panels_toolbar.status_bar`
+starts every message at a fixed 560-pixel offset and draws one unwrapped line.
+The supplied FBX failure screenshots show recovery instructions clipped at the
+window edge. Provide a compact status summary plus a discoverable, persistent
+full explanation and retry action. Keep the failure visible until acknowledged
+or superseded by a relevant operation; expose the complete text to VoiceOver.
+Use available window width for layout, wrap at word boundaries without splitting
+UTF-8, and keep keyboard focus and timeline controls usable. Qualify minimum
+window size, long filenames, translated text, enlarged text and failures while
+an existing take remains loaded. Companion layout bounds/refusal laws must prove
+that invalid dimensions cannot produce overlapping or negative content regions.
+
+
 | Event | Required result |
 | --- | --- |
 | Candidate evaluation fails | Committed history, result and saved marker remain unchanged; actionable failure stays visible. |
