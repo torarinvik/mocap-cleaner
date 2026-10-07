@@ -208,6 +208,11 @@ seal_control(lease_path, json.dumps(lease_record, sort_keys=True) + "\n", readon
 
 PY
 
+sync_package_publication() {
+  python3 "$ROOT/tools/studio_generation_controls.py" --project "$ROOT" \
+    --directory "$(basename "$pending_package")" --directory .
+}
+
 # Prepare the whole bundle before moving the previous one. Keep a recoverable
 # backup, and restore it if publishing the new bundle fails.
 restore_previous_bundle() {
@@ -215,7 +220,7 @@ restore_previous_bundle() {
   trap - EXIT
   if [[ ! -e "$final_app" && ! -L "$final_app" ]] &&
      [[ -e "$pending_package/previous.app" || -L "$pending_package/previous.app" ]]; then
-    if ! mv "$pending_package/previous.app" "$final_app"; then
+    if ! mv "$pending_package/previous.app" "$final_app" || ! sync_package_publication; then
       echo "previous Studio bundle retained at $pending_package/previous.app; restore failed" >&2
       package_status=1
     fi
@@ -227,12 +232,15 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 if [[ -e "$final_app" || -L "$final_app" ]]; then
   mv "$final_app" "$pending_package/previous.app"
+  sync_package_publication
 fi
 if ! mv "$APP" "$final_app"; then
   if [[ -e "$pending_package/previous.app" || -L "$pending_package/previous.app" ]]; then
     mv "$pending_package/previous.app" "$final_app"
+    sync_package_publication
   fi
   echo "could not publish Studio bundle" >&2
   exit 1
 fi
+sync_package_publication
 echo "packaged $final_app"

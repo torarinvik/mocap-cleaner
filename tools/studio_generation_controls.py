@@ -43,3 +43,45 @@ def seal_control(path, text, readonly=False):
         if fd >= 0:
             os.close(fd)
         os.close(parent)
+
+
+def sync_publication_directories(project, relatives):
+    """Flush both sides of a namespace move under the verified build lock."""
+    from studio_generation_lock import verified_lock
+    from studio_generation_contents import open_artifact, identity, require, owned
+
+    _, expected, _ = verified_lock(project, os.environ)
+    build = os.open(project / "build", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        require(identity(os.fstat(build)) == identity(expected), "build directory replaced")
+        for relative in relatives:
+            fd = os.dup(build) if relative == "." else open_artifact(build, relative)
+            try:
+                facts = os.fstat(fd)
+                owned(facts, directory=True)
+                os.fsync(fd)
+                rebound = os.dup(build) if relative == "." else open_artifact(build, relative)
+                try:
+                    require(identity(os.fstat(rebound)) == identity(facts),
+                            "publication directory replaced")
+                finally:
+                    os.close(rebound)
+            finally:
+                os.close(fd)
+        verified_lock(project, os.environ)
+    finally:
+        os.close(build)
+
+
+if __name__ == "__main__":
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description="Flush Studio publication directories")
+    parser.add_argument("--project", type=Path, required=True)
+    parser.add_argument("--directory", action="append", required=True)
+    args = parser.parse_args()
+    try:
+        sync_publication_directories(args.project.absolute(), args.directory)
+    except (ValueError, OSError) as error:
+        raise SystemExit("Studio publication durability: " + str(error)) from error

@@ -83,6 +83,8 @@ python3 "$ROOT/tools/studio_build_identity.py" --seal-product "$ROOT" "$ENGINE" 
 ln -s "$(basename "$pending_directory")/mocap_studio" "$pending_directory/current-executable"
 [[ ! -d "$OUT/mocap_studio" ]] || { echo "Studio output is a directory; refusing to replace it" >&2; exit 1; }
 mv -f "$pending_directory/current-executable" "$OUT/mocap_studio"
+python3 "$ROOT/tools/studio_generation_controls.py" --project "$ROOT" \
+  --directory "$(basename "$pending_directory")" --directory .
 echo "built $OUT/mocap_studio"
 bash "$ROOT/scripts/package_studio_app.sh" "$OUT/mocap_studio" "$pending_inputs"
 
