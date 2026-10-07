@@ -116,6 +116,9 @@ python3 "$ROOT/tools/studio_generation_contents.py" --project "$ROOT" \
 python3 "$ROOT/tools/studio_build_identity.py" --seal-product "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 # Later publication/package/check failures must not mark a sealed product failed.
 creation_failure_enabled=0
+python3 "$ROOT/tools/studio_generation_creation_seal.py" --project "$ROOT" \
+  --artifact "$(basename "$pending_directory")" \
+  --artifact-id "$(basename "$pending_directory")"
 # Keep each executable beside its immutable objects and sealed input record.
 # Renaming one symlink publishes that complete generation atomically.
 ln -s "$(basename "$pending_directory")/mocap_studio" "$pending_directory/current-executable"

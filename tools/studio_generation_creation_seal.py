@@ -31,7 +31,10 @@ def verify_build_seal(project, artifact, artifact_id, root):
     metadata, metadata_payload, metadata_facts = read_record(root, "inputs.json", private=False)
     require(isinstance(metadata, dict) and metadata.get("schema") == "mocap-studio-inputs-v2",
             "unsupported build input schema")
-    require(metadata.get("generation") == {
+    generation = metadata.get("generation")
+    require(isinstance(generation, dict) and type(generation.get("lease_protocol")) is int,
+            "invalid generation protocol type")
+    require(generation == {
         "schema": "mocap-studio-generation-v1", "artifact": "studio-build",
         "id": artifact_id, "lease_protocol": Seal.lease_protocol,
     }, "build generation identity differs")
@@ -44,6 +47,8 @@ def verify_build_seal(project, artifact, artifact_id, root):
     require(metadata.get("contents_inventory_sha256") == inventory_sha,
             "build contents inventory seal differs")
     lease_record, lease_payload, lease_facts = read_record(root, ".studio-generation.lease", private=False)
+    require(isinstance(lease_record, dict) and type(lease_record.get("lease_protocol")) is int,
+            "invalid lease protocol type")
     require(lease_record == {
         "schema": "mocap-studio-artifact-lease-v1", "lease_protocol": Seal.lease_protocol,
         "artifact": "studio-build", "id": artifact_id,
@@ -104,7 +109,9 @@ def record_seal(project, artifact, artifact_id):
             finally:
                 os.close(rebound)
             current = verify_build_seal(project, artifact, artifact_id, root)
-            require(current == sealed and version(os.fstat(lease)) == version(opened_lease),
+            require(current[:3] == sealed[:3] and version(current[3]) == version(sealed[3]) and
+                    current[4] == sealed[4] and version(current[5]) == version(sealed[5]) and
+                    version(os.fstat(lease)) == version(opened_lease),
                     "product seal changed during event publication")
 
         record = dict(initial, phase=Seal.phase, revision=Seal.revision,
