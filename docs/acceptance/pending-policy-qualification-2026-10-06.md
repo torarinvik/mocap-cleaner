@@ -403,3 +403,13 @@ bytes), all exit 0. Full input snapshot comparison passed with no drift.
 Repaired inventories, logs and results are retained in
 `build/accessibility-domain-qualification/`. Independent source-authenticated
 proof replay and native accessibility behavior remain required.
+
+## Current full-check entry gate
+
+At root `664d738`, the authorized `bash scripts/check.sh` invocation passed
+file lengths (782 files), owner-aggregated constant inventory (zero findings)
+and consecutive literal-push checks (zero findings). It exited 2 at the prover
+freshness gate: the selected prover is stale relative to current proof source.
+The test suite did not execute. Re-run the full check only with the resulting
+source-matched proof-tool generation and compiler dependencies; this refusal
+is not a passing test result or a reason to bypass provenance.
