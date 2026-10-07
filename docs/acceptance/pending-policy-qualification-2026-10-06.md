@@ -77,6 +77,9 @@ The uncomposed destination inspector's three backend declines were separately
 traced to incorrect enum variant syntax (`Status::Empty` rather than
 `Status.Empty`). Corrected policy and main law sources emitted fresh O0 objects
 of 147,696 and 159,416 bytes respectively. This is compilation evidence only.
-The accessibility law graph, independent proof replay, app composition and
-native interaction acceptance remain open. These inspector failures do not
-establish a compiler module-ownership collision.
+Commit `83d87aa` removed unused report/sheet accessibility imports and used the
+Storage policy's existing shared tree sentinel. With verified Stage1 provenance,
+the accessibility policy and law graph emitted fresh O0 objects of 256,936 and
+263,240 bytes. Independent proof replay, app composition and native interaction
+acceptance remain open. These inspector failures do not establish a compiler
+module-ownership collision.
