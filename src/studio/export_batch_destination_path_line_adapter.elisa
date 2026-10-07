@@ -1,0 +1,103 @@
+include "export_batch_destination_path_line_model.elisa"
+include "export_batch_destination_inspector_policy.elisa"
+include "../../../elisa-ui/src/core/ui_text.elisa"
+include "../../../elisa-ui/src/core/ui_text_grapheme.elisa"
+include "../../../elisa-ui/src/widgets/ui_text_metrics.elisa"
+
+# Converts a validated exact path into byte ranges measured by the same text
+# metrics used by the renderer. It is intentionally not composed into Studio.
+module StudioExportBatchDestinationPathLineAdapter:
+    public:
+        const module Layout:
+            FONT_SIZE: f32 = 12.0
+            HORIZONTAL_INSET: f32 = 12.0
+            SAFETY_MARGIN: f32 = 8.0
+
+        const enum Status of i64:
+            Ready = 0
+            Empty = 1
+            Oversized = 2
+            InvalidUtf8 = 3
+            UnsupportedControl = 4
+            InvalidGeometry = 5
+            InvalidUnits = 6
+
+        def prepare(path: darray[u8]&, row_width: f32,
+                horizontal_inset: f32, safety_margin: f32,
+                source: mutable u8[StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES]&, out: mutable StudioExportBatchDestinationPathLineModel::Model&) -> Status can Memory.Allocate:
+            requires StudioExportBatchDestinationPathLineModel::valid(out)
+            ensure StudioExportBatchDestinationPathLineModel::valid(out)
+            path_status: StudioExportBatchDestinationInspectorPolicy::Status = StudioExportBatchDestinationInspectorPolicy::status(path)
+            return refuse(out, Status.Empty) if path_status == StudioExportBatchDestinationInspectorPolicy::Status.Empty
+            return refuse(out, Status.Oversized) if path_status == StudioExportBatchDestinationInspectorPolicy::Status.Oversized
+            return refuse(out, Status.InvalidUtf8) if path_status == StudioExportBatchDestinationInspectorPolicy::Status.InvalidUtf8
+            return refuse(out, Status.UnsupportedControl) if path_status == StudioExportBatchDestinationInspectorPolicy::Status.UnsupportedControl
+            for index in 0..<path.count |index, path, source|:
+                source[index] <- path[index]
+            units: mutable darray[StudioExportBatchDestinationPathLineModel::Unit] = []
+            mutable at: usize = 0
+            mutable truncated_cluster_fallback: bool = false
+            while at < path.count:
+                remaining: usize = path.count - at
+                mutable window: usize = UiText::MAX_TEXT_BYTES if remaining > UiText::MAX_TEXT_BYTES else remaining
+                if window < remaining:
+                    mutable scalar_start: usize = at + window - 1
+                    while scalar_start > at and (source[scalar_start].i64() >= 128 and source[scalar_start].i64() <= 191):
+                        scalar_start <- scalar_start - 1
+                    scalar_bytes: usize = StudioExportBatchDestinationInspectorPolicy::utf8_width(path, scalar_start)
+                    if scalar_bytes > window - (scalar_start - at):
+                        window <- scalar_start - at
+                    return refuse(out, Status.InvalidUnits) if window == 0
+                text: sview = UiText::fixed_bytes_view_range(source, at, window)
+                boundary: usize = UiText::next_grapheme(text, 0)
+                return refuse(out, Status.InvalidUnits) if boundary == 0 or boundary > window
+                truncated_ambiguous: bool = window < remaining and boundary == window
+                oversized_cluster: bool = boundary > StudioExportBatchDestinationPathLineModel::Limit::MAX_SEGMENT_BYTES
+                scalar_fallback: bool = truncated_cluster_fallback or truncated_ambiguous or oversized_cluster
+                if scalar_fallback:
+                    scalar_end: usize = at + (window if truncated_ambiguous else boundary)
+                    mutable cursor: usize = at
+                    while cursor < scalar_end:
+                        scalar_bytes: usize = StudioExportBatchDestinationInspectorPolicy::utf8_width(path, cursor)
+                        return refuse(out, Status.InvalidUnits) if scalar_bytes == 0 or scalar_bytes > scalar_end - cursor
+                        units.push(StudioExportBatchDestinationPathLineModel::Unit{
+                            start: cursor, byte_count: scalar_bytes, split_grapheme: true})
+                        cursor <- cursor + scalar_bytes
+                    at <- scalar_end
+                    truncated_cluster_fallback <- truncated_ambiguous
+                else:
+                    units.push(StudioExportBatchDestinationPathLineModel::Unit{
+                        start: at, byte_count: boundary, split_grapheme: false})
+                    at <- at + boundary
+                    truncated_cluster_fallback <- false
+            pack_status: StudioExportBatchDestinationPathLineModel::Status =
+                StudioExportBatchDestinationPathLineModel::pack(source, path.count, units,
+                    row_width, horizontal_inset, safety_margin, measured_width, out)
+            return refuse(out, Status.InvalidGeometry) if pack_status == StudioExportBatchDestinationPathLineModel::Status.InvalidInput and out.available_width == 0.0
+            return refuse(out, Status.InvalidUnits) if pack_status != StudioExportBatchDestinationPathLineModel::Status.Ready
+            Status.Ready
+
+        def segment_view(source: u8[StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES]&, model: StudioExportBatchDestinationPathLineModel::Model&, page: usize, row: usize) -> sview:
+            requires StudioExportBatchDestinationPathLineModel::valid(model) and model.status == StudioExportBatchDestinationPathLineModel::Status.Ready
+            requires model.path_length <= StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES
+            requires page < StudioExportBatchDestinationPathLineModel::page_count(model)
+            requires row < StudioExportBatchDestinationPathLineModel::page_line_count(model, page)
+            ensure result.len > 0 and result.len <= StudioExportBatchDestinationPathLineModel::Limit::MAX_SEGMENT_BYTES.i64()
+            segment: StudioExportBatchDestinationPathLineModel::Segment = StudioExportBatchDestinationPathLineModel::segment_at(model, page, row)
+            UiText::fixed_bytes_view_range(source, segment.start, segment.byte_count)
+
+    private:
+        def refuse(out: mutable StudioExportBatchDestinationPathLineModel::Model&, status: Status) -> Status:
+            model_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::Status.Empty if status == Status.Empty else StudioExportBatchDestinationPathLineModel::Status.InvalidInput
+            out.segments.clear()
+            out.status <- model_status
+            out.path_length <- 0
+            out.available_width <- 0.0
+            status
+
+        def measured_width(path: u8[StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES]&, start: usize, count: usize) -> StudioExportBatchDestinationPathLineModel::WidthMeasurement:
+            requires count > 0 and start < StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES
+            requires count <= StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES - start
+            text: sview = UiText::fixed_bytes_view_range(path, start, count)
+            measured: UiTextMetrics::WidthMeasurement = UiTextMetrics::width_checked(text, Layout::FONT_SIZE, false)
+            StudioExportBatchDestinationPathLineModel::WidthMeasurement{available: measured.available, width: measured.width}
