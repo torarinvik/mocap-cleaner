@@ -263,3 +263,55 @@ qualified calls are also refused while the kernel arena erases their owner.
 This source change has not yet compiled: the pinned compiler wrapper currently
 rejects its own selected product as stale against a restored source-file
 freshness check. No pair or proof result is claimed for `2cd4e96b`.
+
+## Owner-aware call formation qualification (2026-10-07)
+
+The isolated proof worktree `elisa-proof-mocap-owner-aware` now contains the
+owner-aware function lookup repair and builds a fresh matched producer/replay
+pair. Generation `d321c0515e654899a3769707457298ca` passed `verify_product_pair.py
+resolve` and `check-current`. Both manifests pin proof HEAD
+`9432ac91184298227ece607c7f5e2fdb621032e0`, with source tree SHA-256
+`846a3bf794327f488f3085a0be55b0348574b851ac759385d444c33fe373f4d8`. The
+producer SHA-256 is
+`749ccd82dedd0eacb8b299b00759d213bfec1e2886688c3d6850c8e6eef9c6be`; replay is
+`fb59c8c3e6b26c8b461acea2e98fc5f849910a025cd6697c4381b94a29cc72b2`.
+
+The compiler manifests pin commit
+`ac0f4423189e7f554388a903888347400d74acee`, Stage1 SHA-256
+`e5ca2db0d650bd6bc28550f396dff9d390da6f7d6097f29e4c3cb6ef9a9e00fe`, compiler
+source tree SHA-256
+`1b34af95cfb8dc232f19df3db79377af92f071209650537b7eef85405f8e2f56`, recipe
+SHA-256 `105bd840e8e6ce839d87eb77f5155a4600e33b44d102db614d9402e15d433073`, and
+runtime SHA-256
+`51365ba4a06e13e0af344b5a21790795e15f1b7fbba23c0b5b94b5a52b00ccee`. Stage1
+provenance validation passed.
+
+The focused capture is retained at
+`elisa-proof-mocap-owner-aware/build/focused-qualification-pair-d321c0515e654899a3769707457298ca-generation-policy/`.
+Its exact primary source hashes are:
+
+- `src/studio/build_generation_policy.elisa`:
+  `7e4fbcccb30fbfe28264387de9fa70b074d3e5e5679c2864ee7398c154e5ccb7`
+- `src/studio/build_generation_creation_policy.elisa`:
+  `42b50c648d0d3982554b6134c00e92c87167a06396305a8c15a75742feebfdc5`
+- `src/studio/build_generation_creation_journal_policy.elisa`:
+  `f3115ea879f977f9743f034aeca94b5e3aeb3b8b2848fb9440d69aba24c42722`
+- `proof/studio_build_generation_policy_laws.elisa`:
+  `2032823d9708a5f44ff488d476b1ec8164cf75dfebd712c490cb875b09235f2e`
+- `proof/studio_build_generation_creation_journal_policy_laws.elisa`:
+  `48e9a172db9b891bafa819475c90fb56e8ff086f8a4539c10aadfc5342173fc7`
+
+The generation-policy law graph still has 89 obligations (33 proven, 56
+unproven, zero semantic errors). The source package replays 15/15 theorems.
+Correspondence checks `facts_valid` and `protection_reason`, leaves `eligible`
+unmatched on 13 unproved return ensures, and marks `may_cleanup` unsupported
+because its helper is unchecked. The creation-journal law graph has 204
+obligations (67 proven, 137 unproven, zero semantic errors). Its source package
+replays 32/32 theorems; correspondence checks no functions, with 4 unmatched
+and 8 unsupported. Both reports keep `source_authenticated: false`.
+
+The three earlier `contract-proposition-type` formation failures no longer
+appear in the focused law reports. This confirms the typed source lookup repair
+for the captured inputs; it does not close the helper-summary, parameter-type,
+or unproved-obligation gaps. The pair therefore does not authenticate either
+policy source, and Q02 remains open.

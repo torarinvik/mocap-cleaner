@@ -57,25 +57,27 @@ this item.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
-- The current matched pair is generation `9a1ba34caa3b4040a967433478e8d91b`,
-  built from proof HEAD `67d6ac746b472c0a58fe180f439e579f91c3199e` and compiler
-  source commit `dd0312ee4ae2aef7506d3155d2c17cf0a0771cdf`. The generation-policy
-  graph has 89 obligations: 33 proven, 56 unproven. Exact-source correspondence
-  checks `facts_valid` and `protection_reason`, leaves `eligible` unmatched on
-  13 return ensures, and reports 19 unsupported functions. Coverage is partial
-  and `source_authenticated` remains false. The creation-journal laws graph in
-  this pair has 186 obligations: 56 proven, 130 unproven; its package is rejected
-  as inadmissible. Exact source, producer, replay, compiler and runtime hashes
-  are recorded in the proof record and immutable pair manifests.
-- Three contract formation failures remain: `may_cleanup` has an `eligible(item)`
-  call in its ensure at `build_generation_policy.elisa:94` and body guard at line
-  98; `may_prepare_move` has `eligible(facts)` in its ensure at
-  `build_generation_creation_policy.elisa:78`. The kernel rejects the call term
-  because function signature bindings are projected under bare names across
-  modules and the source-neutral call node retains only the callee leaf. Both
-  policies define a different `eligible`; exact lexical owner resolution must
-  carry through function signatures and call formation. No helper summary or
-  uninterpreted-call fact has been promoted to correspondence evidence.
+- The current matched pair is generation `d321c0515e654899a3769707457298ca`,
+  built from proof HEAD `9432ac91184298227ece607c7f5e2fdb621032e0` and compiler
+  source commit `ac0f4423189e7f554388a903888347400d74acee`. Both products pass
+  pair integrity, current-source, and compiler provenance checks. The
+  generation-policy law graph has 89 obligations: 33 proven and 56 unproven.
+  Its source package replays 15/15 theorems; correspondence checks
+  `facts_valid` and `protection_reason`, leaves `eligible` unmatched on 13
+  unproved return ensures, and reports `may_cleanup` unsupported because its
+  helper is unchecked. The creation-journal law graph has 204 obligations: 67
+  proven and 137 unproven. Its source package replays 32/32 theorems, while
+  correspondence checks 0 functions, reports 4 unmatched and 8 unsupported,
+  including parameter-type and helper-summary gaps. Both correspondence reports
+  retain `source_authenticated: false`; no helper summary was promoted to
+  evidence. Exact input, product, compiler, and runtime hashes are recorded in
+  the immutable pair manifests and [qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
+- The three prior contract-proposition formation refusals are cleared by the
+  owner-aware declaration lookup repair. The focused law reports contain no
+  `contract-proposition-type` findings. This repairs proposition formation,
+  while the unmatched `eligible` obligations and unchecked helper calls still
+  prevent source authentication. Keep Q02 open and preserve these remaining
+  correspondence gaps.
 - Continue reducing connective/source admission gaps and fact growth. Extra
   enum disequality facts cannot substitute for the checked relation between a
   helper result and its inputs. Preserve fail-closed authentication and keep
