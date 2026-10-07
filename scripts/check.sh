@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 python3 scripts/check_file_lengths.py || exit 1
 python3 scripts/inventory_constant_modules.py --check || exit 1
 python3 scripts/check_literal_push_runs.py || exit 1
-ELISAC="${ELISAC:-../Elisa-compiler/scripts/elisac_stage1.sh}"
+ELISAC="${ELISAC:-${ELISA_STAGE1:-../Elisa-compiler}/scripts/elisac_stage1.sh}"
 PROVER="${ELISA_PROOF:-../elisa-proof-mocap/build/elisa-proof}"
 python3 scripts/check_prover_freshness.py "$PROVER" "${ELISA_PROOF_ROOT:-../elisa-proof-mocap}" "${ELISA_STAGE1:-../Elisa-compiler}" || exit 2
 mkdir -p build/test

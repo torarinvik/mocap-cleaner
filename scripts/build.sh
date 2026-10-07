@@ -6,11 +6,12 @@
 #   scripts/build.sh run -- clean ...   build and run with arguments
 #
 # Environment: ELISA_ENGINE_ROOT (../elisa-engine-mocap), ELISAC
-# (../Elisa-compiler/scripts/elisac_stage1.sh).
+# (ELISA_STAGE1/scripts/elisac_stage1.sh, default ../Elisa-compiler).
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ENGINE="${ELISA_ENGINE_ROOT:-$ROOT/../elisa-engine-mocap}"
-ELISAC="${ELISAC:-$ROOT/../Elisa-compiler/scripts/elisac_stage1.sh}"
+STAGE1="${ELISA_STAGE1:-$ROOT/../Elisa-compiler}"
+ELISAC="${ELISAC:-$STAGE1/scripts/elisac_stage1.sh}"
 export MOCAP_CLI_COMPILER="$(cd "$(dirname "$ELISAC")" && pwd)/$(basename "$ELISAC")"
 export ELISA_COMPILER_BIN="$ROOT/scripts/cli_compiler.py"
 export ELISA_ENGINE_ROOT="$ENGINE"
