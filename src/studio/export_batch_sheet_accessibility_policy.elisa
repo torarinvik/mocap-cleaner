@@ -1,0 +1,80 @@
+include "accessibility.elisa"
+include "export_batch_panel_policy.elisa"
+include "export_batch_report_accessibility_policy.elisa"
+
+# Stable native identities for the retained prepared-export sheet.
+module StudioExportBatchSheetAccessibilityPolicy:
+    public:
+        const module Node:
+            DIALOG: usize = 296
+            STATUS: usize = 297
+            ROW_FIRST: usize = 298
+            ROW_COUNT: i64 = StudioExportBatchPanelPolicy::Page::ROWS
+            ACTION_FIRST: usize = ROW_FIRST + ROW_COUNT.usize()
+            ACTION_COUNT: i64 = StudioExportBatchPanelPolicy::FocusDomain::COUNT
+            LAST: usize = ACTION_FIRST + ACTION_COUNT.usize() - 1
+
+        def is_node(id: usize) -> bool:
+            id == Node::DIALOG or id == Node::STATUS or (id >= Node::ROW_FIRST and id < Node::ACTION_FIRST) or (id >= Node::ACTION_FIRST and id <= Node::LAST)
+
+        def row_id(offset: i64) -> usize:
+            requires offset >= 0 and offset < Node::ROW_COUNT
+            ensure result == Node::ROW_FIRST + offset.usize()
+            Node::ROW_FIRST + offset.usize()
+
+        def row_offset(id: usize) -> i64:
+            return (id - Node::ROW_FIRST).i64() if id >= Node::ROW_FIRST and id < Node::ACTION_FIRST
+            -1
+
+        def row_index(id: usize, first_row: i64, visible_count: i64) -> i64:
+            requires first_row >= 0 and first_row <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            requires visible_count >= 0 and visible_count <= Node::ROW_COUNT
+            ensure result == -1 or (result >= first_row and result < first_row + visible_count)
+            offset: i64 = row_offset(id)
+            return -1 if offset < 0 or offset >= visible_count
+            first_row + offset
+
+        def row_id_for_queue_index(index: i64, first_row: i64,
+                visible_count: i64) -> usize:
+            requires first_row >= 0 and first_row <= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS
+            requires visible_count >= 0 and visible_count <= Node::ROW_COUNT
+            requires index >= first_row and index < first_row + visible_count
+            ensure row_index(result, first_row, visible_count) == index
+            row_id(index - first_row)
+
+        def action_id(focus: StudioExportBatchPanelPolicy::Focus) -> usize:
+            requires focus.i64() >= 0 and focus.i64() < Node::ACTION_COUNT
+            ensure result == Node::ACTION_FIRST + focus.i64().usize()
+            Node::ACTION_FIRST + focus.i64().usize()
+
+        def focus_for_id(id: usize) -> StudioExportBatchPanelPolicy::Focus?:
+            code: i64 = (id - Node::ACTION_FIRST).i64() if id >= Node::ACTION_FIRST and id <= Node::LAST else -1
+            return null if code < 0
+            StudioExportBatchPanelPolicy::focus_from_code(code)
+
+        def parent_id(id: usize) -> usize:
+            return StudioAccessibility::NO_NODE if id == Node::DIALOG
+            return Node::DIALOG if is_node(id)
+            StudioAccessibility::NO_NODE
+
+        def first_child_id() -> usize:
+            Node::STATUS
+
+        def next_sibling_id(id: usize, visible_count: i64) -> usize:
+            requires visible_count >= 0 and visible_count <= Node::ROW_COUNT
+            return Node::ROW_FIRST if id == Node::STATUS and visible_count > 0
+            return Node::ACTION_FIRST if id == Node::STATUS
+            row: i64 = row_offset(id)
+            return id + 1 if row >= 0 and row + 1 < visible_count
+            return Node::ACTION_FIRST if row >= 0 and row < visible_count
+            return id + 1 if id >= Node::ACTION_FIRST and id < Node::LAST
+            StudioAccessibility::NO_NODE
+
+        def ids_fit_reserved_range() -> bool:
+            ensure result
+            Node::DIALOG > StudioExportBatchReportAccessibilityPolicy::Node::LAST and Node::LAST < StudioAccessibility::NO_NODE and Node::ROW_COUNT == StudioExportBatchPanelPolicy::Page::ROWS and Node::ACTION_COUNT == StudioExportBatchPanelPolicy::FocusDomain::COUNT and Node::ROW_FIRST + Node::ROW_COUNT.usize() == Node::ACTION_FIRST and Node::ACTION_FIRST + Node::ACTION_COUNT.usize() - 1 == Node::LAST
+
+        def node_sibling_count(visible_count: i64) -> i64:
+            requires visible_count >= 0 and visible_count <= Node::ROW_COUNT
+            ensure result == visible_count + Node::ACTION_COUNT + 1
+            visible_count + Node::ACTION_COUNT + 1
