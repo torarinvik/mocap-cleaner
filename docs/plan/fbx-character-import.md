@@ -86,8 +86,10 @@ The Open FBX controller now dispatches the import worker, retains the original
 source identity, admits only a current successful result, and supports the
 Character/Skeleton switch with a skeleton fallback when no surface is available.
 Exclusive private staging, source/runtime digests, importer/options identity and
-memo source references are integrated. Session reopen and Locate still need FBX
-source-reference integration.
+memo source references are integrated. The bounded `source-ref-v1` codec,
+source-aware session save, format-aware Locate worker and publication admission
+are implemented. Their current runtime, asynchronous ownership and authenticated
+proof qualification remain open.
 
 A full native Studio build completed on compiler `bb274b14` with the project
 repairs retained. Its Stage1 SHA-256 is
@@ -123,30 +125,29 @@ build and runtime results remain evidence for their captured source tuple.
 
 Next acceptance work:
 
-- Resolve the asynchronous worker allocation failure before accepting background
-  import. The same exact Job succeeds synchronously, but the standalone
-  task/poll/join probe exits with signal 11 before returning a Result. Evidence
-  is `build/fbx-worker-async-crash-evidence-2026-10-07.json`. Compiler inspection
-  identified missing hidden allocation arguments in function-value calls as a
-  candidate cause. Qualify a sound ABI repair, then repeat both the probe and
-  actual Studio journey. The probe omits AppKit initialization and cannot alone
-  establish why the user's app refuses import.
+- Qualify the current void-poll result-owner repair before accepting background
+  import. Earlier function-value ABI repairs made focused joins work, but the
+  actual void caller still passed a null result arena: worker payload headers
+  survived while their bytes were freed, and nested Memo cleanup faulted.
+  Preserve worker arena/adoption and callback repairs through the rebase, then
+  run the retained lifetime and performance controls and the actual Studio
+  journey. See [joined-result lifetime evidence](../proof-gaps/fbx-join-buffer-lifetime.md)
+  and [compiler promotion gates](current-delivery-queue.md). A standalone probe
+  omits AppKit and cannot establish the complete user journey.
 
 - Complete cancellation/restart and repeat authorized runtime checks against the
   final current application tuple.
 - Inspect actual Open FBX, character deformation, pose edits and Character/Skeleton
   switching in the current application.
-- Implement persisted original/runtime references for session reopen and Locate,
-  including changed-source refusal and cache recovery. Persist format, original
-  digest, runtime digest, importer/options identity and animation selection using
-  a versioned bounded codec. Legacy GLB sessions must remain readable.
-  `session_locate_worker.elisa` currently calls `Model::load_at_index` on the
-  original path; replace this direct GLB assumption with format-aware loading.
-  A relocated FBX must match its saved original digest before applying edits.
-  Reuse cache only when its runtime digest and importer/options match; otherwise
-  regenerate from a verified source under the chosen workspace. Handle missing
-  cache, missing source, changed source and interrupted regeneration explicitly.
-  Add refusal and round-trip laws alongside the codec and admission logic.
+- Qualify the implemented session-reference codec and source-aware Locate
+  integration. `load_at_index` is now the legacy GLB path only; referenced GLB
+  verifies digests, while FBX validates saved processing identity and original
+  bytes before cache reuse or regeneration. Exercise save/reopen and relocation,
+  missing cache/source, changed source, changed importer/options, interrupted
+  regeneration and legacy compatibility. Require the regenerated runtime digest
+  and selected animation to match before applying edits. Compile and authenticate
+  the existing codec, resolution, admission and decode-ownership laws; source
+  compilation does not establish returned-buffer lifetime or native file identity.
 - Repair shared-field reborrow replay and zero-argument generic-region proof
   handoff gaps, then obtain current source correspondence evidence. Native staging
   correspondence remains a separate requirement.
