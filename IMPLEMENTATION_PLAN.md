@@ -32,6 +32,7 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 
 ## Detailed roadmap
 
+- [Current delivery queue and finish criteria](docs/plan/current-delivery-queue.md)
 - [Acceptance, dependencies and unresolved decisions](docs/plan/acceptance-and-dependencies.md)
 - [Pending current-toolchain policy qualification](docs/acceptance/pending-policy-qualification-2026-10-06.md)
 - [Recent law source compilation; proof qualification pending](docs/acceptance/current-law-source-compile-2026-10-07.md)

@@ -33,6 +33,12 @@ parallel progress. Existing implementation needs its remaining qualification,
 not reimplementation. Each row should become small reviewable commits; a
 blocked native or participant gate does not stop independent implementation.
 
+Use the [current delivery queue](current-delivery-queue.md) for immediate work
+ordering. It puts current integrated compilation, authenticated proof and
+transactional correctness before further source expansion, then follows a
+complete import–repair–export journey. The rows below retain the full product
+scope and do not require repeating already implemented controls.
+
 | Slice | Concrete result | Evidence needed before closing |
 |---|---|---|
 | 1 | M0 studio audit, corrected current-behavior docs and interaction specifications | Running-window captures, gap matrix, measured limits and reviewed first-use flows. |
