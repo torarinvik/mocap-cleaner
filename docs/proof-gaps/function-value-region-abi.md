@@ -93,6 +93,30 @@ qualification scope; it does not establish that all ten paths fail at runtime.
 
 ## Acceptance still required
 
+### Focused async runtime evidence
+
+The Seed19 diagnostic executable ran with exit 0 against the fresh engine
+`3c51102b` native objects. A release/acquire gate starts actual loading after the
+submitting function returns. The joined result has status 0, valid source/path
+and digest declarations, an admitted ticket and a loaded Memo. After worker state
+release, each of its four returned byte arrays grows by 4,096 elements, and the
+Memo's node array grows by 4,096 elements. This establishes the exercised worker
+state release and main-frame growth path; it does not establish publication-frame
+survival, actual UI presentation or source-file preservation independently.
+
+- Source: `build/fbx_worker_status_probe.elisa`, SHA-256
+  `26d3b88cad0b77c9d6eedce5efc61c60d57211239ec2531351608912fd4142c7`.
+- Executable: `build/fbx_worker_status_probe_seed19`, SHA-256
+  `c88ff7e99b94cad7e2f472b1fba04ca0fbf122a20319d5f3db6e576dc20cb271`.
+- Run log: `build/fbx_worker_status_probe_seed19.run.log`, SHA-256
+  `51a861b4125d04e4d009bd12123ba92801be8bd53e363f61bb9fa52a16c7b11f`.
+- Ordered source closure: `build/fbx-worker-source-closure-seed19.json`, SHA-256
+  `1e12b97c6345d2a45b2fa50abcd9ee82b6ee4cc535ad2378304a6cf94e593e9f`.
+
+Repeat against committed compiler repair `d5a9b58a` and its freshly rebuilt
+products. The nullable owner selection added after Seed19 must retain refusal
+for region-backed or opaque results without a valid caller slot.
+
 Cleanup restoration, recovery reconciliation and recovery discovery now capture
 `StudioWorkerPathCapture::Path` values instead of submitting dynamic path arrays.
 Each value contains its bytes and count inline; reconstruction occurs inside the
