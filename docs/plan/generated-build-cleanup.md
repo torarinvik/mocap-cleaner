@@ -162,6 +162,16 @@ exact failure event only for the verified revision-3 failed chain.
 
 Non-failed final phases clear incomplete facts. A scanner observation does not
 retain mutation ownership; begin/commit must reacquire and revalidate under locks.
-The candidate ABI still omits these facts, so this checkpoint does not enable
-cleanup. Strict native syntax compilation passed; fault/runtime acceptance and
-source-authenticated correspondence proofs remain required.
+Engine mocap commit `a0ec5e05` adds
+`elisa_studio_build_candidates_incomplete` for the same immutable snapshot
+token/index. It returns unavailable or verified evidence, positive failure status,
+lease identities and inactive/tree verification flags. Verified requires the
+revision-3 failed chain, no publication intent and representable scalar facts;
+stale tokens and invalid indices refuse. Existing row access supplies the digests.
+
+Elisa commit `3362f05` adds an owning incomplete-evidence ADT with exact journal
+binding and refusal laws. Its initial adapter still decodes unavailable evidence.
+The additive native API does not enable mutation: retained-lock admission and
+variant-aware receipts/Restore remain open. Strict native syntax compilation
+passed; fault/runtime acceptance and source-authenticated correspondence proofs
+remain required.
