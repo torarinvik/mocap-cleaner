@@ -235,8 +235,10 @@ qualifies the integrated application or native workflow.
       toolbar actions and stale pointer gestures. Verify opening/closing, focus
       restoration and disabled-action refusal end to end. Add a discoverable
       entry after enqueue/recovery actions and accessibility are established.
-- [ ] Wire native accessibility widgets, stable node IDs, parent/sibling metadata,
-      focus, complete cached report line values, page status and announcements.
+- [ ] Complete and qualify batch native accessibility. Report publisher widgets
+      and controller event routing are now composed; report lines use individual
+      nodes backed by the page cache. Finish sheet row/action semantics, stable
+      node IDs, parent/sibling metadata, focus, page status and announcements.
       Native actions must use the same admission and controller routes as pointer
       and keyboard actions; stale UI observations cannot authorize writes.
 - [ ] Qualify the new Queue reviewed result entry from export review, including
