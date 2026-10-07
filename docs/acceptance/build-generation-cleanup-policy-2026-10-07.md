@@ -261,6 +261,17 @@ journal chain are rechecked after the move and through event publication.
 Failures after either move preserve both generations and report uncertainty;
 restart reconciliation and a user-facing recovery action remain required.
 This replaces the automatic shell rollback only for current protocol-1 builds.
+Commit `1aa3723` adds a narrow first-move rollback: if the previous bundle moved
+to backup but the new bundle remains at its original pending path, revalidate
+both seals, directory bindings and retained leases; require the current name
+absent; then use exclusive rename to restore the previous bundle. Sync both
+parents and revalidate again before reporting restoration. The publication
+intent and pending new generation remain retained for reconciliation. Once the
+new bundle becomes current, failures preserve both locations rather than
+performing this rollback. Syntax and six companion Elisa admission law
+declarations compile; the policy is an admission model, without authenticated
+correspondence to the Python build adapter. Native fault execution and restart
+reconciliation remain pending. Rollback durability failures stay uncertain.
 Unrecorded legacy packaging stays outside current cleanup qualification.
 
 Source AST/embedded Python, shell syntax and diff checks passed. A fresh full
