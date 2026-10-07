@@ -26,6 +26,7 @@
 # kinds and malformed lines are skipped.
 include "stack_state.elisa"
 include "session_band_policy.elisa"
+include "session_authored_value_policy.elisa"
 include "session_issue_annotation_policy.elisa"
 include "session_impact_annotation_policy.elisa"
 include "../chrome.elisa"
@@ -349,6 +350,8 @@ module SessionState:
                     if version == StudioChrome::Session::VERSION:
                         return reject_authored_edits() if not authored_record_shape_valid(tag, fields.count)
                         return reject_authored_edits() if tag == WireTag::OP and not StudioChrome::session_kind_ok(fields[1])
+                        if tag == WireTag::FEET or tag == WireTag::HANDS:
+                            return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[1])
                     if tag == WireTag::FEET and fields.count == 3:
                         s.feet <- fields[1] != 0
                         s.blend <- StudioFoot::blend(fields[2])
@@ -363,15 +366,21 @@ module SessionState:
                             session_source_comparison <- comparison
                             identity_matches <- comparison == StudioSessionSourcePolicy::Comparison.Matching
                     elif tag == WireTag::OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
+                        if version == StudioChrome::Session::VERSION:
+                            return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[2]) or not SessionAuthoredValuePolicy::interval_valid(fields[3], fields[4], frames)
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
                         b: i64 = StudioChrome::session_frame(fields[4], frames)
                         op: Ops::Operation = Ops::Operation{kind: kind_from(fields[1]), enabled: fields[2] != 0, first: a if a <= b else b, last: b if a <= b else a, bones: StudioChrome::session_bones(fields[5]), strength: StudioChrome::session_strength(fields[6]), edge: StudioChrome::session_edge(fields[7])}
                         return reject_authored_edits() if not StackState::add(&s, op)
                     elif tag == WireTag::EDIT and fields.count == 5:
+                        if version == StudioChrome::Session::VERSION:
+                            return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[4]) or not SessionAuthoredValuePolicy::interval_valid(fields[2], fields[3], frames)
                         a: i64 = StudioChrome::session_frame(fields[2], frames)
                         b: i64 = StudioChrome::session_frame(fields[3], frames)
                         return reject_authored_edits() if not StackState::add_edit(&s, fields[1], a if a <= b else b, b if a <= b else a, fields[4] != 0)
                     elif tag == WireTag::FIX and fields.count == 13:
+                        if version == StudioChrome::Session::VERSION:
+                            return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[1]) or not SessionAuthoredValuePolicy::key_valid(fields[4], fields[3], fields[5], frames)
                         if fix_from(&fields, frames, nodes) is fix:
                             return reject_authored_edits() if not StackState::add_fix(&s, fix)
                         else:

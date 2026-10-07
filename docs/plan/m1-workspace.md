@@ -19,6 +19,13 @@ in the diagnostic graph. Legacy versions retain their explicitly approved
 migration behavior; valid numeric unknown tags remain forward compatible.
 Qualify malformed records with the decoder and user-facing Edits error before
 accepting restoration integrity.
+V4 authored ranges and correction keys now require their original ordered,
+in-clip values; non-boolean enable fields refuse. They no longer become altered
+edits through frame clamping, endpoint sorting or truthiness. Five integer laws
+compile diagnostically. Legacy conversion remains explicit migration behavior.
+Qualify first/last-frame acceptance and each invalid range/enable refusal with
+unchanged document and history. Other legacy conversions, including numeric
+strength and correction component clamping, still require a strict v4 review.
 V4 finding annotations with invalid shape, unsupported schema or invalid
 record values now refuse restoration with the annotation-specific error,
 instead of being silently skipped. Exact duplicate annotations remain
