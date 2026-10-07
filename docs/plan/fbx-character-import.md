@@ -50,3 +50,14 @@ inspection. Source compilation does not establish these runtime results.
 Commit `d51f9d6` makes the existing surface switch Character/Skeleton and uses a
 contracted fallback policy. Its policy laws compile with the selected current
 compiler. The FBX chooser, producer and source/cache integration remain open.
+
+Commit `8cf0fcf` adds a worker-owned FBX job/result and publication policy laws.
+Paths remain owned while conversion and GLB loading run; invalid jobs refuse, and
+publication requires the current positive ticket, no cancellation, successful
+conversion and a loaded memo. Worker and law objects compiled with the captured
+`ac0f4423` compiler product. The worker is not yet dispatched by the UI.
+
+A subsequent fetch found newer compiler upstream `1a7b0d96648e8007cc7160900c424c1ed7529838`
+and engine upstream `a3d756eae40ee9d1228010599ae79f2233007a67`. Preserve local
+repairs when integrating these before current qualification; the object compiles
+above are diagnostic evidence for their captured older tuple.
