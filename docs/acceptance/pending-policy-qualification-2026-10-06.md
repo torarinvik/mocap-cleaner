@@ -310,3 +310,28 @@ application qualification. Preserve the staged generation while repairing the
 compiler using minimal reductions. The final app compilation requires a new
 immutable generation containing the later constant migrations and checked text
 measurement API; this older snapshot cannot qualify those changes.
+
+## Current migrated law graphs and compiler freshness
+
+The normal compiler at `bb1f4095` subsequently acquired external backend WIP;
+its product provenance now refuses a source-tree mismatch. Preserve that WIP
+and do not use the old product to qualify the current normal checkout. Earlier
+normal-compiler object records are generation-specific comparison evidence.
+
+The root fetched the candidate compiler's origin successfully and checked
+source/product provenance before and after a fresh compile-only batch using
+candidate `4afdce08` (product SHA-256
+`61fd208871173f6fea1f0d54848df463f38405def89e2f010536723054f3b7f1`).
+All fifteen current law graphs compiled O0 with nonempty objects. The batch
+captured 173 inputs, including resolved literal includes, candidate standard
+library, binary, runtime object and provenance file; before/after hashes had
+zero drift. Results and exact leaf-source hashes are retained in
+`build/constant-qualification-current-candidate/compile-report.json` with input
+inventories alongside. The standard-library root was explicitly selected from
+the candidate checkout. This is compile evidence, not authenticated proof,
+native execution or complete linked application qualification.
+
+The matched prover build using the stale normal checkout refused publication
+at its provenance gate. Its replacement uses the verified candidate product
+and co-located runtime; acceptance still requires the resulting generation's
+exact source/product identities and successful replay/correspondence reports.
