@@ -289,20 +289,24 @@ exact divergence is 26 local and 17 upstream commits. The selected engine does
 not contain fetched main. Full Studio builds against that selected snapshot
 therefore do not establish complete upstream dependency integration.
 
-Upstream removes workspace_root.elisa and file/path wrappers required by the
-app, plus native file-path, trash, workspace-root, storage-manifest-lock,
-generation-lease and build-generation-trash adapters explicitly compiled or
-hashed by the Studio scripts. GlbDocument.copy and quick-export differences
-also require conflict review. These services are not optional for the current
-import, storage, safe cleanup and export workflows.
+History review establishes that workspace_root.elisa, file/path wrappers and
+the native trash, workspace-root, storage-manifest-lock, generation-lease and
+build-generation-trash adapters are mocap-track additions after the common
+base. They are absent from upstream main, not deleted by an upstream commit.
+The original endpoint-diff interpretation was incorrect. Preserve these local
+provider extensions and shared file-panel APIs while merging the 17 newer main
+commits; they are required by the current import, storage, cleanup and export
+workflows. Review GlbDocument.copy and quick-export differences explicitly.
 
-Preserve the mocap repairs and establish the intended home or replacement API
-for those services before integrating the 17 upstream commits. Then resolve
+The minimal route retains the provider extensions on mocap-track, as required
+by AGENTS.md; no equivalent replacement was found in the separate current main
+checkout. Integrate the 17 upstream commits while preserving local services,
+then resolve
 all affected app includes, native providers and script inputs, rebuild the
 complete app and retain exact pre/post source manifests. A coordination
 message was sent to the active engine chat; neither engine checkout was
-modified by this audit. Installation readiness and migration ownership remain
-open.
+modified by this audit. Installation readiness and shared-checkout integration timing remain open.
+A correction was also sent to the engine chat.
 
 The UI selected HEAD is `f33e439b3dc25eb28bb62b282128c0b0c9d6838a`,
 with dirty used inputs captured by successful snapshot checks; fetched main is

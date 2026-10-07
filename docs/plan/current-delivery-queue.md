@@ -41,8 +41,8 @@ app build. Keep this separate from the resolved generic `view` collision.
 Dependency freshness is still open. The selected UI has uncommitted source
 changes that must be captured exactly before and after qualification. The
 mocap engine branch has preserved project changes and diverges from fetched
-main; inspect and integrate required upstream changes after the separate engine
-installation is stable. Merely fetching or building an older selected tree does
+main; integrate newer upstream commits while preserving the local provider additions
+after the separate engine installation is stable. Merely fetching or building an older selected tree does
 not close the current-dependency requirement.
 
 - Qualify borrow-region propagation through compiler/std callers, including
