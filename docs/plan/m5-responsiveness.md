@@ -153,6 +153,14 @@ acceptance. Qualification of parallel progress and failure reporting is pending.
       failures. Retain complete graph diagnostics and exact input snapshots.
 ## Deferred edit completion feedback
 
+Candidate-first transaction work remains required: build against an owned draft
+before recording history or moving an Undo/Redo cursor. A new base-ticket policy
+compares take, result/stack generations and history cursor/count; seven stale
+or invalid-base obligations compile with d2754a8e. The policy is not yet wired
+into publication. Deferred drafts must block save/export, coalesce explicitly,
+and preserve committed history, clip and readouts on failure. Qualify generation
+exhaustion rather than allowing ticket counters to wrap.
+
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;
 failed builds retain their failure guidance. Three completion obligations
