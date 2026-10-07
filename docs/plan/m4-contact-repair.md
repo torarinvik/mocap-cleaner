@@ -124,6 +124,14 @@ translation and scale channels have different meanings. Qualify these labels
 at minimum width and explain affected channel types in the future inspector.
 Keep engine pole-angle controls and generic channel limits distinct.
 
+Authored correction insertion and evaluation now share an integer scope
+admission policy. Invalid nodes, inverted scopes, keys outside their scope and
+out-of-domain frames are refused before retained state changes; eight laws
+cover these cases and capacity admission. Source compilation passes; authentic
+proof discharge and document/history preservation through native refusal
+paths remain open. This integer policy does not establish finite transforms,
+valid rig-node ownership or preservation of a refused gizmo draft.
+
 
 ### Endpoint no-op qualification
 
