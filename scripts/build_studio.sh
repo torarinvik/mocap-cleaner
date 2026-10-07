@@ -62,6 +62,22 @@ python3 "$ROOT/tools/studio_generation_creation.py" --project "$ROOT" \
 python3 "$ROOT/tools/studio_generation_creation_start.py" --project "$ROOT" \
   --artifact "$(basename "$pending_directory")" \
   --artifact-id "$(basename "$pending_directory")"
+creation_failure_enabled=1
+record_studio_generation_failure() {
+  local build_status=$?
+  trap - EXIT
+  if [[ "$build_status" != 0 && "$creation_failure_enabled" == 1 ]]; then
+    if ! python3 "$ROOT/tools/studio_generation_creation_failure.py" --project "$ROOT" \
+      --artifact "$(basename "$pending_directory")" \
+      --artifact-id "$(basename "$pending_directory")" --failure-status "$build_status"; then
+      echo "generation failure record is unverified; retain $pending_directory for inspection" >&2
+    fi
+  fi
+  exit "$build_status"
+}
+trap record_studio_generation_failure EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 python3 "$ROOT/tools/studio_build_identity.py" --snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 
 clang -c -fobjc-arc -O2 -o "$pending_directory/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
@@ -98,6 +114,8 @@ python3 "$ROOT/tools/studio_generation_contents.py" --project "$ROOT" \
   --artifact-id "$(basename "$pending_directory")" --kind studio-build \
   "${inventory_arguments[@]}"
 python3 "$ROOT/tools/studio_build_identity.py" --seal-product "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
+# Later publication/package/check failures must not mark a sealed product failed.
+creation_failure_enabled=0
 # Keep each executable beside its immutable objects and sealed input record.
 # Renaming one symlink publishes that complete generation atomically.
 ln -s "$(basename "$pending_directory")/mocap_studio" "$pending_directory/current-executable"
