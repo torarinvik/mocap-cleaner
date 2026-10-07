@@ -37,6 +37,9 @@ module StudioBuildGenerationCandidateProvider:
             Unsealed = 5
             Invalid = 6
 
+        const enum AgeOrigin of i64:
+            FilesystemBirthtime = 0
+
         struct SealedDigests:
             manifest: DigestEvidence
             input_record: DigestEvidence
@@ -57,6 +60,10 @@ module StudioBuildGenerationCandidateProvider:
             Unknown
             Verified(bytes: i64)
 
+        enum AgeEvidence:
+            Unknown
+            Verified(days: i64, origin: AgeOrigin)
+
         enum CreationEvidence:
             LegacyAbsent
             Journaled(revision: i64, creation_digest: darray[u8], latest_record_digest: darray[u8],
@@ -72,7 +79,7 @@ module StudioBuildGenerationCandidateProvider:
             inode: i64
             build_root_device: i64
             build_root_inode: i64
-            age_days: i64
+            age: AgeEvidence
             retention_days: i64
             size_evidence: SizeEvidence
             creation_evidence: CreationEvidence
@@ -82,7 +89,6 @@ module StudioBuildGenerationCandidateProvider:
             outcome: mutable Outcome
             rows: mutable darray[Row]
             refusal_code: mutable i64
-            diagnostic: darray[u8]
 
         def row_valid(row: Row) -> bool:
             ensure result implies row.artifact_id.count > 0 and row.artifact_id.count <= Limit::MAX_ID_BYTES
@@ -90,7 +96,7 @@ module StudioBuildGenerationCandidateProvider:
             ensure result implies row.device >= 0 and row.inode >= 0 and row.build_root_device >= 0 and row.build_root_inode >= 0
             return false if row.artifact_id.count == 0 or row.artifact_id.count > Limit::MAX_ID_BYTES
             return false if row.relative_path.count == 0 or row.relative_path.count > Limit::MAX_PATH_BYTES
-            return false if row.device < 0 or row.inode < 0 or row.build_root_device < 0 or row.build_root_inode < 0 or row.age_days < 0 or row.retention_days < 0 or row.retention_days > 36500
+            return false if row.device < 0 or row.inode < 0 or row.build_root_device < 0 or row.build_root_inode < 0 or row.retention_days < 0 or row.retention_days > 36500
             return false if row.artifact != Artifact.Build and row.artifact != Artifact.Package
             return false if row.phase < CreationPhase.Created or row.phase > CreationPhase.Unknown
             return false if row.protection < Protection.Eligible or row.protection > Protection.Invalid
@@ -100,6 +106,9 @@ module StudioBuildGenerationCandidateProvider:
                 return false if byte == 0
             return false if row.protection == Protection.Eligible and (row.phase != CreationPhase.Sealed and row.phase != CreationPhase.Published)
             return false if not creation_evidence_valid(row.creation_evidence)
+            return false if row.protection == Protection.Eligible and creation_evidence_legacy(row.creation_evidence)
+            return false if row.protection == Protection.Eligible and age_unknown(row.age)
+            return false if not age_valid(row.age)
             return false if row.protection == Protection.Eligible and product_identity_absent(row.product_identity)
             return false if row.protection == Protection.Eligible and size_unknown(row.size_evidence)
             return false if not size_valid(row.size_evidence)
@@ -109,6 +118,16 @@ module StudioBuildGenerationCandidateProvider:
             match evidence:
                 SizeEvidence.Unknown: true
                 SizeEvidence.Verified(bytes): false
+
+        def age_unknown(evidence: AgeEvidence) -> bool:
+            match evidence:
+                AgeEvidence.Unknown: true
+                AgeEvidence.Verified(days, origin): false
+
+        def age_valid(evidence: AgeEvidence) -> bool:
+            match evidence:
+                AgeEvidence.Unknown: true
+                AgeEvidence.Verified(days, origin): days >= 0 and days <= 365000 and origin == AgeOrigin.FilesystemBirthtime
 
         def size_valid(evidence: SizeEvidence) -> bool:
             match evidence:
@@ -182,6 +201,11 @@ module StudioBuildGenerationCandidateProvider:
                 CreationEvidence.LegacyAbsent: true
                 CreationEvidence.Journaled(revision, creation, latest, observed): revision >= 1 and digest_valid(creation) and digest_valid(latest) and (observed.count == 0 or digest_valid(observed))
 
+        def creation_evidence_legacy(evidence: CreationEvidence) -> bool:
+            match evidence:
+                CreationEvidence.LegacyAbsent: true
+                CreationEvidence.Journaled(revision, creation, latest, observed): false
+
         private:
             def outcome_value(raw: i32) -> Outcome:
                 match raw:
@@ -221,19 +245,12 @@ module StudioBuildGenerationCandidateProvider:
                     index <- index + 1
                 index < capacity
 
-            def scan_error(buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.usize()]&, output: mutable darray[u8]&) -> void can[Memory.Allocate]:
-                output.clear()
-                mutable index: usize = 0
-                while index < StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.usize() and buffer[index] != 0:
-                    output.push(buffer[index])
-                    index <- index + 1
-
         public:
             def scan_default(build_root: cstr) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
                 scan(build_root, StudioBuildGenerationCandidateProviderRetention::DEFAULT_RETENTION_DAYS)
 
             def scan(build_root: cstr, retention_days: i64) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
-                mutable result: Snapshot = Snapshot{outcome: Outcome.Refused, rows: [], refusal_code: 1, diagnostic: []}
+                mutable result: Snapshot = Snapshot{outcome: Outcome.Refused, rows: [], refusal_code: 1}
                 return result if retention_days < 0 or retention_days > StudioBuildGenerationCandidateProviderNative::Limit::MAX_RETENTION_DAYS
                 mutable token: i64 = 0
                 mutable raw_outcome: i32 = -1
@@ -245,7 +262,6 @@ module StudioBuildGenerationCandidateProvider:
                     build_root, retention_days, &token, &raw_outcome, &count, &refusal,
                     error_pointer,
                     StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
-                scan_error(&error_buffer[0], &result.diagnostic)
                 mutable decoded_outcome: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_outcome(raw_outcome)
                 if status != 0 or decoded_outcome.kind != StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid or count < 0 or count > Limit::MAX_ROWS or (token == 0 and count != 0):
                     if token != 0: build_candidates_close(token)
@@ -267,6 +283,7 @@ module StudioBuildGenerationCandidateProvider:
                     mutable revision: i64 = -1
                     mutable creation_kind: i32 = -1
                     mutable age: i64 = -1
+                    mutable age_known: i32 = -1
                     mutable row_retention: i64 = -1
                     mutable size_bytes: i64 = -1
                     mutable size_known: i32 = -1
@@ -295,7 +312,7 @@ module StudioBuildGenerationCandidateProvider:
                     row_error_pointer: mutable u8& = (&row_error[0]).cast[mutable u8&] can Unsafe.PointerCast
                     status <- build_candidates_row(token, index,
                         &artifact_raw, &phase_raw, &protection_raw, &device, &inode, &build_device,
-                        &build_inode, &revision, &creation_kind, &age, &row_retention, &size_bytes,
+                        &build_inode, &revision, &creation_kind, &age, &age_known, &row_retention, &size_bytes,
                         &size_known, &product_kind, id_pointer,
                         StudioBuildGenerationCandidateProviderNative::Limit::ID_CAPACITY.u32(),
                         path_pointer,
@@ -328,7 +345,7 @@ module StudioBuildGenerationCandidateProvider:
                     mutable artifact_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_artifact(artifact_raw)
                     mutable phase_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_phase(phase_raw)
                     mutable protection_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_protection(protection_raw)
-                    valid <- valid and artifact_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and phase_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and protection_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and creation_kind >= 0 and creation_kind <= 1 and product_kind >= 0 and product_kind <= 1 and (size_known == 0 or size_known == 1)
+                    valid <- valid and artifact_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and phase_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and protection_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and creation_kind >= 0 and creation_kind <= 1 and product_kind >= 0 and product_kind <= 1 and (size_known == 0 or size_known == 1) and StudioBuildGenerationCandidateProviderBindingPolicy::decode_boolean(age_known) == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid
                     if valid:
                         mutable creation_evidence: CreationEvidence = CreationEvidence.LegacyAbsent
                         if creation_kind == 1:
@@ -350,8 +367,14 @@ module StudioBuildGenerationCandidateProvider:
                         else:
                             valid <- manifest.count == 0 and input_record.count == 0 and product.count == 0 and inventory.count == 0 and lease.count == 0 and size_known == 0
                         size <- SizeEvidence.Verified(size_bytes) if size_known == 1 else SizeEvidence.Unknown
-                        mutable row: Row = Row{artifact_id: id, relative_path: path, artifact: artifact_value(artifact_raw), phase: phase_value(phase_raw), protection: protection_value(protection_raw), device: device, inode: inode, build_root_device: build_device, build_root_inode: build_inode, age_days: age, retention_days: row_retention, size_evidence: size, creation_evidence: creation_evidence, product_identity: product_identity}
-                        valid <- valid and StudioBuildGenerationCandidateProviderBindingPolicy::row_output_admitted(status, artifact_raw, phase_raw, protection_raw, product_kind, device, inode, age, row_retention, size_bytes, size_known, path.count.i64(), id.count.i64()) and row_valid(row)
+                        mutable age_evidence: AgeEvidence = AgeEvidence.Unknown
+                        if age_known == 1:
+                            valid <- age >= 0 and age <= 365000
+                            age_evidence <- AgeEvidence.Verified(age, AgeOrigin.FilesystemBirthtime)
+                        else:
+                            valid <- valid and age == -1
+                        mutable row: Row = Row{artifact_id: id, relative_path: path, artifact: artifact_value(artifact_raw), phase: phase_value(phase_raw), protection: protection_value(protection_raw), device: device, inode: inode, build_root_device: build_device, build_root_inode: build_inode, age: age_evidence, retention_days: row_retention, size_evidence: size, creation_evidence: creation_evidence, product_identity: product_identity}
+                        valid <- valid and StudioBuildGenerationCandidateProviderBindingPolicy::row_output_admitted(status, artifact_raw, phase_raw, protection_raw, product_kind, device, inode, age, age_known, row_retention, size_bytes, size_known, path.count.i64(), id.count.i64()) and row_valid(row)
                         if valid: result.rows.push(row)
                     index <- index + 1
                 mutable close_status: i32 = build_candidates_close(token)
