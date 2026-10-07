@@ -70,3 +70,14 @@ mismatches. The six law entry points include only files in this source closure.
 This records inputs for a pending build, not produced proof evidence. Exact
 executable per-law commands and producer/replay generation remain pending;
 the closure's English command placeholder cannot itself execute qualification.
+
+Commit `3ccf658` subsequently strengthens staging admission: the snapshot path
+must differ from the original source path, and the worker now uses the shared
+native-output predicate. Its companion law states original-snapshot refusal.
+The frozen four-file law graph compiled at O0 with compiler product `16a373d5`,
+exit 0, in `build/fbx-staging-law-jdrnw9y4/`; object SHA-256
+`5d1a8009dbc8cf421ab9f22c28261594b1d21fb88604814b7328df3b6c633046`.
+Live input hashes still matched after compilation. No runtime was linked or
+executed, and this is not authenticated proof or native descriptor-identity
+evidence. Refresh the frozen qualification closure before qualifying this fix;
+v4 remains evidence for its earlier input snapshot.
