@@ -28,3 +28,26 @@ and `admission`, checked contracts for inline capacity, negative controls for
 the scalar witness, and source authentication. Keep Q01/Q02 and the visible
 FBX journey open. Neither these certificates nor source compilation establishes
 native conversion or asynchronous result lifetime.
+
+## Follow-up controls and current prover source
+
+Historical matcher commit `4b26ba89` was exercised with pinned compiler
+`d5a9b58a`. Its control record reports successful exact caller/span recovery,
+named-argument reordering, altered actual-argument refusal, duplicate caller
+refusal and source-backed constant mismatch refusal before the existing harness
+return code 43; the clean baseline returns 43 too. This is not a green suite.
+
+Root independently checked the retained executable and log hashes against
+`build/q02-summary-site-controls/exact-call-controls-record.json` in the proof
+checkout. The live `source.elisa` no longer matches the recorded source hash:
+the input was overwritten after compilation. Exact source recovery or a frozen
+rerun is required before relying on a retained source/product control closure.
+Do not substitute the newer source hash for the compiled input.
+
+Fetched prover main is now `ec4ceacdba15480e91bb98c5ff4861d3a75d548a`,
+83 commits ahead of merge base `af85ea4f`. Its newer source-call and rebinding
+logic requires comparison before carrying the historical matcher forward.
+The first attempt with the historical compiler did not execute controls: it
+reported source-region diagnostics and a diagnostic-wrapper visibility error.
+That is no behavioral result for current upstream. A current compatible compiler,
+preserved project repairs and a fresh matched pair remain required for Q02.
