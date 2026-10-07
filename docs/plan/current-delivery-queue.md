@@ -70,10 +70,14 @@ Remaining work:
   `build/void-poll-result-region-20261007T184001Z-23185` in the compiler checkout.
   Isolated scalar controls have zero carriers; two owned-result controls have
   one each. Full before/after counts, performance and required gates remain open.
-  The current proof build is refused by nine backend allocation-arena guards;
-  reduce the exact callees and distinguish borrowed views, owned packed AST
-  handles and unresolved qualified concrete calls before changing ABI demand.
-  This client build failure must be resolved before promotion.
+  Candidate `d355c139` fixes qualified concrete call demand; its exact seed
+  and focused O0/O2/ASan smoke pass, and root's independent scalar-caller
+  reducer emits successfully. The current proof build now refuses two JSON
+  calls, down from nine. Their explicit `Arena&` allocator ABI suppresses the
+  hidden result slot that the call guard currently requires. Validate the
+  exact resolved allocator type and emitted owner argument, reject shadow
+  types and ambiguous ABI mappings, and retain unmanaged-result refusals.
+  This remaining client build failure must be resolved before promotion.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
