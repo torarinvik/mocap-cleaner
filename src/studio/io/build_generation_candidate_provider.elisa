@@ -89,6 +89,7 @@ module StudioBuildGenerationCandidateProvider:
             outcome: mutable Outcome
             rows: mutable darray[Row]
             refusal_code: mutable i64
+            retention_days: mutable i64
 
         def row_valid(row: Row) -> bool:
             ensure result implies row.artifact_id.count > 0 and row.artifact_id.count <= Limit::MAX_ID_BYTES
@@ -177,11 +178,14 @@ module StudioBuildGenerationCandidateProvider:
             ensure result implies snapshot.rows.count <= Limit::MAX_ROWS
             return false if snapshot.rows.count > Limit::MAX_ROWS
             return false if snapshot.outcome < Outcome.Complete or snapshot.outcome > Outcome.Refused
+            return false if snapshot.retention_days < -1 or snapshot.retention_days > StudioBuildGenerationCandidateProviderNative::Limit::MAX_RETENTION_DAYS
+            return false if snapshot.outcome != Outcome.Refused and snapshot.retention_days < 0
             return false if snapshot.outcome == Outcome.Refused and snapshot.rows.count != 0
             return false if snapshot.outcome == Outcome.Overflow and snapshot.rows.count != 0
             return false if snapshot.outcome == Outcome.Complete and snapshot.refusal_code != 0
             for index in 0..<snapshot.rows.count |snapshot|:
                 return false if not row_valid(snapshot.rows[index])
+                return false if snapshot.rows[index].retention_days != snapshot.retention_days
                 for other in 0..<index |snapshot|:
                     return false if bytes_equal(snapshot.rows[index].artifact_id, snapshot.rows[other].artifact_id)
             true
@@ -250,8 +254,9 @@ module StudioBuildGenerationCandidateProvider:
                 scan(build_root, StudioBuildGenerationCandidateProviderRetention::DEFAULT_RETENTION_DAYS)
 
             def scan(build_root: cstr, retention_days: i64) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
-                mutable result: Snapshot = Snapshot{outcome: Outcome.Refused, rows: [], refusal_code: 1}
+                mutable result: Snapshot = Snapshot{outcome: Outcome.Refused, rows: [], refusal_code: 1, retention_days: -1}
                 return result if retention_days < 0 or retention_days > StudioBuildGenerationCandidateProviderNative::Limit::MAX_RETENTION_DAYS
+                result.retention_days <- retention_days
                 mutable token: i64 = 0
                 mutable raw_outcome: i32 = -1
                 mutable count: i64 = -1
@@ -385,4 +390,8 @@ module StudioBuildGenerationCandidateProvider:
                 else:
                     result.outcome <- Outcome.Complete
                     result.refusal_code <- 0
+                    if not snapshot_valid(result):
+                        result.rows.clear()
+                        result.outcome <- Outcome.Refused
+                        result.refusal_code <- 4
                 result
