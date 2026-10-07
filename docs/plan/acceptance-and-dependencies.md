@@ -67,6 +67,10 @@ depend on completion of the P1 queue UI.
 
 ## Cross-cutting acceptance cases
 
+The remaining physics conversion boundaries and migration order are inventoried
+in [physics unit migration](physics-unit-migration.md). Complete producer,
+inverse and report conversions together before qualifying changed decisions.
+
 - Maintain a single command/control definition for labels, enablement and
   dispatch; handlers also enforce admission against current state. Pointer,
   keyboard, accessibility and CLI paths cannot bypass the same safety gate.
