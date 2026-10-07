@@ -2,6 +2,14 @@
 
 [Roadmap index](../../IMPLEMENTATION_PLAN.md)
 
+Session correction records now reject the candidate if their decoded target
+is invalid or insertion refuses scope, transform or capacity. They no longer
+silently drop those records while presenting the remaining stack as restored.
+The existing correction scope/capacity and transform laws describe admission;
+qualify complete decoding and unchanged current document/history on refusal,
+including a seventeenth correction. Legacy field clamping and malformed-line
+handling remain separate migration behavior to review before schema acceptance.
+
 ## 6. M1 — A workspace that explains itself and protects work
 
 ### 6.1 Information architecture and layout
