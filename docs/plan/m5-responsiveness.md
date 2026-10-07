@@ -153,6 +153,13 @@ acceptance. Qualification of parallel progress and failure reporting is pending.
       failures. Retain complete graph diagnostics and exact input snapshots.
 ## Deferred edit completion feedback
 
+The immutable 9a952f8 full Studio source compile failed with five frontend
+diagnostics, with its 552-input snapshot check still passing afterward. Two
+incomplete Locate accessibility initializers now have explicit fallback values;
+the background-read accessibility summary also matches immediate cancellation.
+Three measured-path callback diagnostics remain under repair. A new current
+full-graph build is required; the earlier failed graph is retained as evidence.
+
 Candidate-first transaction work remains required: build against an owned draft
 before recording history or moving an Undo/Redo cursor. A new base-ticket policy
 compares take, result/stack generations and history cursor/count; seven stale
