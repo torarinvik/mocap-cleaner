@@ -223,3 +223,30 @@ This audit does not authenticate source or prove include-closure correspondence.
 The classifier now reaches connective ensure reasoning after redundant enum
 exclusions were removed. Other policies still fail contract proposition formation;
 numeric enum member provenance remains open. Earlier runs above are historical.
+
+## Retained native redraw failure, 8 October
+
+The sealed app executable SHA-256 is
+`14bdc1305cdcb833eb2b65f44460cef69be8655a019a8f41929821c3b257705c`.
+The retained crash report matches its UUID
+`c26e7b10-61d0-31cc-86e8-ba3c472e78a7`; report SHA-256 is
+`04738fa23dbd2701640a3c609e5ef26f959ebcdebbdc5e48e901537850128c34`.
+Artifacts and source-preservation observations are retained under
+`build/studio-runtime-e24-20261008/`. The original FBX remains 5,258,716 bytes,
+SHA-256 `50048a8a08f307d378e83d976462addcac62b5529bf60ae690da200d9d9f4485`.
+
+Symbolization maps the fault to `StudioScene.build_with`, in the inlined
+`MeshOverlay.draw` vertex read. At the fault, the vertex address equals the
+cached skinned array's items base, which the report identifies as unmapped;
+index/count checks had passed. This supports invalid backing storage, but does
+not establish which ownership transition caused it. The retained comparison
+LLVM contains a deep global rehome before scratch release; its different compiler
+product prevents using it as proof of the crash executable's ownership behavior.
+
+`test/studio_skin_cache_lifetime.elisa` covers repeated returned pose publication,
+optional global cache hits and allocation churn. Its focused execution and the
+production error-function mutable-borrow path must be checked independently.
+A passing small fixture cannot qualify the full viewport. Acceptance requires
+reproducing and fixing the demonstrated failure, then exercising Character and
+Skeleton, playback, frame changes and repeated redraws on a matched current
+build. The earlier 337-frame skeleton display does not establish that journey.
