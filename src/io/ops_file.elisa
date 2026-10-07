@@ -11,10 +11,14 @@
 # source frames, amount = speed permille, edge = blend frames). Fields go through Codec.
 include "../ops/rig_stack.elisa"
 include "../core/codec.elisa"
+include "../core/bounded_read_policy.elisa"
 include "report.elisa"
 
 @link_name("fgetc")
 extern o_fgetc(file: mutable heap void&) -> i32 can[Blocking.IO]
+
+@link_name("ferror")
+extern o_ferror(file: mutable heap void&) -> i32 can[Blocking.IO]
 
 module OpsFile:
     public:
@@ -163,19 +167,29 @@ module OpsFile:
             encode(ops, &text)
             return Report::save(&text, path)
 
+        # Preserve append-on-success behavior; failures leave output unchanged.
         def read_bytes(path: cstr, out: mutable darray[u8]&) -> bool:
-            mutable ok: bool = false
+            read_bytes_bounded(path, out, BoundedReadPolicy::Capacity::DEFAULT_BYTES) == BoundedReadPolicy::Status.Ok
+
+        def read_bytes_bounded(path: cstr, out: mutable darray[u8]&, limit: i64) -> BoundedReadPolicy::Status:
+            return BoundedReadPolicy::Status.InvalidLimit if not BoundedReadPolicy::valid_limit(limit)
             can Blocking.IO, Memory.Allocate, Memory.Release:
-                file: mutable heap void&? = r_fopen(path.cast[u8&], "rb".cast[u8&])
-                if file != null:
-                    handle: mutable heap void& = file
+                if r_fopen(path.cast[u8&], "rb".cast[u8&]) is handle:
+                    mutable bytes: darray[u8] = []
+                    mutable too_large: bool = false
                     mutable c: i32 = o_fgetc(handle)
                     while c >= 0:
-                        out.push(c.u8())
+                        if not BoundedReadPolicy::append_admitted(bytes.count.i64(), limit):
+                            too_large <- true
+                            break
+                        bytes.push(c.u8())
                         c <- o_fgetc(handle)
-                    _ = r_fclose(handle)
-                    ok <- true
-            return ok
+                    read_failed: bool = o_ferror(handle) != 0
+                    closed: i32 = r_fclose(handle)
+                    result: BoundedReadPolicy::Status = BoundedReadPolicy::finish(too_large, read_failed, closed != 0)
+                    out.extend(bytes) if result == BoundedReadPolicy::Status.Ok
+                    return result
+            BoundedReadPolicy::Status.OpenFailed
 
         def load(path: cstr, out: mutable darray[RigOps::RigOp]&) -> bool:
             mutable text: darray[u8] = []
