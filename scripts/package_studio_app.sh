@@ -15,6 +15,16 @@ INPUT_RECORD="${2:-}"
 final_app="$ROOT/build/MocapStudio.app"
 
 [[ -x "$EXECUTABLE" ]] || { echo "Studio executable missing or not executable: $EXECUTABLE" >&2; exit 2; }
+if [[ -z "$INPUT_RECORD" ]]; then
+  resolved_executable="$(python3 - "$EXECUTABLE" <<'PY'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).resolve(strict=True))
+PY
+)"
+  adjacent_record="$(dirname -- "$resolved_executable")/inputs.json"
+  [[ ! -f "$adjacent_record" ]] || INPUT_RECORD="$adjacent_record"
+fi
 if [[ -n "$INPUT_RECORD" ]]; then
   python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$INPUT_RECORD"
 fi
@@ -22,6 +32,7 @@ pending_package="$(mktemp -d "$ROOT/build/studio-package.XXXXXX")"
 APP="$pending_package/MocapStudio.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp -p "$EXECUTABLE" "$APP/Contents/MacOS/MocapStudio"
+install -m 0600 /dev/null "$APP/Contents/Resources/.studio-generation.lease"
 cat >"$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -75,7 +86,8 @@ for base, suffixes in ((project / "src/studio", {".elisa"}),
 input_paths.extend(engine / "native" / name for name in (
     "viewport_metal.m", "file_panel_appkit.m", "file_trash_appkit.m",
     "file_path.c", "file_path_namespace_appkit.m", "workspace_root_appkit.m",
-    "storage_manifest_lock.c", "elisa_native_fallbacks.cpp"))
+    "storage_manifest_lock.c", "studio_generation_lease_appkit.m",
+    "studio_generation_lease_appkit.h", "elisa_native_fallbacks.cpp"))
 input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/package_studio_app.sh",
                     project / "tools/svg_icons.py", project / "build/generated/studio_icon_paths.elisa",
                     project / "tools/studio_generation_lock.py",
@@ -107,7 +119,8 @@ package_generation_id = generated_id(package_root, "studio-package.")
 build_generation_id = "unavailable"
 executable_hash = sha256(executable)
 package_record = {
-    "schema": "mocap-studio-package-generation-v1",
+    "schema": "mocap-studio-package-generation-v2",
+    "lease_protocol": 0,
     "package_generation_id": package_generation_id,
     "build_generation_id": None,
     "executable_sha256": executable_hash,
@@ -127,14 +140,26 @@ if input_record is not None:
     build_generation_id = generation.get("id", "")
     if (generation.get("schema") != "mocap-studio-generation-v1" or
             generation.get("artifact") != "studio-build" or
+            generation.get("lease_protocol") != 1 or
             build_generation_id != generated_id(input_record.parent, "studio-build.")):
         raise SystemExit("Build input record has no exact generation-directory identity")
     package_record["build_generation_id"] = build_generation_id
+    package_record["lease_protocol"] = 1
     (output.parent / "BUILD-INPUTS.json").write_bytes(record_bytes)
     captured_hash = hashlib.sha256(record_bytes).hexdigest()
     qualification = "sealed inputs and exact copied executable verified; runtime acceptance remains separate"
 (output.parent / "PACKAGE-GENERATION.json").write_text(
     json.dumps(package_record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+lease_record = {
+    "schema": "mocap-studio-artifact-lease-v1",
+    "lease_protocol": package_record["lease_protocol"],
+    "artifact": "studio-package",
+    "id": package_generation_id,
+    "executable_sha256": executable_hash,
+}
+lease_path = package_root / "MocapStudio.app/Contents/Resources/.studio-generation.lease"
+lease_path.write_text(json.dumps(lease_record, sort_keys=True) + "\n", encoding="utf-8")
+lease_path.chmod(0o444)
 
 lines = [
     "Mocap Studio development bundle build provenance",

@@ -38,6 +38,7 @@ python3 "$ROOT/tools/svg_icons.py" "$OUT/generated/studio_icon_paths.elisa"
 python3 "$ROOT/tools/studio_build_identity.py" "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$OUT/generated/studio_build_identity.elisa"
 
 pending_directory="$(mktemp -d "$OUT/studio-build.XXXXXX")"
+install -m 0600 /dev/null "$pending_directory/.studio-generation.lease"
 pending_object="$pending_directory/main.o"
 pending_inputs="$pending_directory/inputs.json"
 python3 "$ROOT/tools/studio_build_identity.py" --snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
@@ -49,13 +50,14 @@ clang -c -fobjc-arc -O2 -o "$pending_directory/studio_file_trash.o" "$ENGINE/nat
 clang -std=c11 -O2 -c -o "$pending_directory/studio_file_path.o" "$ENGINE/native/file_path.c"
 clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_file_path_namespace.o" "$ENGINE/native/file_path_namespace_appkit.m"
 clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_workspace_root.o" "$ENGINE/native/workspace_root_appkit.m"
+clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_generation_lease_appkit.o" "$ENGINE/native/studio_generation_lease_appkit.m"
 clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
 clang++ -c -std=c++17 -O2 -o "$pending_directory/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
 bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$pending_object" "$ROOT/src/studio/app/main.elisa"
 [[ -s "$pending_object" ]] || { echo "compiler did not emit a fresh Studio object" >&2; exit 1; }
 python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 clang -o "$pending_directory/mocap_studio" \
-  "$pending_object" "$pending_directory/studio_canvas_shim.o" "$pending_directory/studio_viewport_metal.o" "$pending_directory/studio_file_panel.o" "$pending_directory/studio_file_trash.o" "$pending_directory/studio_file_path.o" "$pending_directory/studio_file_path_namespace.o" "$pending_directory/studio_workspace_root.o" "$pending_directory/studio_storage_manifest_lock.o" \
+  "$pending_object" "$pending_directory/studio_canvas_shim.o" "$pending_directory/studio_viewport_metal.o" "$pending_directory/studio_file_panel.o" "$pending_directory/studio_file_trash.o" "$pending_directory/studio_file_path.o" "$pending_directory/studio_file_path_namespace.o" "$pending_directory/studio_workspace_root.o" "$pending_directory/studio_generation_lease_appkit.o" "$pending_directory/studio_storage_manifest_lock.o" \
   "$pending_directory/studio_native_fallbacks.o" "$RUNTIME" \
   -framework Cocoa -framework Foundation -framework CoreText -framework CoreGraphics -framework ImageIO \
   -framework QuartzCore -framework IOSurface -framework Metal -framework UniformTypeIdentifiers

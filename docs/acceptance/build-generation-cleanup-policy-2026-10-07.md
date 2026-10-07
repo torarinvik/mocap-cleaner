@@ -16,17 +16,15 @@ only after binding the manifest ID to the directory basename and checking the
 no-follow directory identity and sealed product digest. Missing activity or
 protection inventory must remain unverified.
 
-The policy and its nine proof laws compile to a nonempty O0 object with the
-provenance-checked Stage1 product from compiler source `5b354650` (product
-SHA-256 `89d1b2ea78f8fbfe675386d0d2b84767077bb1572e23dece46f30d9749d59ce4`,
-runtime object SHA-256
-`51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`). The
-object is `build/build-generation-policy.lL6HHb/laws.o`. This is compile-only
-source evidence; proof replay and native behavior are open.
-
-The compiled policy source SHA-1 is
-`913e2ed3a9f329c3929153a5edd385fa347f7304`; the law source SHA-1 is
-`a6b9fd446f66f780737b31f612b6f64106f5bcb8`. Both match commit `c45541f`.
+An earlier nine-law compile used compiler `5b354650` and source commit
+`c45541f`; it is historical comparison evidence only. The current policy has
+17 laws. Its latest focused producer run compiled the law source with compiler
+`9667344`, but source authentication remains unsupported: the producer
+reported 89 obligations, 33 proven and 56 unproven, with 22 unsupported
+functions. Replay of those emitted theorems does not authenticate the current
+source. See the [current law source compile record](current-law-source-compile-2026-10-07.md)
+and the [generation policy proof status](../proof-gaps/build-generation-policy-proof-20261007.md)
+for hashes and the exact producer/replay limits.
 
 The build and package scripts now share an OS advisory lock at
 `build/.studio-generation.lock`. Each script verifies the inherited descriptor,
@@ -35,9 +33,31 @@ standalone packaging acquires the lock and packaging called by a build reuses
 the same open-file description. Future cooperating cleanup clients must use
 this lock for their complete inventory/review/mutation transaction.
 
-This coordination covers cooperating build/package clients only. It does not
-establish whether a Studio process is using an old generation, and it does not
-provide a recoverable directory Trash receipt. No cleanup mutation is wired.
-Current products, active generations and package `previous.app` recovery
-backups therefore remain protected by leaving their directories in place.
-J04 and M7 cleanup acceptance remain open.
+The global build lock covers cooperating build/package clients only. By itself
+it does not establish whether a Studio process is using an artifact, and it
+does not provide a recoverable directory Trash receipt. No cleanup mutation is
+wired. Current products, active generations and package `previous.app`
+recovery backups therefore remain protected by leaving their directories in
+place. J04 and M7 cleanup acceptance remain open.
+
+The source now adds artifact-local shared leases. A build generation receives a
+sealed `.studio-generation.lease` beside its executable and input record; a
+package receives one in `Contents/Resources`, bound to its package ID and the
+copied executable digest. Startup resolves the actual executable, checks its
+generation/package records and lease file, then retains a shared `flock` until
+the UI exits. A failed or missing check presents Retry/Cancel and refuses to
+start the window. This supports direct build-symlink launch and bundles renamed
+to `previous.app` or moved independently of the developer build directory.
+
+The five lease admission laws compiled at O0 to a 5,328-byte object, and a
+small Elisa API context compiled to a 2,688-byte object. Both used the
+provenance-checked Stage1 source `9667344cf0fd2e955a4e233ada1ea60033a16837`
+and product SHA-256
+`bed23103851823084b365d825570394243564f99e1c6e1c4dd896d633194797b`. The
+focused AppKit adapter compile with `-fobjc-arc -Wall -Wextra -Werror -O2`
+emitted a 21,944-byte object. These are source/native compile checks only;
+current full Studio linkage, Finder launch, lease contention/replacement
+behavior and cleanup-side exclusive acquisition remain unqualified. Legacy
+artifacts with no protocol record remain unknown and protected. Cleanup
+mutation remains unwired until exclusive-lease and recoverable receipt paths
+are implemented.

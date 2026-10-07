@@ -68,6 +68,8 @@ def snapshot(project, engine, ui, compiler):
             "viewport_metal.m", "file_panel_appkit.m", "file_trash_appkit.m",
             "file_path.c", "file_path_namespace_appkit.m",
             "workspace_root_appkit.m", "storage_manifest_lock.c",
+            "studio_generation_lease_appkit.m",
+            "studio_generation_lease_appkit.h",
             "elisa_native_fallbacks.cpp"))))
     native_tools = {}
     for name in ("clang", "clang++", "ld"):
@@ -139,6 +141,7 @@ if mode != "generate":
         "schema": "mocap-studio-generation-v1",
         "artifact": "studio-build",
         "id": generation_id(output.parent, "studio-build."),
+        "lease_protocol": 1,
     }
     if mode == "--snapshot":
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +155,16 @@ if mode != "generate":
             current["product"] = {"filename": "mocap_studio",
                                   "sha256": digest(output.parent / "mocap_studio")}
             output.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
+            lease_record = {
+                "schema": "mocap-studio-artifact-lease-v1",
+                "lease_protocol": 1,
+                "artifact": "studio-build",
+                "id": current["generation"]["id"],
+                "executable_sha256": current["product"]["sha256"],
+            }
+            lease_path = output.parent / ".studio-generation.lease"
+            lease_path.write_text(json.dumps(lease_record, sort_keys=True) + "\n")
+            lease_path.chmod(0o444)
         elif product is not None:
             if product.get("filename") != "mocap_studio" or product.get("sha256") != digest(output.parent / "mocap_studio"):
                 raise SystemExit("Studio executable differs from its sealed input record")
