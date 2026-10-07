@@ -29,12 +29,14 @@ module StudioExportBatchDestinationPathLineModel:
             split_grapheme: bool
 
         struct Model:
-            status: Status
-            path_length: usize
-            available_width: f32
-            segments: darray[Segment]
+            status: mutable Status
+            path_length: mutable usize
+            available_width: mutable f32
+            segments: mutable darray[Segment]
 
-        type WidthMeasure = fn(darray[u8]&, usize, usize) -> f32
+        struct WidthMeasurement:
+            available: bool
+            width: f32
 
         def units_cover_path(path_length: usize, units: darray[Unit]&) -> bool:
             return false if path_length == 0 or path_length > Limit::MAX_PATH_BYTES
@@ -95,50 +97,63 @@ module StudioExportBatchDestinationPathLineModel:
         # Units are complete extended graphemes except explicitly marked
         # fallback pieces. A too-wide single unit is kept intact and marked;
         # every output segment remains byte-capped for accessibility.
-        def pack(path: darray[u8]&, units: darray[Unit]&, row_width: f32,
+        def pack[N: usize](path: u8[N]&, path_length: usize, units: darray[Unit]&, row_width: f32,
                 horizontal_inset: f32, safety_margin: f32,
-                measure: WidthMeasure) -> Model can Memory.Allocate:
-            requires path.count <= Limit::MAX_PATH_BYTES
-            ensure valid(result)
-            ensure result.path_length == path.count
+                measure: fn(u8[N]&, usize, usize) -> WidthMeasurement, out: mutable Model&) -> Status can Memory.Allocate:
+            requires path_length <= N and path_length <= Limit::MAX_PATH_BYTES
+            ensure valid(out)
+            ensure out.path_length == path_length
+            ensure result == out.status
             mutable geometry_valid: bool = finite(row_width) and finite(horizontal_inset) and finite(safety_margin) and row_width >= 0.0 and horizontal_inset >= 0.0 and safety_margin >= 0.0
             available_candidate: f32 = row_width - 2.0 * horizontal_inset - safety_margin if geometry_valid else 0.0
             geometry_valid <- geometry_valid and finite(available_candidate)
             available: f32 = available_candidate if geometry_valid and available_candidate > 0.0 else 0.0
-            mutable segments: darray[Segment] = []
-            return Model{status: Status.InvalidInput, path_length: path.count,
-                available_width: 0.0, segments: segments} if not geometry_valid
-            if path.count == 0:
-                return Model{status: Status.Empty, path_length: 0, available_width: available, segments: segments}
-            if available <= 0.0 or not units_cover_path(path.count, units):
-                return Model{status: Status.InvalidInput, path_length: path.count,
-                    available_width: available, segments: segments}
+            out.segments.clear()
+            out.status <- Status.InvalidInput
+            out.path_length <- path_length
+            out.available_width <- 0.0
+            return Status.InvalidInput if not geometry_valid
+            if path_length == 0:
+                out.status <- Status.Empty
+                out.available_width <- available
+                return Status.Empty
+            if available <= 0.0 or not units_cover_path(path_length, units):
+                out.available_width <- available
+                return Status.InvalidInput
+            out.available_width <- available
             mutable line_start: usize = 0
             mutable line_bytes: usize = 0
             mutable line_split: bool = false
             mutable line_width: f32 = 0.0
-            for index in 0..<units.count |index, path, units, available, measure, segments, line_start, line_bytes, line_split, line_width|:
+            for index in 0..<units.count |index, path, units, available, measure, out, line_start, line_bytes, line_split, line_width|:
                 unit: Unit = units[index]
                 mutable candidate_bytes: usize = line_bytes + unit.byte_count
                 mutable candidate_width: f32 = -1.0
+                mutable measurement_available: bool = true
                 mutable must_flush: bool = candidate_bytes > Limit::MAX_SEGMENT_BYTES
                 if line_bytes > 0 and not must_flush:
-                    candidate_width <- measure(path, line_start, candidate_bytes)
-                    must_flush <- not finite(candidate_width) or candidate_width < 0.0 or candidate_width > available
+                    candidate_measurement: WidthMeasurement = measure(path, line_start, candidate_bytes)
+                    candidate_width <- candidate_measurement.width
+                    measurement_available <- candidate_measurement.available
+                    must_flush <- not candidate_measurement.available or not finite(candidate_width) or candidate_width < 0.0 or candidate_width > available
                 if line_bytes > 0 and must_flush:
-                    segments.push(Segment{start: line_start, byte_count: line_bytes,
+                    out.segments.push(Segment{start: line_start, byte_count: line_bytes,
                         measured_width: line_width, overflowed: false,
                         measurement_unavailable: false, split_grapheme: line_split})
                     line_start <- unit.start
                     line_bytes <- 0
                     line_split <- false
                     candidate_bytes <- unit.byte_count
-                    candidate_width <- measure(path, unit.start, unit.byte_count)
+                    single_measurement: WidthMeasurement = measure(path, unit.start, unit.byte_count)
+                    candidate_width <- single_measurement.width
+                    measurement_available <- single_measurement.available
                 elif line_bytes == 0:
-                    candidate_width <- measure(path, unit.start, unit.byte_count)
-                unavailable: bool = not finite(candidate_width) or candidate_width < 0.0
+                    single_measurement: WidthMeasurement = measure(path, unit.start, unit.byte_count)
+                    candidate_width <- single_measurement.width
+                    measurement_available <- single_measurement.available
+                unavailable: bool = not measurement_available or not finite(candidate_width) or candidate_width < 0.0
                 if unavailable:
-                    segments.push(Segment{start: unit.start, byte_count: unit.byte_count,
+                    out.segments.push(Segment{start: unit.start, byte_count: unit.byte_count,
                         measured_width: -1.0, overflowed: true,
                         measurement_unavailable: true, split_grapheme: unit.split_grapheme})
                     line_start <- unit.start + unit.byte_count
@@ -150,7 +165,7 @@ module StudioExportBatchDestinationPathLineModel:
                 line_split <- line_split or unit.split_grapheme
                 line_width <- candidate_width
                 if line_width > available:
-                    segments.push(Segment{start: line_start, byte_count: line_bytes,
+                    out.segments.push(Segment{start: line_start, byte_count: line_bytes,
                         measured_width: line_width, overflowed: true,
                         measurement_unavailable: false, split_grapheme: line_split})
                     line_start <- unit.start + unit.byte_count
@@ -158,12 +173,11 @@ module StudioExportBatchDestinationPathLineModel:
                     line_split <- false
                     line_width <- 0.0
             if line_bytes > 0:
-                segments.push(Segment{start: line_start, byte_count: line_bytes,
+                out.segments.push(Segment{start: line_start, byte_count: line_bytes,
                     measured_width: line_width, overflowed: false,
                     measurement_unavailable: false, split_grapheme: line_split})
-            result: Model = Model{status: Status.Ready, path_length: path.count,
-                available_width: available, segments: segments}
-            result
+            out.status <- Status.Ready
+            Status.Ready
 
     private:
         def finite(value: f32) -> bool:
