@@ -380,3 +380,11 @@ constants and emitted no object. Renaming the ID const module to SemanticId
 did not resolve the failure. The compiler worker has this context-specific
 failure for reduction; module ownership is not yet established as its cause.
 Current full application and authenticated proof qualification remain open.
+
+The accessibility sheet failure was reproduced at root `182f7ef` against
+candidate `4afdce08` with the candidate standard library explicitly selected.
+The full Studio input snapshot check before/after compilation passed with no
+drift. Compilation exited 2, declined the same 25 bodies and emitted no object.
+Exact input inventory, failure log and result metadata are retained under
+`build/accessibility-domain-qualification/`. This is source-matched diagnostic
+evidence; it does not qualify the application or establish the failure's cause.
