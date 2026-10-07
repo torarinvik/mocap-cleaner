@@ -1,30 +1,243 @@
-# One source read owned by a worker. The bounded path bytes move with the job,
-# so cancellation can close the modal while the native file read drains.
+# Source-aware, bounded session Locate worker. It verifies the original file
+# and any derived cache before returning a memo that may receive saved edits.
 include "../../build/generated/studio_runtime.elisa"
+include "take_source_ref_policy.elisa"
+include "state/session_source_reference_codec.elisa"
+include "fbx_import_policy.elisa"
+include "fbx_import_reference.elisa"
+include "fbx_import_worker.elisa"
+include "fbx_import_native.elisa"
 
 module StudioSessionLocateWorker:
     public:
+        const enum Status of i64:
+            ReadyLegacyGlb = 0
+            ReadyDirectGlb = 1
+            ReadyFbxCache = 2
+            ReadyFbxRegenerated = 3
+            InvalidRequest = 10
+            SourceMismatch = 11
+            ProcessingChanged = 12
+            WorkspaceRequired = 13
+            RuntimeMismatch = 14
+            AnimationUnavailable = 15
+
         affine struct Job:
             ticket: i64
-            path: darray[u8]
-            animation: i64
+            source_path: u8[4096]
+            build_root: u8[4096]
+            animation_index: i64
+            has_source_reference: bool
+            source_reference_count: i64
+            source_reference_line: u8[20000]
 
         affine struct Result:
             ticket: i64
+            status: i64
             memo: StudioModel::Memo?
 
-        def load(job: Job) -> Result can Unsafe.PointerCast:
-            ticket: i64 = job.ticket
-            animation: i64 = job.animation
-            mutable path_bytes: darray[u8] = move job.path
-            mutable memo: StudioModel::Memo? = null
-            if path_bytes.count > 0:
-                if path_bytes[path_bytes.count - 1] == 0:
-                    path: cstr = (&path_bytes[0]).cast[cstr]
-                    memo <- StudioModel::load_at_index(path, animation)
-            Result{ticket: ticket, memo: move memo}
+        private:
+            def path_terminated(bytes: darray[u8]&, maximum: usize) -> bool:
+                return false if bytes.count < 2 or bytes.count > maximum
+                return false if bytes[bytes.count - 1] != 0
+                for index in 0..<(bytes.count - 1) |index, bytes|:
+                    return false if bytes[index] == 0
+                true
 
-# The task runtime currently lowers bare top-level function values; keep a
-# typed trampoline at top level for dispatch.
-def load_session_locate_job(job: StudioSessionLocateWorker::Job) -> StudioSessionLocateWorker::Result can Unsafe.PointerCast:
+            def copy_path_buffer(destination: mutable u8[4096]&, source: darray[u8]&) -> bool:
+                return false if not path_terminated(source, 4096)
+                for index in 0..<source.count |index, destination, source|:
+                    destination[index] <- source[index]
+                true
+
+            def owned_path[@r](bytes: u8[4096]&) -> darray[u8] @r can Memory.Allocate:
+                mutable result: darray[u8] @r = []
+                mutable ended: bool = false
+                for index in 0..<4096 |index, bytes, result, ended|:
+                    if not ended:
+                        result.push(bytes[index])
+                        ended <- bytes[index] == 0
+                    else:
+                        return [] if bytes[index] != 0
+                return [] if not ended
+                return move result
+
+            def owned_reference_line[@r](bytes: u8[20000]&, count: i64) -> darray[u8] @r can Memory.Allocate:
+                mutable result: darray[u8] @r = []
+                return move result if count < 1 or count > 20000
+                for index in 0..<20000 |index, bytes, result|:
+                    if index < count.usize():
+                        result.push(bytes[index])
+                    else:
+                        return [] if bytes[index] != 0
+                return move result
+
+            def zero_reference_line(bytes: u8[20000]&) -> bool:
+                for byte in bytes:
+                    return false if byte != 0
+                true
+
+            def without_terminator[@r](bytes: darray[u8]&) -> darray[u8] @r can Memory.Allocate:
+                mutable result: darray[u8] @r = []
+                return move result if bytes.count < 2 or bytes[bytes.count - 1] != 0
+                for index in 0..<(bytes.count - 1) |index, bytes, result|:
+                    result.push(bytes[index])
+                return move result
+
+            def with_terminator[@r](bytes: darray[u8]&) -> darray[u8] @r can Memory.Allocate:
+                mutable result: darray[u8] @r = []
+                return move result if not StudioTakeSourceRefPolicy::path_valid(bytes)
+                for byte in bytes |byte, result|:
+                    result.push(byte)
+                result.push(0)
+                return move result
+
+            def copy_bytes[@r](bytes: darray[u8]&) -> darray[u8] @r can Memory.Allocate:
+                mutable result: darray[u8] @r = []
+                for byte in bytes |byte, result|:
+                    result.push(byte)
+                return move result
+
+            def digest_matches(path: darray[u8]&, expected: darray[u8]&) -> bool can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
+                return false if not StudioTakeSourceRefPolicy::sha256_valid(expected)
+                actual: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(path)
+                return false if actual.status != 0
+                StudioTakeSourceRefPolicy::bytes_equal(actual.bytes, expected)
+
+            def cache_root[@r](runtime_path: darray[u8]&) -> darray[u8] @r can Memory.Allocate:
+                # Exact suffix: /imports/<32 lowercase hex>/take.glb.
+                mutable result: darray[u8] @r = []
+                return move result if runtime_path.count <= 50
+                root_length: usize = runtime_path.count - 50
+                return move result if root_length == 0 or runtime_path[root_length] != 47
+                return move result if runtime_path[root_length + 1] != 105 or runtime_path[root_length + 2] != 109 or runtime_path[root_length + 3] != 112 or runtime_path[root_length + 4] != 111 or runtime_path[root_length + 5] != 114 or runtime_path[root_length + 6] != 116 or runtime_path[root_length + 7] != 115 or runtime_path[root_length + 8] != 47
+                for index in 0..<32 |index, runtime_path|:
+                    byte: u8 = runtime_path[root_length + 9 + index]
+                    return move result if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102))
+                return move result if runtime_path[root_length + 41] != 47 or runtime_path[root_length + 42] != 116 or runtime_path[root_length + 43] != 97 or runtime_path[root_length + 44] != 107 or runtime_path[root_length + 45] != 101 or runtime_path[root_length + 46] != 46 or runtime_path[root_length + 47] != 103 or runtime_path[root_length + 48] != 108 or runtime_path[root_length + 49] != 98
+                for index in 0..<root_length |index, runtime_path, result|:
+                    result.push(runtime_path[index])
+                result.push(0)
+                return move result
+
+            def copy_reference[@r](reference: StudioTakeSourceRefPolicy::TakeSourceRef&, source_path: darray[u8]&) -> StudioTakeSourceRefPolicy::TakeSourceRef @r can Memory.Allocate:
+                path: darray[u8] = without_terminator(source_path)
+                return StudioTakeSourceRefPolicy::TakeSourceRef{
+                    format: reference.format,
+                    original_path: copy_bytes(path), original_sha256: copy_bytes(reference.original_sha256),
+                    runtime_glb_path: copy_bytes(reference.runtime_glb_path), runtime_glb_sha256: copy_bytes(reference.runtime_glb_sha256),
+                    importer_revision: copy_bytes(reference.importer_revision), options_sha256: copy_bytes(reference.options_sha256)}
+
+            def load_direct(source_path: darray[u8]&, animation: darray[u8]&, reference: StudioTakeSourceRefPolicy::TakeSourceRef&) -> StudioModel::Memo? can[Unsafe.PointerCast, Unsafe.RawExtern, Blocking.IO, Memory.Allocate, Memory.Release]:
+                return null if not path_terminated(source_path, 4096) or not StudioTakeSourceRefPolicy::valid(reference)
+                path: cstr = (&source_path[0]).cast[cstr]
+                return null if not digest_matches(source_path, reference.original_sha256)
+                animation_path: darray[u8] = with_terminator(animation)
+                return null if animation_path.count < 2
+                animation_name: cstr = (&animation_path[0]).cast[cstr]
+                mutable memo: StudioModel::Memo? = StudioModel::load(path, animation_name)
+                return null if not digest_matches(source_path, reference.original_sha256)
+                if memo is loaded:
+                    mutable owned: StudioModel::Memo = move loaded
+                    memo <- null
+                    updated: StudioTakeSourceRefPolicy::TakeSourceRef = copy_reference(reference, source_path)
+                    return null if not StudioModel::attach_source_reference(&owned, updated)
+                    return move owned
+                null
+
+            def fill_import_path(destination: mutable u8[4096]&, source: darray[u8]&) -> bool:
+                return false if not path_terminated(source, 4096)
+                for index in 0..<source.count |index, source, destination|:
+                    destination[index] <- source[index]
+                true
+
+            def fill_import_animation(destination: mutable u8[1024]&, source: darray[u8]&) -> bool:
+                return false if source.count == 0 or source.count >= 1024
+                for index in 0..<source.count |index, source, destination|:
+                    return false if source[index] == 0
+                    destination[index] <- source[index]
+                destination[source.count] <- 0
+                true
+
+            def load_fbx(ticket: i64, build_root: darray[u8]&, source_path: darray[u8]&, animation_name: darray[u8]&, reference: StudioTakeSourceRefPolicy::TakeSourceRef&) -> Result can[Unsafe.PointerCast, Unsafe.RawExtern, Blocking.IO, Memory.Allocate, Memory.Release]:
+                return Result{ticket: ticket, status: Status.InvalidRequest.i64(), memo: null} if not path_terminated(source_path, 4096) or not StudioTakeSourceRefPolicy::valid(reference) or reference.format != StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+                return Result{ticket: ticket, status: Status.ProcessingChanged.i64(), memo: null} if not StudioFbxImportReference::current_processing_identity_matches(reference, StudioFbxImportPolicy::Limit::DEFAULT_RATE)
+                return Result{ticket: ticket, status: Status.SourceMismatch.i64(), memo: null} if not digest_matches(source_path, reference.original_sha256)
+                runtime: darray[u8] = with_terminator(reference.runtime_glb_path)
+                expected_source: darray[u8] = reference.original_sha256
+                expected_runtime: darray[u8] = reference.runtime_glb_sha256
+                root: darray[u8] = cache_root(reference.runtime_glb_path)
+                animation: darray[u8] = with_terminator(animation_name)
+                mutable memo: StudioModel::Memo? = null
+                if root.count > 1 and runtime.count > 1 and expected_source.count == 64 and expected_runtime.count == 64 and animation.count > 1:
+                    cache_valid: i64 = StudioFbxImportNative::verify_cache(root, runtime, expected_source, expected_runtime)
+                    if cache_valid == 0:
+                        memo <- StudioModel::load((&runtime[0]).cast[cstr], (&animation[0]).cast[cstr])
+                        return Result{ticket: ticket, status: Status.RuntimeMismatch.i64(), memo: null} if not digest_matches(source_path, reference.original_sha256)
+                        if memo is loaded:
+                            mutable owned: StudioModel::Memo = move loaded
+                            memo <- null
+                            updated: StudioTakeSourceRefPolicy::TakeSourceRef = copy_reference(reference, source_path)
+                            return Result{ticket: ticket, status: Status.RuntimeMismatch.i64(), memo: null} if not StudioModel::attach_source_reference(&owned, updated)
+                            return Result{ticket: ticket, status: Status.ReadyFbxCache.i64(), memo: move owned}
+                if not path_terminated(build_root, 4096):
+                    return Result{ticket: ticket, status: Status.WorkspaceRequired.i64(), memo: null}
+                mutable buffers: StudioFbxImportWorker::RequestBuffers = zeroed
+                if not fill_import_path(&buffers.source, source_path) or not fill_import_path(&buffers.build_root, build_root) or not fill_import_animation(&buffers.animation, animation_name):
+                    return Result{ticket: ticket, status: Status.InvalidRequest.i64(), memo: null}
+                import_job: StudioFbxImportWorker::Job = StudioFbxImportWorker::Job{ticket: ticket, buffers: buffers, rate: StudioFbxImportPolicy::Limit::DEFAULT_RATE}
+                match StudioFbxImportWorker::load(move import_job):
+                    StudioFbxImportWorker::Result{ticket: imported_ticket, status: imported_status, source: imported_source, destination: imported_destination, source_sha256: imported_source_digest, runtime_sha256: imported_runtime_digest, memo: imported_memo}:
+                        valid_result: bool = imported_ticket == ticket and imported_status == 0 and StudioTakeSourceRefPolicy::sha256_valid(imported_source_digest) and StudioTakeSourceRefPolicy::sha256_valid(imported_runtime_digest) and StudioTakeSourceRefPolicy::bytes_equal(imported_source_digest, reference.original_sha256) and StudioTakeSourceRefPolicy::bytes_equal(imported_runtime_digest, reference.runtime_glb_sha256)
+                        return Result{ticket: ticket, status: Status.RuntimeMismatch.i64(), memo: null} if not digest_matches(source_path, reference.original_sha256)
+                        if valid_result:
+                            if imported_memo is converted:
+                                return Result{ticket: ticket, status: Status.ReadyFbxRegenerated.i64(), memo: move converted}
+                        Result{ticket: ticket, status: Status.RuntimeMismatch.i64(), memo: null}
+
+        def load_owned(ticket: i64, input_source_path: darray[u8], input_build_root: darray[u8], animation_index: i64,
+                       input_source_reference: SessionSourceReferenceCodec::Record?) -> Result can[Unsafe.PointerCast, Unsafe.RawExtern, Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable source_path: darray[u8] = move input_source_path
+            mutable build_root: darray[u8] = move input_build_root
+            mutable source_reference: SessionSourceReferenceCodec::Record? = move input_source_reference
+            mutable memo: StudioModel::Memo? = null
+            mutable status: i64 = Status.InvalidRequest.i64()
+            if ticket > 0 and path_terminated(source_path, 4096):
+                if source_reference is reference_record:
+                    mutable animation_name: darray[u8] = move reference_record.animation_name
+                    reference: StudioTakeSourceRefPolicy::TakeSourceRef = move reference_record.reference
+                    if reference.format == StudioTakeSourceRefPolicy::SourceFormat.DirectGlb:
+                        if animation_name.count == 0:
+                            status <- Status.InvalidRequest.i64()
+                        elif load_direct(&source_path, animation_name, &reference) is loaded:
+                            memo <- move loaded
+                            status <- Status.ReadyDirectGlb.i64()
+                        else:
+                            status <- Status.SourceMismatch.i64()
+                    else:
+                        result: Result = load_fbx(ticket, &build_root, &source_path, &animation_name, &reference)
+                        status <- result.status
+                        memo <- move result.memo
+                else:
+                    if animation_index >= 0:
+                        path: cstr = (&source_path[0]).cast[cstr]
+                        memo <- StudioModel::load_at_index(path, animation_index)
+                        status <- Status.ReadyLegacyGlb.i64() if memo != null else Status.AnimationUnavailable.i64()
+            Result{ticket: ticket, status: status, memo: move memo}
+
+        def load(job: Job) -> Result can[Unsafe.PointerCast, Unsafe.RawExtern, Blocking.IO, Memory.Allocate, Memory.Release]:
+            mutable source_path: darray[u8] = owned_path(&job.source_path)
+            mutable build_root: darray[u8] = owned_path(&job.build_root)
+            mutable source_reference: SessionSourceReferenceCodec::Record? = null
+            return Result{ticket: job.ticket, status: Status.InvalidRequest.i64(), memo: null} if (not job.has_source_reference and (job.source_reference_count != 0 or not zero_reference_line(&job.source_reference_line))) or (job.has_source_reference and job.source_reference_count <= 0)
+            if job.has_source_reference and job.source_reference_count > 0:
+                mutable line: darray[u8] = owned_reference_line(&job.source_reference_line, job.source_reference_count)
+                if SessionSourceReferenceCodec::decode(&line) is decoded:
+                    source_reference <- move decoded
+                else:
+                    return Result{ticket: job.ticket, status: Status.InvalidRequest.i64(), memo: null}
+            return load_owned(job.ticket, move source_path, move build_root, job.animation_index, move source_reference)
+
+# The task runtime invokes only a top-level typed trampoline.
+def load_session_locate_job(job: StudioSessionLocateWorker::Job) -> StudioSessionLocateWorker::Result can[Unsafe.PointerCast, Unsafe.RawExtern, Blocking.IO, Memory.Allocate, Memory.Release]:
     StudioSessionLocateWorker::load(move job)
