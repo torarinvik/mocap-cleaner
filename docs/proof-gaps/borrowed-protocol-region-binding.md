@@ -33,12 +33,33 @@ with region escape and `@b` versus `@a` diagnostics. These artifacts are in
 the compiler worker's `build/borrowed-return-reductions/protocol-current/`.
 Stage1 seed attempt 5 was terminated by the wrapper's RSS guard at 6463088 KB
 against a 6291456 KB limit. Its log reported no terminal semantic decline and
-it emitted no new product. A higher-limit retry requires available memory;
-no matched new product is established by this record.
+it emitted no new product. Attempt 6 also used the default guard because the
+override named the runtime limit rather than the seed limit. Attempt 7 used
+the correct 10 GiB seed limit and exposed the Stage1 parser scanner treating
+`@r` inside a method signature as a leading decorator.
+
+Attempt 8, with the line-boundary scanner repair, completed with exit 0.
+Compiler/std repairs are committed as `d2754a8eebfeaffbe137ed9201afdeb21735a29b`;
+the built source-tree hash remained unchanged when the commit was recorded.
+Freshness and source/product provenance checks pass. Product SHA-256:
+`0da393abce7e82920db3560cd15aed93642c23df6d185099011caea1aeb0a740`.
+Runtime object SHA-256:
+`d6f6e22e02740dfdf3a2d1461660e726a9ea5ef211a4ddda29b14ef5329dc9f3`.
+The prover pin advanced to that compiler in proof commit `03d515d4`; its new
+complete CLI build is running and is not yet qualification evidence.
+
+Stage1 interface emission accepts the generic darray protocol positive and
+preserves tied signatures. Direct non-generic wrong-owner and function-local
+escape negatives refuse. An uninstantiated generic wrong-owner function is
+still accepted by interface emission; concrete generic object-call reductions
+decline before useful lifetime diagnostics. Stage0 rejects that generic
+wrong-owner body, but this does not qualify Stage1 generic call-site safety.
+Complete that negative and concrete dispatch code generation before closing
+the protocol gap.
 
 These reductions do not establish full std compatibility, sound interface
 dispatch, proof authentication or runtime ownership. Failed seed attempts
-emitted no new product; earlier binaries cannot qualify the repaired source.
+cannot qualify their source, even when they emitted an intermediate product.
 
 ## Required repair and qualification
 
