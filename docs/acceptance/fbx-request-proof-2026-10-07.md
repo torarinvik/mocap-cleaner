@@ -81,3 +81,12 @@ Live input hashes still matched after compilation. No runtime was linked or
 executed, and this is not authenticated proof or native descriptor-identity
 evidence. Refresh the frozen qualification closure before qualifying this fix;
 v4 remains evidence for its earlier input snapshot.
+
+Commit `a8ec477` additionally requires source and snapshot descriptor identities
+to differ: distinct names alone cannot exclude a hard link. It adds a refusal
+law for matching device/inode pairs and an admitted-identity consequence law.
+The frozen three-file graph compiled at O0 with product `16a373d5`, exit 0,
+in `build/fbx-snapshot-identity-law-rdnxbwlj/`, object SHA-256
+`805b8130c059ff46c67c2c0679235a85ff4bd09790a9aa45d810015469a275aa`.
+Inputs still matched after compilation. Runtime, authenticated proof and native
+correspondence remain unqualified; refresh the qualification snapshot again.
