@@ -77,6 +77,7 @@ def snapshot(project, engine, ui, compiler):
         project / "scripts/package_studio_app.sh",
         project / "tools/studio_verify_ufbx.py",
         project / "tools/studio_verify_fbx_abi.py",
+        project / "tools/studio_verify_cleanup_abi.py",
         engine / "scripts/fetch_dependencies.py",
         engine / "dependencies/ufbx/ufbx.c",
         engine / "dependencies/ufbx/ufbx.h",

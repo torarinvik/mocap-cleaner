@@ -68,6 +68,17 @@ No caller pointer is retained.
 
 ## Extent gaps requiring an additive bridge
 
+The build runs `tools/studio_verify_cleanup_abi.py PROJECT ENGINE` before native
+compilation. It compares all 16 listed Elisa declarations with the corresponding
+C headers: return width, ordered parameter widths, pointer constness, arity and
+explicit C calling convention. Unknown parameter syntax, duplicate symbols and
+missing prototypes refuse the guard. The guard currently passes after restoring
+the accidentally omitted candidate-row error-buffer parameter in `b6c260e`.
+Its own source is part of the build input identity. This narrow comparison does
+not prove semantic argument roles when types coincide, implementation/header
+agreement, buffer extents, lifetime or native behavior; fresh native compilation
+and the remaining qualification cases are still required.
+
 The current C ABI has no explicit length for input C strings and no capacity
 argument for scalar out pointers or the eight fixed-size candidate digest
 buffers. The Elisa adapters validate their own fixed request arrays and pass
