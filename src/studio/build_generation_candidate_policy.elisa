@@ -24,6 +24,7 @@ module StudioBuildGenerationCandidatePolicy:
             Partial = 3
             RecoveryRequired = 4
             Unknown = 5
+            Cancelled = 6
 
         const enum RecoveryAction of i64:
             Inspect = 0
@@ -51,22 +52,29 @@ module StudioBuildGenerationCandidatePolicy:
             selectable: bool
 
         struct Model:
-            inventory_revision: i64
-            candidate_count: i64
-            page_index: i64
-            page_count: i64
-            selected_count: i64
-            selected_bytes: i64
-            review_state: ReviewState
-            reviewed_revision: i64
-            confirmed_revision: i64
-            progress_state: ProgressState
-            progress_total: i64
-            progress_completed: i64
-            progress_failed: i64
-            progress_untouched: i64
-            current_index: i64
-            recovery_action: RecoveryAction
+            inventory_revision: mutable i64
+            candidate_count: mutable i64
+            page_index: mutable i64
+            page_count: mutable i64
+            selected_count: mutable i64
+            selected_bytes: mutable i64
+            review_state: mutable ReviewState
+            reviewed_revision: mutable i64
+            confirmed_revision: mutable i64
+            progress_state: mutable ProgressState
+            progress_total: mutable i64
+            progress_completed: mutable i64
+            progress_failed: mutable i64
+            progress_untouched: mutable i64
+            current_index: mutable i64
+            cancel_requested: mutable bool
+            recovery_action: mutable RecoveryAction
+
+        def initial_model() -> Model:
+            ensure result.candidate_count == 0 and result.selected_count == 0 and result.selected_bytes == 0
+            ensure result.review_state == ReviewState.Fresh and result.reviewed_revision == -1 and result.confirmed_revision == -1
+            ensure model_valid(result)
+            Model{inventory_revision: 0, candidate_count: 0, page_index: 0, page_count: 0, selected_count: 0, selected_bytes: 0, review_state: ReviewState.Fresh, reviewed_revision: -1, confirmed_revision: -1, progress_state: ProgressState.Idle, progress_total: 0, progress_completed: 0, progress_failed: 0, progress_untouched: 0, current_index: -1, cancel_requested: false, recovery_action: RecoveryAction.None}
 
         def identity_valid(artifact_id: darray[u8]&) -> bool:
             ensure result implies artifact_id.count > 0 and artifact_id.count <= Capacity::MAX_ID_BYTES
@@ -144,7 +152,12 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result.selected implies result.selectable
             protection: StudioBuildGenerationPolicy::Protection = StudioBuildGenerationPolicy::protection_reason(candidate.facts)
             eligible: bool = protection == StudioBuildGenerationPolicy::Protection.None
-            RowProjection{artifact_id: candidate.artifact_id, relative_path: candidate.relative_path, artifact: candidate.facts.artifact, state: candidate.facts.state, age_days: candidate.facts.age_days, size_bytes: candidate.facts.size_bytes, protection: protection, selected: selected and eligible, selectable: eligible}
+            RowProjection{artifact_id: candidate.artifact_id, relative_path: candidate.relative_path, artifact: candidate.facts.artifact, state: candidate.facts.state, age_days: candidate.facts.age_days, size_bytes: candidate.facts.size_bytes, protection: protection, selected: selected_projection_allowed(protection, selected), selectable: eligible}
+
+        def selected_projection_allowed(protection: StudioBuildGenerationPolicy::Protection,
+                                        requested_selection: bool) -> bool:
+            ensure result implies protection == StudioBuildGenerationPolicy::Protection.None
+            requested_selection and protection == StudioBuildGenerationPolicy::Protection.None
 
         # A fresh scan replaces the visible set and invalidates review and
         # confirmation, even if the row count happens to remain unchanged.
@@ -161,10 +174,15 @@ module StudioBuildGenerationCandidatePolicy:
         def selection_toggle_allowed(candidate: Candidate&, selected: bool,
                                      selected_count: i64, selected_bytes: i64) -> bool:
             return false if not candidate_valid(candidate)
-            return false if selected_count < 0 or selected_count > Capacity::MAX_CANDIDATES
-            return false if selected_bytes < 0 or selected_bytes > StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
             return true if selected
-            StudioBuildGenerationPolicy::eligible(candidate.facts) and selected_count < Capacity::MAX_CANDIDATES and candidate.facts.size_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES - selected_bytes
+            StudioBuildGenerationPolicy::eligible(candidate.facts) and selection_count_allows_add(selected_count, candidate.facts.size_bytes, selected_bytes)
+
+        def selection_count_allows_add(selected_count: i64, item_bytes: i64,
+                                       selected_bytes: i64) -> bool:
+            ensure result implies selected_count >= 0 and selected_count < Capacity::MAX_CANDIDATES
+            ensure result implies item_bytes >= 0 and selected_bytes >= 0
+            ensure result implies item_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES - selected_bytes
+            selected_count >= 0 and selected_count < Capacity::MAX_CANDIDATES and item_bytes >= 0 and selected_bytes >= 0 and selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES and item_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES - selected_bytes
 
         def must_remove_after_refresh(selected: bool, fresh_identity_matches: bool,
                                       fresh_candidate_valid: bool,
@@ -172,12 +190,14 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result == (selected and (not fresh_identity_matches or not fresh_candidate_valid or not fresh_eligible))
             selected and (not fresh_identity_matches or not fresh_candidate_valid or not fresh_eligible)
 
-        def selection_revision_matches(identities: darray[Identity]&, candidate_ids: darray[Identity]&) -> bool:
-            ensure result implies identities_valid(identities) and identities_valid(candidate_ids)
-            return false if not identities_valid(identities) or not identities_valid(candidate_ids)
-            return false if identities.count != candidate_ids.count
-            for identity in identities:
-                return false if not identity_selected(candidate_ids, identity.artifact_id)
+        # Compare the identity set reviewed by the user with the current
+        # selected identity set. Inventory rows are never substituted here.
+        def selection_revision_matches(reviewed_identities: darray[Identity]&, current_selection: darray[Identity]&) -> bool:
+            ensure result implies identities_valid(reviewed_identities) and identities_valid(current_selection)
+            return false if not identities_valid(reviewed_identities) or not identities_valid(current_selection)
+            return false if reviewed_identities.count != current_selection.count
+            for identity in reviewed_identities:
+                return false if not identity_selected(current_selection, identity.artifact_id)
             true
 
         def review_allowed(candidate_count: i64, selected_count: i64,
@@ -216,7 +236,7 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result implies failed >= 0 and failed <= total
             ensure result implies untouched >= 0 and untouched <= total
             ensure result implies completed + untouched <= total
-            state >= ProgressState.Idle and state <= ProgressState.Unknown and total >= 0 and total <= Capacity::MAX_CANDIDATES and completed >= 0 and completed <= total and failed >= 0 and failed <= total and untouched >= 0 and untouched <= total and completed + untouched <= total and (current_index == -1 or current_index >= 0 and current_index < total)
+            state >= ProgressState.Idle and state <= ProgressState.Cancelled and total >= 0 and total <= Capacity::MAX_CANDIDATES and completed >= 0 and completed <= total and failed >= 0 and failed <= total and untouched >= 0 and untouched <= total and completed + untouched <= total and (current_index == -1 or current_index >= 0 and current_index < total)
 
         def model_valid(model: Model) -> bool:
             ensure result implies count_valid(model.candidate_count) and page_index_valid(model.candidate_count, model.page_index)
@@ -225,18 +245,128 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result implies progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index)
             count_valid(model.candidate_count) and page_index_valid(model.candidate_count, model.page_index) and model.inventory_revision >= 0 and model.selected_count >= 0 and model.selected_count <= model.candidate_count and model.selected_bytes >= 0 and model.selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES and progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index) and model.review_state >= ReviewState.Fresh and model.review_state <= ReviewState.Confirmed and model.confirmed_revision >= -1 and model.reviewed_revision >= -1
 
+        # Refresh always drops selection accounting and invalidates both review
+        # tokens. The controller clears its identity array when this succeeds.
+        def refresh_model(model: mutable Model&, next_revision: i64,
+                          candidate_count: i64) -> bool:
+            ensure result implies next_revision > model.inventory_revision
+            ensure result implies model.review_state == ReviewState.Fresh
+            ensure result implies model.selected_count == 0 and model.selected_bytes == 0
+            return false if model.progress_state == ProgressState.Running
+            return false if not refresh_revision(model.inventory_revision, next_revision, candidate_count)
+            model.inventory_revision <- next_revision
+            model.candidate_count <- candidate_count
+            model.page_count <- page_count(candidate_count)
+            model.page_index <- 0
+            model.selected_count <- 0
+            model.selected_bytes <- 0
+            model.review_state <- ReviewState.Fresh
+            model.reviewed_revision <- -1
+            model.confirmed_revision <- -1
+            true
+
+        def set_page(model: mutable Model&, page_index: i64) -> bool:
+            ensure result implies page_index_valid(model.candidate_count, page_index)
+            return false if not page_index_valid(model.candidate_count, page_index)
+            model.page_index <- page_index
+            true
+
+        def record_selection(model: mutable Model&, selected_count: i64,
+                             selected_bytes: i64) -> bool:
+            ensure result implies selected_count >= 0 and selected_count <= model.candidate_count
+            ensure result implies model.review_state == ReviewState.Fresh
+            return false if model.progress_state == ProgressState.Running
+            return false if selected_count < 0 or selected_count > model.candidate_count or selected_bytes < 0 or selected_bytes > StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
+            model.selected_count <- selected_count
+            model.selected_bytes <- selected_bytes
+            model.review_state <- ReviewState.Fresh
+            model.reviewed_revision <- -1
+            model.confirmed_revision <- -1
+            true
+
+        def begin_review(model: mutable Model&, reviewed_identities: darray[Identity]&,
+                         current_selection: darray[Identity]&) -> bool:
+            ensure result implies model.review_state == ReviewState.Reviewing
+            ensure result implies model.reviewed_revision == model.inventory_revision
+            return false if not model_valid(model) or model.progress_state == ProgressState.Running or not review_allowed(model.candidate_count, model.selected_count, model.selected_bytes, model.inventory_revision)
+            return false if not selection_revision_matches(reviewed_identities, current_selection)
+            model.review_state <- ReviewState.Reviewing
+            model.reviewed_revision <- model.inventory_revision
+            model.confirmed_revision <- -1
+            true
+
+        def confirm_review(model: mutable Model&, reviewed_identities: darray[Identity]&,
+                           current_selection: darray[Identity]&, protection_facts_fresh: bool) -> bool:
+            ensure result implies model.review_state == ReviewState.Confirmed
+            ensure result implies model.confirmed_revision == model.inventory_revision
+            return false if not may_confirm(model.review_state, model.reviewed_revision, model.inventory_revision, model.selected_count, selection_revision_matches(reviewed_identities, current_selection), protection_facts_fresh)
+            model.review_state <- ReviewState.Confirmed
+            model.confirmed_revision <- model.inventory_revision
+            true
+
+        def begin_progress(model: mutable Model&, reviewed_identities: darray[Identity]&,
+                           current_selection: darray[Identity]&, all_selected_still_eligible: bool,
+                           no_recovery_required: bool, no_transaction_active: bool) -> bool:
+            ensure result implies model.progress_state == ProgressState.Running
+            ensure result implies model.progress_total == model.selected_count
+            return false if not may_start(model.review_state, model.reviewed_revision, model.confirmed_revision, model.inventory_revision, model.selected_count, selection_revision_matches(reviewed_identities, current_selection), all_selected_still_eligible, no_recovery_required, no_transaction_active)
+            model.progress_state <- ProgressState.Running
+            model.progress_total <- model.selected_count
+            model.progress_completed <- 0
+            model.progress_failed <- 0
+            model.progress_untouched <- model.selected_count
+            model.current_index <- 0
+            model.cancel_requested <- false
+            true
+
+        def request_cancel(model: mutable Model&) -> bool:
+            ensure result implies model.progress_state == ProgressState.Running
+            return false if model.progress_state != ProgressState.Running
+            model.cancel_requested <- true
+            true
+
+        # Unknown location excludes the active item from untouched accounting;
+        # known recovery-required results stop after recording that item.
+        def record_progress_item(model: mutable Model&, item_known: bool,
+                                 item_failed: bool, recovery_required: bool) -> bool:
+            ensure result implies progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index)
+            return false if model.progress_state != ProgressState.Running or model.current_index < 0 or model.current_index >= model.progress_total
+            mutable next_completed: i64 = model.progress_completed
+            mutable next_failed: i64 = model.progress_failed
+            mutable next_untouched: i64 = model.progress_untouched
+            mutable next_index: i64 = model.current_index
+            mutable state_after: ProgressState = model.progress_state
+            if not item_known:
+                next_untouched <- model.progress_total - model.current_index - 1
+                state_after <- ProgressState.Unknown
+            else:
+                next_completed <- model.progress_completed + 1
+                next_failed <- model.progress_failed + (1 if item_failed or recovery_required else 0)
+                next_untouched <- model.progress_total - next_completed
+                state_after <- next_progress(model.progress_state, item_known, item_failed, recovery_required, model.cancel_requested, model.progress_completed, model.progress_total)
+                next_index <- next_completed if state_after == ProgressState.Running else (-1 if state_after == ProgressState.Complete or state_after == ProgressState.Partial or state_after == ProgressState.Cancelled else model.current_index)
+            model.progress_state <- state_after
+            model.progress_completed <- next_completed
+            model.progress_failed <- next_failed
+            model.progress_untouched <- next_untouched
+            model.current_index <- next_index
+            true
+
         def next_progress(state: ProgressState, item_known: bool,
                           item_failed: bool, recovery_required: bool,
-                          completed: i64, total: i64) -> ProgressState:
+                          cancel_requested: bool, completed: i64,
+                          total: i64) -> ProgressState:
             requires total >= 1 and total <= Capacity::MAX_CANDIDATES
             requires completed >= 0 and completed < total
             ensure state != ProgressState.Running or item_known or result == ProgressState.Unknown
             ensure state != ProgressState.Running or not recovery_required or result == ProgressState.RecoveryRequired
+            ensure state != ProgressState.Running or not item_known or completed + 1 == total or not cancel_requested or result == ProgressState.Cancelled
             return state if state != ProgressState.Running
             return ProgressState.Unknown if not item_known
             return ProgressState.RecoveryRequired if recovery_required
             return ProgressState.Partial if item_failed and completed + 1 == total
             return ProgressState.Complete if completed + 1 == total
+            return ProgressState.Cancelled if cancel_requested
             ProgressState.Running
 
         def recovery_action(reconciled: bool, outcome_known: bool,
