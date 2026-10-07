@@ -145,3 +145,23 @@ load past a possible source mutation would change semantics. Qualify any
 repair with snapshot-mutation, contract success/failure and aggregate ownership
 controls, then recompile the complete current graph. This reducer supplies a
 specific optimization lead; it does not establish the only full-build hotspot.
+
+## Frozen-snapshot representation diagnostic
+
+A hand-transformed copy of the extracted LLVM replaces twelve large SSA
+load/store pairs with dedicated stack snapshots. Each snapshot memmove occurs
+at the original load point; its final memmove occurs at the original sret
+store point. Contract checks, deferred actions and intervening control flow
+retain their positions. This avoids rereading the original source after those
+actions and does not reuse the contract's `result` slot as immutable storage.
+
+Running SROA and LLVM verification on this diagnostic exits 0. The transformed
+output has 1,826 lines and 118,524 bytes, compared with the original SROA output's
+281,736 lines and 36,736,320 bytes. Exact substitutions, command and hashes are
+retained in `build/studio-opt-isolation-20261007/capture-frozen-snapshots-record.json`.
+Transformed input SHA-256:
+`28d6b86fb5d7d77818e8669d75eacdad00190178d15c451a327b9fcf1d5ef2b2`.
+This is an LLVM representation experiment, not a compiler implementation or
+runtime-equivalence proof. The compiler repair must still cover all return
+paths, ownership, snapshot mutations and contract failures, then qualify the
+complete current application graph without this hand transformation.
