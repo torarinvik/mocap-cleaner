@@ -12,7 +12,7 @@ extend Studio:
 
         global mutable prepared_report_open: bool = false
         global mutable prepared_report_snapshot: StudioExportBatchDisplayProjection::Snapshot = zeroed
-        global mutable prepared_report_model: StudioExportBatchReportView::Model = zeroed
+        global mutable prepared_report_model: StudioExportBatchReportView::Model? = null
         global mutable prepared_report_ticket: StudioExportBatchWarningReviewPolicy::Ticket = zeroed
         global mutable prepared_report_page: usize = 0
         global mutable prepared_report_layout: bool = false
@@ -36,7 +36,7 @@ extend Studio:
             prepared_report_page <- 0
             prepared_report_ticket <- StudioExportBatchWarningReviewPolicy::Ticket{epoch: -1, index: -1, attempt: 0}
             prepared_report_snapshot <- zeroed
-            prepared_report_model <- StudioExportBatchReportView::create()
+            prepared_report_model <- null
             prepared_report_message <- ""
             prepared_report_focus <- StudioExportBatchWarningReviewPolicy::Control.Back
             prepared_report_buffer <- zeroed
@@ -48,14 +48,20 @@ extend Studio:
             prepared_report_lines <- 0
             # Only open/close replace this private model; paging never mutates it.
             return if not prepared_report_model_valid
-            return if StudioExportBatchReportView::status(prepared_report_model) != StudioExportBatchReportView::Status.Ready
-            pages: usize = StudioExportBatchReportView::page_count(prepared_report_model)
+            # The model is created and validated once at open, then only read
+            # until close; paging must not rescan its report bytes.
+            if prepared_report_model is model:
+                cache_prepared_report_page_for(model)
+
+        def cache_prepared_report_page_for(model: StudioExportBatchReportView::Model&) -> void can[Unsafe.PointerCast, Memory.Allocate]:
+            return if StudioExportBatchReportView::status(model) != StudioExportBatchReportView::Status.Ready
+            pages: usize = StudioExportBatchReportView::page_count(model)
             return if prepared_report_page >= pages
-            start: usize = StudioExportBatchReportView::page_start(prepared_report_model, prepared_report_page)
-            count: usize = StudioExportBatchReportView::page_segment_count(prepared_report_model, prepared_report_page)
+            start: usize = StudioExportBatchReportView::page_start(model, prepared_report_page)
+            count: usize = StudioExportBatchReportView::page_segment_count(model, prepared_report_page)
             return if count > PreparedReportPage::ROWS
             for row in 0..<count |row, start|:
-                span: StudioExportBatchReportView::Segment = StudioExportBatchReportView::segment(prepared_report_model, start + row)
+                span: StudioExportBatchReportView::Segment = StudioExportBatchReportView::segment(model, start + row)
                 return if span.byte_count > PreparedReportPage::LINE_BYTES or span.byte_start > prepared_report_snapshot.warning_text_bytes.count
                 return if span.byte_count > prepared_report_snapshot.warning_text_bytes.count - span.byte_start
                 prepared_report_lengths[row] <- span.byte_count
@@ -77,10 +83,11 @@ extend Studio:
                 mutable parsed_warnings: i64 = 0
                 prepared_report_format_valid <- StudioExportReportWarningParser::warning_count(snapshot.warning_json_bytes, snapshot.warning_text_bytes, &parsed_warnings) and parsed_warnings == snapshot.warning_count
                 prepared_report_ticket <- StudioExportBatchWarningReviewPolicy::Ticket{epoch: prepared_revision, index: index, attempt: snapshot.attempt}
-                prepared_report_model <- StudioExportBatchReportView::create()
+                mutable loaded_model: StudioExportBatchReportView::Model = StudioExportBatchReportView::create()
                 prepared_report_model_valid <- false
-                loaded: StudioExportBatchReportView::Status = StudioExportBatchReportView::load(&prepared_report_model, prepared_report_snapshot.warning_text_bytes)
-                prepared_report_model_valid <- StudioExportBatchReportView::valid(prepared_report_model)
+                loaded: StudioExportBatchReportView::Status = StudioExportBatchReportView::load(&loaded_model, prepared_report_snapshot.warning_text_bytes)
+                prepared_report_model_valid <- StudioExportBatchReportView::valid(loaded_model)
+                prepared_report_model <- move loaded_model
                 prepared_report_page <- 0
                 prepared_report_open <- true
                 prepared_report_message <- StudioExportBatchReportView::refusal_message(loaded)
@@ -111,7 +118,7 @@ extend Studio:
             return false if prepared_report_snapshot.approved
             return false if not prepared_report_layout or not prepared_report_format_valid or not prepared_report_current(false)
             StudioExportBatchWarningReviewPolicy::acknowledge_admitted(prepared_report_ticket, prepared_report_ticket,
-                true, StudioExportBatchReportView::status(prepared_report_model) == StudioExportBatchReportView::Status.Ready,
+                true, StudioExportBatchReportView::status_if_present(prepared_report_model) == StudioExportBatchReportView::Status.Ready,
                 prepared_report_snapshot.warning_count, true)
 
         def acknowledge_prepared_report() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
@@ -140,13 +147,14 @@ extend Studio:
             touch()
 
         def prepared_report_previous() -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            return if prepared_report_page == 0
+            pages: usize = StudioExportBatchReportView::page_count_if_present(prepared_report_model)
+            return if pages == 0 or prepared_report_page == 0 or prepared_report_page >= pages
             prepared_report_page <- prepared_report_page - 1
             cache_prepared_report_page()
             touch()
 
         def prepared_report_next() -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            return if prepared_report_page + 1 >= StudioExportBatchReportView::page_count(prepared_report_model)
+            return if prepared_report_page + 1 >= StudioExportBatchReportView::page_count_if_present(prepared_report_model)
             prepared_report_page <- prepared_report_page + 1
             cache_prepared_report_page()
             touch()
@@ -156,8 +164,8 @@ extend Studio:
             UiText::unsafe_sview_bounded_bytes(&prepared_report_buffer[row * PreparedReportPage::LINE_BYTES], prepared_report_lengths[row])
 
         def prepared_report_controls() -> StudioExportBatchWarningReviewPolicy::Controls:
-            pages: usize = StudioExportBatchReportView::page_count(prepared_report_model)
-            StudioExportBatchWarningReviewPolicy::Controls{previous: prepared_report_page > 0,
+            pages: usize = StudioExportBatchReportView::page_count_if_present(prepared_report_model)
+            StudioExportBatchWarningReviewPolicy::Controls{previous: pages > 0 and prepared_report_page > 0 and prepared_report_page < pages,
                 next: pages > 0 and prepared_report_page + 1 < pages,
                 acknowledge: prepared_report_ack_available()}
 
@@ -184,7 +192,7 @@ extend Studio:
         def draw_prepared_report(w: f32, h: f32) -> void:
             return if not prepared_report_open
             StudioPanels::export_batch_report_panel(w, h, prepared_report_line_views,
-                prepared_report_page, StudioExportBatchReportView::page_count(prepared_report_model),
+                prepared_report_page, StudioExportBatchReportView::page_count_if_present(prepared_report_model),
                 prepared_report_focus, prepared_report_controls(), prepared_report_message)
 
         def prepared_report_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
