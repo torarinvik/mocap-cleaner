@@ -288,10 +288,12 @@ qualifies the integrated application or native workflow.
       ellipses must never be presented as complete paths. Qualify node IDs
       100–113 against the full native tree, text capacities and widget exhaustion;
       source-level range checks alone do not establish native usability.
-- [ ] Replace scalar-count-only path segmentation with one retained model
-      shared by drawing and accessibility. Pack complete grapheme clusters using
-      the active text-width provider, the actual row width and an explicit
-      margin, while preserving exact original byte offsets and node text budgets.
+- [ ] Integrate `StudioExportBatchDestinationPathLineModel` through a qualified
+      UI adapter shared by drawing and accessibility. Supply complete grapheme
+      units and whole-substring measurements from the active text-width provider,
+      the actual row width and an explicit margin. Preserve exact original byte
+      offsets and node text budgets. The uncomposed model and law graph compile;
+      that evidence does not qualify adapter boundaries or native rendering.
       Qualify combining marks, joined emoji, fallback fonts and changes in scale
       or width. A cluster larger than a text node's budget needs an explicit,
       faithful inspection fallback; do not silently split, omit or normalize
