@@ -191,6 +191,10 @@ An O0 source compile with the matched d2754a8e compiler exited zero and emitted
 814400 bytes at `build/correction-refusal-current/laws.o`; this live-source
 compile is not a frozen qualification or proof result. Authenticated replay,
 successful-write atomicity and native unchanged-history evidence remain open.
+The byte-span calculation now uses `StorageRangePolicy::float_span_length`;
+four additional integer obligations cover invalid dimensions, starts beyond
+the buffer, oversized counts and admitted lengths staying within the buffer.
+Policy and correction-refusal graphs compile with d2754a8e; replay is pending.
 
 The preflight also refuses overlapping GLB byte spans among distinct tracks,
 and bounds each span before multiplying its key/component counts. Half-open
