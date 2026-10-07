@@ -167,6 +167,15 @@ channels or inserting keys remains separate unfinished work.
 
 ### Endpoint no-op qualification
 
+Gizmo release also refuses an exactly identity correction before history
+insertion, including pointer movement that produces no transform change.
+The predicate uses exact component equality and introduces no tolerance that
+would suppress a small intended edit. Three identity/refusal laws compile
+under the immutable 22cf diagnostic compiler; authenticated floating-point
+proofs and native unchanged-history behavior remain open. Nonidentity
+corrections that quantize or evaluate to unchanged output need separate
+evaluation-based no-op detection.
+
 The typed frame dispatcher now closes an unchanged endpoint draft with
 explicit feedback, without committing history or rebuilding the preview.
 `StudioContactFramePolicy::changes_interval` rejects invalid plans and compares
