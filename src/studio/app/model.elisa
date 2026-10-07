@@ -18,6 +18,7 @@ include "../../ops/presets.elisa"
 include "../../ops/rig_cache.elisa"
 include "../../physics/rig_physics.elisa"
 include "../overlay_policy.elisa"
+include "../balance_status_policy.elisa"
 include "../source_fingerprint.elisa"
 include "../sample_clock.elisa"
 include "../state/perf_state.elisa"
@@ -27,11 +28,6 @@ extern clock() -> i64
 
 module StudioModel:
     public:
-        const enum BalanceAvailability of i64:
-            Unavailable = 0
-            Inapplicable = 1
-            Available = 2
-
         affine struct Clip:
             source: mutable GlbDocument::Document
             source_fingerprint: StudioSourceFingerprint::Fingerprint
@@ -66,7 +62,7 @@ module StudioModel:
             balance: mutable darray[i64]
             support: mutable darray[Geometry::Vec3]
             balance_ground: f32
-            balance_availability: BalanceAvailability
+            balance_availability: StudioBalanceStatusPolicy::Availability
             impossible_frames: i64
             source_impossible_frames: i64
             threshold: i64
@@ -159,7 +155,7 @@ module StudioModel:
             support: mutable darray[Geometry::Vec3]
             ground: mutable f32
             impossible: mutable i64
-            availability: mutable BalanceAvailability
+            availability: mutable StudioBalanceStatusPolicy::Availability
 
         # Hash the original bytes already held by GlbDocument. A failure to
         # maintain the bounded accumulator refuses the take instead of saving
@@ -201,7 +197,7 @@ module StudioModel:
                     slot: darray[i64] = StudioClip::slots(src, nodes)
                     sp: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
                     shortest: i64 = StudioPerf::shortest_keys(src, anim)
-                    mutable source_balance: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0, availability: BalanceAvailability.Unavailable}
+                    mutable source_balance: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0, availability: StudioBalanceStatusPolicy::Availability.Unavailable}
                     balance_of(&src, anim, frames, &source_balance)
                     m: Memo = Memo{pristine: src, source_fingerprint: source_fingerprint, anim: anim, frames: frames, nodes: nodes, slot: slot, source_problems: sp, bank: [], rig_cache: RigCache::new_cache(), shortest: shortest, threshold: threshold, source_impossible_frames: source_balance.impossible}
                     return move m
@@ -295,7 +291,7 @@ module StudioModel:
             ground: f32 = lowest(lf, rf)
             before: i64 = total(source_problems)
             after: i64 = total(problems)
-            mutable bal: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0, availability: BalanceAvailability.Unavailable}
+            mutable bal: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0, availability: StudioBalanceStatusPolicy::Availability.Unavailable}
             balance_of(&cleaned, anim, frames, &bal)
             t2: i64 = clock()
             src: GlbDocument::Document = GlbDocument::copy(&m.pristine)
@@ -443,10 +439,10 @@ module StudioModel:
             if contact_ok:
                 Physics::balance_frames(&rc, &coms, &left, &right, floor, length, &findings, &inside, &impossible)
             if findings.unavailable_ops > 0 or findings.inapplicable_ops > 0:
-                out.availability <- BalanceAvailability.Inapplicable if findings.inapplicable_ops > 0 and findings.unavailable_ops == 0
+                out.availability <- StudioBalanceStatusPolicy::Availability.Inapplicable if findings.inapplicable_ops > 0 and findings.unavailable_ops == 0
                 out.ground <- nan
                 return
-            out.availability <- BalanceAvailability.Available
+            out.availability <- StudioBalanceStatusPolicy::Availability.Available
             out.ground <- Physics::floor_metres(floor).f32()
             mutable w: Rig::World = Rig::empty_world()
             for f in 0..<frames |f, out, rc, contact_ok, left, right, coms, inside, impossible, w, absent|:
