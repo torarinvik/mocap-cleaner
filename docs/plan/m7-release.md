@@ -21,7 +21,8 @@
       classify bit masks or unrelated domains as enums. The 600-line gate is
       already implemented in `scripts/check_file_lengths.py` and called by
       `scripts/check.sh`. Validate public/private APIs and callers, then make
-      reviewed inventory results a regression gate without suppressing failing
+      reviewed inventory results pass the implemented `--check` regression gate
+      without suppressing failing
       proof gates. The inventory is review evidence, not semantic validation.
 - [ ] Extend focused state tests for command enablement, focus/text input,
       transactional drafts, dirty state, migration, capacities and job revisions.

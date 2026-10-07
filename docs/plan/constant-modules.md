@@ -30,7 +30,7 @@ and qualification. Completed source migrations are recorded in Git; the old
 module table and historical compile narratives have been removed from this
 remaining-work plan.
 
-- [ ] Re-run `scripts/inventory_constant_modules.py` after subsequent changes.
+- [ ] Re-run `scripts/inventory_constant_modules.py --check` after subsequent changes.
       Inspect its coverage before treating zero findings as sufficient: include
       extension owners, proof/test files, file-level declarations, generated
       inputs and visibility boundaries. The inventory cannot decide whether a
@@ -65,3 +65,9 @@ Current compile evidence and unresolved toolchain gates are tracked in
 [the pending qualification record](../acceptance/pending-policy-qualification-2026-10-06.md).
 New source changes must continue to follow these representation rules even
 after the current migration is qualified.
+
+The inventory now aggregates declarations from `module` and `extend` files by
+qualified owner, so a single declaration in each of two extension files cannot
+escape the grouping check. `scripts/check.sh` invokes its failing `--check`
+mode before compilation. The corrected current inventory reports zero findings.
+File-level declarations and semantic representation still require review.

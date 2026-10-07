@@ -4,6 +4,7 @@
 This is a lexical review inventory, not a substitute for semantic API review.
 Enum variants, const modules and function-local constants are excluded.
 """
+import argparse
 from collections import defaultdict
 from pathlib import Path
 import re
@@ -11,7 +12,7 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DECLARATION = re.compile(r"^(const\s+)?(module|enum)\s+([A-Za-z_]\w*)")
+DECLARATION = re.compile(r"^(const\s+)?(module|enum|extend)\s+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)")
 FUNCTION = re.compile(r"^(?:async\s+)?def\s+")
 CONSTANT = re.compile(r"^const\s+([A-Za-z_]\w*)\s*[:=]")
 
@@ -29,7 +30,7 @@ def candidates(content):
         declaration = DECLARATION.match(text)
         if declaration:
             const, kind, name = declaration.groups()
-            scopes.append((indent, kind, name, bool(const), number))
+            scopes.append((indent, "module" if kind == "extend" else kind, name, bool(const), number))
             continue
         if FUNCTION.match(text):
             scopes.append((indent, "function", "", False, number))
@@ -44,15 +45,19 @@ def candidates(content):
             continue
         owner = ("::".join(scope[2] for scope in modules), modules[-1][4])
         constants[owner].append((number, constant.group(1)))
-    return [(owner, values) for owner, values in constants.items() if len(values) > 1]
+    return list(constants.items())
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="fail when any owner has multiple ungrouped constants")
+    args = parser.parse_args()
     names = subprocess.check_output(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=ROOT,
     ).split(b"\0")
-    count = 0
+    owners = defaultdict(list)
     for encoded in sorted(set(names)):
         if not encoded:
             continue
@@ -63,11 +68,18 @@ def main():
         if not path.is_file():
             continue
         for (owner, line), values in candidates(path.read_text(encoding="utf-8")):
-            declarations = ", ".join(f"{symbol}@{number}" for number, symbol in values)
-            print(f"{name}:{line}: {owner}: {declarations}")
-            count += 1
+            owners[owner].extend((name, number, symbol) for number, symbol in values)
+    count = 0
+    for owner, values in sorted(owners.items()):
+        if len(values) < 2:
+            continue
+        declarations = ", ".join(f"{name}:{number}:{symbol}"
+                                 for name, number, symbol in values)
+        print(f"{owner}: {declarations}")
+        count += 1
     print(f"constant inventory: {count} module scopes require review")
-    return 0
+    return 1 if args.check and count else 0
+
 
 
 if __name__ == "__main__":
