@@ -83,3 +83,21 @@ the accessibility policy and law graph emitted fresh O0 objects of 256,936 and
 263,240 bytes. Independent proof replay, app composition and native interaction
 acceptance remain open. These inspector failures do not establish a compiler
 module-ownership collision.
+
+The integrated run on frozen app graph `f3a4aa0` reached semantic analysis and
+exited 1 without an object. Its 31 diagnostics reported unresolved short
+`Geometry` ownership in the sidebar, missing `nul_terminated` in the capture
+extension, an expression-scoped optional binding, and a private predicate used
+by the global native callback. Root checked the source/product snapshot after
+the compiler process disappeared and before editing: the check exited 0. A
+later agent check ran after the sidebar repair and correctly detected that edit;
+it does not invalidate the earlier terminal snapshot check.
+
+Repairs `f66f666` and `033980b` qualify the sidebar constant owner and expose only
+the read-only modal predicate. `51ffbe5` supplies bounded owned native-path
+storage with four laws; its fresh O0 law graph is 12,656 bytes with all four law
+symbols. `b1bde51` uses that helper, refuses rejected storage before indexing,
+and binds the live optional clip in an explicit statement before comparing its
+animation to the captured animation ID. The new full compile must qualify these
+repairs together. Standalone objects do not establish integrated success, and
+the new conversion laws still require independent proof replay.
