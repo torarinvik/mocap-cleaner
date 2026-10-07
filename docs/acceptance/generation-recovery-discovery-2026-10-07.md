@@ -31,7 +31,7 @@ clang -fsyntax-only -fobjc-arc -Wall -Wextra -Werror -O2 \
   native/studio_build_generation_recovery_discovery_appkit.m
 ```
 
-Ten discovery law declarations compile as an object with the selected
+Fourteen discovery law declarations compile as an object with the selected
 `e34f2c0656aac1232ad72da6516c7eb89f866a47` compiler. No executable tests or
 authenticated proofs were run for this slice. Native object registration has
 shell syntax and diff checks; full Studio linking/package closure is pending
@@ -47,14 +47,19 @@ before enabling Restore; capture keyboard and VoiceOver journeys through
 unresolved, busy, conflicting and recoverable records. Preserve all receipts
 and source takes during qualification.
 
-## Interrupted receipt publication remains unresolved
+## Interrupted receipt metadata discovery
 
 The receipt updater stages `.pending-<operation>-<random>` and uses
 `RENAME_SWAP` before unlinking the previous receipt. A crash can retain that
-pending file even when the canonical receipt is valid. Discovery currently
-refuses any unknown name, so this case blocks listing all receipts. This is
-protected behavior, not complete restart recovery. Add bounded inspection of
-pending records that preserves both files and distinguishes discoverable
-canonical receipts from unresolved metadata. Do not silently delete or promote
-the pending file. Qualify crashes before swap, after swap and before/after
-directory fsync and unlink before closing restart recovery.
+pending file even when the canonical receipt is valid. Engine commits
+`3d00943e`, `e1e9d1d4` and primary `8d88973` now recognize the exact staged
+filename format and expose its count separately as unresolved metadata. Empty
+staging files remain discoverable. Operation IDs from staged and canonical
+entries are deduplicated; no pending payload is parsed, deleted or promoted.
+Unknown names still refuse discovery. A complete enumeration does not imply
+resolved receipt metadata. The UI must show the unresolved count and reconcile
+each selected operation through its canonical receipt before enabling Restore.
+Native source and law-source compilation pass; crash execution and UI acceptance
+remain open. Qualify crashes before swap, after swap and before/after directory
+fsync and unlink before closing restart recovery. Safe resolution of pending
+files remains separate unfinished work.
