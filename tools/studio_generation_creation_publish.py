@@ -59,6 +59,14 @@ def publish(project, artifact, artifact_id):
                         lease_record_sha256=hashlib.sha256(sealed[4]).hexdigest())
         require(seal_record == expected and type(seal_record.get("revision")) is int and
                 type(seal_record.get("previous_revision")) is int, "sealed event differs")
+        # A completed or uncertain prior event must be reconciled, never replayed
+        # by republishing the pointer. Check before any namespace mutation.
+        try:
+            os.stat(artifact_id + Publication.suffix, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError("publication record already exists; reconcile before retry")
         prior = ((artifact_id + ".json", initial_payload, initial_facts),
                  (artifact_id + Event.suffix, started_payload, started_facts),
                  (artifact_id + Seal.suffix, seal_payload, seal_facts))
