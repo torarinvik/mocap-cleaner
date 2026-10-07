@@ -1,0 +1,106 @@
+# Pure admission policy for native FBX snapshot staging. These predicates
+# check evidence returned by native IO; they do not prove that C performed IO.
+# Native correspondence still requires qualification against the pinned engine.
+include "take_source_ref_policy.elisa"
+
+module StudioFbxStagingEvidencePolicy:
+    public:
+        const module Limit:
+            PATH_BYTES: usize = 4095
+            MAX_SOURCE_BYTES: u64 = 536870912
+
+        struct PathBinding:
+            source_expected: darray[u8]
+            source_observed: darray[u8]
+            snapshot_expected: darray[u8]
+            snapshot_observed: darray[u8]
+            runtime_expected: darray[u8]
+            runtime_observed: darray[u8]
+
+        struct FileIdentity:
+            descriptor_device: u64
+            descriptor_inode: u64
+            named_device: u64
+            named_inode: u64
+
+        struct CopyIntegrity:
+            source_sha256: darray[u8]
+            snapshot_sha256: darray[u8]
+            source_size: u64
+            copied_bytes: u64
+            source_version_unchanged: bool
+            source_read_complete: bool
+
+        struct StagingDurability:
+            exclusive_snapshot_create: bool
+            private_directory_owned: bool
+            snapshot_readonly: bool
+            snapshot_file_synced: bool
+            staging_directories_synced: bool
+            all_descriptors_closed: bool
+            original_write_absent: bool
+
+        struct Evidence:
+            paths: PathBinding
+            source_file: FileIdentity
+            snapshot_file: FileIdentity
+            copy: CopyIntegrity
+            staging: StagingDurability
+
+        def path_valid(path: darray[u8]&) -> bool:
+            return false if path.count == 0 or path.count > Limit::PATH_BYTES
+            for byte in path:
+                return false if byte == 0
+            true
+
+        def path_bound(expected: darray[u8]&, observed: darray[u8]&) -> bool:
+            (path_valid(expected) and path_valid(observed) and
+                StudioTakeSourceRefPolicy::bytes_equal(expected, observed))
+
+        def paths_bound(paths: PathBinding&) -> bool:
+            (path_bound(paths.source_expected, paths.source_observed) and
+                path_bound(paths.snapshot_expected, paths.snapshot_observed) and
+                path_bound(paths.runtime_expected, paths.runtime_observed) and
+                not StudioTakeSourceRefPolicy::bytes_equal(paths.source_observed, paths.snapshot_observed) and
+                not StudioTakeSourceRefPolicy::bytes_equal(paths.source_observed, paths.runtime_observed) and
+                not StudioTakeSourceRefPolicy::bytes_equal(paths.snapshot_observed, paths.runtime_observed))
+
+        def file_identity_bound(identity: FileIdentity&) -> bool:
+            (identity.descriptor_device == identity.named_device and
+                identity.descriptor_inode == identity.named_inode)
+
+        def copy_extent_valid(copy: CopyIntegrity&) -> bool:
+            (copy.source_size > 0 and copy.source_size <= Limit::MAX_SOURCE_BYTES and
+                copy.copied_bytes == copy.source_size and copy.source_read_complete)
+
+        def copy_digest_bound(copy: CopyIntegrity&) -> bool:
+            (StudioTakeSourceRefPolicy::sha256_valid(copy.source_sha256) and
+                StudioTakeSourceRefPolicy::sha256_valid(copy.snapshot_sha256) and
+                StudioTakeSourceRefPolicy::bytes_equal(copy.source_sha256, copy.snapshot_sha256))
+
+        # A positive result requires exact path binding, descriptor/name
+        # identity, stable bounded copy, private exclusive staging, readonly
+        # synced bytes, closed descriptors and no write to the original.
+        def stage_admitted(evidence: Evidence&) -> bool:
+            ensure result implies paths_bound(evidence.paths)
+            ensure result implies file_identity_bound(evidence.source_file)
+            ensure result implies file_identity_bound(evidence.snapshot_file)
+            ensure result implies copy_extent_valid(evidence.copy)
+            ensure result implies copy_digest_bound(evidence.copy)
+            ensure result implies evidence.copy.source_version_unchanged
+            ensure result implies evidence.staging.exclusive_snapshot_create
+            ensure result implies evidence.staging.private_directory_owned
+            ensure result implies evidence.staging.snapshot_readonly
+            ensure result implies evidence.staging.snapshot_file_synced
+            ensure result implies evidence.staging.staging_directories_synced
+            ensure result implies evidence.staging.all_descriptors_closed
+            ensure result implies evidence.staging.original_write_absent
+            (paths_bound(evidence.paths) and
+                file_identity_bound(evidence.source_file) and
+                file_identity_bound(evidence.snapshot_file) and
+                copy_extent_valid(evidence.copy) and copy_digest_bound(evidence.copy) and
+                evidence.copy.source_version_unchanged and
+                evidence.staging.exclusive_snapshot_create and
+                evidence.staging.private_directory_owned and evidence.staging.snapshot_readonly and
+                evidence.staging.snapshot_file_synced and evidence.staging.staging_directories_synced and
+                evidence.staging.all_descriptors_closed and evidence.staging.original_write_absent)
