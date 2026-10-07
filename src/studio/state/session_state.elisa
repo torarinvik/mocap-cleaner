@@ -32,30 +32,7 @@ include "session_issue_annotation_policy.elisa"
 include "session_impact_annotation_policy.elisa"
 include "../chrome.elisa"
 include "../../io/ops_file.elisa"
-
-const SESSION_PATH_CAPACITY: usize = 4096
-const SESSION_TEMP_CAPACITY: usize = 4128
-
-@link_name("mkstemp")
-extern session_mkstemp(path_template: u8&) -> i32 can[Blocking.IO]
-@link_name("fdopen")
-extern session_fdopen(descriptor: i32, mode: u8&) -> mutable heap void&? can[Blocking.IO, Memory.Allocate]
-@link_name("close")
-extern session_close(descriptor: i32) -> i32 can[Blocking.IO]
-@link_name("fwrite")
-extern session_fwrite(bytes: u8&, size: usize, count: usize, file: mutable heap void&) -> usize can[Blocking.IO]
-@link_name("fflush")
-extern session_fflush(file: mutable heap void&) -> i32 can[Blocking.IO]
-@link_name("fileno")
-extern session_fileno(file: mutable heap void&) -> i32 can[Blocking.IO]
-@link_name("fsync")
-extern session_fsync(descriptor: i32) -> i32 can[Blocking.IO]
-@link_name("fclose")
-extern session_fclose(file: mutable heap void&) -> i32 can[Blocking.IO, Memory.Release]
-@link_name("rename")
-extern session_rename(old_path: u8&, new_path: u8&) -> i32 can[Blocking.IO]
-@link_name("unlink")
-extern session_unlink(path: u8&) -> i32 can[Blocking.IO]
+include "session_state_io.elisa"
 
 module SessionState:
     public:
@@ -535,52 +512,6 @@ module SessionState:
             null
 
         def atomic_save(out: darray[u8]&, path: cstr) -> bool:
-            session_save_error <- SaveError.None.i64()
-            mutable path_length: usize = 0
-            while path_length < SESSION_PATH_CAPACITY and path[path_length] != 0:
-                path_length <- path_length + 1
-            if path_length == 0 or path_length >= SESSION_PATH_CAPACITY:
-                session_save_error <- SaveError.Path.i64()
-                return false
-            # Keep the temporary in the destination directory so rename is
-            # atomic on the destination filesystem. mkstemp replaces XXXXXX
-            # with a unique suffix and creates the file with private mode.
-            mutable temporary: u8[SESSION_TEMP_CAPACITY] = zeroed
-            for index in 0..<path_length |path, temporary|:
-                temporary[index] <- path[index]
-            suffix: cstr = ".mocap-tmp-XXXXXX"
-            mutable suffix_length: usize = 0
-            while suffix[suffix_length] != 0:
-                temporary[path_length + suffix_length] <- suffix[suffix_length]
-                suffix_length <- suffix_length + 1
-            temporary[path_length + suffix_length] <- 0
-            descriptor: i32 = session_mkstemp(&temporary[0])
-            if descriptor < 0:
-                session_save_error <- SaveError.Create.i64()
-                return false
-            file: mutable heap void&? = session_fdopen(descriptor, "wb".cast[u8&])
-            if file == null:
-                _ = session_close(descriptor)
-                _ = session_unlink(&temporary[0])
-                session_save_error <- SaveError.Create.i64()
-                return false
-            handle: mutable heap void& = file
-            mutable wrote: usize = 0
-            if out.count > 0:
-                wrote <- session_fwrite(&out[0], 1, out.count, handle)
-            flushed: i32 = session_fflush(handle)
-            file_descriptor: i32 = session_fileno(handle)
-            mutable synced: i32 = -1
-            if file_descriptor >= 0:
-                synced <- session_fsync(file_descriptor)
-            closed: i32 = session_fclose(handle)
-            if wrote != out.count or flushed != 0 or synced != 0 or closed != 0:
-                _ = session_unlink(&temporary[0])
-                session_save_error <- SaveError.Write.i64()
-                return false
-            committed: bool = session_rename(&temporary[0], path.cast[u8&]) == 0
-            if not committed:
-                _ = session_unlink(&temporary[0])
-                session_save_error <- SaveError.Commit.i64()
-                return false
-            true
+            result: SessionStateIo::SaveError = SessionStateIo::atomic_save(out, path)
+            session_save_error <- result.i64()
+            result == SessionStateIo::SaveError.None
