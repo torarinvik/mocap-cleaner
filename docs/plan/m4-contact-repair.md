@@ -152,6 +152,14 @@ and out-and-back drags, tool switching, repeated release and capacity usage.
 Pointer movement alone does not establish that a constrained pose changed;
 complete transform no-op detection separately with declared numerical bounds.
 
+Gizmo activation now checks the selected bone's requested rotation/translation
+channel before retaining a drag: the current evaluator needs an existing
+non-cubic key at that index. Missing channels, cubic interpolation and missing
+indices are explained instead of recording an ineffective correction. Four
+policy laws cover admission. Qualify actual channel extraction and native
+refusal; sparse and irregular sample times still need explicit timeline-to-key
+mapping. Creating channels or inserting keys remains separate unfinished work.
+
 
 ### Endpoint no-op qualification
 
