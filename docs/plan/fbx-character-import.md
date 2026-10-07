@@ -59,8 +59,10 @@ inspection. Source compilation does not establish these runtime results.
   publication and use after consuming a transition. Backend decline is not proof
   that an invalid program was rejected by the safety checker.
 - Keep raw extern declarations private to a bounded adapter. Use operation-specific
-  unsafe grants for raw calls and pointer conversion; do not grant general Unsafe
-  to controllers or treat annotations as proof of the native implementation.
+  `can` grants for raw calls and pointer conversion, retaining propagated tracking.
+  Reserve `trusted` for an explicitly justified boundary where tracking is
+  intentionally stopped. Do not grant general Unsafe to controllers or treat
+  annotations as proof of the native implementation.
 - Record each native declaration's target ABI, buffer extent, termination,
   initialization, mutation, pointer retention, blocking effects and error behavior.
   Express supported extern contracts and lifetime annotations accurately. The
