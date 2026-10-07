@@ -57,8 +57,11 @@ snapshot `.rev` to match that product, and recomputes the snapshot `src` plus
 `elisacore_std` digest against the product's recorded source-tree digest. It then
 exports the snapshot's `elisacore_std` path as
 `ELISA_STAGE1_RUNTIME_STD_ROOT`; a conflicting caller-supplied path is rejected.
-The selected path is part of the effective compiler environment and therefore
-the build identity. A byte-digest check of the retained `d2754a8e` snapshot
+The build rechecks this source identity before object-identity capture, each
+compiler launch, and sealing boundaries, including cache reuse. The legacy
+blanket `ELISA_STAGE1_RUNTIME_STD` flag is unset, so per-source scanner checks
+remain active. The selected path is part of the effective compiler environment
+and therefore the build identity. A byte-digest check of the retained `d2754a8e` snapshot
 matched its recorded source-tree hash, but the current candidate checkout has
 advanced beyond that product, so full provenance validation and a paired build
 are pending. The compiler wrapper must preserve this explicit selection only
