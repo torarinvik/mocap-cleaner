@@ -59,8 +59,8 @@ emitted a 21,944-byte object. These are source/native compile checks only;
 current full Studio linkage, Finder launch, lease contention/replacement
 behavior and cleanup-side exclusive acquisition remain unqualified. Legacy
 artifacts with no protocol record remain unknown and protected. Cleanup
-mutation remains unwired until exclusive-lease and recoverable receipt paths
-are implemented.
+mutation remains unwired pending controller integration and qualification of
+the native exclusive-lease and recoverable receipt paths.
 
 ## Explicit contents ownership inventory
 
@@ -91,3 +91,32 @@ Shell syntax, Python AST parsing and diff whitespace checks passed. No build,
 package execution, crash recovery, inventory tampering or cleanup mutation
 qualification is claimed for this integration yet. Native validation and
 current end-to-end qualification remain open.
+
+## Native adapter and creation-journal source progress
+
+Engine commit `c52023cea002f8295f72d0b304ed1f5743cc10e5` supplies the
+native move, Restore and reconciliation adapter. Primary commit `aadafd13`
+adds its native build/link inputs and bounded Elisa extern declarations. The
+adapter source includes descriptor-relative validation, retained locks,
+exclusive operation IDs, intent records and parent synchronization. This is
+implementation progress; controller integration, full linkage and native
+failure/restart acceptance are still open. The compile records for compiler
+`9667344c` above are now historical comparisons against current `cc657038`.
+
+Primary `ca94635` adds creation-journal transition contracts and seventeen
+laws. A Created journal can enter Building; a Building journal can become
+Failed or become Sealed with verified product evidence. Publication requires
+a verified seal and durable namespace publication. Only verified inactive
+builders can become Abandoned. Failed, Abandoned and Published records cannot
+restart or be reclassified through this policy. Contradictory active-owner and
+inactive-builder evidence refuses admission.
+
+Every advance requires matching positive revisions below the signed i64 limit,
+retained global/artifact exclusive locks, verified root/artifact/journal
+identities and a durable prior record. The next revision cannot wrap. Only
+confirmed durable phases map into the incomplete-generation cleanup policy;
+uncertain writes remain Unknown until native reconciliation. The functions
+authorize preparing an update; they do not prove a filesystem write succeeded.
+Initial journal creation, producer registration, durable persistence, startup
+reconciliation and cleanup integration remain to implement. These new laws
+have not yet compiled or received authenticated proof qualification.
