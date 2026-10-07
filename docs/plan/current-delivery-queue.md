@@ -20,8 +20,12 @@ The current compiler repair is not qualified for promotion. Clean source
 exact selected fact row and validates vector/span shape. Unresolved callees
 conservatively mark growable caller parameters. Review remains open for malformed
 global tables: an invalid caller row must refuse compilation, rather than let
-the fallback return without recording its arena requirement. Its fresh seed
-and regression qualification remain pending.
+the fallback return without recording its arena requirement. The fresh seed
+exits 0; product SHA-256 is
+`12e463a02e80b1fd6cf3fd0028d3feb0ec6f6fd19a859c57e11b0304fd9fdc8c`
+and independent provenance checking passes for its clean source snapshot.
+This product is diagnostic: the invalid-caller-row repair and a corrected
+owner fixture require another commit, seed and regression qualification.
 Mixed-owner callee lookups carry scalar table selectors,
 and error-family consumers project views locally. Diagnostic compile
 `build/descriptor-current-projection.log` exits 0 and emits an object with
