@@ -190,6 +190,13 @@ compiler/prover qualification; no native acceptance is claimed for this slice.
 Local retime, band removal, foot/hand toggles and blend controls now stop on
 commit refusal before publishing success feedback or clearing selection/focus.
 Other app callers and deferred draft admission remain under integration.
+Worker-active edits now retain an owned draft and base ticket, composing later
+edits through the draft stack without recording committed history. Worker drain
+validates the base, evaluates the draft and records/publishes only on success.
+Queued Undo/Redo retain typed intent and move the cursor only after evaluation;
+Undo cancels an existing draft first. A draft that returns to the committed
+stack adds no history. Save/close/dirty integration is still being completed,
+and current compiler/prover/native qualification of the full path remains open.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;

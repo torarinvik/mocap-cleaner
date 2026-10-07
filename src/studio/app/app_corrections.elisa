@@ -4,7 +4,61 @@ include "../edit_transaction_policy.elisa"
 
 extend Studio:
     private:
+        global mutable pending_edit_stack: StackState::Stack? = null
+        global mutable pending_edit_base: StudioEditTransactionPolicy::Base = zeroed
+        global mutable pending_edit_intent: StudioEditTransactionPolicy::Intent = StudioEditTransactionPolicy::Intent.Record
+
+        def pending_edit_active() -> bool:
+            pending_edit_stack != null
+
+        def discard_pending_edit() -> void:
+            pending_edit_stack <- null
+            pending_edit_base <- zeroed
+            pending_edit_intent <- StudioEditTransactionPolicy::Intent.Record
+            contact_preview_rebuild_pending <- false
+
+        def stage_pending_edit(s: StackState::Stack, intent: StudioEditTransactionPolicy::Intent) -> bool:
+            if pending_edit_active():
+                if not StudioEditTransactionPolicy::current(pending_edit_base, edit_transaction_base()):
+                    discard_pending_edit()
+                    status <- "Queued edit discarded because its source or history changed. Review the current result and try again."
+                    touch()
+                    return false
+            else:
+                pending_edit_base <- edit_transaction_base()
+            pending_edit_stack <- s
+            pending_edit_intent <- intent
+            contact_preview_rebuild_pending <- true
+            status <- "Edit queued for evaluation. Existing history and result remain unchanged until it succeeds."
+            status_file <- null
+            touch()
+            true
+
         def finish_deferred_rebuild() -> void:
+            if pending_edit_stack is draft:
+                current: bool = StudioEditTransactionPolicy::current(pending_edit_base, edit_transaction_base())
+                intent: StudioEditTransactionPolicy::Intent = pending_edit_intent
+                discard_pending_edit()
+                if not current:
+                    status <- "Queued edit discarded because its source or history changed. Existing edits kept."
+                    touch()
+                    return
+                mutable accepted: bool = false
+                if intent == StudioEditTransactionPolicy::Intent.Record:
+                    committed: StackState::Stack = HistoryState::current(&history)
+                    if StackState::same(draft, committed):
+                        status <- "Queued edits are unchanged. No history entry added."
+                        status_file <- null
+                        touch()
+                        return
+                    accepted <- commit(draft, true)
+                else:
+                    accepted <- apply_history_target(draft, intent == StudioEditTransactionPolicy::Intent.Redo)
+                if accepted:
+                    status <- "Queued edits evaluated. The displayed result is current and ready for review."
+                    status_file <- null
+                    touch()
+                return
             previous: i64 = built
             contact_preview_rebuild_pending <- false
             rebuild()
@@ -254,6 +308,10 @@ extend Studio:
             foot_press <- FootState::idle()
             contact_preview_active <- false
             return false if not history_ready
+            if not preview and pending_edit_active():
+                return stage_pending_edit(s, pending_edit_intent)
+            if preview and contact_preview_task != null:
+                return stage_pending_edit(s, StudioEditTransactionPolicy::Intent.Record)
             active: StackState::Stack = current_stack()
             return false if StackState::same(active, s)
             if preview and contact_preview_task == null and path_slot >= 0:
@@ -292,7 +350,17 @@ extend Studio:
         def undo() -> void:
             foot_press <- FootState::idle()
             contact_preview_active <- false
+            if pending_edit_active():
+                discard_pending_edit()
+                status <- "Queued edits cancelled. Committed history and result kept."
+                status_file <- null
+                touch()
+                return
             if history_ready:
+                if contact_preview_task != null:
+                    if HistoryState::undo_target(&history) is target:
+                        _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Undo)
+                    return
                 if contact_preview_task == null and path_slot >= 0:
                     if HistoryState::undo_target(&history) is target:
                         if apply_history_target(target, false):
@@ -306,7 +374,13 @@ extend Studio:
         def redo() -> void:
             foot_press <- FootState::idle()
             contact_preview_active <- false
+            if pending_edit_active():
+                discard_pending_edit()
             if history_ready:
+                if contact_preview_task != null:
+                    if HistoryState::redo_target(&history) is target:
+                        _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Redo)
+                    return
                 if contact_preview_task == null and path_slot >= 0:
                     if HistoryState::redo_target(&history) is target:
                         if apply_history_target(target, true):
