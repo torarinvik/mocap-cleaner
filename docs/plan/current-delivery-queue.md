@@ -39,9 +39,10 @@ The native generation binding's arity mismatch was traced to the reserved
 Elisa identifier `error`, which the extern parameter scanner omitted from its
 arity count. Rename that source identifier without changing the positional C
 ABI. That rename is committed and the reduced binding has no remaining arity
-errors. Resolve its two evidence-decoder backend declines, then compile and
-integrate the transaction/controller closure; it is not included in the passing
-app build. Keep this separate from the resolved generic `view` collision.
+errors. The complete transaction adapter now compiles as an object with current
+Stage1 `e34f2c`, including both evidence decoders. Integrate and qualify its
+controller/native link closure; it is not included in the passing app build.
+Keep this separate from the resolved generic `view` collision.
 
 Dependency freshness is still open. The selected UI has uncommitted source
 changes that must be captured exactly before and after qualification. The
