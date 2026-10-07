@@ -1,0 +1,96 @@
+include "../src/studio/build_generation_creation_policy.elisa"
+
+module StudioBuildGenerationCreationPolicyLaws:
+    private:
+        def failed() -> StudioBuildGenerationCreationPolicy::Facts:
+            StudioBuildGenerationCreationPolicy::Facts{
+                outcome: StudioBuildGenerationCreationPolicy::Outcome.Failed,
+                creation_journal_durable: true,
+                creation_journal_identity_verified: true,
+                build_root_identity_verified: true,
+                artifact_identity_verified: true,
+                artifact_id_verified: true,
+                canonical_under_build: true,
+                symlink: false,
+                declared_descendants_verified: true,
+                builder_inactive_verified: true,
+                lease_identity_verified: true,
+                global_lock_exclusive: true,
+                artifact_lease_exclusive: true,
+                protection_inventory_verified: true,
+                current_product: false,
+                recovery_required: false,
+                age_days: 7,
+                retention_days: 7,
+                size_bytes: 0
+            }
+
+    public:
+        def empty_failed_generation_can_prepare_without_executable() -> bool:
+            ensure result
+            StudioBuildGenerationCreationPolicy::may_prepare_move(failed(), true, true, true)
+
+        def abandoned_generation_can_prepare_with_verified_ownership() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.outcome <- StudioBuildGenerationCreationPolicy::Outcome.Abandoned
+            StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def running_or_unknown_or_sealed_generation_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.outcome <- StudioBuildGenerationCreationPolicy::Outcome.Running
+            running: bool = not StudioBuildGenerationCreationPolicy::eligible(facts)
+            facts.outcome <- StudioBuildGenerationCreationPolicy::Outcome.Unknown
+            unknown: bool = not StudioBuildGenerationCreationPolicy::eligible(facts)
+            facts.outcome <- StudioBuildGenerationCreationPolicy::Outcome.Sealed
+            running and unknown and not StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def undurable_creation_journal_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.creation_journal_durable <- false
+            not StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def unknown_descendants_refuse() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.declared_descendants_verified <- false
+            not StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def inactive_builder_requires_verified_observation() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.builder_inactive_verified <- false
+            not StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def released_global_or_artifact_lock_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.global_lock_exclusive <- false
+            global_refused: bool = not StudioBuildGenerationCreationPolicy::eligible(facts)
+            facts.global_lock_exclusive <- true
+            facts.artifact_lease_exclusive <- false
+            global_refused and not StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def recovery_dependency_or_current_product_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.recovery_required <- true
+            recovery_refused: bool = not StudioBuildGenerationCreationPolicy::eligible(facts)
+            facts.recovery_required <- false
+            facts.current_product <- true
+            recovery_refused and not StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def changed_identity_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            facts.artifact_identity_verified <- false
+            not StudioBuildGenerationCreationPolicy::eligible(facts)
+
+        def retention_and_confirmation_are_required() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationCreationPolicy::Facts = failed()
+            unconfirmed: bool = not StudioBuildGenerationCreationPolicy::may_prepare_move(facts, true, true, false)
+            facts.age_days <- 6
+            unconfirmed and not StudioBuildGenerationCreationPolicy::eligible(facts)

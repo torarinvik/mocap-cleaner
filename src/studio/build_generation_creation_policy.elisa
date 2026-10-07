@@ -1,0 +1,66 @@
+# Ownership admission for incomplete products, independent of executable seals.
+# Native observations must be fresh under the retained exclusive build lock.
+include "build_generation_policy.elisa"
+
+module StudioBuildGenerationCreationPolicy:
+    public:
+        const enum Outcome of i64:
+            Unknown = 0
+            Running = 1
+            Failed = 2
+            Abandoned = 3
+            Sealed = 4
+
+        struct Facts:
+            outcome: Outcome
+            creation_journal_durable: bool
+            creation_journal_identity_verified: bool
+            build_root_identity_verified: bool
+            artifact_identity_verified: bool
+            artifact_id_verified: bool
+            canonical_under_build: bool
+            symlink: bool
+            declared_descendants_verified: bool
+            builder_inactive_verified: bool
+            lease_identity_verified: bool
+            global_lock_exclusive: bool
+            artifact_lease_exclusive: bool
+            protection_inventory_verified: bool
+            current_product: bool
+            recovery_required: bool
+            age_days: i64
+            retention_days: i64
+            size_bytes: i64
+
+        def eligible(facts: Facts) -> bool:
+            ensure not result or (facts.outcome == Outcome.Failed or facts.outcome == Outcome.Abandoned)
+            ensure not result or facts.creation_journal_durable
+            ensure not result or facts.creation_journal_identity_verified
+            ensure not result or facts.declared_descendants_verified
+            ensure not result or facts.builder_inactive_verified
+            ensure not result or facts.global_lock_exclusive
+            ensure not result or facts.artifact_lease_exclusive
+            ensure not result or not facts.current_product
+            ensure not result or not facts.recovery_required
+            ensure not result or facts.age_days >= facts.retention_days
+            ((facts.outcome == Outcome.Failed or facts.outcome == Outcome.Abandoned) and
+                facts.creation_journal_durable and facts.creation_journal_identity_verified and
+                facts.build_root_identity_verified and facts.artifact_identity_verified and
+                facts.artifact_id_verified and facts.canonical_under_build and not facts.symlink and
+                facts.declared_descendants_verified and facts.builder_inactive_verified and
+                facts.lease_identity_verified and facts.global_lock_exclusive and
+                facts.artifact_lease_exclusive and facts.protection_inventory_verified and
+                not facts.current_product and not facts.recovery_required and
+                facts.age_days >= 0 and
+                facts.age_days <= StudioBuildGenerationPolicy::Limit::MAX_AGE_DAYS and
+                facts.retention_days >= 0 and
+                facts.retention_days <= StudioBuildGenerationPolicy::Limit::MAX_RETENTION_DAYS and
+                facts.age_days >= facts.retention_days and facts.size_bytes >= 0 and
+                facts.size_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES)
+
+        # Admission authorizes preparing a durable move intent only. Directory
+        # mutation still requires the separate transaction policy and journal.
+        def may_prepare_move(facts: Facts, selected: bool, reviewed: bool,
+                             confirmed: bool) -> bool:
+            ensure result == (eligible(facts) and selected and reviewed and confirmed)
+            eligible(facts) and selected and reviewed and confirmed
