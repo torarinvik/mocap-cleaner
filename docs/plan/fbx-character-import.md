@@ -75,9 +75,12 @@ The converter currently retains one largest supported skinned mesh; multiple
 mesh/material fidelity remains open.
 
 Compiler upstream performance changes `fb9747ee` and `63585c5f` are integrated in
-selected checkout merge `48dc78e2`. Rebuild is queued behind another active
-host compiler seed. Rebuild the Studio and proof products with the resulting
-matched compiler/runtime before treating them as current qualification. Earlier
+selected checkout merge `48dc78e2`. The compiler reseed and Studio compilation/linking succeeded; current build and
+visible workspace control evidence are in
+[workspace build record](../acceptance/studio-workspace-build-2026-10-07.md).
+Package publication remains blocked by the old running bundle lease; the retained
+new bundle is open. Complete full runtime and proof acceptance before treating
+the journey as qualified. Earlier
 build and runtime results remain evidence for their captured source tuple.
 
 Next acceptance work:
@@ -100,3 +103,16 @@ Next acceptance work:
 - Repair shared-field reborrow replay and zero-argument generic-region proof
   handoff gaps, then obtain current source correspondence evidence. Native staging
   correspondence remains a separate requirement.
+
+## Character fidelity follow-up
+
+The independent fixture comparison identified a real 9.243 mm vertex error from
+dropping a fifth skin influence. See
+[skin comparison evidence](../acceptance/fbx-topology-and-skin-pose-2026-10-07.md).
+Preserve up to eight influences using paired JOINTS_1/WEIGHTS_1 attributes and
+an eight-slot loader/evaluator; refuse source vertices above the supported bound
+rather than silently losing weights. Keep four-influence GLBs compatible through
+zero-filled additional slots. Validate paired attributes, accessor ranges, joint
+bounds, finite nonnegative weights and positive combined totals. Repeat independent
+pose comparisons against the full source weights after implementation. Do not
+close character fidelity on percentile measurements that hide an outlier.
