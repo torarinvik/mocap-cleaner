@@ -40,6 +40,30 @@ Conservative rejection of unsupported callbacks may be an interim compiler
 safety measure; it does not deliver required background FBX import. Do not replace
 the asynchronous product path with a blocking call to obtain a passing probe.
 
+## Product callback scope
+
+A source audit found ten named Studio task sites, all returning aggregate
+Result types. The affected compatibility review must include:
+
+| Callback | Product path |
+| --- | --- |
+| `load_fbx_import_job` | FBX import |
+| `evaluate_contact_preview_job` | Contact repair preview |
+| `load_session_locate_job` | Session source relocation |
+| `move_build_generation_job` | Generated-build cleanup |
+| `restore_build_generation_job` | Cleanup restoration |
+| `generation_move_handle_drain_job` | Cleanup participant drain |
+| `generation_restore_handle_drain_job` | Restore participant drain |
+| `scan_build_generation_candidate_scan_job` | Cleanup candidate inspection |
+| `generation_recovery_scan_job` | Recovery record inspection |
+| `generation_recovery_discovery_job` | Recovery discovery |
+
+Several declarations omit an explicit `Memory.Allocate` capability or declare
+only `Blocking.IO`. Aggregate return shape alone does not establish that every
+callback has the same allocation ABI. Compare inferred callback metadata to
+the actual callee slots and preserve allocation-free paths. This audit identifies
+qualification scope; it does not establish that all ten paths fail at runtime.
+
 ## Acceptance still required
 
 Rebuild the current compiler and runtime with source provenance, rerun the focused
