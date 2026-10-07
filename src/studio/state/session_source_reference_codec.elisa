@@ -39,6 +39,40 @@ module SessionSourceReferenceCodec:
                 return false if value.count == 0 or value.count > Limit::ANIMATION_BYTES
                 for byte in value:
                     return false if byte == 0 or byte < 32
+                utf8_valid(value)
+
+            def continuation(byte: u8) -> bool:
+                byte >= 128 and byte <= 191
+
+            def utf8_valid(value: darray[u8]&) -> bool:
+                mutable index: usize = 0
+                while index < value.count:
+                    first: u8 = value[index]
+                    if first <= 127:
+                        index <- index + 1
+                    elif first >= 194 and first <= 223:
+                        return false if index + 1 >= value.count or not continuation(value[index + 1])
+                        index <- index + 2
+                    elif first == 224:
+                        return false if index + 2 >= value.count or value[index + 1] < 160 or value[index + 1] > 191 or not continuation(value[index + 2])
+                        index <- index + 3
+                    elif first >= 225 and first <= 236 or first >= 238 and first <= 239:
+                        return false if index + 2 >= value.count or not continuation(value[index + 1]) or not continuation(value[index + 2])
+                        index <- index + 3
+                    elif first == 237:
+                        return false if index + 2 >= value.count or value[index + 1] < 128 or value[index + 1] > 159 or not continuation(value[index + 2])
+                        index <- index + 3
+                    elif first == 240:
+                        return false if index + 3 >= value.count or value[index + 1] < 144 or value[index + 1] > 191 or not continuation(value[index + 2]) or not continuation(value[index + 3])
+                        index <- index + 4
+                    elif first >= 241 and first <= 243:
+                        return false if index + 3 >= value.count or not continuation(value[index + 1]) or not continuation(value[index + 2]) or not continuation(value[index + 3])
+                        index <- index + 4
+                    elif first == 244:
+                        return false if index + 3 >= value.count or value[index + 1] < 128 or value[index + 1] > 143 or not continuation(value[index + 2]) or not continuation(value[index + 3])
+                        index <- index + 4
+                    else:
+                        return false
                 true
 
             def push_hex(value: darray[u8]&, output: mutable darray[u8]&) -> void can Memory.Allocate:
@@ -77,7 +111,15 @@ module SessionSourceReferenceCodec:
                 output.push(32)
 
         def encode(record: Record&, output: mutable darray[u8]&) -> bool can Memory.Allocate:
+            ensure result implies output.count <= Limit::LINE_BYTES
             return false if not StudioTakeSourceRefPolicy::valid(record.reference) or not name_valid(record.animation_name)
+            name_bytes: usize = record.animation_name.count * 2
+            original_bytes: usize = record.reference.original_path.count * 2
+            runtime_bytes: usize = record.reference.runtime_glb_path.count * 2
+            importer_bytes: usize = 1 if record.reference.importer_revision.count == 0 else record.reference.importer_revision.count * 2
+            options_bytes: usize = 1 if record.reference.options_sha256.count == 0 else record.reference.options_sha256.count
+            required_bytes: usize = Hex::PREFIX.len.usize() + 8 + 1 + name_bytes + original_bytes + 64 + runtime_bytes + 64 + importer_bytes + options_bytes
+            return false if required_bytes > Limit::LINE_BYTES
             output.clear()
             for byte in Hex::PREFIX:
                 output.push(byte)
@@ -106,7 +148,13 @@ module SessionSourceReferenceCodec:
             else:
                 for byte in record.reference.options_sha256:
                     output.push(byte)
-            return output.count <= Limit::LINE_BYTES
+            output.count <= Limit::LINE_BYTES
+
+        def has_prefix(line: darray[u8]&) -> bool:
+            return false if line.count <= Hex::PREFIX.len.usize()
+            for index in 0..<Hex::PREFIX.len.usize() |index, line|:
+                return false if line[index] != Hex::PREFIX[index].u8()
+            line[Hex::PREFIX.len.usize()] == 32
 
         def decode(line: darray[u8]&) -> Record? can Memory.Allocate:
             if split_tokens(line) is tokens:
