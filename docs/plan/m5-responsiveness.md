@@ -26,6 +26,13 @@ and rig caches, engine host scheduling, elisa-ui rendering limits.
       after undo, take changes or new settings.
 - [ ] Show progress/stage, cancellation and last valid preview. Coalesce rapid
       parameter changes; avoid spawning unbounded work per pointer event.
+      Apply this boundary to session and Locate reads as well as take loading.
+      An 8 MiB byte limit does not bound elapsed time: removable storage and
+      special files can stall native reads. Define admitted file types, worker
+      ownership, cancellation checkpoints and a user-visible waiting state;
+      cancellation must preserve the document even if a native read cannot
+      immediately be interrupted. Measure slow-storage behavior and refuse
+      stale results after a newer chooser selection or document replacement.
 - [ ] Make close, application termination and document replacement safe while
       workers own data. Retain every live affine handle until its result can be
       consumed; poll completion without blocking the UI. Record one pending

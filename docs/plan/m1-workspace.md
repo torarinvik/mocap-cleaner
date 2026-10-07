@@ -87,6 +87,23 @@
       that preserves the original file until the user saves the migrated copy.
 - [ ] Resolve missing or changed sources with Locate source and explicit
       rebind review. Never silently apply old bone indices to a different rig.
+      For v4, permit restoration only after loading and validating exact source
+      bytes, animation identity, frame count and node count. A matching saved
+      identity alone is not evidence about a newly selected file. When bytes
+      differ, offer Open as new take without session repairs or Cancel; explain
+      that existing work remains available until replacement is confirmed.
+      Implement changed-rig rebind in the next schema using stable semantic
+      bone identities, an inspectable old-to-new mapping, ambiguity refusal and
+      a summary of unmapped repairs. Never infer that equal node counts make
+      stored indices safe. Retain the original session during migration.
+- [ ] Qualify session and Locate reads at zero bytes, exactly the 8 MiB limit,
+      one byte over the limit, read failure and close failure. The bounded
+      reader preserves its output on failure; the UI must also preserve the
+      active document, pending edits and recoverable candidate state. Explain
+      oversized, unreadable and unsupported files with actionable messages.
+      Keep Cancel available for every invalid candidate, skip disabled choices
+      during keyboard navigation and restore focus after dismissal. Exercise
+      chooser cancellation, repeated activation and replacement-save failure.
 - [ ] Add bounded autosave/recovery snapshots in `build/`, a clear Restore
       or Discard flow, retention policy and cleanup controls. Recover committed
       edits only; distinguish autosave from the user's saved session.
