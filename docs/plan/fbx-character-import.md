@@ -69,8 +69,11 @@ animation, refused an existing destination without changing it, and preserved th
 original FBX digest. Results are in `build/fbx-runtime-8t_omy1p/results.json`.
 Further deterministic, malformed/truncated and bounded FIFO refusal checks are
 recorded in [captured native evidence](../acceptance/fbx-native-checks-2026-10-07.md).
-Independent Blender pose evidence is under `build/fbx-pose-check-bb274`; the
-mesh outlier remains under investigation. UI switching remains unverified.
+The old Python conversion driver used the wrong sampling-rate ABI; corrected
+checks and their limits are documented in the captured native evidence.
+Independent eight-influence Blender evidence is under
+`build/fbx-user-highblock-influence8` and `build/fbx-bladed-influence8`.
+UI switching remains unverified.
 The converter currently retains one largest supported skinned mesh; multiple
 mesh/material fidelity remains open.
 
@@ -104,15 +107,21 @@ Next acceptance work:
   handoff gaps, then obtain current source correspondence evidence. Native staging
   correspondence remains a separate requirement.
 
-## Character fidelity follow-up
+## Remaining character fidelity acceptance
 
 The independent fixture comparison identified a real 9.243 mm vertex error from
 dropping a fifth skin influence. See
 [skin comparison evidence](../acceptance/fbx-topology-and-skin-pose-2026-10-07.md).
-Preserve up to eight influences using paired JOINTS_1/WEIGHTS_1 attributes and
-an eight-slot loader/evaluator; refuse source vertices above the supported bound
-rather than silently losing weights. Keep four-influence GLBs compatible through
-zero-filled additional slots. Validate paired attributes, accessor ranges, joint
-bounds, finite nonnegative weights and positive combined totals. Repeat independent
-pose comparisons against the full source weights after implementation. Do not
-close character fidelity on percentile measurements that hide an outlier.
+Engine commit `1cbed086` implements eight-slot conversion/loading/evaluation,
+paired attributes, legacy four-slot compatibility, bounded joint/weight validation
+and refusal above eight positive influences. It raises the converter joint limit
+to 256 so the user's 89-joint Unreal character is accepted. Full-source Blender
+pose comparisons and a focused engine viewport run now cover that fixture.
+
+Build the final Studio tuple containing these changes and the corrected native
+`double` sampling-rate declaration. Complete the actual import, playback,
+pose-edit and display-switch journey before closing this requirement. Cover
+multiple stacks, unsupported input and edited pose cache invalidation; retain
+absolute maximum errors alongside percentile measurements. Largest-mesh-only
+conversion and material fidelity remain explicit limitations requiring product
+handling rather than a broad FBX compatibility claim.
