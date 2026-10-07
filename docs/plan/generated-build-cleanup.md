@@ -98,6 +98,23 @@ cross-variant reinterpretation. A successful source build is not this exit.
   under locks; an occupied or reused original name produces a protected conflict.
 - Reconciliation binds receipt, source/quarantine parents and current location.
   Journal advancement does not rename an artifact or imply certain lock release.
+- Finish the native producer and consuming UI for the implemented owned location
+  snapshot (`StudioBuildGenerationRecoveryLocations`). The current adapter and
+  laws compile but are unregistered: no native producer supplies its facts yet.
+  Return each side's exact/absent/occupied/unsafe/unknown state with descriptor
+  evidence binding canonical path bytes to entry and parent identities. Refuse
+  partial output; never derive a quarantine path from an operation ID.
+- Publish location observations only for the exact current ticket, selected row,
+  root and operation. Workspace changes, reselection, Refresh and queued mutation
+  invalidate reveal actions until a new observation arrives. Keep location
+  inspection separate from Restore admission and recheck native facts at reveal
+  dispatch; a previously verified path can be replaced before the user clicks.
+- Show original and quarantine states separately. For an exact artifact, reveal
+  its verified containing location; for a different occupant, reveal only the
+  verified parent folder and explain the name conflict. Absent, unsafe, unknown,
+  unavailable and refused outputs cannot produce a guessed reveal target.
+  Include keyboard/VoiceOver names and disabled-action reasons, and return focus
+  to the same retained operation after inspection.
 - Preserve operation/root/artifact/path metadata through stale replies, cancellation
   and release retry. Acknowledge only exact current terminal evidence with zero
   owned handles, certain release and retained operation identity.
