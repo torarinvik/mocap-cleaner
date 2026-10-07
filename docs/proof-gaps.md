@@ -35,6 +35,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Tracked FBX foreign adapter and strict extern bounds](proof-gaps/fbx-foreign-adapter.md)
 
 - [Lexical owner identity in proposition typing](proof-gaps/lexical-owner-typing.md)
+- [Replay resource-state lifetime validation](proof-gaps/replay-resource-state-lifetime.md)
 
 ## Current qualification limits
 
