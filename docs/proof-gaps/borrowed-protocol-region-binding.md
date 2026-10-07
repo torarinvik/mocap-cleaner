@@ -120,3 +120,15 @@ record copies, matching the driver's `compile_file = file` pattern, separately
 from owner mismatch and interface conformance. Do not add artificial container
 fields or erase owner ties as a workaround. This is diagnostic evidence, not
 current Stage1 or application qualification.
+
+Inspection of the selected Go source identifies the missing path:
+`semantic/region_struct_local.go::recordStructLocalAllocRegion` records fresh
+struct literals and region-polymorphic builder results, but not identifier-copy
+initializers. The reduction already has an ambient region from its fresh seed;
+creating another ambient region is not the missing fact. A repair must propagate
+the known source owner's region, rather than assume every copy belongs to the
+current ambient region. Preserve the existing use-site liveness check and
+reassignment invalidation. Qualify copied-local use, shorter-lived owner escape,
+reassignment to a different owner, dead/destroyed regions and unknown-owner
+copies separately before rebuilding the seed. The source finding has been
+assigned to the compiler worker; no repaired product is established yet.
