@@ -29,6 +29,7 @@ before reusing an earlier compile, runtime, proof or UI observation.
 
 | Record | Evidence scope |
 | --- | --- |
+| [Studio native build — 2026-10-07](studio-native-build-2026-10-07.md) | Captured compile/link/package closure; later UI drift and runtime/proof acceptance remain open. |
 | [Batch queue compilation — 2026-10-06](batch-queue-compile-2026-10-06.md) | Exact snapshot and limitations stated in the record. |
 | [Batch review binding — 2026-10-07](batch-review-binding-2026-10-07.md) | Exact snapshot and limitations stated in the record. |
 | [Cache budget admission policy](cache-budget-policy-2026-10-06.md) | Exact snapshot and limitations stated in the record. |
