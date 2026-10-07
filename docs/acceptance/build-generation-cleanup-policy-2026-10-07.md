@@ -169,3 +169,28 @@ the final 24-law source still needs current compilation and authenticated proof.
 Bash syntax, Python AST and repository line-length checks passed for the new
 failure path. No runtime, crash, cancellation or filesystem race acceptance is
 claimed from those source checks.
+
+### Sealing and executable publication records
+
+The build now appends a Sealed revision 3 only after checking the complete
+contents inventory, executable digest, input record and sealed lease against
+the original creation identity and Started revision 2. Failure and Sealed are
+mutually exclusive revision 3 records. A sealed product is not a failed build
+when a later publication or packaging step fails.
+
+Publication retains the global exclusive lock and the original artifact's
+exclusive lease across the current executable symlink rename, both directory
+syncs, and Published revision 4 publication. The event links the exact Sealed
+record bytes. Revalidation checks the prior records, original filesystem
+identities, full product seal and current pointer. A failure after rename
+reports an uncertain publication and preserves the current generation for
+reconciliation; it does not claim a rollback or a durable Published event.
+Both helpers are captured in build and package input identity records.
+
+Evidence is limited to source review, Python AST parsing, shell syntax checks
+and clean diff checks. These helpers have not yet been exercised by a successful
+current full Studio build. Restart reconciliation, package terminal events and
+native consumption of creation records remain open; the records alone do not
+establish cleanup eligibility. The existing journal transition policy and laws
+cover the intended Sealed/Published admission rules, but current authenticated
+proof qualification remains pending.
