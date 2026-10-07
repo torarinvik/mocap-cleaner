@@ -96,7 +96,7 @@ qualification scope; it does not establish that all ten paths fail at runtime.
 Cleanup restoration, recovery reconciliation and recovery discovery now capture
 `StudioWorkerPathCapture::Path` values instead of submitting dynamic path arrays.
 Each value contains its bytes and count inline; reconstruction occurs inside the
-worker. The existing capture/restore contracts and ten companion laws cover
+worker. The existing capture/restore contracts and fifteen companion laws cover
 bounded counts and refusal, but do not prove task ABI correctness or result-region
 publication. Current compiler qualification for these three callback integrations
 remains open, alongside the previously converted candidate scan.
@@ -117,6 +117,12 @@ terminated path inside its own helper before returning it; callers do not mutate
 those buffers before native calls. Recovery scan and Restore then compile.
 The complete app still declines three task-result extraction sites for missing
 concrete hidden caller slots; standalone worker compilation does not close them.
+
+Termination contracts now also require exactly one trailing NUL, no interior NUL,
+and exact preservation of the captured path bytes. Count-only contracts were too
+weak to express the native path identity obligation. These strengthened contracts
+and their five additional laws require compilation and authenticated proof with
+the committed repair product; the preceding Seed19 evidence predates them.
 
 Contact preview submits an affine Memo containing nested dynamic buffers.
 `StudioModel::build_with` copies the pristine document, rig order and markers for
