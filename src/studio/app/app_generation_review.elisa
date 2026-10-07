@@ -15,9 +15,10 @@ extend Studio:
             Refresh = 2
             Back = 3
             Review = 4
+            Restore = 5
 
         const module GenerationReviewLimit:
-            CONTROLS: i64 = 5
+            CONTROLS: i64 = 6
 
         def generation_review_box(w: f32, h: f32) -> StudioPanels::Box:
             width: f32 = 820.0 if w >= 852.0 else w - 32.0
@@ -37,7 +38,11 @@ extend Studio:
             if action == GenerationReviewAction.Review.i64():
                 generation_move_review_action() if generation_move_action_enabled()
                 return
+            if action == GenerationReviewAction.Restore.i64():
+                generation_restore_action()
+                return
             cancel_generation_move_review()
+            generation_restore_cancel_review()
             if action == GenerationReviewAction.Previous.i64():
                 generation_review_key(UiCore::Key.Left)
             elif action == GenerationReviewAction.Next.i64():
@@ -61,6 +66,7 @@ extend Studio:
             for slot in 0..<StudioGenerationReviewListPolicy::visible_rows(count, generation_review_page) |w, h, x, y, slot, count|:
                 if StudioPanels::inside(generation_review_row_box(w, h, slot), x, y):
                     cancel_generation_move_review()
+                    generation_restore_cancel_review()
                     generation_inspected_row <- StudioGenerationReviewListPolicy::inspection_target(count, generation_review_page, slot)
                     generation_review_focus <- -1
                     touch()
@@ -80,7 +86,9 @@ extend Studio:
             touch()
 
         def generation_review_key(code: i64) -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
-            cancel_generation_move_review() if code == UiCore::Key.Escape or code == UiCore::Key.Left or code == UiCore::Key.Right or code == UiCore::Key.Up or code == UiCore::Key.Down
+            if code == UiCore::Key.Escape or code == UiCore::Key.Left or code == UiCore::Key.Right or code == UiCore::Key.Up or code == UiCore::Key.Down:
+                cancel_generation_move_review()
+                generation_restore_cancel_review()
             count: i64 = generation_review_count()
             pages: i64 = StudioGenerationReviewListPolicy::page_count(count)
             if code == UiCore::Key.Escape:
@@ -107,7 +115,7 @@ extend Studio:
                         generation_inspected_row <- generation_inspected_row - 1
             touch()
 
-        def draw_generation_review(w: f32, h: f32) -> void:
+        def draw_generation_review(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate]:
             return if not generation_review_open or not storage_screen_open
             d: StudioPanels::Box = generation_review_box(w, h)
             width: f32 = d.w
@@ -117,7 +125,7 @@ extend Studio:
             StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
             StudioDraw::rect(x, y, width, height, StudioDraw::color(24, 28, 37))
             StudioDraw::bold(x + 24.0, y + 22.0, 19.0, "Generated builds", StudioDraw::ink())
-            StudioDraw::text(x + 24.0, y + 52.0, 12.0, generation_move_message(), StudioDraw::muted())
+            StudioDraw::text(x + 24.0, y + 52.0, 12.0, generation_review_status_message(), StudioDraw::muted())
             count: i64 = generation_review_count()
             pages: i64 = StudioGenerationReviewListPolicy::page_count(count)
             StudioText::begin()
@@ -145,4 +153,6 @@ extend Studio:
             for action in 0..<GenerationReviewLimit::CONTROLS |w, h, action|:
                 control: StudioPanels::Box = generation_review_control_box(w, h, action)
                 StudioDraw::rect(control.x, control.y, control.w, control.h, StudioDraw::color(47, 68, 92) if generation_review_focus == action else StudioDraw::color(38, 44, 56))
-                StudioDraw::text(control.x + 12.0, control.y + 8.0, 12.0, generation_move_action_label() if action == GenerationReviewAction.Review.i64() else "Previous" if action == 0 else "Next" if action == 1 else "Refresh" if action == 2 else "Back to Storage", StudioDraw::ink() if action != GenerationReviewAction.Review.i64() or generation_move_action_enabled() else StudioDraw::muted())
+                label: sview = generation_move_action_label() if action == GenerationReviewAction.Review.i64() else generation_restore_action_label() if action == GenerationReviewAction.Restore.i64() else "Previous" if action == 0 else "Next" if action == 1 else "Refresh" if action == 2 else "Back to Storage"
+                enabled: bool = generation_move_action_enabled() if action == GenerationReviewAction.Review.i64() else generation_restore_action_enabled() if action == GenerationReviewAction.Restore.i64() else true
+                StudioDraw::text(control.x + 12.0, control.y + 8.0, 12.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())

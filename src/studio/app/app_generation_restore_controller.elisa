@@ -1,0 +1,167 @@
+include "../io/build_generation_restore_worker.elisa"
+include "../state/generation_restore_confirmation_policy.elisa"
+include "../state/generation_move_result_policy.elisa"
+
+extend Studio:
+    private:
+        global mutable generation_restore_state: StudioGenerationRestoreConfirmationPolicy::State = StudioGenerationRestoreConfirmationPolicy::State.Idle
+        global mutable generation_restore_root: darray[u8] = []
+        global mutable generation_restore_root_move_ticket: i64 = 0
+        global mutable generation_restore_operation_id: darray[u8] = []
+        global mutable generation_restore_task: Thread[StudioBuildGenerationRestoreWorker::Result, Joinable]? = null
+        global mutable generation_restore_reply: StudioBuildGenerationRestoreWorker::Result? = null
+        global mutable generation_restore_ticket: i64 = 0
+
+        def generation_restore_capture_root(move_ticket: i64) -> bool can Memory.Allocate:
+            return false if move_ticket <= 0
+            if generation_move_wire is captured:
+                return false if not captured.valid
+                mutable length: usize = 0
+                capacity: usize = StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()
+                while length < capacity and captured.root[length] != 0:
+                    length <- length + 1
+                return false if length == 0 or length >= capacity
+                mutable copied: darray[u8] = []
+                for index in 0..<length |captured, copied|:
+                    copied.push(captured.root[index])
+                return false if copied.count != length
+                generation_restore_root <- move copied
+                generation_restore_root_move_ticket <- move_ticket
+                generation_restore_operation_id <- []
+                generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.Idle
+                true
+            false
+
+        def generation_restore_reply_source_valid(reply: StudioBuildGenerationMoveWorker::Result) -> bool:
+            return false if reply.ticket <= 0 or reply.ticket != generation_restore_root_move_ticket
+            outcome: StudioGenerationMoveResultPolicy::Outcome = StudioGenerationMoveResultPolicy::classify_result(reply.remaining_handle, reply.recoverable, reply.operation_id_bytes, reply.release_status, reply.recovery)
+            return false if outcome != StudioGenerationMoveResultPolicy::Outcome.Recoverable
+            return false if reply.operation_id_bytes > StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES
+            length: usize = reply.operation_id_bytes.usize()
+            return false if length == 0 or reply.operation_id[length] != 0
+            for index in 0..<length |reply|:
+                return false if reply.operation_id[index] == 0
+            true
+
+        def generation_restore_current_source_valid() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
+            return false if generation_restore_root.count == 0 or generation_restore_root_move_ticket <= 0
+            current_root: darray[u8] = path_bytes(workspace_build_directory())
+            return false if not StudioBuildGenerationCandidateProvider::bytes_equal(current_root, generation_restore_root)
+            if generation_move_reply is moved:
+                return false if not generation_restore_reply_source_valid(moved)
+                return false if generation_restore_operation_id.count > 0 and generation_restore_operation_id.count.i64() != moved.operation_id_bytes
+                if generation_restore_operation_id.count > 0:
+                    for index in 0..<generation_restore_operation_id.count |moved|:
+                        return false if generation_restore_operation_id[index] != moved.operation_id[index]
+                true
+            false
+
+        def generation_restore_current_key() -> StudioGenerationRestoreConfirmationPolicy::SourceKey:
+            mutable operation_bytes: i64 = generation_restore_operation_id.count.i64()
+            if operation_bytes == 0 and generation_move_reply is moved:
+                operation_bytes <- moved.operation_id_bytes
+            StudioGenerationRestoreConfirmationPolicy::SourceKey{move_ticket: generation_restore_root_move_ticket, root_bytes: generation_restore_root.count.i64(), operation_id_bytes: operation_bytes}
+
+        def generation_restore_bind_operation_id() -> bool:
+            return false if generation_restore_operation_id.count > 0
+            if generation_move_reply is moved:
+                return false if not generation_restore_reply_source_valid(moved)
+                mutable operation_id: darray[u8] = []
+                for index in 0..<moved.operation_id_bytes.usize() |moved, operation_id|:
+                    operation_id.push(moved.operation_id[index])
+                return false if operation_id.count.i64() != moved.operation_id_bytes
+                generation_restore_operation_id <- move operation_id
+                true
+            false
+
+        def generation_restore_action_label() -> sview:
+            match generation_restore_state:
+                StudioGenerationRestoreConfirmationPolicy::State.Idle: return "Review Restore"
+                StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): return "Confirm Restore"
+                StudioGenerationRestoreConfirmationPolicy::State.Running(key, job_ticket): return "Restoring…"
+                StudioGenerationRestoreConfirmationPolicy::State.Draining(key, job_ticket): return "Finishing…"
+                StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket): return "Recovery pending"
+                StudioGenerationRestoreConfirmationPolicy::State.Resolved(job_ticket): return "Restored"
+
+        def generation_restore_action_help() -> sview:
+            "Review the retained move operation and confirm before restoring the exact quarantined artifact to its original build directory."
+
+        def generation_restore_action_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
+            return false if not storage_screen_open or not generation_review_open or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64() or storage_move_review or storage_restore_review or storage_release_uncertain
+            return false if generation_move_task != null or generation_restore_task != null or generation_restore_reply != null
+            return false if not generation_restore_current_source_valid()
+            key: StudioGenerationRestoreConfirmationPolicy::SourceKey = generation_restore_current_key()
+            return false if not StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            match generation_restore_state:
+                StudioGenerationRestoreConfirmationPolicy::State.Idle: true
+                StudioGenerationRestoreConfirmationPolicy::State.Reviewing(previous): StudioGenerationRestoreConfirmationPolicy::same_key(previous, key) and generation_restore_operation_id.count > 0
+                StudioGenerationRestoreConfirmationPolicy::State.Running(previous, job_ticket): false
+                StudioGenerationRestoreConfirmationPolicy::State.Draining(previous, job_ticket): false
+                StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket): false
+                StudioGenerationRestoreConfirmationPolicy::State.Resolved(job_ticket): false
+
+        def generation_restore_cancel_review() -> void:
+            generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::cancel_review(generation_restore_state)
+
+        def generation_restore_copy_bytes(source: darray[u8]&) -> darray[u8] can Memory.Allocate:
+            mutable copied: darray[u8] = []
+            for byte in source |source, copied|:
+                copied.push(byte)
+            copied
+
+        def generation_restore_action() -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            return if not generation_restore_action_enabled()
+            mutable current: StudioGenerationRestoreConfirmationPolicy::SourceKey = generation_restore_current_key()
+            if generation_restore_state == StudioGenerationRestoreConfirmationPolicy::State.Idle:
+                return if not generation_restore_bind_operation_id()
+                current <- generation_restore_current_key()
+                if StudioGenerationRestoreConfirmationPolicy::may_review(generation_restore_state, current, generation_restore_current_source_valid(), false):
+                    generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key: current)
+                    touch()
+                return
+            if StudioGenerationRestoreConfirmationPolicy::may_confirm(generation_restore_state, current, generation_restore_current_source_valid(), false):
+                return if generation_restore_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
+                next_ticket: i64 = generation_restore_ticket + 1
+                if StudioGenerationRestoreConfirmationPolicy::may_start(generation_restore_state, current, next_ticket, generation_restore_current_source_valid(), true, false):
+                    paths: StudioBuildGenerationRestoreWorker::Paths = StudioBuildGenerationRestoreWorker::Paths{build_root: generation_restore_copy_bytes(generation_restore_root), operation_id: generation_restore_copy_bytes(generation_restore_operation_id)}
+                    job: StudioBuildGenerationRestoreWorker::Job = StudioBuildGenerationRestoreWorker::Job{ticket: next_ticket, confirmed: true, paths: paths}
+                    generation_restore_task <- task(restore_build_generation_job, move job)
+                    generation_restore_ticket <- next_ticket
+                    generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.Running(key: current, job_ticket: next_ticket)
+                    UiCore::request_frame_after(0.016)
+            touch()
+
+        def poll_generation_restore() -> void can[Threads, Memory.Allocate, Memory.Release]:
+            if generation_restore_task is active:
+                generation_restore_task <- null
+                readiness: ThreadReadiness[StudioBuildGenerationRestoreWorker::Result] = poll_ready(move active)
+                if not readiness.complete:
+                    generation_restore_task <- move readiness.thread
+                    UiCore::request_frame_after(0.016)
+                    return
+                mutable reply: StudioBuildGenerationRestoreWorker::Result = join(move readiness.thread)
+                completed_ticket: i64 = reply.ticket
+                remaining_handle: i64 = reply.remaining_handle
+                restored: bool = StudioGenerationRestoreWorkerPolicy::restored(reply.commit_status, reply.release_status, reply.recovery, reply.recovery == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Restored, reply.remaining_handle)
+                generation_restore_reply <- move reply
+                generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::settled(generation_restore_state, completed_ticket, restored, remaining_handle)
+                request_generation_inventory() if generation_restore_state == StudioGenerationRestoreConfirmationPolicy::State.Resolved(job_ticket: completed_ticket)
+                touch()
+
+        def generation_restore_message() -> sview:
+            match generation_restore_state:
+                StudioGenerationRestoreConfirmationPolicy::State.Idle: return "Restore is available only for a verified retained move receipt."
+                StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): return "Review the verified restore operation, then activate Confirm Restore to proceed."
+                StudioGenerationRestoreConfirmationPolicy::State.Running(key, job_ticket): return "Restoring the verified generation; recovery evidence and native ownership are retained."
+                StudioGenerationRestoreConfirmationPolicy::State.Draining(key, job_ticket): return "Restore continues after leaving this screen; its result and native ownership remain retained."
+                StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket): return "Restore outcome needs recovery review. Operation details and native ownership remain retained."
+                StudioGenerationRestoreConfirmationPolicy::State.Resolved(job_ticket): return "Generation restored and verified in its original build directory."
+
+        def generation_restore_status_visible() -> bool:
+            match generation_restore_state:
+                StudioGenerationRestoreConfirmationPolicy::State.Idle: false
+                StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): true
+                StudioGenerationRestoreConfirmationPolicy::State.Running(key, job_ticket): true
+                StudioGenerationRestoreConfirmationPolicy::State.Draining(key, job_ticket): true
+                StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket): true
+                StudioGenerationRestoreConfirmationPolicy::State.Resolved(job_ticket): true

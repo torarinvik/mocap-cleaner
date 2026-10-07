@@ -1,0 +1,70 @@
+include "../src/studio/state/generation_restore_confirmation_policy.elisa"
+
+module StudioGenerationRestoreConfirmationLaws:
+    public:
+        def first_activation_needs_verified_source(key: StudioGenerationRestoreConfirmationPolicy::SourceKey,
+                                                   source_current: bool, busy: bool) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            requires not source_current or busy
+            ensure not StudioGenerationRestoreConfirmationPolicy::may_review(StudioGenerationRestoreConfirmationPolicy::State.Idle, key, source_current, busy)
+            StudioGenerationRestoreConfirmationPolicy::may_review(StudioGenerationRestoreConfirmationPolicy::State.Idle, key, source_current, busy)
+
+        def first_activation_enters_review(key: StudioGenerationRestoreConfirmationPolicy::SourceKey) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            ensure StudioGenerationRestoreConfirmationPolicy::may_review(StudioGenerationRestoreConfirmationPolicy::State.Idle, key, true, false)
+            StudioGenerationRestoreConfirmationPolicy::may_review(StudioGenerationRestoreConfirmationPolicy::State.Idle, key, true, false)
+
+        def review_requires_same_source(key: StudioGenerationRestoreConfirmationPolicy::SourceKey,
+                                        changed: StudioGenerationRestoreConfirmationPolicy::SourceKey) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(changed)
+            requires not StudioGenerationRestoreConfirmationPolicy::same_key(key, changed)
+            ensure not StudioGenerationRestoreConfirmationPolicy::may_confirm(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), changed, true, false)
+            StudioGenerationRestoreConfirmationPolicy::may_confirm(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), changed, true, false)
+
+        def second_activation_requires_confirmation(key: StudioGenerationRestoreConfirmationPolicy::SourceKey,
+                                                    ticket: i64) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            requires ticket > 0
+            ensure not StudioGenerationRestoreConfirmationPolicy::may_start(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), key, ticket, true, false, false)
+            StudioGenerationRestoreConfirmationPolicy::may_start(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), key, ticket, true, false, false)
+
+        def explicit_confirmation_can_start(key: StudioGenerationRestoreConfirmationPolicy::SourceKey,
+                                            ticket: i64) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            requires ticket > 0
+            ensure StudioGenerationRestoreConfirmationPolicy::may_start(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), key, ticket, true, true, false)
+            StudioGenerationRestoreConfirmationPolicy::may_start(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), key, ticket, true, true, false)
+
+        def changing_source_while_busy_refuses_start(key: StudioGenerationRestoreConfirmationPolicy::SourceKey,
+                                                     ticket: i64) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            requires ticket > 0
+            ensure not StudioGenerationRestoreConfirmationPolicy::may_start(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), key, ticket, false, true, false)
+            StudioGenerationRestoreConfirmationPolicy::may_start(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key), key, ticket, false, true, false)
+
+        def review_can_be_cancelled(key: StudioGenerationRestoreConfirmationPolicy::SourceKey) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            ensure StudioGenerationRestoreConfirmationPolicy::cancel_review(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key)) == StudioGenerationRestoreConfirmationPolicy::State.Idle
+            StudioGenerationRestoreConfirmationPolicy::cancel_review(StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key)) == StudioGenerationRestoreConfirmationPolicy::State.Idle
+
+        def leaving_screen_drains_without_publishing(key: StudioGenerationRestoreConfirmationPolicy::SourceKey,
+                                                     ticket: i64) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            requires ticket > 0
+            ensure StudioGenerationRestoreConfirmationPolicy::cancel_review(StudioGenerationRestoreConfirmationPolicy::State.Running(key, ticket)) == StudioGenerationRestoreConfirmationPolicy::State.Draining(key, ticket)
+            ensure not StudioGenerationRestoreConfirmationPolicy::may_publish(StudioGenerationRestoreConfirmationPolicy::State.Draining(key, ticket), ticket, true, 0)
+            ensure StudioGenerationRestoreConfirmationPolicy::settled(StudioGenerationRestoreConfirmationPolicy::State.Draining(key, ticket), ticket, true, 0) == StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(ticket)
+            StudioGenerationRestoreConfirmationPolicy::settled(StudioGenerationRestoreConfirmationPolicy::State.Draining(key, ticket), ticket, true, 0) == StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(ticket)
+
+        def retained_handle_never_publishes(ticket: i64, handle: i64) -> bool:
+            requires ticket > 0 and handle != 0
+            ensure not StudioGenerationRestoreConfirmationPolicy::may_publish(StudioGenerationRestoreConfirmationPolicy::State.Running(StudioGenerationRestoreConfirmationPolicy::SourceKey{move_ticket: 1, root_bytes: 1, operation_id_bytes: 1}, job_ticket: ticket), ticket, true, handle)
+            StudioGenerationRestoreConfirmationPolicy::may_publish(StudioGenerationRestoreConfirmationPolicy::State.Running(StudioGenerationRestoreConfirmationPolicy::SourceKey{move_ticket: 1, root_bytes: 1, operation_id_bytes: 1}, job_ticket: ticket), ticket, true, handle)
+
+        def stale_reply_never_publishes(key: StudioGenerationRestoreConfirmationPolicy::SourceKey,
+                                        ticket: i64, current: i64) -> bool:
+            requires StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+            requires ticket > 0 and current > 0 and ticket != current
+            ensure not StudioGenerationRestoreConfirmationPolicy::may_publish(StudioGenerationRestoreConfirmationPolicy::State.Running(key, current), ticket, true, 0)
+            StudioGenerationRestoreConfirmationPolicy::may_publish(StudioGenerationRestoreConfirmationPolicy::State.Running(key, current), ticket, true, 0)

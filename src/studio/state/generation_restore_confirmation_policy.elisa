@@ -1,0 +1,93 @@
+# Confirmation and reply retention for restoring a moved generation.
+include "../build_generation_trash_policy.elisa"
+
+module StudioGenerationRestoreConfirmationPolicy:
+    public:
+        struct SourceKey:
+            move_ticket: i64
+            root_bytes: i64
+            operation_id_bytes: i64
+
+        enum State:
+            Idle
+            Reviewing(key: SourceKey)
+            Running(key: SourceKey, job_ticket: i64)
+            Draining(key: SourceKey, job_ticket: i64)
+            RecoveryPending(job_ticket: i64)
+            Resolved(job_ticket: i64)
+
+        def key_valid(key: SourceKey) -> bool:
+            ensure result == (key.move_ticket > 0 and key.root_bytes > 0 and key.root_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES and key.operation_id_bytes > 0 and key.operation_id_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES)
+            key.move_ticket > 0 and key.root_bytes > 0 and key.root_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES and key.operation_id_bytes > 0 and key.operation_id_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES
+
+        def same_key(left: SourceKey, right: SourceKey) -> bool:
+            ensure result == (key_valid(left) and key_valid(right) and left.move_ticket == right.move_ticket and left.root_bytes == right.root_bytes and left.operation_id_bytes == right.operation_id_bytes)
+            key_valid(left) and key_valid(right) and left.move_ticket == right.move_ticket and left.root_bytes == right.root_bytes and left.operation_id_bytes == right.operation_id_bytes
+
+        def may_review(state: State, key: SourceKey,
+                       source_current: bool, busy: bool) -> bool:
+            return false if not key_valid(key) or not source_current or busy
+            match state:
+                State.Idle: true
+                State.Reviewing(previous): false
+                State.Running(previous, job_ticket): false
+                State.Draining(previous, job_ticket): false
+                State.RecoveryPending(job_ticket): false
+                State.Resolved(job_ticket): false
+
+        def may_confirm(state: State, key: SourceKey,
+                        source_current: bool, busy: bool) -> bool:
+            return false if not key_valid(key) or not source_current or busy
+            match state:
+                State.Reviewing(previous): same_key(previous, key)
+                State.Idle: false
+                State.Running(previous, job_ticket): false
+                State.Draining(previous, job_ticket): false
+                State.RecoveryPending(job_ticket): false
+                State.Resolved(job_ticket): false
+
+        def may_start(state: State, key: SourceKey, job_ticket: i64,
+                      source_current: bool, confirmed: bool, busy: bool) -> bool:
+            return false if job_ticket <= 0 or not confirmed or not source_current or busy
+            match state:
+                State.Reviewing(previous): same_key(previous, key)
+                State.Idle: false
+                State.Running(previous, active_ticket): false
+                State.Draining(previous, active_ticket): false
+                State.RecoveryPending(active_ticket): false
+                State.Resolved(active_ticket): false
+
+        def cancel_review(state: State) -> State:
+            match state:
+                State.Reviewing(key): State.Idle
+                State.Idle: state
+                State.Running(key, job_ticket): State.Draining(key, job_ticket)
+                State.Draining(key, job_ticket): state
+                State.RecoveryPending(job_ticket): state
+                State.Resolved(job_ticket): state
+
+        def may_publish(state: State, ticket: i64, restored: bool,
+                        remaining_handle: i64) -> bool:
+            return false if ticket <= 0 or not restored or remaining_handle != 0
+            match state:
+                State.Running(key, job_ticket): ticket == job_ticket and key_valid(key)
+                State.Draining(key, job_ticket): false
+                State.Idle: false
+                State.Reviewing(key): false
+                State.RecoveryPending(job_ticket): false
+                State.Resolved(job_ticket): false
+
+        def settled(state: State, ticket: i64, restored: bool,
+                    remaining_handle: i64) -> State:
+            return State.RecoveryPending(job_ticket: ticket) if cancelled_ticket(state, ticket)
+            return State.Resolved(job_ticket: ticket) if may_publish(state, ticket, restored, remaining_handle)
+            State.RecoveryPending(job_ticket: ticket)
+
+        def cancelled_ticket(state: State, ticket: i64) -> bool:
+            match state:
+                State.Draining(key, job_ticket): ticket == job_ticket
+                State.Idle: false
+                State.Reviewing(key): false
+                State.Running(key, job_ticket): false
+                State.RecoveryPending(job_ticket): false
+                State.Resolved(job_ticket): false
