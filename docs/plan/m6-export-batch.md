@@ -249,3 +249,15 @@ carry validity contracts and eight laws; their current O0 graph emitted a fresh
 264,648-byte object with reconciliation/selection/paging/focus symbols retained.
 This state carries no review or publication authority. It still needs controller
 composition and native event/refresh qualification; proof replay is pending.
+
+The first prepared-sheet controller is now saved in
+`app_export_batch_sheet.elisa`, outside app composition. It retains owned display
+snapshots before creating path views, refreshes bounded sheet state, pauses
+playback on open, restores prior widget focus on close, and routes publication,
+cancel and resume through per-call workspace transactions. Modified queue state
+is stored back before lock release; uncertain release is reported. Shared
+publication-control admission has five laws and a fresh 257,776-byte O0 graph.
+Controller compilation and retained-view lifetime have not been qualified.
+Warning inspection/acknowledgement, recovery reopen, retry, pointer/native
+accessibility routes, review-to-enqueue entry and app composition still require
+implementation. Disabled placeholder controls do not satisfy those requirements.
