@@ -223,3 +223,13 @@ storage. The compiler worker owns that decision and current-product checks.
 The first object attempt used unsupported `-c`; the next exposed implicit return
 handling. The retained source uses explicit returns and the final object command
 exits 0. These diagnostic corrections do not establish integrated acceptance.
+
+Read-only backend inspection confirms that `darray.clear()` retains storage:
+Go `emitBuiltinDArrayClearCall` writes zero only through the count pointer;
+Stage1 `codegen_stmt_expr_calls.elisa`'s clear branch likewise calls
+`darray_store_size` with zero. Neither clears capacity or replaces backing.
+This supports investigating one reusable metadata buffer set per recursive
+analysis invocation instead of one retained set per function. It does not prove
+that metadata views never escape, recursive scratch sets are disjoint, or runtime
+memory is bounded. Establish those conditions before adopting buffer reuse and
+qualify both backend behavior and compiler memory on the complete source graph.
