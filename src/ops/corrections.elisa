@@ -53,12 +53,15 @@ module Corrections:
             length: f32 = Geometry::quat_length(c.rotation)
             Geometry::quat_is_finite(c.rotation) and Geometry::vec3_is_finite(c.translation) and length - length == 0.0 and length > 0.0
 
+        def quaternion_admitted(value: Geometry::Quat) -> bool:
+            ensure result == (Geometry::quat_is_finite(value) and Geometry::quat_length(value) - Geometry::quat_length(value) == 0.0 and Geometry::quat_length(value) > 0.0)
+            length: f32 = Geometry::quat_length(value)
+            Geometry::quat_is_finite(value) and length - length == 0.0 and length > 0.0
+
         # Rotation offset scaled to `weight` permille (normalised lerp from
         # identity; the offset is kept on the short arc by `keyed`).
         def partial(d: Geometry::Quat, weight: i64) -> Geometry::Quat:
-            t: f32 = weight.f32() / KeyWeight::Domain::FULL_PERMILLE.f32()
-            s: f32 = 1.0 - t
-            Geometry::quat_normalize(Geometry::Quat{x: d.x * t, y: d.y * t, z: d.z * t, w: s + d.w * t})
+            Geometry::quat_normalize(partial_raw(d, weight))
 
         def scalar_storable(value: f32) -> bool:
             ensure result == (value - value == 0.0 and value >= -StoreDomain::MAX_COMPONENT and value <= StoreDomain::MAX_COMPONENT)
@@ -98,7 +101,11 @@ module Corrections:
                     continue if weight <= 0
                     if rotation:
                         q: Geometry::Quat = Geometry::Quat{x: GlbDocument::track_value(doc, held.output, k, 0), y: GlbDocument::track_value(doc, held.output, k, 1), z: GlbDocument::track_value(doc, held.output, k, 2), w: GlbDocument::track_value(doc, held.output, k, 3)}
-                        r: Geometry::Quat = Geometry::quat_normalize(Geometry::quat_mul(partial(c.rotation, weight), q))
+                        offset: Geometry::Quat = partial_raw(c.rotation, weight)
+                        return false if not quaternion_admitted(offset) or not quaternion_admitted(q)
+                        product: Geometry::Quat = Geometry::quat_mul(Geometry::quat_normalize(offset), q)
+                        return false if not quaternion_admitted(product)
+                        r: Geometry::Quat = Geometry::quat_normalize(product)
                         return false if not scalar_storable(r.x) or not scalar_storable(r.y) or not scalar_storable(r.z) or not scalar_storable(r.w)
                         norm: f32 = Geometry::quat_length(r)
                         return false if norm - norm != 0.0 or norm <= 0.0
@@ -145,5 +152,10 @@ module Corrections:
             return moved
 
     private:
+        def partial_raw(d: Geometry::Quat, weight: i64) -> Geometry::Quat:
+            t: f32 = weight.f32() / KeyWeight::Domain::FULL_PERMILLE.f32()
+            s: f32 = 1.0 - t
+            Geometry::Quat{x: d.x * t, y: d.y * t, z: d.z * t, w: s + d.w * t}
+
         def storage_length(doc: GlbDocument::Document&, track: GlbDocument::Track) -> usize?:
             StorageRangePolicy::float_span_length(GlbDocument::byte_count(doc), track.byte_start, track.count, track.components)

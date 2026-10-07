@@ -195,6 +195,12 @@ The byte-span calculation now uses `StorageRangePolicy::float_span_length`;
 four additional integer obligations cover invalid dimensions, starts beyond
 the buffer, oversized counts and admitted lengths staying within the buffer.
 Policy and correction-refusal graphs compile with d2754a8e; replay is pending.
+Quaternion preflight now checks the imported key, raw faded offset and raw
+product before normalization, so the engine's zero-to-identity recovery cannot
+hide a degenerate correction intermediate. Five new admission/equivalence
+obligations accompany this change. Qualify cancellation at half weight,
+zero imported keys, underflow/overflow and unchanged bytes on refusal with
+authenticated replay and native corpus evidence.
 
 The preflight also refuses overlapping GLB byte spans among distinct tracks,
 and bounds each span before multiplying its key/component counts. Half-open
