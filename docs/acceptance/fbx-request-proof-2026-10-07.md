@@ -163,3 +163,20 @@ Runtime success of the failure guidance fixture does not establish these laws.
 The original pair driver tail exit 1 (an absent custom manifest field) remains
 retained separately from subsequent successful exact-environment build and
 pair-current checks. No source-authentication acceptance is claimed.
+
+## Current compiler failure-policy runtime slice
+
+The named worker-status contracts and expanded unknown-code boundary fixture
+compile and run with exit 0 on compiler source `36f7dcba`, rebased onto main
+`528b24bd`. Product SHA-256 is
+`1e787c413f6a0d3e776574702b6355bd8fadb34648cceecb12040aa905662d62`;
+its provenance checker exits 0. Runtime SHA-256 is
+`2c7a16bb5f87dbff7e2413e8886a31e832115f897b4a4b30df2aa56a59ace93d`.
+The four input hashes are unchanged before/after the focused test. Record:
+`build/fbx-failure-current-njfhay0l/result.json`, SHA-256
+`9dcf934dc864e8d9beffad9ac34ef3df731b2be2e57ba8a6afa893a482a1d665`.
+Executable SHA-256:
+`8ccb94924d0098ca97ce23a0f0205e8a849883045c3dcf157efda66f6926d7f3`.
+This establishes the narrow runtime classification slice, including neighboring
+unknown values and maximum i64. It does not authenticate the companion proof,
+exercise native conversion or establish the complete FBX user journey.
