@@ -93,6 +93,11 @@ Remaining work:
   Retain the original mismatch, validate a failing predicate at runtime and
   report this preserved behavior delta separately from unchanged-main parity.
   Updating a test expectation alone does not establish the requested parity.
+  The revised success/failure native gate passes 567/567 with terminal exit 0;
+  strengthened assertions confirm the parameter comparison and exact panic
+  diagnostic. This Stage0-built backend harness does not establish direct
+  Stage1 CLI enforcement or unchanged-main failure-list parity. Self-host,
+  fast-list comparison, full carrier counts and runtime benchmark remain open.
   Full client compatibility and promotion remain open.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`

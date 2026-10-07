@@ -96,8 +96,8 @@ with a touch backtrace. In `/tmp/Elisa-compiler-void-poll/build/`:
   `1c8d452485a5602c2f2237ebf4804d2de87b900bd227ea2e5c2cf28c386b6ad4`.
 - `abort_contract_ensure_void_false.run.log` SHA-256:
   `6f1c84bea2f8fcb36b29618890e9b0f915a523b36b6ecb5140e6a7c0737ff2ff`.
-- Gate result: `backend-native-2ef1fa26-r3.log`; a strengthened assertion
-  rerun is retained separately as r4.
+- Gate result: `backend-native-2ef1fa26-r3.log`; strengthened IR and runtime
+  diagnostic assertions also pass in r4, 567/567, terminal exit 0.
 
 The harness is built by the explicit clean Stage0 and exercises the candidate
 backend source. It does not establish direct Stage1 CLI enforcement, all void
