@@ -180,3 +180,22 @@ Executable SHA-256:
 This establishes the narrow runtime classification slice, including neighboring
 unknown values and maximum i64. It does not authenticate the companion proof,
 exercise native conversion or establish the complete FBX user journey.
+
+## Matched enum-return repair and six-policy rerun
+
+Proof `16c8f6e3` and compiler `36f7dcba` produce matched generation
+`099073e2db5748a5b9079843ab873a74`. Both qualified receiver spellings and
+explicit/implicit cast returns pass focused self-equality controls; custom hooks,
+contradictory claims and wrong owner/backing metadata remain refused. This does
+not establish equality with the negative numeric wire literal.
+
+The six-policy artifacts are retained in the proof checkout under
+`build/q02-fbx-qualification-16c8-b0adec6/`. Root independently verified all
+30 frozen law-source/report/package/replay/correspondence hashes and sizes.
+Audit record: `build/q02-six-policy-16c8-root-audit.json`, SHA-256
+`2bfded9691d87c6bb5ed68ab93e566ac0f897657d8f110ab39671b1ec8c4b036`.
+Five packages are source-inadmissible. Failure policy is source-admissible and
+independently replays 10/10 theorems. All six correspondence checks still exit 1,
+check zero functions and report coverage `not-established`. Remaining failure
+policy findings include cast expressions in actual arguments, unverified helper
+summaries and CFG fact-snapshot limits. No FBX source authentication is accepted.
