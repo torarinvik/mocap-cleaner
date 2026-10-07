@@ -335,3 +335,28 @@ The matched prover build using the stale normal checkout refused publication
 at its provenance gate. Its replacement uses the verified candidate product
 and co-located runtime; acceptance still requires the resulting generation's
 exact source/product identities and successful replay/correspondence reports.
+
+## Stack, contact and session constant domains
+
+Commits `83ccdfb`, `eefd8c6` and `951d0ef` separate stack/contact capacities
+and limits into const modules, and contact sides, editing actions, nudge
+targets and session save/load outcomes into const enums. Session wire tags
+remain an extensible const module: unknown tags are still permitted by the
+existing reader policy. Integer boundaries preserve all previous values.
+Existing fixture references were updated; fixtures were not executed.
+
+The verified candidate compiler compiled the current domain law graphs O0:
+
+| Law graph | Object bytes |
+| --- | ---: |
+| studio_stack_constant_domain_laws | 1,393,040 |
+| studio_contact_editor_domain_laws | 47,120 |
+| studio_contact_editor_laws | 65,088 |
+| studio_contact_nudge_laws | 50,352 |
+| studio_session_constant_domain_laws | 2,111,640 |
+
+Objects are in `build/constant-qualification-current-candidate/`. These
+additional compiles are outside the earlier fifteen-graph input manifest.
+They establish compilation only; authenticated discharge, full application
+integration and runtime persistence behavior remain required. The maintained
+text length check now covers 780 files, all at most 600 lines.
