@@ -75,6 +75,9 @@ current detector before presenting an ignored finding as still applicable.
       consistent. Verify numeric drafts and future search fields through the
       running-window keyboard path, including focus announcements and field
       dismissal.
+      File menu dismissal now requests focus on its invoking File button through
+      the shared Escape/pointer/command close handler. Qualify visible focus,
+      VoiceOver focus and subsequent keyboard activation after every close path.
 - [ ] Make every gesture available through a labelled alternative: range
       fields for drags, menu actions for contact edits, numeric transforms
       for gizmos, buttons for navigation and stack ordering.
