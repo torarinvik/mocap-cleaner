@@ -26,3 +26,20 @@ Preserve exact bytes through join, poll return, global publication, nested
 growth and cleanup before rebuilding the user package. Requalify with committed
 compiler/runtime provenance and an immutable probe closure; keep the actual
 FBX Character/Skeleton journey and source preservation checks open.
+
+## Identified lowering defect
+
+Subsequent LLDB inspection placed all four payload addresses inside
+`ConcurrencyWorkStart1.worker_arena`. The worker's first release saw two
+references; the joined release saw one and `arena_transferred=false`, then
+freed that arena. The generated LLVM call from the void poll passed a null
+hidden result-region argument to `join__Result`. Root independently found
+that null argument in the retained diagnostic LLVM module
+`/tmp/mocap-void-probe/build/fbx_worker_void_global_probe.ll`.
+
+The callback's allocation owner is therefore present, but join cannot adopt
+it into a live caller owner. Repair general aggregate call lowering to supply
+the call site's allocation region even when the enclosing function returns
+void. Do not weaken intrinsic authentication or infer storage-free results
+from an unknown type. Rebuild and qualify the whole returned graph before
+promoting the compiler; explicit worker annotations alone did not fix this.
