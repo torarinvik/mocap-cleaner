@@ -304,3 +304,12 @@ sheet row. A closed-context refusal law emitted a fresh 71,904-byte O0 object
 with both law and admission symbols retained. Current replay and native lifetime
 qualification remain required. Modal pointer priority must prevent the underlying
 sheet receiving input while report review is open.
+
+The separate report panel is now connected to the controller's cached line
+views and typed pointer controls. Views are rebuilt on page changes and released
+before their backing cache is cleared; drawing does not allocate report copies.
+Underlying sheet pointer/keyboard handlers refuse input while review is open.
+The panel policy has accompanying laws and compile-only evidence. Full app
+composition, native accessibility, glyph-width/minimum-window inspection and
+current integrated/native qualification remain open; the saved renderer and
+controller alone do not establish a usable end-to-end workflow.
