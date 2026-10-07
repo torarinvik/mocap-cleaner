@@ -5,14 +5,21 @@ include "../storage_receipt_policy.elisa"
 
 module StudioStorageManifest:
     public:
-        const VERSION: i64 = 1
-        const REGISTERED: i64 = 0
-        const IN_TRASH: i64 = 1
-        const MAX_ENTRIES: i64 = 256
-        const MAX_PATH_BYTES: usize = 4095
-        const MAX_IDENTITY_VALUE: i64 = StudioStorageReceiptPolicy::Limit::MAX_IDENTITY_VALUE
-        const MAX_LINE_BYTES: usize = 16512
-        const MAX_MODIFIED_NANOSECONDS: i64 = StudioStorageReceiptPolicy::Limit::MAX_MODIFIED_NANOSECONDS
+        const module Wire:
+            VERSION: i64 = 1
+
+        const enum State of i64:
+            Registered = 0
+            InTrash = 1
+
+        const module Capacity:
+            MAX_ENTRIES: i64 = 256
+            MAX_PATH_BYTES: usize = 4095
+            MAX_LINE_BYTES: usize = 16512
+
+        const module IdentityLimit:
+            MAX_IDENTITY_VALUE: i64 = StudioStorageReceiptPolicy::Limit::MAX_IDENTITY_VALUE
+            MAX_MODIFIED_NANOSECONDS: i64 = StudioStorageReceiptPolicy::Limit::MAX_MODIFIED_NANOSECONDS
 
         struct Entry:
             state: i64
@@ -62,16 +69,16 @@ module StudioStorageManifest:
             true
 
         def path_valid(path: darray[u8]&) -> bool:
-            return false if path.count == 0 or path.count > MAX_PATH_BYTES
+            return false if path.count == 0 or path.count > Capacity::MAX_PATH_BYTES
             for byte in path:
                 return false if byte == 0
             utf8_valid(path)
 
         def valid(entry: Entry) -> bool:
-            return false if entry.state != REGISTERED and entry.state != IN_TRASH
+            return false if entry.state != State.Registered.i64() and entry.state != State.InTrash.i64()
             return false if not StudioStorageReceiptPolicy::scalar_valid(entry.kind, entry.device, entry.inode, entry.size_bytes, entry.modified_seconds, entry.modified_nanoseconds)
             return false if not path_valid(entry.original_path)
-            return entry.trashed_path.count == 0 if entry.state == REGISTERED
+            return entry.trashed_path.count == 0 if entry.state == State.Registered.i64()
             path_valid(entry.trashed_path)
 
         def same_path(a: darray[u8]&, b: darray[u8]&) -> bool:
@@ -84,7 +91,7 @@ module StudioStorageManifest:
         # coexist with a newly generated file at the same destination.
         def same_entry_key(a: Entry, b: Entry) -> bool:
             return false if a.state != b.state or not same_path(a.original_path, b.original_path)
-            return true if a.state == REGISTERED
+            return true if a.state == State.Registered.i64()
             a.device == b.device and a.inode == b.inode and a.size_bytes == b.size_bytes and a.modified_seconds == b.modified_seconds and a.modified_nanoseconds == b.modified_nanoseconds
 
         def push_text(out: mutable darray[u8]&, text: sview) -> void:
@@ -135,7 +142,7 @@ module StudioStorageManifest:
         # Encode atomically with respect to `out`: invalid or duplicate
         # registration/identity keys leave existing bytes unchanged.
         def encode(entries: darray[Entry]&, out: mutable darray[u8]&) -> bool:
-            return false if entries.count.i64() > MAX_ENTRIES
+            return false if entries.count.i64() > Capacity::MAX_ENTRIES
             for index in 0..<entries.count |entries|:
                 return false if not valid(entries[index])
                 for earlier in 0..<index |earlier, index, entries|:
@@ -165,8 +172,8 @@ module StudioStorageManifest:
             for index in start..<last |line, value|:
                 digit: i64 = line[index].i64() - 48
                 return false if digit < 0 or digit > 9
-                return false if value > MAX_IDENTITY_VALUE / 10
-                return false if value == MAX_IDENTITY_VALUE / 10 and digit > MAX_IDENTITY_VALUE % 10
+                return false if value > IdentityLimit::MAX_IDENTITY_VALUE / 10
+                return false if value == IdentityLimit::MAX_IDENTITY_VALUE / 10 and digit > IdentityLimit::MAX_IDENTITY_VALUE % 10
                 value <- value * 10 + digit
             out <- 0 - value if negative else value
             true
@@ -174,7 +181,7 @@ module StudioStorageManifest:
         def parse_hex(line: darray[u8]&, first: usize, last: usize, out: mutable darray[u8]&) -> bool:
             out.clear()
             return true if first == last
-            return false if last - first > MAX_PATH_BYTES * 2 or (last - first) % 2 != 0
+            return false if last - first > Capacity::MAX_PATH_BYTES * 2 or (last - first) % 2 != 0
             mutable index: usize = first
             while index < last:
                 high: i64 = hex_value(line[index])
@@ -187,7 +194,7 @@ module StudioStorageManifest:
             out.count > 0
 
         def parse_record(line: darray[u8]&, entry: mutable Entry&) -> bool:
-            return false if line.count > MAX_LINE_BYTES
+            return false if line.count > Capacity::MAX_LINE_BYTES
             mutable starts: darray[usize] = []
             mutable ends: darray[usize] = []
             mutable index: usize = 0
@@ -213,8 +220,8 @@ module StudioStorageManifest:
             return false if not parse_hex(line, starts[8], ends[8], &trashed)
             return false if not path_valid(original)
             state: i64 = numbers[0]
-            return false if state != REGISTERED and state != IN_TRASH
-            return false if state == IN_TRASH and not path_valid(trashed)
+            return false if state != State.Registered.i64() and state != State.InTrash.i64()
+            return false if state == State.InTrash.i64() and not path_valid(trashed)
             return false if not StudioStorageReceiptPolicy::scalar_valid(numbers[1], numbers[2], numbers[3], numbers[4], numbers[5], numbers[6])
             entry <- Entry{state: state, kind: numbers[1], device: numbers[2], inode: numbers[3], size_bytes: numbers[4], modified_seconds: numbers[5], modified_nanoseconds: numbers[6], original_path: original, trashed_path: trashed}
             true
@@ -233,7 +240,7 @@ module StudioStorageManifest:
         # duplicate registration/identity keys, and oversized manifests leave `out`
         # unchanged.
         def decode(text: darray[u8]&, out: mutable darray[Entry]&) -> bool:
-            return false if text.count > MAX_ENTRIES.usize() * MAX_LINE_BYTES + 64
+            return false if text.count > Capacity::MAX_ENTRIES.usize() * Capacity::MAX_LINE_BYTES + 64
             mutable line: darray[u8] = []
             mutable parsed: darray[Entry] = []
             mutable index: usize = 0
@@ -248,7 +255,7 @@ module StudioStorageManifest:
                     return false if not header_matches(&line)
                     saw_header <- true
                 elif line.count > 0:
-                    return false if parsed.count.i64() >= MAX_ENTRIES
+                    return false if parsed.count.i64() >= Capacity::MAX_ENTRIES
                     mutable entry: Entry = zeroed
                     return false if not parse_record(&line, &entry)
                     for previous in parsed:
