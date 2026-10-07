@@ -167,6 +167,15 @@ channels or inserting keys remains separate unfinished work.
 
 ### Endpoint no-op qualification
 
+Correction insertion, application and recipe validation now share transform
+admission: finite quaternion and translation components, and a finite positive
+quaternion norm. Norm overflow and a zero quaternion are refused before
+retained insertion or channel writes. Five laws compile under the immutable
+22cf diagnostic compiler. Authenticate their IEEE semantics and qualify native
+NaN, infinity, overflow and zero-norm refusal with unchanged document/history.
+Admission does not prove finite downstream additions or normalized interpolation
+for every intermediate weight; those numerical boundaries remain open.
+
 Gizmo release also refuses an exactly identity correction before history
 insertion, including pointer movement that produces no transform change.
 The predicate uses exact component equality and introduces no tolerance that
