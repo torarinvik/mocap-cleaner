@@ -279,3 +279,35 @@ current published-source ancestry, preserving project repairs. They do not
 describe uncommitted proof-authentication and UI work by revision alone.
 Qualification must bind their exact source bytes and selected linked products;
 the active shared-source Studio run remains comparison-only after UI drift.
+
+## Engine integration audit after compiler repair
+
+The read-only audit selected engine `c52023cea002f8295f72d0b304ed1f5743cc10e5`
+on mocap-track and fetched main `55541b7bcf66f4e8742dde419feeae6b2c424082`.
+Their common base is `7699ec52e3945748f3e808fc7460585d6c068353`;
+exact divergence is 26 local and 17 upstream commits. The selected engine does
+not contain fetched main. Full Studio builds against that selected snapshot
+therefore do not establish complete upstream dependency integration.
+
+Upstream removes workspace_root.elisa and file/path wrappers required by the
+app, plus native file-path, trash, workspace-root, storage-manifest-lock,
+generation-lease and build-generation-trash adapters explicitly compiled or
+hashed by the Studio scripts. GlbDocument.copy and quick-export differences
+also require conflict review. These services are not optional for the current
+import, storage, safe cleanup and export workflows.
+
+Preserve the mocap repairs and establish the intended home or replacement API
+for those services before integrating the 17 upstream commits. Then resolve
+all affected app includes, native providers and script inputs, rebuild the
+complete app and retain exact pre/post source manifests. A coordination
+message was sent to the active engine chat; neither engine checkout was
+modified by this audit. Installation readiness and migration ownership remain
+open.
+
+The UI selected HEAD is `f33e439b3dc25eb28bb62b282128c0b0c9d6838a`,
+with dirty used inputs captured by successful snapshot checks; fetched main is
+`dc6cd3974db7d1457e2416802299331429dd9d66`. Exact dirty source capture is
+required and is not equivalent to a clean revision claim. The compiler is
+clean at `e34f2c0656aac1232ad72da6516c7eb89f866a47`, and platform.sh is
+now an explicit app snapshot input; its omission from compiler provenance
+recipe coverage remains a separate repair item.
