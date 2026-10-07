@@ -1,0 +1,36 @@
+# Ticket, request and publication admission for background candidate scans.
+include "../io/build_generation_candidate_provider.elisa"
+include "../build_generation_candidate_provider_retention.elisa"
+
+module StudioGenerationCandidateScanWorkerPolicy:
+    public:
+        const module Ticket:
+            MAX: i64 = 9223372036854775807
+
+        const enum ReplyAdmission of i64:
+            Reject = 0
+            Publish = 1
+
+        def next_ticket(current: i64) -> i64:
+            requires current >= 0 and current <= Ticket::MAX
+            ensure result >= 1 and result <= Ticket::MAX
+            ensure current < Ticket::MAX implies result == current + 1
+            ensure current == Ticket::MAX implies result == 1
+            return 1 if current == Ticket::MAX
+            current + 1
+
+        def request_valid(ticket: i64, path_bytes: i64,
+                          retention_days: i64) -> bool:
+            ensure result == (ticket > 0 and ticket <= Ticket::MAX and path_bytes > 0 and path_bytes <= StudioBuildGenerationCandidateProvider::Limit::MAX_PATH_BYTES and retention_days >= 0 and retention_days <= StudioBuildGenerationCandidateProviderRetention::MAX_RETENTION_DAYS)
+            ticket > 0 and ticket <= Ticket::MAX and path_bytes > 0 and path_bytes <= StudioBuildGenerationCandidateProvider::Limit::MAX_PATH_BYTES and retention_days >= 0 and retention_days <= StudioBuildGenerationCandidateProviderRetention::MAX_RETENTION_DAYS
+
+        # Refused and overflow snapshots remain publishable status replies.
+        # The controller may display them, but only Complete contains rows.
+        def reply_admission(ticket: i64, current_ticket: i64,
+                            cancelled: bool, snapshot_valid: bool) -> ReplyAdmission:
+            ensure result == (ReplyAdmission.Publish if ticket > 0 and ticket == current_ticket and not cancelled and snapshot_valid else ReplyAdmission.Reject)
+            ensure result == ReplyAdmission.Publish or result == ReplyAdmission.Reject
+            ensure result == ReplyAdmission.Publish implies (ticket > 0 and ticket == current_ticket and not cancelled and snapshot_valid)
+            return ReplyAdmission.Reject if ticket <= 0 or ticket != current_ticket
+            return ReplyAdmission.Reject if cancelled or not snapshot_valid
+            ReplyAdmission.Publish

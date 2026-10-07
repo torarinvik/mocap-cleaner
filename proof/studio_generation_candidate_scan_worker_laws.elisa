@@ -1,0 +1,42 @@
+include "../src/studio/state/generation_candidate_scan_worker_policy.elisa"
+include "../src/studio/io/build_generation_candidate_provider.elisa"
+
+module StudioGenerationCandidateScanWorkerLaws:
+    public:
+        def ticket_advances_positively(current: i64) -> bool:
+            requires current >= 0 and current < StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
+            ensure StudioGenerationCandidateScanWorkerPolicy::next_ticket(current) > 0
+            StudioGenerationCandidateScanWorkerPolicy::next_ticket(current) == current + 1
+
+        def wrapped_ticket_stays_positive() -> bool:
+            ensure StudioGenerationCandidateScanWorkerPolicy::next_ticket(StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX) == 1
+            StudioGenerationCandidateScanWorkerPolicy::next_ticket(StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX) == 1
+
+        def stale_reply_is_rejected(ticket: i64, current: i64) -> bool:
+            requires ticket != current
+            ensure StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, current, false, true) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Reject
+            StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, current, false, true) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Reject
+
+        def cancelled_reply_is_rejected(ticket: i64) -> bool:
+            requires ticket > 0
+            ensure StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, true, true) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Reject
+            StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, true, true) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Reject
+
+        def invalid_snapshot_is_rejected(ticket: i64) -> bool:
+            requires ticket > 0
+            ensure StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, false, false) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Reject
+            StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, false, false) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Reject
+
+        def overflow_status_can_be_published(ticket: i64) -> bool:
+            requires ticket > 0
+            ensure StudioBuildGenerationCandidateProvider::snapshot_valid(StudioBuildGenerationCandidateProvider::Snapshot{outcome: StudioBuildGenerationCandidateProvider::Outcome.Overflow, rows: [], refusal_code: 0})
+            ensure StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, false, StudioBuildGenerationCandidateProvider::snapshot_valid(StudioBuildGenerationCandidateProvider::Snapshot{outcome: StudioBuildGenerationCandidateProvider::Outcome.Overflow, rows: [], refusal_code: 0})) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Publish
+            snapshot: StudioBuildGenerationCandidateProvider::Snapshot = StudioBuildGenerationCandidateProvider::Snapshot{outcome: StudioBuildGenerationCandidateProvider::Outcome.Overflow, rows: [], refusal_code: 0}
+            StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, false, StudioBuildGenerationCandidateProvider::snapshot_valid(snapshot)) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Publish
+
+        def refused_status_can_be_published(ticket: i64) -> bool:
+            requires ticket > 0
+            ensure StudioBuildGenerationCandidateProvider::snapshot_valid(StudioBuildGenerationCandidateProvider::Snapshot{outcome: StudioBuildGenerationCandidateProvider::Outcome.Refused, rows: [], refusal_code: 1})
+            ensure StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, false, StudioBuildGenerationCandidateProvider::snapshot_valid(StudioBuildGenerationCandidateProvider::Snapshot{outcome: StudioBuildGenerationCandidateProvider::Outcome.Refused, rows: [], refusal_code: 1})) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Publish
+            snapshot: StudioBuildGenerationCandidateProvider::Snapshot = StudioBuildGenerationCandidateProvider::Snapshot{outcome: StudioBuildGenerationCandidateProvider::Outcome.Refused, rows: [], refusal_code: 1}
+            StudioGenerationCandidateScanWorkerPolicy::reply_admission(ticket, ticket, false, StudioBuildGenerationCandidateProvider::snapshot_valid(snapshot)) == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Publish

@@ -1,0 +1,46 @@
+# A moved job owns its path until the bounded read-only provider returns.
+# Cancellation is decided by the controller when joining; native scanning
+# drains its lock and descriptor ownership before a reply can be discarded.
+include "../../../build/generated/studio_runtime.elisa"
+include "build_generation_candidate_provider.elisa"
+include "../state/generation_candidate_scan_worker_policy.elisa"
+
+module StudioBuildGenerationCandidateScanWorker:
+    public:
+        struct Paths:
+            build_root: darray[u8]
+
+        affine struct Job:
+            ticket: i64
+            retention_days: i64
+            paths: Paths
+
+        affine struct Result:
+            ticket: i64
+            snapshot: StudioBuildGenerationCandidateProvider::Snapshot
+
+        def scan(job: Job) -> Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            ticket: i64 = job.ticket
+            retention: i64 = job.retention_days
+            mutable paths: Paths = move job.paths
+            mutable root: darray[u8] = move paths.build_root
+            mutable snapshot: StudioBuildGenerationCandidateProvider::Snapshot =
+                StudioBuildGenerationCandidateProvider::Snapshot{
+                    outcome: StudioBuildGenerationCandidateProvider::Outcome.Refused,
+                    rows: [], refusal_code: 1}
+            if StudioGenerationCandidateScanWorkerPolicy::request_valid(
+                ticket, root.count.i64(), retention):
+                mutable has_zero: bool = false
+                for byte in root:
+                    has_zero <- has_zero or byte == 0
+                if not has_zero:
+                    root.push(0)
+                    root_pointer: cstr = (&root[0]).cast[cstr] can Unsafe.PointerCast
+                    snapshot <- StudioBuildGenerationCandidateProvider::scan(root_pointer, retention)
+            Result{ticket: ticket, snapshot: move snapshot}
+
+        def start(job: Job) -> Thread[Result, Joinable] can Threads:
+            task(scan_build_generation_candidate_scan_job, move job)
+
+def scan_build_generation_candidate_scan_job(job: StudioBuildGenerationCandidateScanWorker::Job) -> StudioBuildGenerationCandidateScanWorker::Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+    StudioBuildGenerationCandidateScanWorker::scan(move job)
