@@ -413,3 +413,23 @@ freshness gate: the selected prover is stale relative to current proof source.
 The test suite did not execute. Re-run the full check only with the resulting
 source-matched proof-tool generation and compiler dependencies; this refusal
 is not a passing test result or a reason to bypass provenance.
+
+## Limb length adapter migration
+
+Commits `80ba994` and `bdf819a` move only Limb::solve_chain reach lengths to
+0.1 mm integer units. The existing physical 1 km input clamp becomes
+10,000,000 units. Engine IK receives metres converted from that same scale.
+Pole-angle values retain their angular micro-unit path. Other operation and
+physics length adapters still require migration; this is not repository-wide
+unit compliance. Inputs are rounded at the existing micrometre boundary and
+then at the 0.1 mm boundary, so motion-quality acceptance must include the
+precision change and short/degenerate bones.
+
+Current candidate O0 compilation at root `bdf819a` produced the existing
+limb-tools fixture graph (330,272 bytes) and length-boundary laws (45,520
+bytes). Input snapshot comparison passed with no drift; candidate product
+provenance passed. Logs, input manifest, leaf hashes and object sizes are in
+`build/limb-length-qualification/`. The fixture was compiled, not executed.
+Authenticated proofs, CLI/preview/export parity and motion corpus comparison
+remain open. Exact 100x scaling is specified for representable inputs; it does
+not prove equivalence for newly quantized values.
