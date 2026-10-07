@@ -1,5 +1,5 @@
 # Job paths own their NUL-terminated bytes across asynchronous conversion.
-# The caller reserves an exclusive output under its verified build root.
+# Staging owns an exclusive input snapshot/output path under the build root.
 # The controller publishes only a current, uncancelled, fully loaded result.
 include "app/model.elisa"
 include "fbx_import_policy.elisa"
@@ -9,6 +9,15 @@ module StudioFbxImportWorker:
     private:
         @link_name("elisa_fbx_to_glb")
         extern convert(source: cstr, destination: cstr, rate: i64) -> i64
+        @link_name("elisa_studio_fbx_stage")
+        extern stage(build_root: cstr, source: cstr, snapshot: mutable u8&, destination: mutable u8&, digest: mutable u8&, capacity: u32) -> i64
+
+        def path_copy(bytes: u8[4096]&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            for index in 0..<4096 |index, bytes, out|:
+                out.push(bytes[index])
+                return move out if bytes[index] == 0
+            []
 
     public:
         const enum Status of i64:
@@ -18,7 +27,7 @@ module StudioFbxImportWorker:
         affine struct Job:
             ticket: i64
             source: darray[u8]
-            destination: darray[u8]
+            build_root: darray[u8]
             animation: darray[u8]
             rate: i64
 
@@ -27,25 +36,38 @@ module StudioFbxImportWorker:
             status: i64
             source: darray[u8]
             destination: darray[u8]
+            source_sha256: darray[u8]
             memo: StudioModel::Memo?
 
         def load(job: Job) -> Result can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             ticket: i64 = job.ticket
             rate: i64 = job.rate
             mutable source: darray[u8] = job.source
-            mutable destination: darray[u8] = job.destination
+            mutable build_root: darray[u8] = job.build_root
+            mutable destination: darray[u8] = []
+            mutable source_digest: darray[u8] = []
             mutable animation: darray[u8] = move job.animation
             mutable status: i64 = Status.InvalidJob.i64()
             mutable memo: StudioModel::Memo? = null
-            if ticket > 0 and StudioFbxImportPolicy::rate_valid(rate) and StudioFbxImportPolicy::terminated(&source, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&destination, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&animation, StudioFbxImportPolicy::Limit::ANIMATION_BYTES) and not StudioFbxImportPolicy::same_path(&source, &destination):
+            if ticket > 0 and StudioFbxImportPolicy::rate_valid(rate) and StudioFbxImportPolicy::terminated(&source, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&build_root, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&animation, StudioFbxImportPolicy::Limit::ANIMATION_BYTES):
                 source_path: cstr = (&source[0]).cast[cstr]
-                destination_path: cstr = (&destination[0]).cast[cstr]
-                animation_name: cstr = (&animation[0]).cast[cstr]
-                status <- convert(source_path, destination_path, rate)
+                root_path: cstr = (&build_root[0]).cast[cstr]
+                mutable snapshot_bytes: u8[4096] = zeroed
+                mutable output_bytes: u8[4096] = zeroed
+                mutable digest_bytes: u8[65] = zeroed
+                status <- stage(root_path, source_path, &snapshot_bytes[0], &output_bytes[0], &digest_bytes[0], 4096.u32())
                 if status == 0:
-                    memo <- StudioModel::load(destination_path, animation_name)
-                    status <- Status.UnreadableAnimation.i64() if memo == null else 0
-            Result{ticket: ticket, status: status, source: move source, destination: move destination, memo: move memo}
+                    destination <- path_copy(&output_bytes)
+                    snapshot: cstr = (&snapshot_bytes[0]).cast[cstr]
+                    destination_path: cstr = (&output_bytes[0]).cast[cstr]
+                    animation_name: cstr = (&animation[0]).cast[cstr]
+                    for index in 0..<64 |index, source_digest, digest_bytes|:
+                        source_digest.push(digest_bytes[index])
+                    status <- convert(snapshot, destination_path, rate)
+                    if status == 0:
+                        memo <- StudioModel::load(destination_path, animation_name)
+                        status <- Status.UnreadableAnimation.i64() if memo == null else 0
+            Result{ticket: ticket, status: status, source: move source, destination: move destination, source_sha256: move source_digest, memo: move memo}
 
 def load_fbx_import_job(job: StudioFbxImportWorker::Job) -> StudioFbxImportWorker::Result can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
     StudioFbxImportWorker::load(move job)
