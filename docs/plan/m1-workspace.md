@@ -121,6 +121,10 @@ current detector before presenting an ignored finding as still applicable.
       Create build refusal now explains a changed, invalid or unwritable root,
       including a build folder created externally while confirmation was pending.
       Qualify these transitions without changing the active root or preferences.
+      Cancel workspace setup now dismisses only the pending candidate and
+      explains whether the previous workspace remains available. Qualify it
+      before first setup and while a document is open: no directory creation,
+      preference write, document replacement or active-path change is permitted.
 
 - [ ] Establish an explicit canonical workspace root with a writable `build/`
       directory. Persist its location separately from source/session contents;
