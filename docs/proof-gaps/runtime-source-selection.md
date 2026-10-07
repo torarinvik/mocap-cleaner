@@ -50,3 +50,17 @@ Keep the scanner's per-source checks intact. Retain the expanded paths, selected
 environment, source hashes, product hashes and terminal build log. Then rebuild
 both prover and replay products and authenticate their pair before replaying app
 laws. No proof or native acceptance is claimed by this inspection.
+
+The proof build now has a fail-closed selector in `elisa-proof-mocap`: it checks
+the selected Stage1 provenance against the imported frontend pin, requires the
+snapshot `.rev` to match that product, and recomputes the snapshot `src` plus
+`elisacore_std` digest against the product's recorded source-tree digest. It then
+exports the snapshot's `elisacore_std` path as
+`ELISA_STAGE1_RUNTIME_STD_ROOT`; a conflicting caller-supplied path is rejected.
+The selected path is part of the effective compiler environment and therefore
+the build identity. A byte-digest check of the retained `d2754a8e` snapshot
+matched its recorded source-tree hash, but the current candidate checkout has
+advanced beyond that product, so full provenance validation and a paired build
+are pending. The compiler wrapper must preserve this explicit selection only
+after validating it against the selected product provenance; until that wrapper
+change is available in a matching Stage1 product, no build may qualify it.
