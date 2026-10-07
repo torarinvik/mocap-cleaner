@@ -3,33 +3,38 @@
 # kernel only accepts already-verified evidence and never performs I/O.
 module StudioStorageCleanupPolicy:
     public:
-        const RECOVERY: i64 = 0
-        const TEMP_EXPORT: i64 = 1
-        const GENERATED_REPORT: i64 = 2
-        const KIND_COUNT: i64 = 3
-        const MAX_AGE_DAYS: i64 = 365000
-        const MAX_RETENTION_DAYS: i64 = 3650
-        const MAX_ITEM_BYTES: i64 = 1000000000000000
+        const enum Kind of i64:
+            Recovery = 0
+            TempExport = 1
+            GeneratedReport = 2
 
-        # Stable, UI-neutral reasons let inventory views explain why an
-        # artifact is protected without duplicating the safety predicate.
-        const PROTECT_NONE: i64 = 0
-        const PROTECT_UNMANAGED: i64 = 1
-        const PROTECT_OUTSIDE_BUILD: i64 = 2
-        const PROTECT_SYMLINK: i64 = 3
-        const PROTECT_SOURCE_TAKE: i64 = 4
-        const PROTECT_OPEN_DOCUMENT: i64 = 5
-        const PROTECT_SESSION_REFERENCE: i64 = 6
-        const PROTECT_INVALID_FACTS: i64 = 7
-        const PROTECT_RETENTION: i64 = 8
-        const PROTECT_IDENTITY_CHANGED: i64 = 9
-        const PROTECT_IDENTITY_UNVERIFIED: i64 = 10
-        # Additional application-level gate; ordinary retention facts never bypass it.
-        const PROTECT_USER_EXEMPTION: i64 = 11
+        const module Capacity:
+            KIND_COUNT: i64 = 3
 
-        const IDENTITY_UNVERIFIED: i64 = 0
-        const IDENTITY_MATCHES: i64 = 1
-        const IDENTITY_CHANGED: i64 = 2
+        const module Limit:
+            MAX_AGE_DAYS: i64 = 365000
+            MAX_RETENTION_DAYS: i64 = 3650
+            MAX_ITEM_BYTES: i64 = 1000000000000000
+
+        const enum ProtectionReason of i64:
+            # Stable UI-neutral reasons; UserExemption is an additional app gate.
+            None = 0
+            Unmanaged = 1
+            OutsideBuild = 2
+            Symlink = 3
+            SourceTake = 4
+            OpenDocument = 5
+            SessionReference = 6
+            InvalidFacts = 7
+            Retention = 8
+            IdentityChanged = 9
+            IdentityUnverified = 10
+            UserExemption = 11
+
+        const enum IdentityState of i64:
+            Unverified = 0
+            Matches = 1
+            Changed = 2
 
         struct Facts:
             kind: i64
@@ -45,12 +50,12 @@ module StudioStorageCleanupPolicy:
             size_bytes: i64
 
         def kind_supported(kind: i64) -> bool:
-            ensure result == (kind >= RECOVERY and kind < KIND_COUNT)
-            kind >= RECOVERY and kind < KIND_COUNT
+            ensure result == (kind >= Kind.Recovery.i64() and kind < Capacity::KIND_COUNT)
+            kind >= Kind.Recovery.i64() and kind < Capacity::KIND_COUNT
 
         def facts_valid(item: Facts) -> bool:
-            ensure result == (item.kind >= RECOVERY and item.kind < KIND_COUNT and item.identity_state >= IDENTITY_UNVERIFIED and item.identity_state <= IDENTITY_CHANGED and item.age_days >= 0 and item.age_days <= MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= MAX_ITEM_BYTES)
-            item.kind >= RECOVERY and item.kind < KIND_COUNT and item.identity_state >= IDENTITY_UNVERIFIED and item.identity_state <= IDENTITY_CHANGED and item.age_days >= 0 and item.age_days <= MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= MAX_ITEM_BYTES
+            ensure result == (item.kind >= Kind.Recovery.i64() and item.kind < Capacity::KIND_COUNT and item.identity_state >= IdentityState.Unverified.i64() and item.identity_state <= IdentityState.Changed.i64() and item.age_days >= 0 and item.age_days <= Limit::MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= Limit::MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= Limit::MAX_ITEM_BYTES)
+            item.kind >= Kind.Recovery.i64() and item.kind < Capacity::KIND_COUNT and item.identity_state >= IdentityState.Unverified.i64() and item.identity_state <= IdentityState.Changed.i64() and item.age_days >= 0 and item.age_days <= Limit::MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= Limit::MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= Limit::MAX_ITEM_BYTES
 
         def retention_elapsed(age_days: i64, retention_days: i64) -> bool:
             ensure result == (age_days >= retention_days)
@@ -59,31 +64,31 @@ module StudioStorageCleanupPolicy:
         # Report one deterministic explanation for the first applicable
         # protection rule. The UI can map these stable codes to localized text.
         def protection_reason(item: Facts) -> i64:
-            ensure result >= PROTECT_NONE and result <= PROTECT_IDENTITY_UNVERIFIED
-            ensure item.studio_managed or result == PROTECT_UNMANAGED
-            ensure not item.studio_managed or item.canonical_under_build or result == PROTECT_OUTSIDE_BUILD
-            ensure not item.studio_managed or not item.canonical_under_build or item.symlink or not item.source_take or result == PROTECT_SOURCE_TAKE
+            ensure result >= ProtectionReason.None.i64() and result <= ProtectionReason.IdentityUnverified.i64()
+            ensure item.studio_managed or result == ProtectionReason.Unmanaged.i64()
+            ensure not item.studio_managed or item.canonical_under_build or result == ProtectionReason.OutsideBuild.i64()
+            ensure not item.studio_managed or not item.canonical_under_build or item.symlink or not item.source_take or result == ProtectionReason.SourceTake.i64()
             if not item.studio_managed:
-                return PROTECT_UNMANAGED
+                return ProtectionReason.Unmanaged.i64()
             if not item.canonical_under_build:
-                return PROTECT_OUTSIDE_BUILD
+                return ProtectionReason.OutsideBuild.i64()
             if item.symlink:
-                return PROTECT_SYMLINK
+                return ProtectionReason.Symlink.i64()
             if item.source_take:
-                return PROTECT_SOURCE_TAKE
+                return ProtectionReason.SourceTake.i64()
             if item.open_document:
-                return PROTECT_OPEN_DOCUMENT
+                return ProtectionReason.OpenDocument.i64()
             if item.session_referenced:
-                return PROTECT_SESSION_REFERENCE
+                return ProtectionReason.SessionReference.i64()
             if not facts_valid(item):
-                return PROTECT_INVALID_FACTS
-            if item.identity_state == IDENTITY_CHANGED:
-                return PROTECT_IDENTITY_CHANGED
-            if item.identity_state != IDENTITY_MATCHES:
-                return PROTECT_IDENTITY_UNVERIFIED
+                return ProtectionReason.InvalidFacts.i64()
+            if item.identity_state == IdentityState.Changed.i64():
+                return ProtectionReason.IdentityChanged.i64()
+            if item.identity_state != IdentityState.Matches.i64():
+                return ProtectionReason.IdentityUnverified.i64()
             if not retention_elapsed(item.age_days, item.retention_days):
-                return PROTECT_RETENTION
-            PROTECT_NONE
+                return ProtectionReason.Retention.i64()
+            ProtectionReason.None.i64()
 
         # Safe candidates must be generated and inside the canonical build
         # root, unreferenced by the open document/session, and past retention.
@@ -94,17 +99,17 @@ module StudioStorageCleanupPolicy:
             ensure not result or not item.source_take
             ensure not result or not item.open_document
             ensure not result or not item.session_referenced
-            ensure not result or item.kind >= RECOVERY
-            ensure not result or item.kind < KIND_COUNT
-            ensure not result or item.identity_state == IDENTITY_MATCHES
-            ensure not result or item.identity_state >= IDENTITY_UNVERIFIED
-            ensure not result or item.identity_state <= IDENTITY_CHANGED
+            ensure not result or item.kind >= Kind.Recovery.i64()
+            ensure not result or item.kind < Capacity::KIND_COUNT
+            ensure not result or item.identity_state == IdentityState.Matches.i64()
+            ensure not result or item.identity_state >= IdentityState.Unverified.i64()
+            ensure not result or item.identity_state <= IdentityState.Changed.i64()
             ensure not result or item.age_days >= 0
-            ensure not result or item.age_days <= MAX_AGE_DAYS
+            ensure not result or item.age_days <= Limit::MAX_AGE_DAYS
             ensure not result or item.retention_days >= 0
-            ensure not result or item.retention_days <= MAX_RETENTION_DAYS
+            ensure not result or item.retention_days <= Limit::MAX_RETENTION_DAYS
             ensure not result or item.size_bytes >= 0
-            ensure not result or item.size_bytes <= MAX_ITEM_BYTES
+            ensure not result or item.size_bytes <= Limit::MAX_ITEM_BYTES
             ensure not result or item.age_days >= item.retention_days
             if not item.studio_managed:
                 return false
@@ -120,7 +125,7 @@ module StudioStorageCleanupPolicy:
                 return false
             if not facts_valid(item):
                 return false
-            if item.identity_state != IDENTITY_MATCHES:
+            if item.identity_state != IdentityState.Matches.i64():
                 return false
             retention_elapsed(item.age_days, item.retention_days)
 
@@ -133,17 +138,17 @@ module StudioStorageCleanupPolicy:
             ensure not result or not item.source_take
             ensure not result or not item.open_document
             ensure not result or not item.session_referenced
-            ensure not result or item.kind >= RECOVERY
-            ensure not result or item.kind < KIND_COUNT
-            ensure not result or item.identity_state == IDENTITY_MATCHES
-            ensure not result or item.identity_state >= IDENTITY_UNVERIFIED
-            ensure not result or item.identity_state <= IDENTITY_CHANGED
+            ensure not result or item.kind >= Kind.Recovery.i64()
+            ensure not result or item.kind < Capacity::KIND_COUNT
+            ensure not result or item.identity_state == IdentityState.Matches.i64()
+            ensure not result or item.identity_state >= IdentityState.Unverified.i64()
+            ensure not result or item.identity_state <= IdentityState.Changed.i64()
             ensure not result or item.age_days >= 0
-            ensure not result or item.age_days <= MAX_AGE_DAYS
+            ensure not result or item.age_days <= Limit::MAX_AGE_DAYS
             ensure not result or item.retention_days >= 0
-            ensure not result or item.retention_days <= MAX_RETENTION_DAYS
+            ensure not result or item.retention_days <= Limit::MAX_RETENTION_DAYS
             ensure not result or item.size_bytes >= 0
-            ensure not result or item.size_bytes <= MAX_ITEM_BYTES
+            ensure not result or item.size_bytes <= Limit::MAX_ITEM_BYTES
             ensure not result or item.age_days >= item.retention_days
             ensure not result or selected
             ensure not result or reviewed
@@ -162,12 +167,12 @@ module StudioStorageCleanupPolicy:
         # malformed item is rejected without changing the prior total.
         def next_total_bytes(current: i64, item: Facts) -> i64:
             requires current >= 0
-            requires current <= MAX_ITEM_BYTES
+            requires current <= Limit::MAX_ITEM_BYTES
             ensure result >= 0
-            ensure result <= MAX_ITEM_BYTES
+            ensure result <= Limit::MAX_ITEM_BYTES
             if eligible(item):
                 if item.size_bytes >= 0:
-                    if item.size_bytes <= MAX_ITEM_BYTES:
-                        if item.size_bytes <= MAX_ITEM_BYTES - current:
+                    if item.size_bytes <= Limit::MAX_ITEM_BYTES:
+                        if item.size_bytes <= Limit::MAX_ITEM_BYTES - current:
                             return current + item.size_bytes
             current
