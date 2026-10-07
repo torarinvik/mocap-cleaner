@@ -6,6 +6,12 @@ Source inventory at primary `9a952f8`. Limb reach lengths already use 0.1 mm;
 the following physics paths still use micrometres. This inventory is remaining
 work, not qualification evidence.
 
+`PhysicsLengthBoundary` now supplies bounded integer micrometre admission,
+0.1 mm conversion and explicit report conversion admission. Six obligations
+compile with d2754a8e. It is not yet wired into physics callers; authenticated
+replay and the world-float boundary remain open. World floats must round once
+at the final unit boundary, rather than first rounding to micrometres.
+
 | Boundary | Current callers | Required dimension |
 | --- | --- | --- |
 | Foot height and floor | `Physics::foot_lows`, `floor_of`, `foot_flags` | 0.1 mm |
