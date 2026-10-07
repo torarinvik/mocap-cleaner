@@ -315,3 +315,20 @@ required and is not equivalent to a clean revision claim. The compiler is
 clean at `e34f2c0656aac1232ad72da6516c7eb89f866a47`, and platform.sh is
 now an explicit app snapshot input; its omission from compiler provenance
 recipe coverage remains a separate repair item.
+
+## Fetched engine upstream integrated on mocap-track
+
+The merge-tree simulation was conflict-free. Its tree was
+`785b06c96b9c074d806cf99c86370fcde8e04421`. The actual merge is committed
+at engine `dff5579b133d14cddf0a4cfc6270c7c7d1a3b350`; fetched main
+`55541b7bcf66f4e8742dde419feeae6b2c424082` is now an ancestor, and the
+selected mocap checkout is clean. The provider/file-panel/workspace-root files
+were compared to c52023 and are unchanged by the merge. The merge integrates
+105 upstream files while retaining the mocap additions. The separate user-owned
+engine main checkout was not modified.
+
+Studio compiles its selected native providers directly; it does not link an
+engine static archive here. A full Studio rebuild against this integrated
+engine and the current toolbar availability slice is underway. Source
+integration is established; current complete build/runtime/proof qualification
+must still be tied to that newly selected engine rather than older products.
