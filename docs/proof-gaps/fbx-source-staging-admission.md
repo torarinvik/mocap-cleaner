@@ -2,7 +2,7 @@
 
 ## Paired evidence
 
-The focused laws were evaluated with the current matched proof pair
+The focused laws were evaluated with captured matched proof pair
 `3fcd655ba5d043989419af8699c6e60c` (producer SHA-256
 `6961f2be6941373848e31b690624b657ccba583c9e569c83145086f2c6f20b77`, replay
 SHA-256 `973d99db5197fe7454b9d3891542c416e42c5233f672c304cd059cda87acf85`).
@@ -12,6 +12,11 @@ Stage1 SHA-256
 runtime SHA-256
 `51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`.
 Pair integrity and the primary freshness check passed for that product tuple.
+That pair records proof-tool source HEAD `2591c2583649472afb8a7480da15f908716f4448`.
+The subsequent isolated replay repair commits `bcf4cbfb`, `1072e49e` and
+`9729c6d9` changed proof-tool sources, so the captured pair is now historical
+diagnostic evidence and is not fresh for the repaired proof checkout. Rebuild
+and rerun the pair after the selected compiler product is finalized.
 
 The focused producer reports are retained under
 `../elisa-proof-mocap-owner-aware/build/current-pair-source-auth/`:
