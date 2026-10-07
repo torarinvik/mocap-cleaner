@@ -34,8 +34,7 @@ def main():
     if manifest["binary"]["sha256"] != sha(prover):
         raise ValueError("prover manifest does not match the selected binary")
     if os.environ.get("MOCAP_PROOF_COMPARISON") == "1":
-        print("prover freshness: explicit comparison; not current snapshot qualification")
-        return 0
+        raise ValueError("comparison mode cannot pass current qualification; run the selected prover directly and label its evidence as comparison")
     head = subprocess.check_output(["git", "-C", str(proof_root), "rev-parse", "HEAD"], text=True).strip()
     if manifest["proof"]["head"] != head or manifest["proof"]["source_tree_sha256"] != tree_sha(proof_root / "src"):
         raise ValueError("selected prover is stale relative to current proof source; rebuild and qualify it")

@@ -180,11 +180,11 @@ Stage1 provenance, linked frontend/compiler revisions and runtime hash. The
 older default prover is rejected explicitly rather than silently qualifying a
 current source snapshot with an old tool. A missing/malformed manifest fails.
 
-Historical diagnostic or candidate comparisons require explicit
-`MOCAP_PROOF_COMPARISON=1` alongside the selected `ELISA_PROOF` path. This mode
-still verifies the manifest's binary hash and prints that the run is a
-comparison, not current snapshot qualification. The active earlier diagnostic
-run started before this preflight existed and remains comparison evidence.
+Historical diagnostic or candidate comparisons run the selected prover directly
+and retain its exact identity and a comparison label. The freshness validator
+now rejects `MOCAP_PROOF_COMPARISON=1`: an explicit comparison must not return
+success from the gate used by `scripts/check.sh` and checked Studio builds.
+Earlier runs using that shortcut remain comparison evidence only.
 `STUDIO_SKIP_CHECKS=1` remains the explicit compile-only route; it does not
 establish proof acceptance. No executable tests were added or run for this gate.
 
