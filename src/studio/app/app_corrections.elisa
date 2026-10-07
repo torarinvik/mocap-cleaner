@@ -293,6 +293,11 @@ extend Studio:
             foot_press <- FootState::idle()
             contact_preview_active <- false
             if history_ready:
+                if contact_preview_task == null and path_slot >= 0:
+                    if HistoryState::undo_target(&history) is target:
+                        if apply_history_target(target, false):
+                            history_rebuild_feedback("Undo applied. Result updated.", "Undo is waiting for evaluation.")
+                    return
                 if HistoryState::undo(&history):
                     stack_generation <- stack_generation + 1
                     rebuild()
@@ -302,10 +307,38 @@ extend Studio:
             foot_press <- FootState::idle()
             contact_preview_active <- false
             if history_ready:
+                if contact_preview_task == null and path_slot >= 0:
+                    if HistoryState::redo_target(&history) is target:
+                        if apply_history_target(target, true):
+                            history_rebuild_feedback("Redo applied. Result updated.", "Redo is waiting for evaluation.")
+                    return
                 if HistoryState::redo(&history):
                     stack_generation <- stack_generation + 1
                     rebuild()
                     history_rebuild_feedback("Redo applied. Result updated.", "Redo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
+
+        def apply_history_target(target: StackState::Stack&, redo_requested: bool) -> bool:
+            requires contact_preview_task == null
+            base: StudioEditTransactionPolicy::Base = edit_transaction_base()
+            revision: i64 = candidate_revision_for(target)
+            mutable candidate: StudioModel::Clip? = evaluate_candidate(target, revision)
+            if candidate == null:
+                status <- "History change not applied: its result could not be evaluated. Existing history position and result kept. Reopen the source if this continues."
+                nudged_row <- -1
+                status_file <- null
+                touch()
+                return false
+            if not StudioEditTransactionPolicy::current(base, edit_transaction_base()):
+                status <- "History change not applied: source or history changed during evaluation. Existing result kept. Try again from the current state."
+                nudged_row <- -1
+                status_file <- null
+                touch()
+                return false
+            moved: bool = HistoryState::redo(&history) if redo_requested else HistoryState::undo(&history)
+            return false if not moved
+            stack_generation <- stack_generation + 1
+            publish_candidate(target, move candidate, revision)
+            true
 
         def history_rebuild_feedback(ready_text: sview, pending_text: sview) -> void:
             outcome: StudioCorrectionResultPolicy::Outcome = StudioCorrectionResultPolicy::outcome(contact_preview_rebuild_pending, load_failed)

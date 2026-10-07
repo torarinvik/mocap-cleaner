@@ -181,6 +181,12 @@ The gizmo consumes commit's Boolean result so refusal feedback is retained.
 Deferred edits, Undo/Redo and other callers' success messages still require
 integration. The seven ticket obligations have source-compile evidence only;
 actual transaction frame conditions and latest full-graph compilation are open.
+Synchronous Undo/Redo now read the adjacent snapshot, evaluate it and revalidate
+the base ticket before moving the cursor and publishing. Evaluation refusal
+preserves the previous cursor, saved point and result. Worker-active history
+movement still uses the old deferred path and remains to migrate. Accessor laws,
+transaction frame conditions and the complete latest source graph need current
+compiler/prover qualification; no native acceptance is claimed for this slice.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;
