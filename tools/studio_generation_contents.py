@@ -91,6 +91,22 @@ def hash_file(parent, name, facts):
         os.close(fd)
 
 
+def bounded_names(directory, limit):
+    # Open a separate description so retries never inherit a directory offset.
+    fd = os.open(".", DIRECTORY_FLAGS, dir_fd=directory)
+    try:
+        require(identity(os.fstat(fd)) == identity(os.fstat(directory)),
+                "directory identity changed before enumeration")
+        names = []
+        with os.scandir(fd) as iterator:
+            for entry in iterator:
+                require(len(names) < limit, "directory entry count exceeded")
+                names.append(entry.name)
+        return sorted(names)
+    finally:
+        os.close(fd)
+
+
 def scan(root_fd, controls):
     entries = []
     total = 0
@@ -100,8 +116,7 @@ def scan(root_fd, controls):
         require(depth <= Limits.depth, "directory depth exceeded")
         before = os.fstat(fd)
         owned(before, directory=True)
-        names = sorted(os.listdir(fd))
-        require(len(names) <= Limits.entries + len(controls), "directory entry count exceeded")
+        names = bounded_names(fd, Limits.entries + len(controls))
         for name in names:
             path = prefix + name
             relative_path(path)
@@ -127,7 +142,8 @@ def scan(root_fd, controls):
                 total += facts.st_size
                 require(total <= Limits.file_bytes, "total file size exceeded")
                 entry.update(size_bytes=facts.st_size, sha256=hash_file(fd, name, facts))
-        require(names == sorted(os.listdir(fd)) and version(before) == version(os.fstat(fd)),
+        require(names == bounded_names(fd, Limits.entries + len(controls)) and
+                version(before) == version(os.fstat(fd)),
                 "directory changed during inventory")
 
     walk(root_fd, "", 0)
