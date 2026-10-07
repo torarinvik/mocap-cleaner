@@ -36,10 +36,17 @@ def snapshot(project, engine, ui, compiler):
     paths = []
     sources(str(project / "src/studio/app/main.elisa"), paths)
     selected_runtime = (compiler / "elisacore_std/elisacore_runtime.elisa").resolve(strict=True)
+    selected_std = (compiler / "elisacore_std").resolve(strict=True)
     for source in paths:
         included = Path(source).resolve(strict=True)
         if included.name == "elisacore_runtime.elisa" and included != selected_runtime:
             raise SystemExit(f"Studio includes a runtime outside the selected compiler: {included}")
+        # Prelude, collections and runtime fragments must share the selected
+        # product's stdlib too. Inspect the lexical path as well so a symlink
+        # inside elisacore_std cannot hide an include outside that root.
+        if "elisacore_std" in Path(source).parts or "elisacore_std" in included.parts:
+            if not included.is_relative_to(selected_std):
+                raise SystemExit(f"Studio includes standard-library source outside the selected compiler: {included}")
     paths.extend(str(path) for path in (
         project / "scripts/build_studio.sh",
         project / "scripts/prove.py",
