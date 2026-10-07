@@ -239,8 +239,9 @@ qualifies the integrated application or native workflow.
       focus, complete cached report line values, page status and announcements.
       Native actions must use the same admission and controller routes as pointer
       and keyboard actions; stale UI observations cannot authorize writes.
-- [ ] Add the review-to-enqueue entry, recovery inventory/reopen and selected
-      failed/cancelled retry routes. Establish native preflight facts and immutable
+- [ ] Qualify the new Queue reviewed result entry from export review, including
+      native accessibility and warning admission. Add recovery inventory/reopen
+      and selected failed/cancelled retry routes. Establish native preflight facts and immutable
       source/recipe/result bindings before exposing each action.
 - [ ] Implement the full multi-take input/evaluation/worker pipeline, compatible
       recipe selection, progress and worker limits. Prepared captures and Resume
