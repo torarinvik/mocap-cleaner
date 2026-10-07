@@ -233,3 +233,21 @@ analysis invocation instead of one retained set per function. It does not prove
 that metadata views never escape, recursive scratch sets are disjoint, or runtime
 memory is bounded. Establish those conditions before adopting buffer reuse and
 qualify both backend behavior and compiler memory on the complete source graph.
+
+## Recheck what the lifetime negatives actually establish
+
+Current Stage1 `5b354650` accepts the earlier `reassigned-owner` and
+`expired-owner` probes while the Go bootstrap refuses them. Those probes use
+empty arrays, do not activate the named region with `in shorter`, and only read
+the copied scalar field. Their different outcomes do not establish an observable
+dangling backing allocation. Retain that difference for semantic investigation;
+do not describe either outcome as a complete owner-lifetime safety result.
+
+Root added `build/region-inference-reduction/explicit-expired-owner.elisa`:
+activate `in shorter`, allocate a nonempty `[42]` array in a Box, assign it to
+an outer local, then borrow and read the array after the region exits. Clean
+Stage0 `6f0988a2` and current Stage1 `5b354650` both exit 1 with explicit
+shorter-region-to-longer-lived-storage refusal. Neither emits an object and no
+executable runs. Logs are `explicit-expired-stage0.log` and
+`explicit-expired-stage1.log`. This is the meaningful compile-only negative for
+that storage path; broader alias, reassignment and runtime checks remain open.
