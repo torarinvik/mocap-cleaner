@@ -24,8 +24,13 @@ in-clip values; non-boolean enable fields refuse. They no longer become altered
 edits through frame clamping, endpoint sorting or truthiness. Five integer laws
 compile diagnostically. Legacy conversion remains explicit migration behavior.
 Qualify first/last-frame acceptance and each invalid range/enable refusal with
-unchanged document and history. Other legacy conversions, including numeric
-strength and correction component clamping, still require a strict v4 review.
+unchanged document and history. V4 also checks operation mask/strength/edge
+and correction components before legacy conversion helpers run. A zero saved
+quaternion refuses rather than becoming identity; translation and quaternion
+components outside their wire domains refuse rather than clamp. Six further
+integer laws compile diagnostically. Quaternion normalization of a nonzero
+wire quaternion remains orientation-preserving conversion and needs numerical
+qualification. Global foot-blend conversion still requires strict v4 review.
 V4 finding annotations with invalid shape, unsupported schema or invalid
 record values now refuse restoration with the annotation-specific error,
 instead of being silently skipped. Exact duplicate annotations remain

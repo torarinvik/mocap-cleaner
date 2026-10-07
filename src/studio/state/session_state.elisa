@@ -269,7 +269,7 @@ module SessionState:
 
         # A gizmo correction from a tag 4 line, or null when its node is not
         # one of this take's `nodes` document nodes.
-        def fix_from(fields: darray[i64]&, frames: i64, nodes: i64) -> Corrections::Correction?:
+        def fix_from(fields: darray[i64]&, frames: i64, nodes: i64, legacy: bool) -> Corrections::Correction?:
             return null if nodes < 0 or nodes > StudioChrome::Correction::MAX_NODES
             return null if not StudioChrome::session_node_ok(fields[2], nodes)
             key: i64 = StudioChrome::session_frame(fields[3], frames)
@@ -283,7 +283,8 @@ module SessionState:
             mutable rz: f32 = from_micro(StudioChrome::session_clamp(fields[8], StudioChrome::Correction::MICRO), q)
             mutable rw: f32 = from_micro(StudioChrome::session_clamp(fields[9], StudioChrome::Correction::MICRO), q)
             norm: f32 = Geometry::sqrt_f32(rx * rx + ry * ry + rz * rz + rw * rw)
-            if norm < 0.000001:
+            return null if not legacy and norm <= 0.0
+            if legacy and norm < 0.000001:
                 rx <- 0.0
                 ry <- 0.0
                 rz <- 0.0
@@ -368,6 +369,7 @@ module SessionState:
                     elif tag == WireTag::OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
                         if version == StudioChrome::Session::VERSION:
                             return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[2]) or not SessionAuthoredValuePolicy::interval_valid(fields[3], fields[4], frames)
+                            return reject_authored_edits() if not SessionAuthoredValuePolicy::operation_values_valid(fields[5], fields[6], fields[7])
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
                         b: i64 = StudioChrome::session_frame(fields[4], frames)
                         op: Ops::Operation = Ops::Operation{kind: kind_from(fields[1]), enabled: fields[2] != 0, first: a if a <= b else b, last: b if a <= b else a, bones: StudioChrome::session_bones(fields[5]), strength: StudioChrome::session_strength(fields[6]), edge: StudioChrome::session_edge(fields[7])}
@@ -381,7 +383,8 @@ module SessionState:
                     elif tag == WireTag::FIX and fields.count == 13:
                         if version == StudioChrome::Session::VERSION:
                             return reject_authored_edits() if not SessionAuthoredValuePolicy::enabled_valid(fields[1]) or not SessionAuthoredValuePolicy::key_valid(fields[4], fields[3], fields[5], frames)
-                        if fix_from(&fields, frames, nodes) is fix:
+                            return reject_authored_edits() if not SessionAuthoredValuePolicy::rotation_valid(fields[6], fields[7], fields[8], fields[9]) or not SessionAuthoredValuePolicy::translation_valid(fields[10], fields[11], fields[12])
+                        if fix_from(&fields, frames, nodes, version < StudioChrome::Session::VERSION) is fix:
                             return reject_authored_edits() if not StackState::add_fix(&s, fix)
                         else:
                             return reject_authored_edits()
