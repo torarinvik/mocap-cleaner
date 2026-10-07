@@ -1,0 +1,40 @@
+include "generation_restore_confirmation_policy.elisa"
+
+module StudioGenerationReviewStatusPolicy:
+    public:
+        const enum Source of i64:
+            Closing
+            Restore
+            Move
+            Recovery
+            Inventory
+
+        struct Facts:
+            closing: bool
+            restore_worker: bool
+            move_worker: bool
+            restore_review: bool
+            recovery_mode: bool
+            restore_summary: bool
+            move_summary: bool
+
+        def reviewing(state: StudioGenerationRestoreConfirmationPolicy::State) -> bool:
+            match state:
+                StudioGenerationRestoreConfirmationPolicy::State.Reviewing(key): true
+                StudioGenerationRestoreConfirmationPolicy::State.Idle: false
+                StudioGenerationRestoreConfirmationPolicy::State.Running(key, ticket): false
+                StudioGenerationRestoreConfirmationPolicy::State.Draining(key, ticket): false
+                StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(ticket): false
+                StudioGenerationRestoreConfirmationPolicy::State.Resolved(ticket): false
+
+        def classify(facts: Facts) -> Source:
+            ensure not facts.closing or result == Source.Closing
+            ensure result != Source.Recovery or (facts.recovery_mode and not facts.closing and not facts.restore_worker and not facts.move_worker and not facts.restore_review)
+            return Source.Closing if facts.closing
+            return Source.Restore if facts.restore_worker
+            return Source.Move if facts.move_worker
+            return Source.Restore if facts.restore_review
+            return Source.Recovery if facts.recovery_mode
+            return Source.Restore if facts.restore_summary
+            return Source.Move if facts.move_summary
+            Source.Inventory

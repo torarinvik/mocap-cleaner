@@ -1,3 +1,4 @@
+include "../state/generation_review_status_policy.elisa"
 include "../state/generation_review_accessibility_policy.elisa"
 include "generation_review_copy.elisa"
 
@@ -25,17 +26,15 @@ extend Studio:
             return true if action == StudioGenerationReviewAccessibilityPolicy::Action.Operations
             StudioGenerationReviewAccessibilityPolicy::action_enabled(action, page, pages)
 
-        def generation_review_status_message() -> sview:
-            return generation_restore_message() if generation_restore_status_visible()
-            return generation_recovery_browser_message() if generation_review_recovery_mode
-            match generation_move_state:
-                StudioGenerationMoveConfirmationPolicy::State.Inspecting: return generation_inventory_message()
-                StudioGenerationMoveConfirmationPolicy::State.Reviewing(key): return generation_move_message()
-                StudioGenerationMoveConfirmationPolicy::State.Confirmed(key): return generation_move_message()
-                StudioGenerationMoveConfirmationPolicy::State.Running(key, ticket): return generation_move_message()
-                StudioGenerationMoveConfirmationPolicy::State.Draining(key, ticket): return generation_move_message()
-                StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(ticket): return generation_move_message()
-                StudioGenerationMoveConfirmationPolicy::State.Resolved(ticket): return generation_move_message()
+        def generation_review_status_message() -> sview can[Unsafe.PointerCast, Memory.Allocate]:
+            facts: StudioGenerationReviewStatusPolicy::Facts = StudioGenerationReviewStatusPolicy::Facts{closing: storage_close_requested, restore_worker: generation_restore_task != null, move_worker: generation_move_task != null, restore_review: StudioGenerationReviewStatusPolicy::reviewing(generation_restore_state), recovery_mode: generation_review_recovery_mode, restore_summary: generation_restore_status_visible(), move_summary: generation_move_state != StudioGenerationMoveConfirmationPolicy::State.Inspecting}
+            source: StudioGenerationReviewStatusPolicy::Source = StudioGenerationReviewStatusPolicy::classify(facts)
+            match source:
+                StudioGenerationReviewStatusPolicy::Source.Closing: generation_inventory_message()
+                StudioGenerationReviewStatusPolicy::Source.Restore: generation_restore_message()
+                StudioGenerationReviewStatusPolicy::Source.Move: generation_move_message()
+                StudioGenerationReviewStatusPolicy::Source.Recovery: generation_recovery_browser_message()
+                StudioGenerationReviewStatusPolicy::Source.Inventory: generation_inventory_message()
 
         def generation_review_accessibility_node(role: UiCore::AccessibilityRole,
             label: sview, help_text: sview, box: StudioPanels::Box, id: usize,
@@ -49,8 +48,12 @@ extend Studio:
 
         def publish_generation_path_accessibility(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate]:
             none: usize = StudioAccessibility::SemanticId::NO_NODE
-            d: StudioPanels::Box = StudioPanels::box((w - 820.0) / 2.0, (h - 500.0) / 2.0, 820.0, 500.0)
-            visible: i64 = StudioGenerationReviewPathPolicy::visible_lines(generation_path_bytes, generation_path_page)
+            geometry: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::panel_geometry(w, h)
+            d: StudioPanels::Box = StudioGenerationReviewPathInspector::to_box(geometry)
+            supported: bool = StudioGenerationReviewPathPolicy::panel_supported(geometry)
+            inset: f32 = StudioGenerationReviewPathPolicy::panel_inset(geometry)
+            escaped: bool = StudioGenerationReviewPathPolicy::escaped_display(generation_path_bytes)
+            visible: i64 = StudioGenerationReviewPathPolicy::visible_lines(generation_path_bytes, generation_path_page) if supported else 0
             pages: i64 = StudioGenerationReviewPathPolicy::page_count(generation_path_bytes)
             StudioText::begin()
             StudioText::put("Page ")
@@ -60,28 +63,30 @@ extend Studio:
             StudioText::put("; complete path, ")
             StudioText::put_i(generation_path_bytes.count.i64())
             StudioText::put(" bytes")
+            StudioText::put("; hexadecimal byte escapes" if escaped else "; UTF-8 scalar boundaries")
+            StudioText::put("; enlarge window or choose Done" if not supported else "")
             status: sview = StudioText::view()
             generation_review_accessibility_node(UiCore::AccessibilityRole.Dialog,
-                "Build artifact path", "Read exact segments of the recorded build root followed by the artifact's relative path. In recovery review this is the recorded build path; reconciliation separately reports the verified current location. Previous and Next page through the entire bounded value; Done returns to generation review.",
+                "Build artifact path", "Read exact segments of the recorded build root followed by the artifact's relative path. In recovery review this is the recorded build path; reconciliation separately reports the verified current location. Previous and Next page through the entire bounded value. Invalid UTF-8 or control bytes switch the whole path to hexadecimal byte escapes; each escape denotes one original byte. Done returns to generation review.",
                 d, StudioGenerationReviewPathPolicy::Node::DIALOG, none,
                 StudioGenerationReviewPathPolicy::Node::STATUS, none, none, true, false, false, "")
             generation_review_accessibility_node(UiCore::AccessibilityRole.Status,
-                "Path page", "The page segments concatenate to the complete path without omission.",
-                StudioPanels::box(d.x + 24.0, d.y + 48.0, d.w - 48.0, 24.0),
+                "Path page", "Read segments in order. Unicode segments preserve scalar boundaries; hexadecimal escapes preserve every original byte.",
+                StudioPanels::box(d.x + inset, d.y + d.h - 76.0 if supported else d.y, d.w - inset * 2.0, 24.0 if d.h >= 24.0 else d.h),
                 StudioGenerationReviewPathPolicy::Node::STATUS,
                 StudioGenerationReviewPathPolicy::Node::DIALOG,
-                none, StudioGenerationReviewPathPolicy::Node::LINE_FIRST, none, true, false, false, status)
+                none, StudioGenerationReviewPathPolicy::Node::LINE_FIRST if visible > 0 else StudioGenerationReviewPathPolicy::Node::PREVIOUS, none, true, false, false, status)
             for row in 0..<visible |row, d, visible, w, h|:
                 id: usize = StudioGenerationReviewPathPolicy::Node::LINE_FIRST + row.usize()
                 next: usize = id + 1 if row + 1 < visible else StudioGenerationReviewPathPolicy::Node::PREVIOUS
-                line_box: StudioPanels::Box = StudioPanels::box(d.x + 24.0, d.y + 76.0 + row.f32() * 49.0, d.w - 48.0, 38.0)
+                line_box: StudioPanels::Box = StudioGenerationReviewPathInspector::to_box(StudioGenerationReviewPathPolicy::panel_row_box(geometry, row))
                 generation_review_accessibility_node(UiCore::AccessibilityRole.Label,
                     StudioText::number("Path segment ", row + 1),
-                    "Exact consecutive bytes from the complete path. Read segments in order; none are omitted.",
+                    "Each hexadecimal escape denotes one original byte. Read all segments in order." if escaped else "Consecutive Unicode characters from the complete path. Read all segments in order; none are omitted.",
                     line_box, id, StudioGenerationReviewPathPolicy::Node::DIALOG, none, next, none,
                     true, false, false, StudioGenerationReviewPathInspector::line(generation_path_bytes, generation_path_page, row))
-            previous: bool = generation_path_page > 0
-            next_page: bool = generation_path_page + 1 < pages
+            previous: bool = supported and generation_path_page > 0
+            next_page: bool = supported and generation_path_page + 1 < pages
             UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Previous.i64().usize()], previous)
             UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Next.i64().usize()], next_page)
             UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Back.i64().usize()], true)
