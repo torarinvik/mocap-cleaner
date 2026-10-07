@@ -230,6 +230,25 @@ def publish_package(project, artifact, artifact_id):
         publish_initial(build, payload, artifact_id + Publication.suffix, revalidate)
     except (OSError, ValueError, KeyError, TypeError) as error:
         state = "package publication uncertain; retain current and backup for reconciliation" if namespace_changed else "package publication refused; retain generation"
+        # Only undo the first namespace move. Once the new bundle became
+        # current, preserve both generations for explicit reconciliation.
+        if namespace_changed and current_path == artifact and old_root >= 0:
+            try:
+                revalidate()
+                try:
+                    os.stat(Publication.destination, dir_fd=build, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValueError("current destination occupied; previous package cannot be restored")
+                rename_exclusive(pending, Publication.backup, build, Publication.destination)
+                namespace_changed = False
+                os.fsync(pending)
+                os.fsync(build)
+                revalidate()
+                state = "publication interrupted; verified previous package restored, new generation retained for reconciliation"
+            except (OSError, ValueError, KeyError, TypeError) as rollback_error:
+                state = "publication and previous-package restoration require reconciliation: " + str(rollback_error)
         raise ValueError(state + ": " + str(error)) from error
     finally:
         for fd in (old_lease, old_resources, old_root, lease, resources, root, pending, parent, build):
