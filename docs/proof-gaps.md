@@ -24,6 +24,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Limb length and IEEE adapter qualification](proof-gaps/limb-length-float-boundary.md)
 - [Session source binding and fingerprint limitations](proof-gaps/session-source-binding.md)
 - [Borrowed std and protocol region binding](proof-gaps/borrowed-protocol-region-binding.md)
+- [Export sheet row field resolution](proof-gaps/export-sheet-row-resolution.md)
 
 ## Current qualification limits
 
