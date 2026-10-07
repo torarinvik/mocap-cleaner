@@ -39,7 +39,7 @@ cat >"$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 printf 'APPL????' >"$APP/Contents/PkgInfo"
 
-python3 - "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$APP/Contents/MacOS/MocapStudio" "$APP/Contents/Resources/BUILD-INFO.txt" "$INPUT_RECORD" <<'PY'
+python3 - "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$APP/Contents/MacOS/MocapStudio" "$APP/Contents/Resources/BUILD-INFO.txt" "$INPUT_RECORD" "$pending_package" <<'PY'
 import hashlib
 import json
 import subprocess
@@ -48,6 +48,14 @@ from pathlib import Path
 
 project, engine, ui, compiler, executable, output = map(Path, sys.argv[1:7])
 input_record = Path(sys.argv[7]) if sys.argv[7] else None
+package_root = Path(sys.argv[8])
+
+def generated_id(directory, prefix):
+    name = directory.name
+    suffix = name[len(prefix):] if name.startswith(prefix) else ""
+    if not suffix or not all(char.isascii() and (char.isalnum() or char in "_-") for char in suffix):
+        raise SystemExit("Studio package generation directory has no valid generated ID")
+    return name
 
 def repo_revision(root):
     return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
@@ -90,15 +98,38 @@ def sha256(path):
 
 captured_hash = "unavailable"
 qualification = "unrecorded: packaging observations do not establish compilation inputs"
+package_generation_id = generated_id(package_root, "studio-package.")
+build_generation_id = "unavailable"
+executable_hash = sha256(executable)
+package_record = {
+    "schema": "mocap-studio-package-generation-v1",
+    "package_generation_id": package_generation_id,
+    "build_generation_id": None,
+    "executable_sha256": executable_hash,
+}
 if input_record is not None:
     record_bytes = input_record.read_bytes()
     record = json.loads(record_bytes)
+    if not isinstance(record, dict):
+        raise SystemExit("Build input record is not an object")
     product = record.get("product", {})
-    if product.get("filename") != "mocap_studio" or product.get("sha256") != sha256(executable):
+    if (not isinstance(product, dict) or product.get("filename") != "mocap_studio" or
+            product.get("sha256") != executable_hash):
         raise SystemExit("Packaged executable does not match the sealed build input record")
+    generation = record.get("generation", {})
+    if not isinstance(generation, dict):
+        raise SystemExit("Build input record has no exact generation-directory identity")
+    build_generation_id = generation.get("id", "")
+    if (generation.get("schema") != "mocap-studio-generation-v1" or
+            generation.get("artifact") != "studio-build" or
+            build_generation_id != generated_id(input_record.parent, "studio-build.")):
+        raise SystemExit("Build input record has no exact generation-directory identity")
+    package_record["build_generation_id"] = build_generation_id
     (output.parent / "BUILD-INPUTS.json").write_bytes(record_bytes)
     captured_hash = hashlib.sha256(record_bytes).hexdigest()
     qualification = "sealed inputs and exact copied executable verified; runtime acceptance remains separate"
+(output.parent / "PACKAGE-GENERATION.json").write_text(
+    json.dumps(package_record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 lines = [
     "Mocap Studio development bundle build provenance",
@@ -111,6 +142,8 @@ lines = [
     f"compiler_revision={repo_revision(compiler)}",
     f"compiler_worktree_dirty={str(repo_dirty(compiler)).lower()}",
     f"build_inputs_sha256={captured_hash}",
+    f"package_generation_id={package_generation_id}",
+    f"build_generation_id={build_generation_id}",
     f"packaging_observed_inputs_sha256={source_hash.hexdigest()}",
     f"input_qualification={qualification}",
     f"executable_sha256={sha256(executable)}",

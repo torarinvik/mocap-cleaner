@@ -101,6 +101,16 @@ def snapshot(project, engine, ui, compiler):
             "sdk_version": subprocess.check_output(["xcrun", "--show-sdk-version"], text=True).strip()}
 
 
+def generation_id(directory, prefix):
+    name = directory.name
+    if not name.startswith(prefix) or len(name) == len(prefix):
+        raise SystemExit("Studio generation directory has no valid generated ID")
+    suffix = name[len(prefix):]
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", suffix):
+        raise SystemExit("Studio generation ID contains unsupported characters")
+    return name
+
+
 mode = "generate"
 arguments = sys.argv[1:]
 if arguments and arguments[0] in ("--snapshot", "--check-snapshot", "--seal-product"):
@@ -124,6 +134,11 @@ if mode != "generate":
     if not runtime_bridge.is_file() or runtime_bridge.read_text() != runtime_text:
         raise SystemExit("Studio runtime selection differs from this compiler; regenerate the build identity first")
     current = snapshot(project, engine, ui, compiler)
+    current["generation"] = {
+        "schema": "mocap-studio-generation-v1",
+        "artifact": "studio-build",
+        "id": generation_id(output.parent, "studio-build."),
+    }
     if mode == "--snapshot":
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
