@@ -28,7 +28,7 @@ The focused producer reports are retained under
 - Both packages are source-inadmissible and unauthenticated. Their replay
   results are rejected; correspondence reports zero checked obligations.
 
-The exact current source SHA-256 values are:
+The source SHA-256 values at capture time were:
 
 - `src/studio/take_source_ref_policy.elisa`:
   `1bc161137ba53450ece2788ab60684fc25466271564c93da20895739eb656a3d`.
@@ -38,6 +38,13 @@ The exact current source SHA-256 values are:
   `6629e3b6b4fcac6254f04311dced65ca1561dd36d133ca0ca146bd660be04a26`.
 - `proof/studio_fbx_staging_evidence_policy_laws.elisa`:
   `3e947a1e48465180a963eb7f6889e20ff3050ff904816ddfbd3c13b123de07ea`.
+
+After this capture, commit `89a4d10` changed the TakeSourceRef negative controls
+to use complete literal path and digest values instead of indexed writes into
+dynamically sized struct fields. The current law file SHA-256 is
+`ccb719a894451dab7b00b266255adcb646c621a24eb15c060ae0c159c1de1761`; its new
+obligation counts are not represented by the captured report above and require
+the next fresh pair.
 
 ## First remaining blockers
 
