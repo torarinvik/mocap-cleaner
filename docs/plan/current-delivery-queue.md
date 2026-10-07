@@ -26,9 +26,10 @@ This does not qualify the entire roadmap or UI interaction journey.
 Remaining work:
 
 - Compiler repair `4635427d` is held from promotion: its name-only generic
-  test creates arena carriers even for scalar specialized results. Replace it
-  with resolved-callee, substituted-result region demand; retain fail-closed
-  unmodeled result handling. Before pushing `codex/void-poll-region`, run a
+  test creates arena carriers even for scalar specialized results. Candidate
+  `f9e23008` implements resolved-callee, substituted-result region demand and
+  retains fail-closed unmodeled result handling. Qualify this implementation
+  before pushing `codex/void-poll-region`: run a
   join/void-caller lifetime regression (prefer sanitizer coverage), compare
   carrier-function counts and benchmark Stage1 against current main with no
   slowdown. Rebase on `665f40d7` or newer, preserve borrow/reference/loop fixes,
@@ -70,7 +71,12 @@ Remaining work:
   and runtime SHA-256 `ca40ba1db8a74110936ad5cdaf808707020c5c74ebb6e491bda2198696d13b8a`.
   The fresh fast profile selects 37 checks and is still running;
   `emit_annotated_list_parity_smoke` passes 354 cases, while
-  `emit_ast_parity_smoke` reports 28 differing cases. Retain terminal results and
+  `emit_ast_parity_smoke` reports 28 differing cases. The resumed baseline also
+  reports header parity failure (58 divergent cases; the final refusal is
+  `zeroed_relative_nested_module_reference_alias`) and interface parity failure
+  (63 of 336 cases). Its `emit_interpret` check is active; these failures are
+  terminal baseline results, not interruptions or candidate results. Retain
+  terminal results and
   exact failure lists before comparing the repair. Neither a baseline seed nor
   an installed upstream compiler qualifies project repairs or the Studio graph.
 - Preserve the verified UI checkpoint and source closure when rebuilding after
