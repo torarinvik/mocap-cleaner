@@ -207,3 +207,11 @@ Compiler commit `822c6d18` emits deferred actions before region unwind and adds
 O0/O2 controls for real tasks, region cleanup, successful ensures and failed
 ensures. This is a committed repair, pending a fresh matched product and runtime
 qualification after integrating newest main. The old binary cannot qualify it.
+
+The repair was then rebased unchanged onto upstream `36ad0689`, yielding candidate
+`e24c29e6`. Its fresh seed and provenance checks pass. The real task regression
+returns 42 at O0 and O2, as does the direct control; the false ensure aborts with
+134 and `postcondition failed`. Root independently matched all four executable
+hashes against `build/generic-await-error-defer-e24c29e6/evidence.log` (SHA-256
+`c6fbaf8235ca356252970bd70f2aac838e2e4cbd0fd04f8e594a9857af1dde62`).
+This qualifies the focused cleanup behavior, not all return paths or Studio.
