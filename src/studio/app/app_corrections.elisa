@@ -14,12 +14,22 @@ extend Studio:
                 load_failed <- false
                 return
             s: StackState::Stack = current_stack()
-            if not candidate_generations_available(s):
+            admission: StudioEditTransactionPolicy::Admission = candidate_admission(s)
+            if not StudioEditTransactionPolicy::admitted(admission):
                 generation_refused()
                 load_failed <- true
                 return
-            candidate_rig_revision: i64 = candidate_revision_for(s)
-            mutable result: StudioModel::Clip? = evaluate_candidate(s, candidate_rig_revision)
+            base: StudioEditTransactionPolicy::Base = edit_transaction_base()
+            candidate_rig_revision: i64 = candidate_revision_for(s, admission)
+            mutable result: StudioModel::Clip? = evaluate_candidate(s, candidate_rig_revision, admission)
+            # Rebuild shares the same admission boundary as edits and history.
+            # A changed document must not receive this candidate or its failure
+            # state, even if evaluation completed successfully.
+            if not StudioEditTransactionPolicy::current(base, edit_transaction_base()) or not StudioEditTransactionPolicy::admission_current(admission, candidate_admission(s)):
+                status <- "Rebuild not applied because the document or preview changed during evaluation. Existing result kept. Retry from the current state."
+                status_file <- null
+                touch()
+                return
             if result == null:
                 if clip != null:
                     status <- "Result could not be rebuilt. The previous result remains visible. Use Undo to remove the last edit, or reopen the source."
@@ -29,7 +39,7 @@ extend Studio:
                 status_file <- null
                 load_failed <- true
                 return
-            publish_candidate(s, move result, candidate_rig_revision)
+            publish_candidate(s, move result, candidate_rig_revision, admission)
 
         # A retime changes the clip length: keep the playhead on the same
         # source frame.
