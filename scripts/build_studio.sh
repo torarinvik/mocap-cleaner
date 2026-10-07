@@ -65,6 +65,18 @@ clang -o "$pending_directory/mocap_studio" \
 python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 # Publish only after fresh compilation, linking and input revalidation pass.
 # Failure preserves the previous executable and its recorded input identity.
+inventory_arguments=(
+  --file main.o --file mocap_studio
+  --file studio_canvas_shim.o --file studio_viewport_metal.o
+  --file studio_file_panel.o --file studio_file_trash.o --file studio_file_path.o
+  --file studio_file_path_namespace.o --file studio_workspace_root.o
+  --file studio_generation_lease_appkit.o --file studio_storage_manifest_lock.o
+  --file studio_native_fallbacks.o
+)
+python3 "$ROOT/tools/studio_generation_contents.py" --project "$ROOT" \
+  --artifact "$(basename "$pending_directory")" \
+  --artifact-id "$(basename "$pending_directory")" --kind studio-build \
+  "${inventory_arguments[@]}"
 python3 "$ROOT/tools/studio_build_identity.py" --seal-product "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 # Keep each executable beside its immutable objects and sealed input record.
 # Renaming one symlink publishes that complete generation atomically.

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from build_environment import build_environment_digest
+from studio_generation_contents import verify_record
 
 
 def fields(label, root):
@@ -52,6 +53,7 @@ def snapshot(project, engine, ui, compiler):
     paths.extend(str(path) for path in (
         project / "scripts/build_studio.sh",
         project / "tools/studio_generation_lock.py",
+        project / "tools/studio_generation_contents.py",
         project / "scripts/prove.py",
         Path(__file__).resolve(),
         Path(__file__).resolve().with_name("build_environment.py"),
@@ -149,9 +151,13 @@ if mode != "generate":
     else:
         recorded = json.loads(output.read_text())
         product = recorded.pop("product", None)
+        inventory_sha = recorded.pop("contents_inventory_sha256", None)
         if recorded != current:
             raise SystemExit("Studio source or link inputs changed during the build; refusing publication")
         if mode == "--seal-product":
+            inventory_sha = verify_record(project, str(output.parent.relative_to(project / "build")),
+                                          current["generation"]["id"], "studio-build")
+            current["contents_inventory_sha256"] = inventory_sha
             current["product"] = {"filename": "mocap_studio",
                                   "sha256": digest(output.parent / "mocap_studio")}
             output.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
@@ -161,11 +167,16 @@ if mode != "generate":
                 "artifact": "studio-build",
                 "id": current["generation"]["id"],
                 "executable_sha256": current["product"]["sha256"],
+                "contents_inventory_sha256": inventory_sha,
             }
             lease_path = output.parent / ".studio-generation.lease"
             lease_path.write_text(json.dumps(lease_record, sort_keys=True) + "\n")
             lease_path.chmod(0o444)
         elif product is not None:
+            verified_inventory = verify_record(project, str(output.parent.relative_to(project / "build")),
+                                               current["generation"]["id"], "studio-build")
+            if inventory_sha != verified_inventory:
+                raise SystemExit("Studio contents inventory differs from its sealed input record")
             if product.get("filename") != "mocap_studio" or product.get("sha256") != digest(output.parent / "mocap_studio"):
                 raise SystemExit("Studio executable differs from its sealed input record")
     raise SystemExit(0)

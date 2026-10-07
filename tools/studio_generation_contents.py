@@ -194,6 +194,53 @@ def publish(build_fd, filename, payload):
         os.close(parent)
 
 
+def verify_record(project, artifact, artifact_id, kind):
+    """Verify the external record and return its digest before sealing."""
+    _, locked_build, _ = verified_lock(project, os.environ)
+    build_fd = os.open(project / "build", DIRECTORY_FLAGS)
+    root_fd = parent = fd = -1
+    try:
+        require(identity(os.fstat(build_fd)) == identity(locked_build), "build directory replaced")
+        root_fd = open_artifact(build_fd, artifact)
+        root = os.fstat(root_fd)
+        parent = os.open(".studio-generation-inventory", DIRECTORY_FLAGS, dir_fd=build_fd)
+        owned(os.fstat(parent), directory=True)
+        fd = os.open(artifact_id + ".json", FILE_FLAGS, dir_fd=parent)
+        facts = os.fstat(fd)
+        owned(facts)
+        require(facts.st_size <= Limits.json_bytes, "inventory JSON limit exceeded")
+        payload = bytearray()
+        while len(payload) <= Limits.json_bytes:
+            chunk = os.read(fd, min(65536, Limits.json_bytes + 1 - len(payload)))
+            if not chunk:
+                break
+            payload.extend(chunk)
+        require(len(payload) == facts.st_size and version(os.fstat(fd)) == version(facts),
+                "inventory changed during read")
+        record = json.loads(payload)
+        expected = {
+            "schema": "mocap-studio-generation-inventory-v1",
+            "artifact_id": artifact_id, "artifact_kind": kind,
+            "root_device": root.st_dev, "root_inode": root.st_ino,
+            "build_root_device": locked_build.st_dev, "build_root_inode": locked_build.st_ino,
+            "entries": scan(root_fd, CONTROLS[kind]),
+        }
+        require(record == expected, "inventory differs from current artifact")
+        require(version(os.stat(artifact_id + ".json", dir_fd=parent,
+                                follow_symlinks=False)) == version(facts), "inventory replaced")
+        rebound = open_artifact(build_fd, artifact)
+        try:
+            require(identity(os.fstat(rebound)) == identity(root), "artifact replaced")
+        finally:
+            os.close(rebound)
+        verified_lock(project, os.environ)
+        return hashlib.sha256(payload).hexdigest()
+    finally:
+        for opened in (fd, parent, root_fd, build_fd):
+            if opened >= 0:
+                os.close(opened)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True)
