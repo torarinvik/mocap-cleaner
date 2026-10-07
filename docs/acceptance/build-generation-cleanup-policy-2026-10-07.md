@@ -201,3 +201,12 @@ record. The latter is an interrupted-publication reconciliation case, not
 permission to redo the rename. Two additional source laws reject Published to
 Published and Published to Building. The journal law count is now 26; their
 current compiler and authenticated proof qualification remain pending.
+
+The pure journal kernel now separates `may_begin_publication` from
+`may_advance(Sealed, Published)`. Preflight requires verified absence of a
+Published record and a current pointer that differs, along with the sealed
+product, original identities and both exclusive locks. It does not require or
+produce publication durability. Five additional laws cover that distinction,
+existing-event refusal, already-current refusal, terminal-phase refusal and
+exclusive-lease admission. There are now 31 public journal laws. These are
+source contracts awaiting current compiler and authenticated proof evidence.
