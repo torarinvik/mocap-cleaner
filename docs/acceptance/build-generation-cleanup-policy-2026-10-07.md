@@ -287,3 +287,22 @@ The preceding successful package `studio-package.xqxehP` has Sealed3 and
 Published4, but predates the pre-move intent implementation. Its
 `previous_sha256` links Sealed3; it is not a digest of the previous bundle.
 Fresh intent-aware build qualification and restart recovery remain open.
+
+### Reconcile an exactly current package
+
+`scripts/reconcile_studio_package.sh studio-package.GENERATION_ID` acquires
+the verified global lock and finishes only the layout where the intended new
+package is already current. The bounded reader checks Created/Started/Sealed,
+exact publication-intent fields and digests, original new root/lease identities,
+the current product seal, and any old backup's complete recorded seal and
+lease identity. Both artifact leases must be available exclusively. It syncs
+the observed publication directories before creating a missing Published event.
+An existing byte-exact Published event is revalidated and synced without
+replacement. No bundle is moved or removed.
+
+Pending-before-move, old-backup/current-absent, conflicting, busy and unknown
+layouts refuse. They remain protected for additional recovery actions. This
+command does not establish automatic restart recovery or a user-facing UI
+flow. Source AST, wrapper shell syntax and diff checks pass; the reconciliation
+command has not yet been exercised or fault-injected, and authenticated native
+I/O correspondence remains open.
