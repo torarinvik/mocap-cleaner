@@ -12,7 +12,7 @@
       native interaction, motion-quality and external usability evidence.
 - [ ] Complete the constant-module migration using
       `scripts/inventory_constant_modules.py`. The lexical inventory currently
-      identifies 44 ordinary module scopes with multiple constant declarations;
+      identifies 42 ordinary module scopes with multiple constant declarations;
       it includes proof/test owners and extension modules, and excludes const
       modules, enum variants and function-local declarations. Review each group
       for a const module, const enum or algebraic data type; do not mechanically
