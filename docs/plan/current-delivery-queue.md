@@ -77,7 +77,16 @@ Remaining work:
   hidden result slot that the call guard currently requires. Validate the
   exact resolved allocator type and emitted owner argument, reject shadow
   types and ambiguous ABI mappings, and retain unmanaged-result refusals.
-  This remaining client build failure must be resolved before promotion.
+  Candidate `2ef1fa26` now validates a single reference to the builtin Arena
+  identity, including its canonical `Ref(TypeKind.Arena)` form. It rejects
+  by-value/shadow allocators and ambiguous argument mappings. Its exact seed,
+  focused lifetime O0/O2/ASan, scalar/shadow carrier controls and JSON safe API
+  smoke pass. Product SHA-256 is
+  `a2ffcf2e6cf588d36bab15e6c13315f94258e8742d8db050a041413a81eec7b7`.
+  Root inspected the retained automated log under `build/void-poll-2ef1fa26/`
+  and independently verified the product hash. The current proof pair is
+  rebuilding against this tuple; full client compatibility and promotion
+  gates remain open.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
