@@ -240,3 +240,12 @@ compile at O0 in a fresh 253,432-byte object with decoder/traversal symbols
 retained. This establishes the shared policy; actual modal keyboard/native
 accessibility event wiring and return-focus behavior are still required, as is
 current independent proof replay. The panel is still outside app composition.
+
+`StudioExportBatchSheetState` now owns bounded display/navigation state. Refresh
+preserves a surviving selected row, shrinking queues clamp it, empty queues use
+no selection, page changes keep selection visible, and closing preserves display
+position. Focus traversal uses the shared admission policy. These transitions
+carry validity contracts and eight laws; their current O0 graph emitted a fresh
+264,648-byte object with reconciliation/selection/paging/focus symbols retained.
+This state carries no review or publication authority. It still needs controller
+composition and native event/refresh qualification; proof replay is pending.
