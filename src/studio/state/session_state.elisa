@@ -309,6 +309,7 @@ module SessionState:
                                         impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
             session_annotation_overflow <- false
             session_impact_invalid <- false
+            session_source_comparison <- null
             return null if frames < 1 or frames > StudioChrome::Frame::MAX_FRAMES
             return null if not header_line(text)
             version: i64 = header_version(text)
@@ -344,8 +345,11 @@ module SessionState:
                     elif tag == WireTag::IDENTITY:
                         identity_count <- identity_count + 1
                         identity_matches <- false
+                        session_source_comparison <- null
                         if fields.count == 6:
-                            identity_matches <- StudioChrome::session_identity_matches(fields[1], fields[2], fields[3], fields[4], fields[5], expected.first, expected.second, expected.animation, expected.frames, expected.nodes)
+                            comparison: StudioSessionSourcePolicy::Comparison = StudioSessionSourcePolicy::compare(fields[1], fields[2], fields[3], fields[4], fields[5], expected.first, expected.second, expected.animation, expected.frames, expected.nodes)
+                            session_source_comparison <- comparison
+                            identity_matches <- comparison == StudioSessionSourcePolicy::Comparison.Matching
                     elif tag == WireTag::OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
                         b: i64 = StudioChrome::session_frame(fields[4], frames)
@@ -397,6 +401,7 @@ module SessionState:
                                 decoded_impact_state <- review if decoded_impact.count.i64() == 0
                                 decoded_impact.push(record)
                 cur.clear()
+            session_source_comparison <- null if identity_count != 1
             return null if version == StudioChrome::Session::VERSION and (identity_count != 1 or not identity_matches)
             session_annotation_overflow <- annotation_overflow
             return null if annotation_overflow
@@ -443,6 +448,7 @@ module SessionState:
                                       annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
                                       impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
             session_load_error <- LoadError.None.i64()
+            session_source_comparison <- null
             session_impact_invalid <- false
             mutable text: darray[u8] = []
             if not OpsFile::read_bytes(path, &text):
@@ -467,7 +473,15 @@ module SessionState:
         def load_error() -> i64:
             session_load_error
 
+        def source_failure_message() -> sview:
+            if session_source_comparison is comparison:
+                return "Session belongs to different source bytes. Open the original take and try again." if comparison == StudioSessionSourcePolicy::Comparison.ChangedBytes
+                return "Session belongs to a different animation. Saved edits have not been applied." if comparison == StudioSessionSourcePolicy::Comparison.ChangedAnimation
+                return "Session frame or joint counts differ. Open the original take; saved edits have not been applied." if comparison == StudioSessionSourcePolicy::Comparison.ChangedShape
+            "Session source identity could not be validated. Saved edits have not been applied."
+
     private:
+        global mutable session_source_comparison: StudioSessionSourcePolicy::Comparison? = null
         global mutable session_save_error: i64 = SaveError.None.i64()
         global mutable session_load_error: i64 = LoadError.None.i64()
         global mutable session_annotation_overflow: bool = false
