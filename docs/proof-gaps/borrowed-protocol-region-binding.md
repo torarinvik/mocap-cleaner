@@ -31,8 +31,10 @@ The fresh committed Go build passes its provenance check. A compile-only
 generic protocol dispatch reduction now passes; a wrong-owner return refuses
 with region escape and `@b` versus `@a` diagnostics. These artifacts are in
 the compiler worker's `build/borrowed-return-reductions/protocol-current/`.
-The complete Stage1 seed is running as attempt 5; no matched new product is
-yet established by this record.
+Stage1 seed attempt 5 was terminated by the wrapper's RSS guard at 6463088 KB
+against a 6291456 KB limit. Its log reported no terminal semantic decline and
+it emitted no new product. A higher-limit retry requires available memory;
+no matched new product is established by this record.
 
 These reductions do not establish full std compatibility, sound interface
 dispatch, proof authentication or runtime ownership. Failed seed attempts

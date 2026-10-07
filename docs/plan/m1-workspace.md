@@ -13,6 +13,12 @@ Operation, contact-edit and retime-band insertion failures likewise reject the
 candidate, and invalid retime records refuse instead of disappearing. Qualify
 each capacity boundary and invalid band using the complete decoder and native
 restore flow; a successful load must retain every recognized authored record.
+V4 decoding also refuses malformed numeric lines, wrong field counts for
+authored records and unknown operation kinds. Seven shape-policy laws compile
+in the diagnostic graph. Legacy versions retain their explicitly approved
+migration behavior; valid numeric unknown tags remain forward compatible.
+Qualify malformed records with the decoder and user-facing Edits error before
+accepting restoration integrity.
 
 ## 6. M1 — A workspace that explains itself and protects work
 
