@@ -5,9 +5,23 @@
 include "../../../elisa-engine-mocap/src/animation/ik.elisa"
 include "../io/rig.elisa"
 include "../core/reach.elisa"
+include "../core/length_units.elisa"
 include "../core/hinge.elisa"
 
 module Limb:
+    private:
+        const module LengthBoundary:
+            UNITS_PER_METRE: f64 = 10000.0
+            MAX_UNITS: i64 = 10000000
+
+        # The existing micrometre adapter bounds the physical input to 1 km.
+        # Only lengths pass through this conversion; pole angles remain angular.
+        def length_units(value: f64) -> i64:
+            LengthUnits::from_micrometres(micro(value))
+
+        def length_metres(value: i64) -> f64:
+            value.f64() / LengthBoundary::UNITS_PER_METRE
+
     public:
         const MICRO: f64 = 1000000.0
 
@@ -36,14 +50,14 @@ module Limb:
             pu: MotionQuat::V = w.pos[upper.usize()]
             ph: MotionQuat::V = w.pos[hinge.usize()]
             pe: MotionQuat::V = w.pos[end.usize()]
-            a: i64 = micro(Rig::vlen(Rig::vsub(ph, pu)))
-            b: i64 = micro(Rig::vlen(Rig::vsub(pe, ph)))
+            a: i64 = length_units(Rig::vlen(Rig::vsub(ph, pu)))
+            b: i64 = length_units(Rig::vlen(Rig::vsub(pe, ph)))
             offset: MotionQuat::V = Rig::vsub(target, pu)
             d: f64 = Rig::vlen(offset)
-            return false if a <= 0 or b <= 0 or d <= 0.0000001 or a > 1000000000 or b > 1000000000
-            reach: i64 = Reach::limb_reach(micro(d), a, b)
-            goal: MotionQuat::V = Rig::vadd(pu, Rig::vscale(offset, unmicro(reach) / d))
-            knee: MotionQuat::V = ungeo(Ik::two_bone_knee(g(pu), g(goal), unmicro(a).f32(), unmicro(b).f32(), g(Rig::vsub(ph, pu))))
+            return false if a <= 0 or b <= 0 or d <= 0.0000001 or a > LengthBoundary::MAX_UNITS or b > LengthBoundary::MAX_UNITS
+            reach: i64 = Reach::limb_reach(length_units(d), a, b)
+            goal: MotionQuat::V = Rig::vadd(pu, Rig::vscale(offset, length_metres(reach) / d))
+            knee: MotionQuat::V = ungeo(Ik::two_bone_knee(g(pu), g(goal), length_metres(a).f32(), length_metres(b).f32(), g(Rig::vsub(ph, pu))))
             turn_upper: MotionQuat::Q = MotionQuat::between(Rig::vsub(ph, pu), Rig::vsub(knee, pu))
             _ = Rig::set_world_rot(c, frame, upper, MotionQuat::mul(turn_upper, w.rot[upper.usize()]), w)
             Rig::solve_world(c, frame, w)
