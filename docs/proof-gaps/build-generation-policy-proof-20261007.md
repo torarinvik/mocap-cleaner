@@ -315,3 +315,53 @@ appear in the focused law reports. This confirms the typed source lookup repair
 for the captured inputs; it does not close the helper-summary, parameter-type,
 or unproved-obligation gaps. The pair therefore does not authenticate either
 policy source, and Q02 remains open.
+
+## Current compiler and source-authentication qualification (2026-10-07)
+
+The isolated owner-aware proof checkout now includes the upstream proof-main
+build/harness updates and retains the owner-aware lookup repair. Pair generation
+`3fcd655ba5d043989419af8699c6e60c` passed pair-integrity and
+`check_prover_freshness.py`. Both manifests bind proof HEAD
+`2591c2583649472afb8a7480da15f908716f4448`, proof source tree
+`846a3bf794327f488f3085a0be55b0348574b851ac759385d444c33fe373f4d8`, and
+compiler revision `bb274b14d139b298b78e7df90a0b478aa8b0f0fc`. The Stage1 product
+SHA-256 is `36389f6b18268d4266bd68aacd813c703cd788956b611b9fad9964da11a2aa32`,
+its source tree SHA-256 is
+`ed17ac0ac1d4c24d80367d2a8b182f9f9efa898f4528b953e411ac915969b572`, its
+recipe SHA-256 is
+`105bd840e8e6ce839d87eb77f5155a4600e33b44d102db614d9402e15d433073`, and the
+linked runtime SHA-256 is
+`51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`. The
+producer and replay hashes are
+`6961f2be6941373848e31b690624b657ccba583c9e569c83145086f2c6f20b77` and
+`973d99db5197fe7454b9d3891542c416e42c5233f672c304cd059cda87acf85c`.
+
+The generation-policy source and law hashes remain
+`7e4fbcccb30fbfe28264387de9fa70b074d3e5e5679c2864ee7398c154e5ccb7` and
+`2032823d9708a5f44ff488d476b1ec8164cf75dfebd712c490cb875b09235f2e`. Its
+producer reports 89 obligations (33 proven, 56 unproven); package replay
+replays 33/33 theorems. Exact-source correspondence checks two helpers, leaves
+`eligible` unmatched on 13 return ensures, reports 19 unsupported functions,
+and keeps `source_authenticated: false`.
+
+The creation-journal source hashes are unchanged from the previous capture:
+`f3115ea879f977f9743f034aeca94b5e3aeb3b8b2848fb9440d69aba24c42722` for the
+journal policy, `42b50c648d0d3982554b6134c00e92c87167a06396305a8c15a75742feebfdc5`
+for the creation policy, and
+`48e9a172db9b891bafa819475c90fb56e8ff086f8a4539c10aadfc5342173fc7` for its
+law file. The producer reports 204 obligations (67 proven, 137 unproven), and
+package replay replays 67/67 theorems. Correspondence checks zero functions,
+leaves four unmatched and 42 unsupported, and keeps
+`source_authenticated: false`. The prior pair's four unmatched and eight
+unsupported counts do not carry forward to this compiler pair.
+
+The new TakeSourceRef and FBX staging law files were also checked against this
+pair. TakeSourceRef reports 63 obligations (19 proven, 44 unproven); its
+package is source-inadmissible. FBX staging reports 138 obligations (15 proven,
+123 unproven) and 14 non-error semantic diagnostics; its package is likewise
+source-inadmissible. Neither has replayed theorems or source authentication.
+These law gaps remain visible; no admission conditions were removed to improve
+the report. Exact pair manifests, source hashes and raw JSON reports are
+retained under
+`elisa-proof-mocap-owner-aware/build/current-pair-source-auth/`; see
+`capture.json` for their digests and per-file summaries.
