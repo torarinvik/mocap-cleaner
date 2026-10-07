@@ -1,0 +1,52 @@
+include "app_export_batch_destination_inspector.elisa"
+include "app_export_batch_destination_accessibility.elisa"
+
+# Retained native action handles for the read-only inspector. Composition calls
+# initialization once; allocation failure leaves keyboard/pointer paths usable.
+extend Studio:
+    private:
+        global mutable prepared_destination_location_widgets: darray[usize] = []
+        global mutable prepared_destination_control_widgets: darray[usize] = []
+        global mutable prepared_destination_accessibility_ready: bool = false
+
+    public:
+        def init_prepared_destination_accessibility() -> void:
+            prepared_destination_accessibility_ready <- false
+            prepared_destination_location_widgets <- []
+            prepared_destination_control_widgets <- []
+            transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
+            for slot in 0..<StudioExportBatchDestinationInspectorPolicy::Limit::LOCATION_COUNT:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                return if widget == UiFlat::NONE
+                prepared_destination_location_widgets.push(widget)
+            for slot in 0..<3:
+                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                return if widget == UiFlat::NONE
+                prepared_destination_control_widgets.push(widget)
+            prepared_destination_accessibility_ready <- true
+
+        def publish_prepared_destination_accessibility(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Release]:
+            return if not prepared_destination_inspector_open()
+            if prepared_destination_inspector_stale():
+                invalidate_prepared_destination_inspector()
+                return
+            return if not prepared_destination_accessibility_ready
+            publish_export_batch_destination_accessibility(w, h,
+                prepared_destination_inspector_state, prepared_destination_inspector_paths,
+                prepared_destination_location_widgets, prepared_destination_control_widgets,
+                revision.usize())
+
+        def prepared_destination_accessibility_action(widget: usize, event: i32) -> bool can Memory.Release:
+            return false if not prepared_destination_inspector_open()
+            if prepared_destination_inspector_stale():
+                invalidate_prepared_destination_inspector()
+                return true
+            if prepared_destination_accessibility_ready:
+                if export_batch_destination_accessibility_event(widget, event,
+                        prepared_destination_inspector_state, prepared_destination_inspector_paths,
+                        prepared_destination_location_widgets, prepared_destination_control_widgets) is focus:
+                    prepared_destination_inspector_state.focus <- focus
+                    _ = UiFlat::request_focus(widget)
+                    prepared_destination_inspector_activate(focus)
+            # All background native actions are consumed while this modal is up.
+            true
