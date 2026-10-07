@@ -114,3 +114,25 @@ ensures and index bounds remain unresolved. An imported `equal` goal also has
 one kernel replay gap. This direct report does not qualify the conversion or
 its source correspondence. Preserve the full contracts and investigate the
 summary/replay boundaries before changing acceptance baselines.
+
+The same proof pair's corrected job-law reports are separate from
+`worker_wait_laws`. `studio_job_identity_laws` SHA-256
+`0f748c5b0d613cd921fd8b4d3e3edcd72a154fedb7831f8bb8f2d80b1fcaee5a`
+reports 36 obligations, 14 proved and 22 findings: 11 unknown ensures, nine
+unverified summaries, one unsupported expression and one unsupported contract
+call. Its 14 certificates replay internally without gaps.
+`studio_job_policy_laws` SHA-256
+`01b4e2163fd38e37322579f36756400e0b5106e6f2408c8a9f1c980f92a901e2`
+reports 145 obligations, 131 proved and 14 findings: 11 unknown ensures and
+three unsupported expressions. Its 131 certificates replay internally without
+gaps. The inspected reports are `/tmp/studio_job_identity_laws-8147.json` and
+`/tmp/studio_job_policy_laws-8147.json`; source hashes match the current laws.
+No counterexample was reported, but neither graph has complete proof or source
+acceptance. Internal theorem replay does not discharge unsupported source goals.
+
+The subsequent full Studio run reached the backend and exited 2 without an
+object, declining 18 initializers/functions across queue projections, panel
+geometry, accessibility and scene operations. App sources changed during this
+run, so it supplies diagnostic comparison evidence only. The composed inspector
+graph must receive a new stable snapshot and current compiler run after targeted
+backend reductions and repairs; this diagnostic result does not qualify it.
