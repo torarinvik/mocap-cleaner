@@ -117,6 +117,13 @@ after compilation, so this record does not establish immutable build inputs.
 Authenticate the laws and qualify oversized channel arrays, unchanged keys
 outside the scope, and session/export replay before accepting this boundary.
 
+The generic scalar soft-limit operation is now labelled **Limit deviation**;
+its limit is displayed in channel millionths (`10⁻⁶`), matching the fixed-point
+track kernel. It is not a measured joint-angle limit: quaternion components,
+translation and scale channels have different meanings. Qualify these labels
+at minimum width and explain affected channel types in the future inspector.
+Keep engine pole-angle controls and generic channel limits distinct.
+
 
 ### Endpoint no-op qualification
 
