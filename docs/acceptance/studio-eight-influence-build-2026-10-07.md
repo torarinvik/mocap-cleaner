@@ -49,3 +49,12 @@ These checks isolate the remaining failure above successful native staging and
 conversion. They do not establish correct worker handoff, memo loading, source
 reference admission or application publication. Diagnose those before accepting
 the user journey.
+
+The current-object repeat/refusal matrix is
+`build/fbx-current-native-cp07_9js/results.json`. Repeating conversion of the
+original source at 30 Hz returned 0 and the same GLB digest. An existing output
+returned -4 and retained its bytes. Malformed and 100-byte truncated FBX inputs
+returned -1, created no output, and retained their input bytes. The original
+user source SHA-256 was checked again after all calls and remained unchanged.
+These cases cover the captured native objects, not the still-failing Studio
+worker journey or general FBX compatibility.
