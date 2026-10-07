@@ -1,10 +1,26 @@
 include "app_state.elisa"
 include "../correction_result_policy.elisa"
 include "../edit_transaction_policy.elisa"
+include "../../core/generation_policy.elisa"
 
 # Owns staged edit intents, candidate evaluation and committed publication.
 extend Studio:
     private:
+        def candidate_revision_available(s: StackState::Stack&) -> bool:
+            if built_stack is prior:
+                if StackState::same_rig_source(prior, s):
+                    return rig_source_revision >= 0
+            GenerationPolicy::can_advance(rig_source_revision)
+
+        def candidate_generations_available(s: StackState::Stack&) -> bool:
+            GenerationPolicy::can_advance(built) and candidate_revision_available(s)
+
+        def generation_refused() -> void:
+            status <- "Edit blocked: result generation capacity is exhausted or invalid. Existing edits and result kept."
+            nudged_row <- -1
+            status_file <- null
+            touch()
+
         global mutable pending_edit_stack: StackState::Stack? = null
         global mutable pending_edit_base: StudioEditTransactionPolicy::Base = zeroed
         global mutable pending_edit_intent: StudioEditTransactionPolicy::Intent = StudioEditTransactionPolicy::Intent.Record
@@ -75,9 +91,10 @@ extend Studio:
                 touch()
 
         def candidate_revision_for(s: StackState::Stack&) -> i64:
+            requires candidate_revision_available(s)
             if built_stack is prior:
                 return rig_source_revision if StackState::same_rig_source(prior, s)
-            rig_source_revision + 1
+            GenerationPolicy::advance(rig_source_revision)
 
         # Evaluation owns Memo temporarily but does not publish history,
         # the visible clip, readouts or generations. Exact-keyed cache entries
@@ -105,6 +122,7 @@ extend Studio:
         # Publication accepts only a successfully evaluated owned candidate.
         def publish_candidate(s: StackState::Stack, result: StudioModel::Clip?, candidate_revision: i64) -> void:
             requires result != null
+            requires GenerationPolicy::can_advance(built)
             load_failed <- false
             if clip is old:
                 shown_slide <- readout_value(shown_slide, old.slide_after)
@@ -116,7 +134,7 @@ extend Studio:
             StudioPanels::set_rate(rate())
             sync_count()
             built_stack <- s
-            built <- built + 1
+            built <- GenerationPolicy::advance(built)
             if clip is c:
                 collect_issues(c)
             touch()
@@ -127,6 +145,9 @@ extend Studio:
             foot_press <- FootState::idle()
             contact_preview_active <- false
             return false if not history_ready
+            if not GenerationPolicy::can_advance(stack_generation) or (preview and not candidate_generations_available(s)):
+                generation_refused()
+                return false
             if not preview and pending_edit_active():
                 return stage_pending_edit(s, pending_edit_intent)
             if preview and contact_preview_task != null:
@@ -150,12 +171,12 @@ extend Studio:
                     touch()
                     return false
                 return false if not HistoryState::record(&history, s)
-                stack_generation <- stack_generation + 1
+                stack_generation <- GenerationPolicy::advance(stack_generation)
                 publish_candidate(s, move candidate, revision)
                 return true
             if history_ready:
                 changed: bool = HistoryState::record(&history, s)
-                stack_generation <- stack_generation + 1 if changed
+                stack_generation <- GenerationPolicy::advance(stack_generation) if changed
                 if changed and preview:
                     rebuild()
                 touch()
@@ -176,6 +197,9 @@ extend Studio:
                 touch()
                 return
             if history_ready:
+                if not GenerationPolicy::can_advance(stack_generation):
+                    generation_refused()
+                    return
                 if contact_preview_task != null:
                     if HistoryState::undo_target(&history) is target:
                         _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Undo)
@@ -186,7 +210,7 @@ extend Studio:
                             history_rebuild_feedback("Undo applied. Result updated.", "Undo is waiting for evaluation.")
                     return
                 if HistoryState::undo(&history):
-                    stack_generation <- stack_generation + 1
+                    stack_generation <- GenerationPolicy::advance(stack_generation)
                     rebuild()
                     history_rebuild_feedback("Undo applied. Result updated.", "Undo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
 
@@ -196,6 +220,9 @@ extend Studio:
             if pending_edit_active():
                 discard_pending_edit()
             if history_ready:
+                if not GenerationPolicy::can_advance(stack_generation):
+                    generation_refused()
+                    return
                 if contact_preview_task != null:
                     if HistoryState::redo_target(&history) is target:
                         _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Redo)
@@ -206,12 +233,15 @@ extend Studio:
                             history_rebuild_feedback("Redo applied. Result updated.", "Redo is waiting for evaluation.")
                     return
                 if HistoryState::redo(&history):
-                    stack_generation <- stack_generation + 1
+                    stack_generation <- GenerationPolicy::advance(stack_generation)
                     rebuild()
                     history_rebuild_feedback("Redo applied. Result updated.", "Redo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
 
         def apply_history_target(target: StackState::Stack&, redo_requested: bool) -> bool:
             requires contact_preview_task == null
+            if not GenerationPolicy::can_advance(stack_generation) or not candidate_generations_available(target):
+                generation_refused()
+                return false
             base: StudioEditTransactionPolicy::Base = edit_transaction_base()
             revision: i64 = candidate_revision_for(target)
             mutable candidate: StudioModel::Clip? = evaluate_candidate(target, revision)
@@ -229,7 +259,7 @@ extend Studio:
                 return false
             moved: bool = HistoryState::redo(&history) if redo_requested else HistoryState::undo(&history)
             return false if not moved
-            stack_generation <- stack_generation + 1
+            stack_generation <- GenerationPolicy::advance(stack_generation)
             publish_candidate(target, move candidate, revision)
             true
 

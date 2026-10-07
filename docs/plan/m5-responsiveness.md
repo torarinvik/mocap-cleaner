@@ -207,6 +207,11 @@ cannot replace waiting/failure feedback with an applied-edit message. Three
 additional obligations compile with d2754a8e. Local correction controls use
 the rule; remaining app callers and deferred session installation are being
 audited before full native qualification.
+Edit transaction generation increments now use an admitted, strictly increasing
+integer boundary. Exhausted/invalid stack or result counters refuse before
+history publication; unchanged rig identity can reuse its existing revision.
+Four boundary laws compile with d2754a8e. Other lifecycle counters still need
+their own exhaustion audit, and actual transaction replay/native cases remain open.
 Transaction ownership, pending intents, evaluation and publication now live in
 `src/studio/app/app_edit_transactions.elisa` (242 lines); correction controls
 remain in `app_corrections.elisa` (253 lines). All helpers stay private within
