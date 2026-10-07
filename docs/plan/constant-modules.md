@@ -25,12 +25,11 @@ records the repair and qualification evidence.
 ## Remaining qualification (2026-10-07)
 
 The inventory now includes file-level declarations as separate owners instead
-of silently excluding them. It identifies one remaining group in
-`src/studio/state/session_state.elisa`: the session path and temporary capacities.
-Move these into a purpose-specific private const module while extracting the
-FBX session codec. The Trash adapter capacities have been grouped and compiled
-with the current compiler. Representation review and proof qualification remain
-required after source migrations.
+of silently excluding them. The remaining session path and temporary capacities were moved into
+`SessionStateIo::Limit` during atomic I/O extraction. The current inventory
+reports zero file/module groups requiring review. The Trash adapter and session
+I/O objects compile with the current compiler. Representation review and proof
+qualification remain required; the lexical inventory does not establish either.
 
 - [ ] Re-run `scripts/inventory_constant_modules.py --check` after subsequent changes.
       Inspect its coverage before treating zero findings as sufficient: include
