@@ -1,5 +1,6 @@
 include "app_state.elisa"
 include "../pending_edit_policy.elisa"
+include "../../core/generation_policy.elisa"
 
 extend Studio:
     private:
@@ -424,6 +425,13 @@ extend Studio:
 
     private:
         def load_take_now(p: cstr) -> void can Unsafe.PointerCast:
+            # Replacement invalidates the old result and rebuild publishes the
+            # next one. Reserve both generations before consuming any draft.
+            if not GenerationPolicy::can_advance_twice(built) or not GenerationPolicy::can_advance(take_serial) or not GenerationPolicy::can_advance(stack_generation) or not GenerationPolicy::can_advance(rig_source_revision):
+                status <- "Take replacement unavailable: document generations are exhausted. Open a new workspace."
+                status_file <- null
+                touch()
+                return
             candidate_slot: i64 = spare_path_slot()
             if not copy_path(p, candidate_slot):
                 status <- "take path exceeds 4095 bytes"
@@ -452,7 +460,7 @@ extend Studio:
             shown_slide <- 0
             shown_sink <- 0
             shown_hand_slide <- 0
-            built <- built + 1
+            built <- GenerationPolicy::advance(built)
             curve_memo <- zeroed
             base_frame <- -1
             base_built <- -1
@@ -460,7 +468,7 @@ extend Studio:
             skinned_frame <- -1
             skinned_revision <- -1
             mesh <- null
-            take_serial <- take_serial + 1
+            take_serial <- GenerationPolicy::advance(take_serial)
             if path_slot >= 0:
                 loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
                     value: value
@@ -482,7 +490,7 @@ extend Studio:
             hover_row <- -1
             drawn_frame <- -1
             HistoryState::reset(&history, StudioModel::initial_stack())
-            stack_generation <- stack_generation + 1
+            stack_generation <- GenerationPolicy::advance(stack_generation)
             history_ready <- true
             rebuild()
             if clip is c:
