@@ -151,3 +151,10 @@ acceptance. Qualification of parallel progress and failure reporting is pending.
       gizmo backend declines. Stripped optional-return and affine-view narrowing
       reductions compile, so their success does not explain the full-graph
       failures. Retain complete graph diagnostics and exact input snapshots.
+## Deferred edit completion feedback
+
+Both contact-worker drain paths now finish queued rebuilds through one helper.
+A successful new result replaces waiting feedback with a current-result message;
+failed builds retain their failure guidance. Three completion obligations
+compile with d2754a8e. Native worker drain, coalesced edits, failure and close
+ordering still require qualification; source compilation does not close M5.
