@@ -106,6 +106,17 @@ change from source; summing errors across clips must not hide a failed case.
 difficult fixtures satisfy declared local quality gates or show a clear
 unresolved warning. Every exposed tool survives undo/session/export replay.
 
+### Correction channel index admission
+
+Correction application now checks unsigned channel indices against its scope
+before converting them to signed frames or calling the bounded weight kernel.
+Four laws cover scope endpoints and refusal beyond the scope/frame domain.
+Compile-only objects from the source-matched `22cf6e5b` compiler are recorded in
+`build/correction-index-qualification/evidence.json`; source hashes were observed
+after compilation, so this record does not establish immutable build inputs.
+Authenticate the laws and qualify oversized channel arrays, unchanged keys
+outside the scope, and session/export replay before accepting this boundary.
+
 
 ### Endpoint no-op qualification
 
