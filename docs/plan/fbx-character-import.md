@@ -74,3 +74,17 @@ build provenance. A clean detached Stage0 checkout at `6f0988a2` was built under
 `build/toolchain-stage0-current`; Go records `vcs.modified=false`. The replacement
 seed is running with that explicit bootstrap binary. Current qualification waits
 for its terminal result and a matching runtime rebuild.
+
+The compiler reseed completed successfully on `bb274b14`: Stage1 SHA-256
+`36389f6b18268d4266bd68aacd813c703cd788956b611b9fad9964da11a2aa32`.
+The matching runtime rebuilt successfully with SHA-256
+`51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`.
+FBX worker and policy-law objects compile with this product.
+
+Engine commit `28e6adb` extends the converter to retain one largest supported
+skinned mesh and inverse bind matrices alongside the animation hierarchy. Studio
+commit `7ecc7f1` registers the converter, parser objects and exact parser pins in
+the build inventory/input closure. This is build integration, not yet a working
+Open FBX journey. Multiple mesh/material fidelity and native pose correspondence
+still need evidence. Exclusive cache staging, original/runtime source integration,
+worker dispatch, session reopening and current app rebuild remain open.
