@@ -7,7 +7,7 @@ import hashlib
 import os
 import re
 
-from studio_generation_contents import hash_file, identity, open_artifact, require, verify_record
+from studio_generation_contents import DIRECTORY_FLAGS, hash_file, identity, open_artifact, require, verify_record
 from studio_generation_creation_start import read_record
 
 
@@ -20,7 +20,22 @@ class PackageSeal:
     executables = "Contents/MacOS"
 
 
+def verify_named_root(project, artifact, root):
+    """Bind contents scanned by path to the caller's retained bundle descriptor."""
+    build = os.open(project / "build", DIRECTORY_FLAGS)
+    named = -1
+    try:
+        named = open_artifact(build, artifact)
+        require(identity(os.fstat(named)) == identity(os.fstat(root)),
+                "package path differs from retained root")
+    finally:
+        if named >= 0:
+            os.close(named)
+        os.close(build)
+
+
 def verify_package_seal(project, artifact, artifact_id, root):
+    verify_named_root(project, artifact, root)
     resources = open_artifact(root, PackageSeal.resources)
     executables = -1
     try:
@@ -72,6 +87,7 @@ def verify_package_seal(project, artifact, artifact_id, root):
             require(identity(os.fstat(rebound)) == identity(executables_facts), "package executable directory replaced")
         finally:
             os.close(rebound)
+        verify_named_root(project, artifact, root)
         return {
             "executable_sha256": executable_sha,
             "contents_inventory_sha256": inventory_sha,

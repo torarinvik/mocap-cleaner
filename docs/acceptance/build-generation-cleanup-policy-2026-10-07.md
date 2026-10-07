@@ -318,3 +318,13 @@ Malformed or over-deep JSON refuses instead of reaching unbounded parser
 recursion. Python AST and diff checks passed; malformed/fault-case runtime
 qualification remains open. A successful normal build alone cannot establish
 those refusal cases.
+
+### Retained package root binding
+
+Package seal verification now opens the named bundle with the no-follow
+descriptor walker before and after checking its inventory and controls. Both
+observations must match the caller's retained bundle device/inode. This binds
+the path-based inventory scan to the descriptor-based control and executable
+checks, including publication and reconciliation callers. A replaced named
+bundle refuses. Python AST and diff checks pass; replacement-race and full
+build qualification of this change remain open.
