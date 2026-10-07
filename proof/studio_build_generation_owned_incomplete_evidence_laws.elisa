@@ -1,0 +1,31 @@
+# Laws for explicit, non-sealed failed-build evidence.
+include "../src/studio/io/build_generation_candidate_provider.elisa"
+
+module StudioBuildGenerationOwnedIncompleteEvidenceLaws:
+    public:
+        def unavailable_evidence_never_admits_absent_product(row: StudioBuildGenerationCandidateProvider::Row) -> bool:
+            requires row.owned_incomplete_evidence == StudioBuildGenerationCandidateProvider::OwnedIncompleteEvidence.Unavailable and StudioBuildGenerationCandidateProvider::product_identity_absent(row.product_identity)
+            ensure not result
+            row.protection == StudioBuildGenerationCandidateProvider::Protection.Eligible and StudioBuildGenerationCandidateProvider::row_valid(row)
+
+        def verified_evidence_is_failed_and_unsealed(row: StudioBuildGenerationCandidateProvider::Row) -> bool:
+            requires StudioBuildGenerationCandidateProvider::owned_incomplete_evidence_valid(row)
+            ensure row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Failed and StudioBuildGenerationCandidateProvider::product_identity_absent(row.product_identity)
+            match row.owned_incomplete_evidence:
+                StudioBuildGenerationCandidateProvider::OwnedIncompleteEvidence.Unavailable: false
+                StudioBuildGenerationCandidateProvider::OwnedIncompleteEvidence.Verified(revision, creation, failure, observed, status, lease_device, lease_inode, namespace_verified, tree_verified, builder_inactive, publication_intent_absent): row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Failed and StudioBuildGenerationCandidateProvider::product_identity_absent(row.product_identity)
+
+        def verified_failure_digest_matches_latest_record(row: StudioBuildGenerationCandidateProvider::Row) -> bool:
+            requires StudioBuildGenerationCandidateProvider::owned_incomplete_evidence_valid(row)
+            ensure result
+            match row.owned_incomplete_evidence:
+                StudioBuildGenerationCandidateProvider::OwnedIncompleteEvidence.Unavailable: false
+                StudioBuildGenerationCandidateProvider::OwnedIncompleteEvidence.Verified(revision, creation, failure, observed, status, lease_device, lease_inode, namespace_verified, tree_verified, builder_inactive, publication_intent_absent):
+                    match row.creation_evidence:
+                        StudioBuildGenerationCandidateProvider::CreationEvidence.LegacyAbsent: false
+                        StudioBuildGenerationCandidateProvider::CreationEvidence.Journaled(record_revision, record_creation, latest, record_observed): StudioBuildGenerationCandidateProvider::bytes_equal(failure, latest)
+
+        def changed_creation_chain_refuses_incomplete_evidence(evidence: StudioBuildGenerationCandidateProvider::CreationEvidence, revision: i64, creation: darray[u8]&, failure: darray[u8]&, observed: darray[u8]&) -> bool:
+            requires not StudioBuildGenerationCandidateProvider::owned_creation_matches(evidence, revision, creation, failure, observed)
+            ensure not result
+            StudioBuildGenerationCandidateProvider::owned_creation_matches(evidence, revision, creation, failure, observed)

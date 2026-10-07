@@ -71,6 +71,17 @@ module StudioBuildGenerationCandidateProvider:
             Journaled(revision: i64, creation_digest: darray[u8], latest_record_digest: darray[u8],
                       observed_tree_digest: darray[u8])
 
+        # The present native ABI cannot attest every fact needed to admit a
+        # failed artifact. Keep that absence explicit until the scanner grows
+        # the corresponding locked, descriptor-validated output.
+        enum OwnedIncompleteEvidence:
+            Unavailable
+            Verified(revision: i64, creation_digest: darray[u8], failure_record_digest: darray[u8],
+                     observed_tree_digest: darray[u8], failure_status: i64,
+                     lease_device: i64, lease_inode: i64, namespace_verified: bool,
+                     tree_verified: bool, builder_inactive: bool,
+                     publication_intent_absent: bool)
+
         struct Row:
             artifact_id: darray[u8]
             relative_path: darray[u8]
@@ -85,6 +96,7 @@ module StudioBuildGenerationCandidateProvider:
             retention_days: i64
             size_evidence: SizeEvidence
             creation_evidence: CreationEvidence
+            owned_incomplete_evidence: OwnedIncompleteEvidence
             product_identity: ProductIdentity
 
         struct Snapshot:
@@ -115,7 +127,24 @@ module StudioBuildGenerationCandidateProvider:
             return false if row.protection == Protection.Eligible and product_identity_absent(row.product_identity)
             return false if row.protection == Protection.Eligible and size_unknown(row.size_evidence)
             return false if not size_valid(row.size_evidence)
+            return false if not owned_incomplete_evidence_valid(row)
             return product_identity_valid_for(row.product_identity, row.artifact)
+
+        def owned_incomplete_evidence_valid(row: Row) -> bool:
+            match row.owned_incomplete_evidence:
+                OwnedIncompleteEvidence.Unavailable: true
+                OwnedIncompleteEvidence.Verified(revision, creation, failure, observed, status,
+                    lease_device, lease_inode, namespace_verified, tree_verified,
+                    builder_inactive, publication_intent_absent):
+                    row.phase == CreationPhase.Failed and product_identity_absent(row.product_identity) and owned_creation_matches(row.creation_evidence, revision, creation, failure, observed) and digest_valid(creation) and digest_valid(failure) and digest_valid(observed) and status >= 1 and status <= 255 and lease_device >= 0 and lease_inode > 0 and namespace_verified and tree_verified and builder_inactive and publication_intent_absent and not age_unknown(row.age) and not size_unknown(row.size_evidence)
+
+        def owned_creation_matches(evidence: CreationEvidence, revision: i64,
+                                   creation: darray[u8]&, failure: darray[u8]&,
+                                   observed: darray[u8]&) -> bool:
+            match evidence:
+                CreationEvidence.LegacyAbsent: false
+                CreationEvidence.Journaled(record_revision, record_creation, latest, record_observed):
+                    revision == record_revision and bytes_equal(creation, record_creation) and bytes_equal(failure, latest) and bytes_equal(observed, record_observed)
 
         def size_unknown(evidence: SizeEvidence) -> bool:
             match evidence:
@@ -380,7 +409,7 @@ module StudioBuildGenerationCandidateProvider:
                             age_evidence <- AgeEvidence.Verified(age, AgeOrigin.FilesystemBirthtime)
                         else:
                             valid <- valid and age == -1
-                        mutable row: Row = Row{artifact_id: id, relative_path: path, artifact: artifact_value(artifact_raw), phase: phase_value(phase_raw), protection: protection_value(protection_raw), device: device, inode: inode, build_root_device: build_device, build_root_inode: build_inode, age: age_evidence, retention_days: row_retention, size_evidence: size, creation_evidence: creation_evidence, product_identity: product_identity}
+                        mutable row: Row = Row{artifact_id: id, relative_path: path, artifact: artifact_value(artifact_raw), phase: phase_value(phase_raw), protection: protection_value(protection_raw), device: device, inode: inode, build_root_device: build_device, build_root_inode: build_inode, age: age_evidence, retention_days: row_retention, size_evidence: size, creation_evidence: creation_evidence, owned_incomplete_evidence: OwnedIncompleteEvidence.Unavailable, product_identity: product_identity}
                         valid <- valid and StudioBuildGenerationCandidateProviderBindingPolicy::row_output_admitted(status, artifact_raw, phase_raw, protection_raw, product_kind, device, inode, age, age_known, row_retention, size_bytes, size_known, path.count.i64(), id.count.i64()) and row_valid(row)
                         if valid: result.rows.push(row)
                     index <- index + 1
