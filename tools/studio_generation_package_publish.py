@@ -142,6 +142,13 @@ def publish_package(project, artifact, artifact_id):
                             version(os.fstat(old_lease)) == version(old_facts), "previous package lease replaced")
                 finally:
                     os.close(rebound_old_resources)
+                old_path = artifact_id + "/" + Publication.backup if namespace_changed else Publication.destination
+                current_old = verify_package_seal(project, old_path, old_id, old_root)
+                for key in Publication.fields + ("resource_identity",):
+                    require(current_old[key] == old_sealed[key], "previous package seal changed")
+                for key in Publication.facts:
+                    require(version(current_old[key]) == version(old_sealed[key]), "previous package controls changed")
+
 
         revalidate()
         try:
@@ -160,6 +167,12 @@ def publish_package(project, artifact, artifact_id):
             owned(old_facts)
             require(not old_facts.st_mode & 0o222 and old_facts.st_size > 0, "previous package lease is unsealed")
             fcntl.flock(old_lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            old_metadata, _, _ = read_record(old_resources, "PACKAGE-GENERATION.json", private=False)
+            require(isinstance(old_metadata, dict) and isinstance(old_metadata.get("package_generation_id"), str) and
+                    re.fullmatch(r"studio-package\.[A-Za-z0-9_-]+", old_metadata["package_generation_id"]),
+                    "previous package generation identity is unavailable")
+            old_id = old_metadata["package_generation_id"]
+            old_sealed = verify_package_seal(project, Publication.destination, old_id, old_root)
             require(version(os.stat(".studio-generation.lease", dir_fd=old_resources, follow_symlinks=False)) ==
                     version(old_facts) and identity(os.stat(Publication.destination, dir_fd=build,
                     follow_symlinks=False)) == identity(previous), "previous package binding changed")
@@ -170,6 +183,9 @@ def publish_package(project, artifact, artifact_id):
             intent.update(previous_root_device=previous.st_dev, previous_root_inode=previous.st_ino,
                           previous_relative_path=artifact_id + "/" + Publication.backup,
                           previous_lease_device=old_facts.st_dev, previous_lease_inode=old_facts.st_ino)
+            intent["previous_package_generation_id"] = old_id
+            for key in Publication.fields:
+                intent["previous_" + key] = old_sealed[key]
         intent_payload = (json.dumps(intent, sort_keys=True, separators=(",", ":")) + "\n").encode()
         require(len(intent_payload) <= Limits.json_bytes, "publication intent size exceeded")
         publish_initial(build, intent_payload, artifact_id + Publication.intent_suffix, revalidate)
