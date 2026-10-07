@@ -6,6 +6,39 @@ module StudioFbxImportPolicy:
             MAX_RATE: i64 = 120
             DEFAULT_RATE: i64 = 30
 
+        const enum Admission of i64:
+            Accepted = 0
+            StaleRequest = 1
+            Cancelled = 2
+            WorkerFailed = 3
+            MissingAnimation = 4
+            SourceMismatch = 5
+            InvalidDestination = 6
+            InvalidDigests = 7
+
+        def admission(ticket: i64, current_ticket: i64, cancelled: bool,
+                      conversion_status: i64, has_memo: bool,
+                      source_matches: bool, destination_valid: bool,
+                      digests_valid: bool) -> Admission:
+            ensure (result == Admission.Accepted) == may_commit(ticket, current_ticket, cancelled, conversion_status, has_memo, source_matches, destination_valid, digests_valid)
+            return Admission.StaleRequest if ticket <= 0 or ticket != current_ticket
+            return Admission.Cancelled if cancelled
+            return Admission.WorkerFailed if conversion_status != 0
+            return Admission.MissingAnimation if not has_memo
+            return Admission.SourceMismatch if not source_matches
+            return Admission.InvalidDestination if not destination_valid
+            return Admission.InvalidDigests if not digests_valid
+            Admission.Accepted
+
+        def admission_message(reason: Admission) -> sview:
+            return "FBX result belongs to an earlier request and was discarded. Open the take again." if reason == Admission.StaleRequest
+            return "FBX import cancelled. The current take is unchanged." if reason == Admission.Cancelled
+            return "The FBX worker returned no usable animation. The current take is unchanged." if reason == Admission.MissingAnimation
+            return "FBX result does not match the requested source path. The current take is unchanged." if reason == Admission.SourceMismatch
+            return "FBX result has an invalid derived-file path. The current take is unchanged." if reason == Admission.InvalidDestination
+            return "FBX result has incomplete source or derived-file digests. The current take is unchanged." if reason == Admission.InvalidDigests
+            "FBX import failed. The current take is unchanged."
+
         def may_publish(ticket: i64, current_ticket: i64, cancelled: bool,
                         conversion_status: i64, has_memo: bool) -> bool:
             ensure result implies ticket > 0 and ticket == current_ticket
