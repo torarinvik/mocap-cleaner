@@ -47,11 +47,14 @@ Remaining work:
   fix the compiler ownership path before accepting app publication. These
   partial probes do not close Q01 or the visible FBX journey.
 
-- New fetched compiler tip `75568f8` includes the `50b16e68` borrow-exclusivity
-  repairs and backend reference-field reads, followed by documentation changes.
-  It is merged into the repair checkout at `3714380c`. Preserve project and task-region repairs while merging,
-  rebuild compiler/runtime with source provenance, and requalify the complete
-  graph. Captured `48dc78e2` evidence is not qualification of this newer source.
+- The fetched comparison baseline is now `665f40d7`, including borrow-exclusivity,
+  reference-field reads and loop-value slot binding. Its clean Stage0 seed
+  produced compiler SHA-256 `16a373d5f9ba605016d84fa8216c4e9e05aa73986d05bd73b1bf839dc59a09e3`
+  and runtime SHA-256 `ca40ba1db8a74110936ad5cdaf808707020c5c74ebb6e491bda2198696d13b8a`.
+  The fresh fast profile selects 37 checks and is still running; two AST-summary
+  parity checks have reported 28 differing cases. Retain terminal results and
+  exact failure lists before comparing the repair. Neither a baseline seed nor
+  an installed upstream compiler qualifies project repairs or the Studio graph.
 - Preserve the verified UI checkpoint and source closure when rebuilding after
   pending skin/session changes. Recheck fetched upstream and project repairs.
 - Retain verified compiler/runtime source and linked-dependency provenance at
