@@ -87,15 +87,28 @@
       that preserves the original file until the user saves the migrated copy.
 - [ ] Resolve missing or changed sources with Locate source and explicit
       rebind review. Never silently apply old bone indices to a different rig.
-      For v4, permit restoration only after loading and validating exact source
-      bytes, animation identity, frame count and node count. A matching saved
-      identity alone is not evidence about a newly selected file. When bytes
-      differ, offer Open as new take without session repairs or Cancel; explain
+      For v4, load the selected file and compare its computed fingerprints,
+      animation identity, frame count and node count. Two rolling residues do
+      not establish exact byte equality. Require an explicit Restore session
+      review for matching metadata, with Cancel and Open as new take available;
+      identify the legacy binding limitation without claiming proof of source
+      identity. A matching saved identity alone is not evidence about a newly
+      selected file. When metadata differs, offer Open as new take without
+      session repairs or Cancel; explain
       that existing work remains available until replacement is confirmed.
       Implement changed-rig rebind in the next schema using stable semantic
       bone identities, an inspectable old-to-new mapping, ambiguity refusal and
       a summary of unmapped repairs. Never infer that equal node counts make
       stored indices safe. Retain the original session during migration.
+- [ ] Strengthen the next schema's source binding: record versioned content
+      digest, byte count, animation selection and semantic rig identities.
+      Specify the digest's collision-resistance assumption explicitly; only
+      direct comparison of retained original bytes establishes exact byte
+      equality. Validate correction node ownership against the semantic rig
+      before applying stored indices. Cover duplicate/renamed bones, reordered
+      nodes, equal-count different rigs, digest mismatch, truncated data and
+      unsupported digest versions. Missing legacy binding evidence requires
+      review or refusal rather than silent promotion during migration.
 - [ ] Qualify session and Locate reads at zero bytes, exactly the 8 MiB limit,
       one byte over the limit, read failure and close failure. The bounded
       reader preserves its output on failure; the UI must also preserve the

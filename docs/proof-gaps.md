@@ -22,6 +22,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Export report-stage Boolean branch replay](proof-gaps/report-stage-boolean-replay.md)
 
 - [Limb length and IEEE adapter qualification](proof-gaps/limb-length-float-boundary.md)
+- [Session source binding and fingerprint limitations](proof-gaps/session-source-binding.md)
 
 ## Current qualification limits
 
