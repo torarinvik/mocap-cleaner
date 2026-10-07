@@ -15,6 +15,7 @@ extend Studio:
         global mutable prepared_report_ticket: StudioExportBatchWarningReviewPolicy::Ticket = zeroed
         global mutable prepared_report_page: usize = 0
         global mutable prepared_report_layout: bool = false
+        global mutable prepared_report_format_valid: bool = false
         global mutable prepared_report_buffer: u8[PreparedReportPage::BUFFER_BYTES] = zeroed
         global mutable prepared_report_lengths: usize[PreparedReportPage::ROWS] = zeroed
         global mutable prepared_report_lines: usize = 0
@@ -47,6 +48,8 @@ extend Studio:
                 snapshot: StudioExportBatchDisplayProjection::Snapshot = StudioExportBatchReviewBinding::display_projection(queue, index)
                 return if snapshot.warning_count <= 0
                 prepared_report_snapshot <- snapshot
+                mutable parsed_warnings: i64 = 0
+                prepared_report_format_valid <- StudioExportReportWarningParser::warning_count(snapshot.warning_json_bytes, snapshot.warning_text_bytes, &parsed_warnings) and parsed_warnings == snapshot.warning_count
                 prepared_report_ticket <- StudioExportBatchWarningReviewPolicy::Ticket{epoch: prepared_revision, index: index, attempt: snapshot.attempt}
                 prepared_report_model <- StudioExportBatchReportView::create()
                 loaded: StudioExportBatchReportView::Status = StudioExportBatchReportView::load(&prepared_report_model, prepared_report_snapshot.warning_text_bytes)
@@ -56,26 +59,26 @@ extend Studio:
                 cache_prepared_report_page()
                 touch()
 
-        def prepared_report_current() -> bool:
+        def prepared_report_current(exact_bytes: bool) -> bool:
             return false if not prepared_report_open or not prepared_sheet_open()
             if prepared_export_queue is queue:
                 index: i64 = prepared_sheet.selected
                 return false if not StudioExportBatchReviewBinding::valid(queue) or index < 0 or index >= StudioExportBatchReviewBinding::item_count(queue).i64()
-                current: StudioExportBatchDisplayProjection::Snapshot = StudioExportBatchReviewBinding::display_projection(queue, index)
-                observed: StudioExportBatchWarningReviewPolicy::Ticket = StudioExportBatchWarningReviewPolicy::Ticket{epoch: prepared_revision, index: index, attempt: current.attempt}
+                observed: StudioExportBatchWarningReviewPolicy::Ticket = StudioExportBatchWarningReviewPolicy::Ticket{epoch: prepared_revision, index: index, attempt: StudioExportBatchReviewBinding::item_attempt(queue, index)}
                 return false if not StudioExportBatchWarningReviewPolicy::current(prepared_report_ticket, observed)
-                return false if current.warning_count != prepared_report_snapshot.warning_count
+                metadata: StudioExportBatchQueue::Item = StudioExportBatchReviewBinding::item(queue, index)
+                return false if metadata.warning_count != prepared_report_snapshot.warning_count
+                return true if not exact_bytes
+                current: StudioExportBatchDisplayProjection::Snapshot = StudioExportBatchReviewBinding::display_projection(queue, index)
                 return false if not StudioExportBatchDisplayProjection::bytes_equal(current.warning_json_bytes, prepared_report_snapshot.warning_json_bytes)
                 StudioExportBatchDisplayProjection::bytes_equal(current.warning_text_bytes, prepared_report_snapshot.warning_text_bytes)
             false
 
         def prepared_report_ack_available() -> bool:
-            return false if not prepared_report_layout or not prepared_report_current()
-            mutable warnings: i64 = 0
-            return false if not StudioExportReportWarningParser::warning_count(prepared_report_snapshot.warning_json_bytes, prepared_report_snapshot.warning_text_bytes, &warnings)
+            return false if not prepared_report_layout or not prepared_report_format_valid or not prepared_report_current(false)
             StudioExportBatchWarningReviewPolicy::acknowledge_admitted(prepared_report_ticket, prepared_report_ticket,
                 true, StudioExportBatchReportView::status(prepared_report_model) == StudioExportBatchReportView::Status.Ready,
-                warnings, true) and warnings == prepared_report_snapshot.warning_count
+                prepared_report_snapshot.warning_count, true)
 
         def acknowledge_prepared_report() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return if not prepared_report_ack_available()
@@ -86,7 +89,7 @@ extend Studio:
                 return
             mutable approved: bool = false
             if prepared_export_queue is queue:
-                if prepared_report_current():
+                if prepared_report_current(true):
                     approved <- StudioExportBatchReviewBinding::acknowledge_recovered_warning(&queue, prepared_report_ticket.index, true, descriptor)
                     prepared_export_queue <- queue
             released: bool = end_storage_transaction(descriptor)
