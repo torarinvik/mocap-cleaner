@@ -294,6 +294,11 @@ qualifies the integrated application or native workflow.
       the actual row width and an explicit margin. Preserve exact original byte
       offsets and node text budgets. The uncomposed model and law graph compile;
       that evidence does not qualify adapter boundaries or native rendering.
+      Preserve renderer measurement validity across the text-metric API;
+      clamping NaN, negative or infinite widths into finite geometry must not
+      turn unavailable measurements into an asserted fit. Distinguish a valid
+      zero-width glyph range from a failed measurement. Bind retained layout
+      to the active font/scale generation and rebuild when that context changes.
       Qualify combining marks, joined emoji, fallback fonts and changes in scale
       or width. A cluster larger than a text node's budget needs an explicit,
       faithful inspection fallback; do not silently split, omit or normalize
