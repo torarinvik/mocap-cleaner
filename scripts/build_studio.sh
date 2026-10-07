@@ -41,6 +41,24 @@ pending_directory="$(mktemp -d "$OUT/studio-build.XXXXXX")"
 install -m 0600 /dev/null "$pending_directory/.studio-generation.lease"
 pending_object="$pending_directory/main.o"
 pending_inputs="$pending_directory/inputs.json"
+inventory_arguments=(
+  --file main.o --file mocap_studio
+  --file studio_build_trash_io.o --file studio_build_trash_current.o
+  --file studio_build_trash_path.o --file studio_build_trash_inventory.o
+  --file studio_build_trash_journal.o --file studio_build_trash_restore.o
+  --file studio_build_trash_reconcile.o --file studio_build_trash_binding.o
+  --file studio_canvas_shim.o --file studio_viewport_metal.o
+  --file studio_file_panel.o --file studio_file_trash.o --file studio_file_path.o
+  --file studio_file_path_namespace.o --file studio_workspace_root.o
+  --file studio_generation_lease_appkit.o --file studio_storage_manifest_lock.o
+  --file studio_native_fallbacks.o
+)
+# Record the generation's initial identity and declared plan before output.
+# Created records alone remain protected until durable outcome reconciliation.
+python3 "$ROOT/tools/studio_generation_creation.py" --project "$ROOT" \
+  --artifact "$(basename "$pending_directory")" \
+  --artifact-id "$(basename "$pending_directory")" --kind studio-build \
+  --file inputs.json --file .studio-generation.lease "${inventory_arguments[@]}"
 python3 "$ROOT/tools/studio_build_identity.py" --snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 
 clang -c -fobjc-arc -O2 -o "$pending_directory/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
@@ -71,18 +89,7 @@ clang -o "$pending_directory/mocap_studio" \
 python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 # Publish only after fresh compilation, linking and input revalidation pass.
 # Failure preserves the previous executable and its recorded input identity.
-inventory_arguments=(
-  --file main.o --file mocap_studio
-  --file studio_build_trash_io.o --file studio_build_trash_current.o
-  --file studio_build_trash_path.o --file studio_build_trash_inventory.o
-  --file studio_build_trash_journal.o --file studio_build_trash_restore.o
-  --file studio_build_trash_reconcile.o --file studio_build_trash_binding.o
-  --file studio_canvas_shim.o --file studio_viewport_metal.o
-  --file studio_file_panel.o --file studio_file_trash.o --file studio_file_path.o
-  --file studio_file_path_namespace.o --file studio_workspace_root.o
-  --file studio_generation_lease_appkit.o --file studio_storage_manifest_lock.o
-  --file studio_native_fallbacks.o
-)
+
 python3 "$ROOT/tools/studio_generation_contents.py" --project "$ROOT" \
   --artifact "$(basename "$pending_directory")" \
   --artifact-id "$(basename "$pending_directory")" --kind studio-build \
