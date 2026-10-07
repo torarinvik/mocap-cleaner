@@ -86,9 +86,14 @@ Remaining work:
   Root inspected the retained automated log under `build/void-poll-2ef1fa26/`
   and independently verified the product hash. The current proof pair builds against this tuple and its narrow cast
   controls pass. The native gate finishes 565/566: `stripped_contract_ensure_void`
-  incorrectly links despite an unmodeled contract helper, whereas main passes
-  566/566. Repair this fail-closed regression before reseeding and rerunning
-  promotion gates. Full client compatibility and promotion remain open.
+  links a supported parameter-only void ensure that the baseline test expects
+  to decline; main passes 566/566 under that expectation. Root inspected
+  `emit_void_ensure_checks`, preserved by `3f578e5a`: it emits each predicate
+  through the ordinary contract guard and refuses failed expression lowering.
+  Retain the original mismatch, validate a failing predicate at runtime and
+  report this preserved behavior delta separately from unchanged-main parity.
+  Updating a test expectation alone does not establish the requested parity.
+  Full client compatibility and promotion remain open.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
