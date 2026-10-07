@@ -35,6 +35,11 @@ def snapshot(project, engine, ui, compiler):
 
     paths = []
     sources(str(project / "src/studio/app/main.elisa"), paths)
+    selected_runtime = (compiler / "elisacore_std/elisacore_runtime.elisa").resolve(strict=True)
+    for source in paths:
+        included = Path(source).resolve(strict=True)
+        if included.name == "elisacore_runtime.elisa" and included != selected_runtime:
+            raise SystemExit(f"Studio includes a runtime outside the selected compiler: {included}")
     paths.extend(str(path) for path in (
         project / "scripts/build_studio.sh",
         project / "scripts/prove.py",
@@ -97,7 +102,13 @@ for label, selected, sibling in (
 subprocess.run([sys.executable, str(compiler / "scripts/stage1_provenance.py"),
                 "check", str(compiler), str(compiler / "bin/elisac-stage1")],
                check=True)
+runtime_source = (compiler / "elisacore_std/elisacore_runtime.elisa").resolve(strict=True)
+runtime_bridge = project / "build/generated/studio_runtime.elisa"
+runtime_text = "# Generated runtime declarations from the selected compiler.\n"
+runtime_text += f"include {json.dumps(str(runtime_source))}\n"
 if mode != "generate":
+    if not runtime_bridge.is_file() or runtime_bridge.read_text() != runtime_text:
+        raise SystemExit("Studio runtime selection differs from this compiler; regenerate the build identity first")
     current = snapshot(project, engine, ui, compiler)
     if mode == "--snapshot":
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -115,6 +126,10 @@ if mode != "generate":
             if product.get("filename") != "mocap_studio" or product.get("sha256") != digest(output.parent / "mocap_studio"):
                 raise SystemExit("Studio executable differs from its sealed input record")
     raise SystemExit(0)
+runtime_bridge.parent.mkdir(parents=True, exist_ok=True)
+runtime_temporary = runtime_bridge.with_suffix(".tmp")
+runtime_temporary.write_text(runtime_text)
+runtime_temporary.replace(runtime_bridge)
 values = []
 for label, root in (("PROJECT", project), ("ENGINE", engine),
                     ("UI", ui), ("COMPILER", compiler)):

@@ -25,6 +25,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Session source binding and fingerprint limitations](proof-gaps/session-source-binding.md)
 - [Borrowed std and protocol region binding](proof-gaps/borrowed-protocol-region-binding.md)
 - [Export sheet row field resolution](proof-gaps/export-sheet-row-resolution.md)
+- [Studio runtime source selection](proof-gaps/runtime-source-selection.md)
 
 ## Current qualification limits
 
