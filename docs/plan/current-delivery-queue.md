@@ -235,6 +235,14 @@ unchanged regression expectations. Unresolved laws retain their gap records.
 
 **Priority:** P0. **Depends on:** Q01 for qualification, existing worker protocol.
 
+Current runtime blocker: the sealed `14bdc130` app (compiler `e24c29e6`, engine
+`6df3212e`) imports the reported FBX and displays 337 frames, then crashes during
+redraw with `EXC_BAD_ACCESS`. The crash UUID matches the built app. Preserve the
+take and diagnose the exact draw/ownership boundary before runtime acceptance;
+Character/Skeleton switching remains unqualified. Full crash and source-hash
+evidence is retained in `build/studio-runtime-e24-20261008/`. Successful O2
+compilation, linking and package sealing do not close this item.
+
 Qualify synchronous edits, queued/coalesced edits, Undo/Redo, no-op drafts,
 cancellation, take replacement and close approval as one state machine:
 
