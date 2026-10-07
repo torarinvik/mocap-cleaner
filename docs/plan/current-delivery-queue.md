@@ -177,8 +177,12 @@ fail source admission. Failure policy passes admission and independently replays
 10/10 theorems, but every correspondence check covers zero functions and remains
 unauthenticated. Cast typing, both qualified receiver spellings and return
 substitution now pass focused controls; custom hooks and wrong metadata refuse.
-Remaining gaps include cast expressions in call arguments/preconditions, checked
-numeric member provenance and CFG fact budgets. Earlier six-package results are
+Focused controls now also prove enum casts in verified helper arguments and
+preconditions. The failure-policy call-site refusals follow an unverified
+`classify` summary: its CFG fact budget reports 182 facts against a limit of 64.
+Reduce or precisely account for those facts without weakening admission, then
+repeat the frozen policy checks. Checked numeric member provenance remains open.
+Earlier six-package results are
 historical source snapshots. See
 [the exact proof record](../acceptance/fbx-request-proof-2026-10-07.md).
 

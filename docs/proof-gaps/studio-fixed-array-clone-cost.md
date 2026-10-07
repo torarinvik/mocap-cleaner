@@ -192,3 +192,18 @@ evidence. The rebased repair at `36f7dcba` still needs a fresh product and repea
 controls. Error-function success out-parameter returns are excluded from this
 helper and need their own evaluation/cleanup timing audit. Complete Studio O2,
 all return paths and current-main performance remain open.
+
+## Generic await cleanup defect
+
+The return-path audit found that generic `pool_await` returns checked ensures and
+unwound regions without emitting deferred actions. The non-generic path emitted
+them. On the matched `36f7dcba` product, both a synthetic generic task and a real
+`pool_submit1` task compile successfully but return 2 because cleanup never runs;
+the direct non-generic control returns 42. Sources, products, hashes and outcomes
+are retained in the compiler checkout at
+`build/generic-await-error-defer-pre-fix-36f7/`.
+
+Compiler commit `822c6d18` emits deferred actions before region unwind and adds
+O0/O2 controls for real tasks, region cleanup, successful ensures and failed
+ensures. This is a committed repair, pending a fresh matched product and runtime
+qualification after integrating newest main. The old binary cannot qualify it.
