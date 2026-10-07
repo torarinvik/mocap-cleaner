@@ -28,6 +28,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Build generation policy proof and replay (2026-10-07)](proof-gaps/build-generation-policy-proof-20261007.md)
 - [Export sheet row field resolution](proof-gaps/export-sheet-row-resolution.md)
 - [Studio runtime source selection](proof-gaps/runtime-source-selection.md)
+- [FBX source and staging admission proof boundary (2026-10-07)](proof-gaps/fbx-source-staging-admission.md)
 
 ## Current qualification limits
 
