@@ -1,0 +1,150 @@
+include "../src/studio/take_source_ref_policy.elisa"
+
+module StudioTakeSourceRefPolicyLaws:
+    public:
+        def digest() -> darray[u8]:
+            mutable value: darray[u8] = []
+            for _ in 0..<64:
+                value.push(97)
+            value
+
+        def direct() -> StudioTakeSourceRefPolicy::TakeSourceRef:
+            path: darray[u8] = [47, 116, 97, 107, 101, 46, 103, 108, 98]
+            hash: darray[u8] = digest()
+            empty: darray[u8] = []
+            StudioTakeSourceRefPolicy::TakeSourceRef{
+                format: StudioTakeSourceRefPolicy::SourceFormat.DirectGlb,
+                original_path: path,
+                original_sha256: hash,
+                runtime_glb_path: path,
+                runtime_glb_sha256: hash,
+                importer_revision: empty,
+                options_sha256: empty
+            }
+
+        def derived() -> StudioTakeSourceRefPolicy::TakeSourceRef:
+            original: darray[u8] = [47, 116, 97, 107, 101, 46, 102, 98, 120]
+            runtime: darray[u8] = [47, 98, 117, 105, 108, 100, 47, 116, 97, 107, 101, 46, 103, 108, 98]
+            hash: darray[u8] = digest()
+            revision: darray[u8] = [105, 109, 112, 111, 114, 116, 101, 114, 45, 49]
+            StudioTakeSourceRefPolicy::TakeSourceRef{
+                format: StudioTakeSourceRefPolicy::SourceFormat.FbxDerived,
+                original_path: original,
+                original_sha256: hash,
+                runtime_glb_path: runtime,
+                runtime_glb_sha256: hash,
+                importer_revision: revision,
+                options_sha256: hash
+            }
+
+        def direct_glb_binds_runtime_to_original() -> bool:
+            ensure result
+            StudioTakeSourceRefPolicy::valid(direct())
+
+        def direct_glb_rejects_different_runtime_identity() -> bool:
+            mutable reference: StudioTakeSourceRefPolicy::TakeSourceRef = direct()
+            reference.runtime_glb_path[1] <- 120
+            ensure result
+            not StudioTakeSourceRefPolicy::valid(reference)
+
+        def direct_glb_rejects_import_metadata() -> bool:
+            mutable reference: StudioTakeSourceRefPolicy::TakeSourceRef = direct()
+            reference.importer_revision.push(49)
+            ensure result
+            not StudioTakeSourceRefPolicy::valid(reference)
+
+        def fbx_requires_complete_derived_identity() -> bool:
+            ensure result
+            StudioTakeSourceRefPolicy::valid(derived())
+
+        def digest_encoding_rejects_uppercase_hex() -> bool:
+            mutable uppercase: darray[u8] = digest()
+            uppercase[0] <- 65
+            ensure result
+            not StudioTakeSourceRefPolicy::sha256_valid(uppercase)
+
+        def path_encoding_rejects_nul() -> bool:
+            mutable path: darray[u8] = [47, 116, 97, 107, 101]
+            path.push(0)
+            ensure result
+            not StudioTakeSourceRefPolicy::path_valid(path)
+
+        def fbx_rejects_same_original_and_runtime_path() -> bool:
+            mutable reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            reference.runtime_glb_path <- reference.original_path
+            ensure result
+            not StudioTakeSourceRefPolicy::valid(reference)
+
+        def original_match_requires_canonical_path_and_raw_digest() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            same_path: darray[u8] = reference.original_path
+            same_hash: darray[u8] = reference.original_sha256
+            ensure result
+            StudioTakeSourceRefPolicy::original_matches(reference, same_path, same_hash)
+
+        def changed_source_path_is_not_same_original() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            mutable observed: darray[u8] = reference.original_path
+            observed[1] <- 120
+            ensure result
+            not StudioTakeSourceRefPolicy::original_matches(reference, observed, reference.original_sha256)
+
+        def changed_raw_source_digest_is_not_same_original() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            mutable observed: darray[u8] = reference.original_sha256
+            observed[0] <- 98
+            ensure result
+            not StudioTakeSourceRefPolicy::original_matches(reference, reference.original_path, observed)
+
+        def cache_reuse_requires_all_transform_inputs() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            ensure result
+            StudioTakeSourceRefPolicy::cache_key_matches(reference, reference)
+
+        def changed_source_digest_changes_cache_key() -> bool:
+            existing: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            mutable requested: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            requested.original_sha256[0] <- 98
+            ensure result
+            not StudioTakeSourceRefPolicy::cache_key_matches(existing, requested)
+
+        def changed_importer_revision_changes_cache_key() -> bool:
+            existing: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            mutable requested: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            requested.importer_revision[9] <- 50
+            ensure result
+            not StudioTakeSourceRefPolicy::cache_key_matches(existing, requested)
+
+        def changed_options_digest_changes_cache_key() -> bool:
+            existing: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            mutable requested: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            requested.options_sha256[0] <- 98
+            ensure result
+            not StudioTakeSourceRefPolicy::cache_key_matches(existing, requested)
+
+        def runtime_match_checks_derived_path_and_digest() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            ensure result
+            StudioTakeSourceRefPolicy::runtime_artifact_matches(
+                reference, reference.runtime_glb_path, reference.runtime_glb_sha256)
+
+        def changed_runtime_digest_is_not_same_artifact() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            mutable observed: darray[u8] = reference.runtime_glb_sha256
+            observed[0] <- 98
+            ensure result
+            not StudioTakeSourceRefPolicy::runtime_artifact_matches(
+                reference, reference.runtime_glb_path, observed)
+
+        def cache_publish_requires_source_and_directory_evidence() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            ensure result
+            StudioTakeSourceRefPolicy::cache_publish_admitted(reference, true, true, true, true)
+
+        def cache_publish_refuses_each_missing_evidence() -> bool:
+            reference: StudioTakeSourceRefPolicy::TakeSourceRef = derived()
+            ensure result
+            not StudioTakeSourceRefPolicy::cache_publish_admitted(reference, false, true, true, true) and
+            not StudioTakeSourceRefPolicy::cache_publish_admitted(reference, true, false, true, true) and
+            not StudioTakeSourceRefPolicy::cache_publish_admitted(reference, true, true, false, true) and
+            not StudioTakeSourceRefPolicy::cache_publish_admitted(reference, true, true, true, false)

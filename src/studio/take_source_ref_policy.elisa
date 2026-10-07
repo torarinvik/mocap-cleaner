@@ -1,0 +1,85 @@
+# Identity boundary between a user-selected take and the GLB used by Studio.
+# Digests are lowercase SHA-256 hex bytes. This module validates declarations
+# supplied by the importer; native IO must independently read/hash the bytes,
+# resolve canonical paths and verify the source file identity.
+module StudioTakeSourceRefPolicy:
+    public:
+        const module Limit:
+            PATH_BYTES: usize = 4095
+            SHA256_HEX_BYTES: usize = 64
+            IMPORTER_REVISION_BYTES: usize = 96
+
+        const enum SourceFormat of i64:
+            DirectGlb = 0
+            FbxDerived = 1
+
+        struct TakeSourceRef:
+            format: SourceFormat
+            # User-selected original path. Keep this for Locate, recents,
+            # export review and source-preservation checks.
+            original_path: darray[u8]
+            original_sha256: darray[u8]
+            # GLB consumed by the animation and skin readers. Direct GLB uses
+            # the original path and digest; FBX uses a private derived cache.
+            runtime_glb_path: darray[u8]
+            runtime_glb_sha256: darray[u8]
+            # Empty for direct GLB. FBX identity includes importer revision
+            # and exact options digest so stale cache products are refused.
+            importer_revision: darray[u8]
+            options_sha256: darray[u8]
+
+        def path_valid(path: darray[u8]&) -> bool:
+            return false if path.count == 0 or path.count > Limit::PATH_BYTES
+            for byte in path:
+                return false if byte == 0
+            true
+
+        def sha256_valid(digest: darray[u8]&) -> bool:
+            return false if digest.count != Limit::SHA256_HEX_BYTES
+            for byte in digest:
+                return false if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102))
+            true
+
+        def importer_revision_valid(revision: darray[u8]&) -> bool:
+            return false if revision.count == 0 or revision.count > Limit::IMPORTER_REVISION_BYTES
+            for byte in revision:
+                return false if byte == 0 or byte < 33 or byte > 126
+            true
+
+        def bytes_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def valid(reference: TakeSourceRef&) -> bool:
+            return false if not path_valid(reference.original_path) or not sha256_valid(reference.original_sha256)
+            return false if not path_valid(reference.runtime_glb_path) or not sha256_valid(reference.runtime_glb_sha256)
+            if reference.format == SourceFormat.DirectGlb:
+                return bytes_equal(reference.original_path, reference.runtime_glb_path) and bytes_equal(reference.original_sha256, reference.runtime_glb_sha256) and reference.importer_revision.count == 0 and reference.options_sha256.count == 0
+            if reference.format == SourceFormat.FbxDerived:
+                return not bytes_equal(reference.original_path, reference.runtime_glb_path) and importer_revision_valid(reference.importer_revision) and sha256_valid(reference.options_sha256)
+            false
+
+        # The source is unchanged only when the native boundary supplied the
+        # canonical original path and the digest of the current raw file bytes.
+        def original_matches(reference: TakeSourceRef&, observed_path: darray[u8]&, observed_sha256: darray[u8]&) -> bool:
+            valid(reference) and path_valid(observed_path) and sha256_valid(observed_sha256) and bytes_equal(reference.original_path, observed_path) and bytes_equal(reference.original_sha256, observed_sha256)
+
+        # A cache key binds the original file and all transformation inputs.
+        # Runtime output path/content are checked separately after cache read.
+        def cache_key_matches(existing: TakeSourceRef&, requested: TakeSourceRef&) -> bool:
+            valid(existing) and valid(requested) and existing.format == SourceFormat.FbxDerived and requested.format == SourceFormat.FbxDerived and bytes_equal(existing.original_path, requested.original_path) and bytes_equal(existing.original_sha256, requested.original_sha256) and bytes_equal(existing.importer_revision, requested.importer_revision) and bytes_equal(existing.options_sha256, requested.options_sha256)
+
+        def runtime_artifact_matches(reference: TakeSourceRef&, observed_path: darray[u8]&, observed_sha256: darray[u8]&) -> bool:
+            valid(reference) and path_valid(observed_path) and sha256_valid(observed_sha256) and bytes_equal(reference.runtime_glb_path, observed_path) and bytes_equal(reference.runtime_glb_sha256, observed_sha256)
+
+        # Cache publication is permitted only for an imported FBX after the
+        # importer has verified unchanged source bytes, exclusive ownership of
+        # its build directory, an absent destination and the output digest.
+        def cache_publish_admitted(reference: TakeSourceRef&, source_unchanged: bool,
+                                   cache_directory_exclusive: bool, target_absent: bool,
+                                   derived_digest_verified: bool) -> bool:
+            ensure result implies reference.format == SourceFormat.FbxDerived
+            ensure result implies source_unchanged and cache_directory_exclusive and target_absent and derived_digest_verified
+            valid(reference) and reference.format == SourceFormat.FbxDerived and source_unchanged and cache_directory_exclusive and target_absent and derived_digest_verified
