@@ -227,8 +227,8 @@ The current policy/law graph compiles at O0 to a fresh 235,464-byte object with
 paging/admission/uncertainty functions retained. This is compile-only evidence;
 current certificate replay and native UI acceptance remain open. Neither the
 panel nor capture extension is composed into the app yet. Still required:
-controller ownership and refresh snapshots, prepared-review token preservation,
-warning inspection, pointer/keyboard/native accessibility routing, queue entry
+controller composition, warning report rendering, pointer/keyboard/native
+accessibility routing, queue entry
 and return-focus behavior, followed by current integrated/native qualification.
 The full multi-take input/evaluation pipeline remains part of M6; prepared export
 captures alone do not satisfy that production workflow.
@@ -257,17 +257,17 @@ playback on open, restores prior widget focus on close, and routes publication,
 cancel and resume through per-call workspace transactions. Modified queue state
 is stored back before lock release; uncertain release is reported. Shared
 publication-control admission has five laws and a fresh 257,776-byte O0 graph.
-Controller compilation and retained-view lifetime have not been qualified.
-Warning inspection/acknowledgement, recovery reopen, retry, pointer/native
+Controller integration and native retained-view lifetime have not been qualified.
+Warning report rendering, recovery reopen, retry, pointer/native
 accessibility routes, review-to-enqueue entry and app composition still require
 implementation. Disabled placeholder controls do not satisfy those requirements.
 
 Warning acknowledgement now has a UI-context policy for captured versus current
 refresh epoch, row and attempt, exact report bytes, complete layout and explicit
 review. Refresh advances a nonwrapping epoch; exhaustion keeps acknowledgement
-unavailable. Eight laws compile to a fresh 62,600-byte O0 object. The actual
-report-view facts and acknowledgement action are still unimplemented; these
-Boolean inputs must be established by the controller and cannot authorize IO.
+unavailable. Eight laws compile to a fresh 62,600-byte O0 object. The controller now establishes these observations against its frozen report;
+this policy carries no IO authority. Current independent replay still has
+return-binding and call-summary gaps, so compilation does not qualify its proofs.
 
 Receipt vocabulary/result decoding now lives in a pure policy module; publication
 IO extends the same namespace. Panel and receipt-law imports no longer pull in
@@ -279,3 +279,20 @@ row projection and selected-report loading are being added to avoid copying all
 warning bytes on every refresh. The prepared sheet's Run-labelled control now
 says Resume queue, matching its implemented resume action; full production
 worker launch remains a separate open M6 requirement.
+
+Selected warning review now retains the exact JSON/text report and attempt,
+validates their warning count once, and caches bounded UTF-8 report pages in
+stable row buffers. Overview refresh copies paths and metadata without report
+payloads. Per-frame acknowledgement admission checks scalar queue metadata;
+exact report byte comparison occurs only on explicit acknowledgement. The bound
+queue independently revalidates durable source, journal and attempt facts under
+the workspace lock. Already approved captures do not offer redundant approval.
+
+The sheet's Review action now opens this captured-report controller. Shared typed
+Previous/Next/Acknowledge/Back controls provide keyboard traversal and disabled
+control admission, with three additional laws; their fresh O0 law graph emitted
+71,152 bytes. These modules remain outside app composition. Report rendering,
+pointer routes, native accessibility, integrated compilation and native behavior
+remain open. Publication, cancellation, resume and acknowledgement currently use
+synchronous workspace IO; worker routing and responsiveness qualification are
+required before claiming the final user experience.
