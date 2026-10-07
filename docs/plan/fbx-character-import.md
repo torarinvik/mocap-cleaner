@@ -45,6 +45,39 @@ preservation, malformed/oversized/truncated input refusal, cancellation/restart,
 multiple animation stacks, missing surface fallback, pose edits and real viewport
 inspection. Source compilation does not establish these runtime results.
 
+## Ownership, typestate and foreign boundary requirements
+
+- Represent validated request, owned staging, verified conversion and publishable
+  animation as distinct states. Use the current compiler's checked state-family
+  features, with private construction/transition authority and affine consumption.
+  A status flag or state name alone cannot establish resource ownership, digest
+  verification or successful native effects. Derive value states only from checked
+  predicates and admit protocol transitions only after the corresponding effect.
+- Inspect current Stage1 support before selecting syntax: compiler documentation
+  contains both delivered slices and unfinished parity work. Require a positive
+  compile and the intended semantic rejection for illegal construction, premature
+  publication and use after consuming a transition. Backend decline is not proof
+  that an invalid program was rejected by the safety checker.
+- Keep raw extern declarations private to a bounded adapter. Use operation-specific
+  unsafe grants for raw calls and pointer conversion; do not grant general Unsafe
+  to controllers or treat annotations as proof of the native implementation.
+- Record each native declaration's target ABI, buffer extent, termination,
+  initialization, mutation, pointer retention, blocking effects and error behavior.
+  Express supported extern contracts and lifetime annotations accurately. The
+  current converter/stager return integer statuses, not borrowed pointers, so
+  borrowed-return annotations cannot establish their input lifetime.
+- Validate native output before constructing a verified state: bounded nonempty
+  paths, strict digests, managed destination ownership, preserved original identity,
+  readable selected animation and completed worker ownership transfer. Failed
+  output must remain an error and must not acquire publication authority.
+- For asynchronous transfer, qualify the indirect aggregate ABI, inline capture
+  copy, owned result arena, completion synchronization and one-shot join/adoption.
+  Test capture after the submitting frame ends and returned-array growth after
+  worker release. Cancellation, refusal and shutdown must drain each owner once.
+- Land kernel contracts and companion laws with these changes. Keep native ABI,
+  source correspondence, compiler rejection and actual UI evidence distinct;
+  unknown proof results cannot authorize unsafe access or remove runtime checks.
+
 ## Current implementation and remaining work
 
 The Open FBX controller now dispatches the import worker, retains the original
