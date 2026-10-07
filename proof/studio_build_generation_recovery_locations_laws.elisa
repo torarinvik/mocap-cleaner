@@ -1,0 +1,89 @@
+include "../src/studio/io/build_generation_recovery_locations.elisa"
+
+module StudioBuildGenerationRecoveryLocationsLaws:
+    public:
+        def unavailable_snapshot_cannot_reveal(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool:
+            requires snapshot.availability == StudioBuildGenerationRecoveryLocations::Availability.Unavailable
+            ensure result
+            StudioBuildGenerationRecoveryLocations::reveal_action(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Original) == StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled
+
+        def stale_ticket_cannot_reveal(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool:
+            requires snapshot.availability == StudioBuildGenerationRecoveryLocations::Availability.Verified
+            requires ticket != snapshot.ticket
+            ensure result
+            StudioBuildGenerationRecoveryLocations::reveal_action(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Original) == StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled
+
+        def root_replacement_cannot_reveal(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool:
+            requires snapshot.availability == StudioBuildGenerationRecoveryLocations::Availability.Verified
+            requires not bytes_equal(snapshot.root, root)
+            ensure result
+            StudioBuildGenerationRecoveryLocations::reveal_action(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Quarantine) == StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled
+
+        def operation_replacement_cannot_reveal(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool:
+            requires snapshot.availability == StudioBuildGenerationRecoveryLocations::Availability.Verified
+            requires not bytes_equal(snapshot.operation, operation)
+            ensure result
+            StudioBuildGenerationRecoveryLocations::reveal_action(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Quarantine) == StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled
+
+        def absolute_paths_alone_do_not_admit_reveal(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool:
+            requires snapshot.availability == StudioBuildGenerationRecoveryLocations::Availability.Verified
+            requires snapshot.original.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact
+            requires snapshot.original.entry_identity_verified and snapshot.original.parent_identity_verified
+            requires not snapshot.original.descriptor_paths_bound
+            ensure result
+            StudioBuildGenerationRecoveryLocations::reveal_action(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Original) == StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled
+
+        def exact_artifact_target_is_exact_and_terminated(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool can Memory.Allocate:
+            requires StudioBuildGenerationRecoveryLocations::identity_matches(snapshot, ticket, index, root, operation)
+            requires snapshot.original.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact
+            requires snapshot.original.entry_identity_verified and snapshot.original.parent_identity_verified
+            ensure result
+            target: darray[u8] = StudioBuildGenerationRecoveryLocations::reveal_target(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Original)
+            target.count == snapshot.original.artifact_path.count + 1 and target[target.count - 1] == 0 and prefix_equal(target, snapshot.original.artifact_path)
+
+        def conflict_target_is_parent_not_occupant(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool can Memory.Allocate:
+            requires StudioBuildGenerationRecoveryLocations::identity_matches(snapshot, ticket, index, root, operation)
+            requires snapshot.original.state == StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant
+            requires not snapshot.original.entry_identity_verified and snapshot.original.parent_identity_verified
+            ensure result
+            target: darray[u8] = StudioBuildGenerationRecoveryLocations::reveal_target(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Original)
+            target.count == snapshot.original.parent_path.count + 1 and target[target.count - 1] == 0 and prefix_equal(target, snapshot.original.parent_path)
+
+        def absent_location_has_no_reveal_target(snapshot: StudioBuildGenerationRecoveryLocations::Snapshot&,
+            ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> bool can Memory.Allocate:
+            requires snapshot.original.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent
+            ensure result
+            StudioBuildGenerationRecoveryLocations::reveal_target(snapshot, ticket, index, root, operation,
+                StudioGenerationRecoveryLocationPolicy::Side.Original).count == 0
+
+        def different_occupant_copy_is_not_artifact_claim() -> bool:
+            ensure result
+            StudioBuildGenerationRecoveryLocations::display_label(StudioGenerationRecoveryLocationPolicy::Side.Original,
+                StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant) == "Original name is occupied by a different item"
+
+    private:
+        def bytes_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |index, left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def prefix_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count + 1 or left[left.count - 1] != 0
+            for index in 0..<right.count |index, left, right|:
+                return false if left[index] != right[index]
+            true

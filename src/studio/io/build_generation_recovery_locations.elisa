@@ -1,0 +1,155 @@
+# Owned location evidence shape for a future bounded native recovery response.
+# No path is derived from a receipt name or operation ID in this adapter.
+include "../state/generation_recovery_location_policy.elisa"
+include "../state/generation_recovery_ledger_policy.elisa"
+include "../state/generation_operation_identity_policy.elisa"
+include "../state/generation_review_path_policy.elisa"
+
+module StudioBuildGenerationRecoveryLocations:
+    public:
+        const enum Availability of i64:
+            Verified = 0
+            Unavailable = 1
+            Refused = 2
+
+        affine struct Side:
+            state: StudioGenerationRecoveryLocationPolicy::EntryState
+            entry_identity_verified: bool
+            parent_identity_verified: bool
+            # Native descriptor inspection must bind the returned path bytes
+            # to the entry and parent descriptors; absolute paths alone prove
+            # no relationship between those identities.
+            descriptor_paths_bound: bool
+            artifact_path: darray[u8]
+            parent_path: darray[u8]
+
+        affine struct Snapshot:
+            availability: Availability
+            ticket: i64
+            index: i64
+            root: darray[u8]
+            operation: darray[u8]
+            original: Side
+            quarantine: Side
+
+        def unavailable[@r](ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> Snapshot @r can Memory.Allocate:
+            mutable root_copy: darray[u8] @r = []
+            mutable operation_copy: darray[u8] @r = []
+            root_copy.extend(root)
+            operation_copy.extend(operation)
+            original_unknown: Side = Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, artifact_path: [], parent_path: []}
+            quarantine_unknown: Side = Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, artifact_path: [], parent_path: []}
+            Snapshot{availability: Availability.Unavailable, ticket: ticket, index: index, root: move root_copy, operation: move operation_copy, original: move original_unknown, quarantine: move quarantine_unknown}
+
+        def snapshot_valid(snapshot: Snapshot&) -> bool:
+            return false if snapshot.ticket <= 0 or snapshot.index < 0
+            return false if not StudioGenerationRecoveryLedgerPolicy::valid_bytes(snapshot.root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES)
+            return false if not absolute_path_valid(snapshot.root) or not StudioGenerationOperationIdentityPolicy::valid(snapshot.operation)
+            if snapshot.availability == Availability.Unavailable or snapshot.availability == Availability.Refused:
+                return empty_unknown(snapshot.original) and empty_unknown(snapshot.quarantine)
+            snapshot.availability == Availability.Verified and side_valid(snapshot.original) and side_valid(snapshot.quarantine)
+
+        def identity_matches(snapshot: Snapshot&, ticket: i64, index: i64,
+                             root: darray[u8]&, operation: darray[u8]&) -> bool:
+            return false if not snapshot_valid(snapshot) or snapshot.availability != Availability.Verified
+            return false if ticket <= 0 or ticket != snapshot.ticket or index < 0 or index != snapshot.index
+            equal_bytes(snapshot.root, root) and equal_bytes(snapshot.operation, operation)
+
+        def display_label(side: StudioGenerationRecoveryLocationPolicy::Side,
+                          state: StudioGenerationRecoveryLocationPolicy::EntryState) -> sview:
+            label: StudioGenerationRecoveryLocationPolicy::Label = StudioGenerationRecoveryLocationPolicy::label(side, state)
+            if label == StudioGenerationRecoveryLocationPolicy::Label.OriginalExact:
+                return "Original location: recorded artifact verified"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.OriginalAbsent:
+                return "Original location: recorded artifact absent"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.OriginalOccupied:
+                return "Original name is occupied by a different item"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.OriginalUnsafe:
+                return "Original location contains an unsafe or linked entry"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.OriginalUnknown:
+                return "Original location is unknown; artifact remains protected"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.QuarantineExact:
+                return "Quarantine location: recorded artifact verified"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.QuarantineAbsent:
+                return "Quarantine location: recorded artifact absent"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.QuarantineOccupied:
+                return "Quarantine name is occupied by a different item"
+            if label == StudioGenerationRecoveryLocationPolicy::Label.QuarantineUnsafe:
+                return "Quarantine location contains an unsafe or linked entry"
+            "Quarantine location is unknown; artifact remains protected"
+
+        def summary_label(original: StudioGenerationRecoveryLocationPolicy::EntryState,
+                          quarantine: StudioGenerationRecoveryLocationPolicy::EntryState) -> sview:
+            summary: StudioGenerationRecoveryLocationPolicy::Summary = StudioGenerationRecoveryLocationPolicy::summary(original, quarantine)
+            if summary == StudioGenerationRecoveryLocationPolicy::Summary.NotMoved:
+                return "Recorded artifact remains at its verified original location."
+            if summary == StudioGenerationRecoveryLocationPolicy::Summary.Quarantined:
+                return "Recorded artifact is verified in recoverable storage; Restore still requires a separate review."
+            if summary == StudioGenerationRecoveryLocationPolicy::Summary.OriginalNameOccupied:
+                return "Recorded artifact remains in recoverable storage; a different item occupies its original name."
+            if summary == StudioGenerationRecoveryLocationPolicy::Summary.BothLocationsPresent:
+                return "Both locations contain the recorded identity; state is conflicting and protected."
+            if summary == StudioGenerationRecoveryLocationPolicy::Summary.BothLocationsAbsent:
+                return "Neither location contains the recorded identity; state is unresolved and protected."
+            "Recovery locations are unresolved; no location is assumed safe."
+
+        def reveal_action(snapshot: Snapshot&, ticket: i64, index: i64,
+                          root: darray[u8]&, operation: darray[u8]&,
+                          side: StudioGenerationRecoveryLocationPolicy::Side) -> StudioGenerationRecoveryLocationPolicy::RevealAction:
+            return StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled if not identity_matches(snapshot, ticket, index, root, operation)
+            selection: StudioGenerationRecoveryLocationPolicy::SelectedEvidence = StudioGenerationRecoveryLocationPolicy::SelectedEvidence{observation_current: true, root_matches_selection: true, operation_matches_selection: true}
+            evidence: StudioGenerationRecoveryLocationPolicy::LocationEvidence = side_evidence(snapshot.original) if side == StudioGenerationRecoveryLocationPolicy::Side.Original else side_evidence(snapshot.quarantine)
+            StudioGenerationRecoveryLocationPolicy::reveal_action(selection, evidence)
+
+        def reveal_target[@r](snapshot: Snapshot&, ticket: i64, index: i64,
+                          root: darray[u8]&, operation: darray[u8]&,
+                          side: StudioGenerationRecoveryLocationPolicy::Side) -> darray[u8] @r can Memory.Allocate:
+            return [] if not identity_matches(snapshot, ticket, index, root, operation)
+            selection: StudioGenerationRecoveryLocationPolicy::SelectedEvidence = StudioGenerationRecoveryLocationPolicy::SelectedEvidence{observation_current: true, root_matches_selection: true, operation_matches_selection: true}
+            evidence: StudioGenerationRecoveryLocationPolicy::LocationEvidence = side_evidence(snapshot.original) if side == StudioGenerationRecoveryLocationPolicy::Side.Original else side_evidence(snapshot.quarantine)
+            action: StudioGenerationRecoveryLocationPolicy::RevealAction = StudioGenerationRecoveryLocationPolicy::reveal_action(selection, evidence)
+            mutable target: darray[u8] @r = []
+            if action == StudioGenerationRecoveryLocationPolicy::RevealAction.ShowArtifactFolder:
+                if side == StudioGenerationRecoveryLocationPolicy::Side.Original:
+                    target.extend(snapshot.original.artifact_path)
+                else:
+                    target.extend(snapshot.quarantine.artifact_path)
+            elif action == StudioGenerationRecoveryLocationPolicy::RevealAction.ShowConflictFolder:
+                if side == StudioGenerationRecoveryLocationPolicy::Side.Original:
+                    target.extend(snapshot.original.parent_path)
+                else:
+                    target.extend(snapshot.quarantine.parent_path)
+            return [] if target.count == 0 or not absolute_path_valid(target)
+            mutable terminated: darray[u8] @r = []
+            terminated.extend(target)
+            terminated.push(0)
+            return move terminated
+
+    private:
+        def equal_bytes(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |index, left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def absolute_path_valid(path: darray[u8]&) -> bool:
+            return false if not StudioGenerationReviewPathPolicy::path_valid(path)
+            return false if path.count.i64() > StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES
+            path[0] == 47
+
+        def empty_unknown(side: Side&) -> bool:
+            side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown and not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.artifact_path.count == 0 and side.parent_path.count == 0
+
+        def side_valid(side: Side&) -> bool:
+            if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact:
+                return side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and absolute_path_valid(side.artifact_path) and absolute_path_valid(side.parent_path)
+            if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant:
+                return not side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.artifact_path.count == 0 and absolute_path_valid(side.parent_path)
+            if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent:
+                return not side.entry_identity_verified and side.artifact_path.count == 0 and (side.parent_identity_verified == absolute_path_valid(side.parent_path)) and (side.parent_identity_verified == side.descriptor_paths_bound)
+            if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unsafe or side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown:
+                return not side.entry_identity_verified and not side.descriptor_paths_bound and side.artifact_path.count == 0 and side.parent_path.count == 0
+            false
+
+        def side_evidence(side: Side&) -> StudioGenerationRecoveryLocationPolicy::LocationEvidence:
+            StudioGenerationRecoveryLocationPolicy::LocationEvidence{state: side.state, entry_identity_verified: side.entry_identity_verified, parent_identity_verified: side.parent_identity_verified, artifact_path_valid: absolute_path_valid(side.artifact_path), parent_path_valid: absolute_path_valid(side.parent_path)}
