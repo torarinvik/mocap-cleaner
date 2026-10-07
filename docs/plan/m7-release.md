@@ -40,6 +40,17 @@
       qualify job-identity or worker-policy laws. Verify known contradictory
       contracts are refused by the proof acceptance pipeline and retain complete
       obligations, source correspondence and independent replay as separate gates.
+- [ ] Qualify proof-package source authentication independently of kernel
+      replay. Bind correspondence to the exact expanded source bytes, root path
+      and ordered imported-file identities. Fingerprints are identity hints;
+      they cannot replace byte equality. Preserve lexical module ownership when
+      collecting functions and resolving calls; ambiguous names and unsupported
+      scope constructs must refuse authentication. Require at least one checked
+      function, no unmatched or unsupported functions, and a successful result.
+      Check refusal for changed source, changed import order and duplicate names
+      in distinct modules. Keep portable replay explicitly unauthenticated.
+      Apply identical source-size and file-count budgets to package production
+      and consumption, and report budget refusal without emitting acceptance.
 - [ ] Add reproducible UI interaction checks for file lifecycle, stack editing,
       contacts, retime, gizmo cancellation, comparison and export. Supplement
       captures with real native-window checks for input routing and GPU paths.
