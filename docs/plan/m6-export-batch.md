@@ -261,3 +261,21 @@ Controller compilation and retained-view lifetime have not been qualified.
 Warning inspection/acknowledgement, recovery reopen, retry, pointer/native
 accessibility routes, review-to-enqueue entry and app composition still require
 implementation. Disabled placeholder controls do not satisfy those requirements.
+
+Warning acknowledgement now has a UI-context policy for captured versus current
+refresh epoch, row and attempt, exact report bytes, complete layout and explicit
+review. Refresh advances a nonwrapping epoch; exhaustion keeps acknowledgement
+unavailable. Eight laws compile to a fresh 62,600-byte O0 object. The actual
+report-view facts and acknowledgement action are still unimplemented; these
+Boolean inputs must be established by the controller and cannot authorize IO.
+
+Receipt vocabulary/result decoding now lives in a pure policy module; publication
+IO extends the same namespace. Panel and receipt-law imports no longer pull in
+filesystem/engine adapters. Fresh O0 panel/receipt-law objects are 142,032 and
+12,896 bytes; the unchanged publication IO also compiles to 124,480 bytes with
+its durable entry point retained. Current replay is pending after this split.
+Controller label lifetime and refused-pause status were corrected. Overview-only
+row projection and selected-report loading are being added to avoid copying all
+warning bytes on every refresh. The prepared sheet's Run-labelled control now
+says Resume queue, matching its implemented resume action; full production
+worker launch remains a separate open M6 requirement.
