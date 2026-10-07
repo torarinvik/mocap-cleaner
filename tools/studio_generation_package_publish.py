@@ -1,0 +1,181 @@
+"""Publish a current package under retained global and artifact locks.
+
+After a namespace move, failures preserve both generations for reconciliation.
+The Published event is emitted only after the new bundle and parents are durable.
+"""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import re
+from pathlib import Path
+
+from studio_generation_contents import DIRECTORY_FLAGS, FILE_FLAGS, Limits, identity, open_artifact, owned, require, version
+from studio_generation_creation import Journal, publish_initial
+from studio_generation_creation_start import Event, read_record, read_started
+from studio_generation_creation_package_seal import Seal
+from studio_generation_package_seal import verify_package_seal
+from studio_generation_lock import verified_lock
+
+
+class Publication:
+    phase = "published"
+    revision = 4
+    suffix = ".revision-4.json"
+    destination = "MocapStudio.app"
+    backup = "previous.app"
+    fields = ("executable_sha256", "contents_inventory_sha256", "package_record_sha256",
+              "input_record_sha256", "lease_record_sha256", "build_generation_id")
+    facts = ("metadata_facts", "inputs_facts", "lease_facts")
+
+
+def publish_package(project, artifact, artifact_id):
+    require(re.fullmatch(r"studio-package\.[A-Za-z0-9_-]+", artifact_id), "invalid package ID")
+    require(artifact == artifact_id + "/MocapStudio.app", "unsupported original package path")
+    _, locked_build, _ = verified_lock(project, os.environ)
+    build = os.open(project / "build", DIRECTORY_FLAGS)
+    parent = pending = root = resources = lease = old_root = old_resources = old_lease = -1
+    namespace_changed = False
+    current_path = artifact
+    try:
+        require(identity(os.fstat(build)) == identity(locked_build), "build directory replaced")
+        parent = os.open(Journal.directory, DIRECTORY_FLAGS, dir_fd=build)
+        parent_facts = os.fstat(parent)
+        owned(parent_facts, directory=True)
+        require(not parent_facts.st_mode & 0o077, "creation directory is not private")
+        initial, initial_payload, initial_facts, started_payload, started_facts = read_started(parent, artifact_id)
+        require(initial["artifact_kind"] == "studio-package" and initial["original_relative_path"] == artifact,
+                "not the original package")
+        pending = open_artifact(build, artifact_id)
+        pending_facts = os.fstat(pending)
+        root = open_artifact(build, artifact)
+        root_facts = os.fstat(root)
+        for prefix, facts in (("build_root", locked_build), ("root", root_facts)):
+            require(type(initial[prefix + "_device"]) is int and type(initial[prefix + "_inode"]) is int and
+                    (initial[prefix + "_device"], initial[prefix + "_inode"]) == identity(facts), "package root differs")
+        resources = open_artifact(root, "Contents/Resources")
+        lease = os.open(".studio-generation.lease", FILE_FLAGS, dir_fd=resources)
+        lease_facts = os.fstat(lease)
+        owned(lease_facts)
+        require(type(initial["lease_device"]) is int and type(initial["lease_inode"]) is int and
+                (initial["lease_device"], initial["lease_inode"]) == identity(lease_facts), "package lease differs")
+        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sealed = verify_package_seal(project, artifact, artifact_id, root)
+        require(version(lease_facts) == version(sealed["lease_facts"]), "package lease changed")
+        seal_record, seal_payload, seal_facts = read_record(parent, artifact_id + Seal.suffix)
+        expected = dict(initial, phase=Seal.phase, revision=Seal.revision, previous_revision=Event.revision,
+                        previous_sha256=hashlib.sha256(started_payload).hexdigest())
+        for key in Publication.fields:
+            expected[key] = sealed[key]
+        require(seal_record == expected and type(seal_record.get("revision")) is int and
+                type(seal_record.get("previous_revision")) is int, "package sealed event differs")
+        try:
+            os.stat(artifact_id + Publication.suffix, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError("Published event already exists; reconcile before retry")
+        try:
+            os.stat(Publication.backup, dir_fd=pending, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError("backup already exists; reconcile interrupted publication")
+        prior = ((artifact_id + ".json", initial_payload, initial_facts),
+                 (artifact_id + Event.suffix, started_payload, started_facts),
+                 (artifact_id + Seal.suffix, seal_payload, seal_facts))
+
+        def revalidate():
+            verified_lock(project, os.environ)
+            require(identity(os.stat(Journal.directory, dir_fd=build, follow_symlinks=False)) == identity(parent_facts),
+                    "creation directory replaced")
+            require(identity(os.stat(artifact_id, dir_fd=build, follow_symlinks=False)) == identity(pending_facts),
+                    "pending directory replaced")
+            for filename, payload_expected, facts_expected in prior:
+                _, payload, facts = read_record(parent, filename)
+                require(payload == payload_expected and version(facts) == version(facts_expected), "prior event changed")
+            rebound = open_artifact(build, current_path)
+            try:
+                require(identity(os.fstat(rebound)) == identity(root_facts), "published package replaced")
+            finally:
+                os.close(rebound)
+            current = verify_package_seal(project, current_path, artifact_id, root)
+            for key in Publication.fields + ("resource_identity",):
+                require(current[key] == sealed[key], "package seal changed")
+            for key in Publication.facts:
+                require(version(current[key]) == version(sealed[key]), "package controls changed")
+            require(version(os.fstat(lease)) == version(lease_facts), "held package lease changed")
+            if old_root >= 0 and namespace_changed:
+                require(identity(os.stat(Publication.backup, dir_fd=pending, follow_symlinks=False)) ==
+                        identity(os.fstat(old_root)), "previous package backup replaced")
+
+        revalidate()
+        try:
+            previous = os.stat(Publication.destination, dir_fd=build, follow_symlinks=False)
+        except FileNotFoundError:
+            previous = None
+        if previous is not None:
+            owned(previous, directory=True)
+            require(identity(previous) != identity(root_facts), "package is already current; reconcile")
+            old_root = open_artifact(build, Publication.destination)
+            require(identity(os.fstat(old_root)) == identity(previous), "previous package replaced")
+            old_resources = open_artifact(old_root, "Contents/Resources")
+            old_lease = os.open(".studio-generation.lease", FILE_FLAGS, dir_fd=old_resources)
+            old_facts = os.fstat(old_lease)
+            owned(old_facts)
+            require(not old_facts.st_mode & 0o222 and old_facts.st_size > 0, "previous package lease is unsealed")
+            fcntl.flock(old_lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            require(version(os.stat(".studio-generation.lease", dir_fd=old_resources, follow_symlinks=False)) ==
+                    version(old_facts) and identity(os.stat(Publication.destination, dir_fd=build,
+                    follow_symlinks=False)) == identity(previous), "previous package binding changed")
+            os.rename(Publication.destination, Publication.backup, src_dir_fd=build, dst_dir_fd=pending)
+            namespace_changed = True
+            os.fsync(pending)
+            os.fsync(build)
+        else:
+            require(not os.path.lexists(project / "build" / Publication.destination), "current package appeared")
+        # The global lock serializes cooperating builders. Never overwrite an
+        # observed replacement target, even if it is an empty directory.
+        try:
+            os.stat(Publication.destination, dir_fd=build, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError("current package appeared before rename")
+        require(identity(os.stat("MocapStudio.app", dir_fd=pending, follow_symlinks=False)) == identity(root_facts),
+                "pending package replaced")
+        os.rename("MocapStudio.app", Publication.destination, src_dir_fd=pending, dst_dir_fd=build)
+        namespace_changed = True
+        current_path = Publication.destination
+        os.fsync(pending)
+        os.fsync(build)
+        revalidate()
+        record = dict(seal_record, phase=Publication.phase, revision=Publication.revision,
+                      previous_revision=Seal.revision, previous_sha256=hashlib.sha256(seal_payload).hexdigest(),
+                      current_relative_path=Publication.destination)
+        if previous is not None:
+            record.update(previous_root_device=previous.st_dev, previous_root_inode=previous.st_ino,
+                          previous_relative_path=artifact_id + "/" + Publication.backup)
+        payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        require(len(payload) <= Limits.json_bytes, "Published event size exceeded")
+        publish_initial(build, payload, artifact_id + Publication.suffix, revalidate)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        state = "package publication uncertain; retain current and backup for reconciliation" if namespace_changed else "package publication refused; retain generation"
+        raise ValueError(state + ": " + str(error)) from error
+    finally:
+        for fd in (old_lease, old_resources, old_root, lease, resources, root, pending, parent, build):
+            if fd >= 0:
+                os.close(fd)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--project", type=Path, required=True)
+    parser.add_argument("--artifact", required=True)
+    parser.add_argument("--artifact-id", required=True)
+    args = parser.parse_args()
+    try:
+        publish_package(args.project.absolute(), args.artifact, args.artifact_id)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SystemExit("Studio package publication: " + str(error)) from error
