@@ -146,6 +146,7 @@ input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/pack
                     project / "tools/studio_generation_creation_publish.py",
                     project / "tools/studio_generation_package_seal.py",
                     project / "tools/studio_generation_creation_package_seal.py",
+                    project / "tools/studio_generation_package_publish.py",
                     project / "tools/studio_build_identity.py", project / "build/generated/studio_build_identity.elisa",
                     compiler / "scripts/elisac_stage1.sh", compiler / "scripts/platform.sh", compiler / "build/runtime/elisacore_runtime.o"))
 input_paths.extend(path for path in (project / "assets/icons").rglob("*.svg"))
@@ -262,6 +263,16 @@ PY
 
 creation_failure_enabled=0
 
+# Current packages publish under retained artifact leases and append Published.
+if [[ -n "$INPUT_RECORD" ]]; then
+  python3 "$ROOT/tools/studio_generation_package_publish.py" --project "$ROOT" \
+    --artifact "$(basename "$pending_package")/MocapStudio.app" \
+    --artifact-id "$(basename "$pending_package")"
+  echo "packaged $final_app"
+  exit 0
+fi
+
+# Unrecorded legacy packaging remains outside current cleanup qualification.
 sync_package_publication() {
   python3 "$ROOT/tools/studio_generation_controls.py" --project "$ROOT" \
     --directory "$(basename "$pending_package")" --directory .

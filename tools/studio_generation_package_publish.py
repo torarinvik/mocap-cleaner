@@ -4,6 +4,7 @@ After a namespace move, failures preserve both generations for reconciliation.
 The Published event is emitted only after the new bundle and parents are durable.
 """
 import argparse
+import ctypes
 import fcntl
 import hashlib
 import json
@@ -28,6 +29,21 @@ class Publication:
     fields = ("executable_sha256", "contents_inventory_sha256", "package_record_sha256",
               "input_record_sha256", "lease_record_sha256", "build_generation_id")
     facts = ("metadata_facts", "inputs_facts", "lease_facts")
+    rename_exclusive = 0x00000004
+
+
+def rename_exclusive(source_parent, source, destination_parent, destination):
+    # Darwin sys/stdio.h: RENAME_EXCL refuses every preexisting destination.
+    # There is no check-then-overwrite fallback on unsupported hosts/filesystems.
+    library = ctypes.CDLL(None, use_errno=True)
+    function = getattr(library, "renameatx_np", None)
+    require(function is not None, "exclusive package rename is unavailable")
+    function.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    function.restype = ctypes.c_int
+    if function(source_parent, os.fsencode(source), destination_parent,
+                os.fsencode(destination), Publication.rename_exclusive) != 0:
+        number = ctypes.get_errno()
+        raise OSError(number, os.strerror(number), destination)
 
 
 def publish_package(project, artifact, artifact_id):
@@ -129,7 +145,7 @@ def publish_package(project, artifact, artifact_id):
             require(version(os.stat(".studio-generation.lease", dir_fd=old_resources, follow_symlinks=False)) ==
                     version(old_facts) and identity(os.stat(Publication.destination, dir_fd=build,
                     follow_symlinks=False)) == identity(previous), "previous package binding changed")
-            os.rename(Publication.destination, Publication.backup, src_dir_fd=build, dst_dir_fd=pending)
+            rename_exclusive(build, Publication.destination, pending, Publication.backup)
             namespace_changed = True
             os.fsync(pending)
             os.fsync(build)
@@ -145,7 +161,7 @@ def publish_package(project, artifact, artifact_id):
             raise ValueError("current package appeared before rename")
         require(identity(os.stat("MocapStudio.app", dir_fd=pending, follow_symlinks=False)) == identity(root_facts),
                 "pending package replaced")
-        os.rename("MocapStudio.app", Publication.destination, src_dir_fd=pending, dst_dir_fd=build)
+        rename_exclusive(pending, "MocapStudio.app", build, Publication.destination)
         namespace_changed = True
         current_path = Publication.destination
         os.fsync(pending)

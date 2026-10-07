@@ -63,6 +63,7 @@ def snapshot(project, engine, ui, compiler):
         project / "tools/studio_generation_creation_publish.py",
         project / "tools/studio_generation_package_seal.py",
         project / "tools/studio_generation_creation_package_seal.py",
+        project / "tools/studio_generation_package_publish.py",
         project / "scripts/prove.py",
         Path(__file__).resolve(),
         Path(__file__).resolve().with_name("build_environment.py"),
