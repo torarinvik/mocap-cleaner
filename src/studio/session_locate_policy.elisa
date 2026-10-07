@@ -1,0 +1,52 @@
+include "session_source_policy.elisa"
+
+# Admission and choice rules for locating a v4 session's exact source take.
+# V4 has no semantic rig mapping, so changed identities may only be opened as
+# a new take after explicit choice; saved indexed corrections are never used.
+module StudioSessionLocatePolicy:
+    public:
+        const enum Choice of i64:
+            None = 0
+            Locate = 1
+            OpenAsNewTake = 2
+            Cancel = 3
+
+        const enum Focus of i64:
+            Locate = 0
+            OpenAsNewTake = 1
+            Cancel = 2
+
+        const enum Resolution of i64:
+            NoAction = 0
+            LocateSource = 1
+            OpenTakeWithoutSession = 2
+            Cancelled = 3
+
+        def initial_focus() -> Focus:
+            ensure result == Focus.Locate
+            Focus.Locate
+
+        def restore_admitted(candidate_valid: bool, source_valid: bool,
+                comparison: StudioSessionSourcePolicy::Comparison) -> bool:
+            ensure result == (candidate_valid and source_valid and comparison == StudioSessionSourcePolicy::Comparison.Matching)
+            candidate_valid and source_valid and comparison == StudioSessionSourcePolicy::Comparison.Matching
+
+        def action_enabled(candidate_valid: bool, source_valid: bool,
+                comparison: StudioSessionSourcePolicy::Comparison, choice: Choice) -> bool:
+            if not candidate_valid:
+                return false
+            if not source_valid or comparison == StudioSessionSourcePolicy::Comparison.Matching:
+                return choice == Choice.Cancel or choice == Choice.Locate
+            choice == Choice.Cancel or choice == Choice.Locate or choice == Choice.OpenAsNewTake
+
+        def resolve(opened: bool, candidate_valid: bool, source_valid: bool,
+                comparison: StudioSessionSourcePolicy::Comparison, choice: Choice) -> Resolution:
+            requires choice == Choice.None or choice == Choice.Locate or choice == Choice.OpenAsNewTake or choice == Choice.Cancel
+            ensure opened or result == Resolution.NoAction
+            ensure result != Resolution.OpenTakeWithoutSession or comparison != StudioSessionSourcePolicy::Comparison.Matching
+            ensure result != Resolution.LocateSource or candidate_valid
+            ensure result == Resolution.NoAction or opened
+            return Resolution.NoAction if not opened or not action_enabled(candidate_valid, source_valid, comparison, choice)
+            return Resolution.LocateSource if choice == Choice.Locate
+            return Resolution.OpenTakeWithoutSession if choice == Choice.OpenAsNewTake
+            Resolution.Cancelled
