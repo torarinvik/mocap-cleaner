@@ -57,33 +57,35 @@ extern session_unlink(path: u8&) -> i32 can[Blocking.IO]
 
 module SessionState:
     public:
-        const TAG_FEET: i64 = 1
-        const TAG_OP: i64 = 2
-        const TAG_EDIT: i64 = 3
-        const TAG_FIX: i64 = 4
-        const TAG_HANDS: i64 = 5
-        const TAG_IDENTITY: i64 = 6
-        # Optional v4 extension. Older readers ignore unknown tags, so the
-        # source-bound v4 envelope remains compatible.
-        const TAG_BAND: i64 = 7
-        const TAG_ANNOTATION: i64 = 8
-        const TAG_IMPACT: i64 = 9
+        # Extensible wire tags: older readers ignore unknown values.
+        const module WireTag:
+            FEET: i64 = 1
+            OP: i64 = 2
+            EDIT: i64 = 3
+            FIX: i64 = 4
+            HANDS: i64 = 5
+            IDENTITY: i64 = 6
+            BAND: i64 = 7
+            ANNOTATION: i64 = 8
+            IMPACT: i64 = 9
 
-        const SAVE_ERROR_NONE: i64 = 0
-        const SAVE_ERROR_PATH: i64 = 1
-        const SAVE_ERROR_CREATE: i64 = 2
-        const SAVE_ERROR_WRITE: i64 = 3
-        const SAVE_ERROR_COMMIT: i64 = 4
-        const SAVE_ERROR_ANNOTATIONS: i64 = 5
-        const SAVE_ERROR_IMPACT: i64 = 6
+        const enum SaveError of i64:
+            None = 0
+            Path = 1
+            Create = 2
+            Write = 3
+            Commit = 4
+            Annotations = 5
+            Impact = 6
 
-        const LOAD_ERROR_NONE: i64 = 0
-        const LOAD_ERROR_READ: i64 = 1
-        const LOAD_ERROR_FORMAT: i64 = 2
-        const LOAD_ERROR_LEGACY: i64 = 3
-        const LOAD_ERROR_SOURCE: i64 = 4
-        const LOAD_ERROR_ANNOTATIONS: i64 = 5
-        const LOAD_ERROR_IMPACT: i64 = 6
+        const enum LoadError of i64:
+            None = 0
+            Read = 1
+            Format = 2
+            Legacy = 3
+            Source = 4
+            Annotations = 5
+            Impact = 6
 
         struct SourceIdentity:
             first: i64
@@ -174,31 +176,31 @@ module SessionState:
             out.push(10)
             Report::push_text(out, "# 1 feet blend | 2 operation | 3 contact edit | 4 correction | 5 hands | 6 source identity | 7 retime band | 8 ignored finding | 9 impact review")
             out.push(10)
-            source: darray[i64] = [TAG_IDENTITY, identity.first, identity.second, identity.animation, identity.frames, identity.nodes]
+            source: darray[i64] = [WireTag::IDENTITY, identity.first, identity.second, identity.animation, identity.frames, identity.nodes]
             for k in 0..<source.count:
                 out.push(32) if k > 0
                 OpsFile::push_number(out, source[k])
             out.push(10)
-            head: darray[i64] = [TAG_FEET, 1 if s.feet else 0, s.blend]
+            head: darray[i64] = [WireTag::FEET, 1 if s.feet else 0, s.blend]
             for k in 0..<head.count:
                 out.push(32) if k > 0
                 OpsFile::push_number(out, head[k])
             out.push(10)
-            hands: darray[i64] = [TAG_HANDS, 1 if s.hands else 0]
+            hands: darray[i64] = [WireTag::HANDS, 1 if s.hands else 0]
             for k in 0..<hands.count:
                 out.push(32) if k > 0
                 OpsFile::push_number(out, hands[k])
             out.push(10)
             for i in 0..<s.count |s, out|:
                 op: Ops::Operation = s.ops[i]
-                f: darray[i64] = [TAG_OP, kind_code(op.kind), 1 if op.enabled else 0, op.first, op.last, op.bones, op.strength, op.edge]
+                f: darray[i64] = [WireTag::OP, kind_code(op.kind), 1 if op.enabled else 0, op.first, op.last, op.bones, op.strength, op.edge]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
                 out.push(10)
             for i in 0..<s.edit_count |s, out|:
                 e: StackState::FootEdit = s.edits[i]
-                f: darray[i64] = [TAG_EDIT, e.side, e.first, e.last, 1 if e.planted else 0]
+                f: darray[i64] = [WireTag::EDIT, e.side, e.first, e.last, 1 if e.planted else 0]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
@@ -207,14 +209,14 @@ module SessionState:
             t: f32 = 1000000.0
             for i in 0..<s.fix_count |s, out, q, t|:
                 c: Corrections::Correction = s.fixes[i]
-                f: darray[i64] = [TAG_FIX, 1 if c.enabled else 0, c.node, c.key, c.first, c.last, to_micro(c.rotation.x, q), to_micro(c.rotation.y, q), to_micro(c.rotation.z, q), to_micro(c.rotation.w, q), to_micro(c.translation.x, t), to_micro(c.translation.y, t), to_micro(c.translation.z, t)]
+                f: darray[i64] = [WireTag::FIX, 1 if c.enabled else 0, c.node, c.key, c.first, c.last, to_micro(c.rotation.x, q), to_micro(c.rotation.y, q), to_micro(c.rotation.z, q), to_micro(c.rotation.w, q), to_micro(c.translation.x, t), to_micro(c.translation.y, t), to_micro(c.translation.z, t)]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
                 out.push(10)
             for i in 0..<s.band_count |s, out|:
                 b: StackState::Band = s.bands[i]
-                f: darray[i64] = [TAG_BAND, b.first, b.last, b.speed, b.blend, 1 if b.enabled else 0]
+                f: darray[i64] = [WireTag::BAND, b.first, b.last, b.speed, b.blend, 1 if b.enabled else 0]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
@@ -222,13 +224,13 @@ module SessionState:
             record_count: i64 = records.count.i64()
             for i in 0..<record_count |i, records, out, identity|:
                 r: SessionIssueAnnotationPolicy::Stored = records[i.usize()]
-                f: darray[i64] = [TAG_ANNOTATION, SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA, r.analysis_frames, r.finding.first_frame, r.finding.last_frame, r.finding.issue_type, r.finding.subject_id, r.finding.peak_frame, r.finding.severity, r.finding.peak_value, r.finding.threshold]
+                f: darray[i64] = [WireTag::ANNOTATION, SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA, r.analysis_frames, r.finding.first_frame, r.finding.last_frame, r.finding.issue_type, r.finding.subject_id, r.finding.peak_frame, r.finding.severity, r.finding.peak_value, r.finding.threshold]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
                 out.push(10)
             for record in impact_records |record, out|:
-                f: darray[i64] = [TAG_IMPACT, record.schema, record.review.i64(), record.source_first, record.source_second, record.animation, record.source_frames, record.nodes, record.record_count, record.source_frame]
+                f: darray[i64] = [WireTag::IMPACT, record.schema, record.review.i64(), record.source_first, record.source_second, record.animation, record.source_frames, record.nodes, record.record_count, record.source_frame]
                 for k in 0..<f.count:
                     out.push(32) if k > 0
                     OpsFile::push_number(out, f[k])
@@ -334,29 +336,29 @@ module SessionState:
                     continue
                 if OpsFile::parse_fields(&cur, &fields) and fields.count > 0:
                     tag: i64 = fields[0]
-                    if tag == TAG_FEET and fields.count == 3:
+                    if tag == WireTag::FEET and fields.count == 3:
                         s.feet <- fields[1] != 0
                         s.blend <- StudioFoot::blend(fields[2])
-                    elif tag == TAG_HANDS and fields.count == 2:
+                    elif tag == WireTag::HANDS and fields.count == 2:
                         s.hands <- fields[1] != 0
-                    elif tag == TAG_IDENTITY:
+                    elif tag == WireTag::IDENTITY:
                         identity_count <- identity_count + 1
                         identity_matches <- false
                         if fields.count == 6:
                             identity_matches <- StudioChrome::session_identity_matches(fields[1], fields[2], fields[3], fields[4], fields[5], expected.first, expected.second, expected.animation, expected.frames, expected.nodes)
-                    elif tag == TAG_OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
+                    elif tag == WireTag::OP and fields.count == 8 and StudioChrome::session_kind_ok(fields[1]):
                         a: i64 = StudioChrome::session_frame(fields[3], frames)
                         b: i64 = StudioChrome::session_frame(fields[4], frames)
                         op: Ops::Operation = Ops::Operation{kind: kind_from(fields[1]), enabled: fields[2] != 0, first: a if a <= b else b, last: b if a <= b else a, bones: StudioChrome::session_bones(fields[5]), strength: StudioChrome::session_strength(fields[6]), edge: StudioChrome::session_edge(fields[7])}
                         _ = StackState::add(&s, op)
-                    elif tag == TAG_EDIT and fields.count == 5:
+                    elif tag == WireTag::EDIT and fields.count == 5:
                         a: i64 = StudioChrome::session_frame(fields[2], frames)
                         b: i64 = StudioChrome::session_frame(fields[3], frames)
                         _ = StackState::add_edit(&s, fields[1], a if a <= b else b, b if a <= b else a, fields[4] != 0)
-                    elif tag == TAG_FIX and fields.count == 13:
+                    elif tag == WireTag::FIX and fields.count == 13:
                         if fix_from(&fields, frames, nodes) is fix:
                             _ = StackState::add_fix(&s, fix)
-                    elif tag == TAG_BAND and fields.count == 6:
+                    elif tag == WireTag::BAND and fields.count == 6:
                         # Unlike legacy operation fields, bands must be
                         # wholly valid: silently clamping a range/speed could
                         # change the timing the user authored.
@@ -372,7 +374,7 @@ module SessionState:
                                 band.blend <- blend
                                 band.enabled <- enabled == 1
                                 s.bands[at] <- band
-                    elif tag == TAG_ANNOTATION and version == StudioChrome::Session::VERSION and fields.count == 11 and fields[1] == SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA:
+                    elif tag == WireTag::ANNOTATION and version == StudioChrome::Session::VERSION and fields.count == 11 and fields[1] == SessionIssueAnnotationPolicy::ANALYSIS_SCHEMA:
                         record: SessionIssueAnnotationPolicy::Stored = SessionIssueAnnotationPolicy::Stored{analysis_frames: fields[2], finding: SessionIssueAnnotationPolicy::Record{first_frame: fields[3], last_frame: fields[4], issue_type: fields[5], subject_id: fields[6], peak_frame: fields[7], severity: fields[8], peak_value: fields[9], threshold: fields[10]}}
                         if SessionIssueAnnotationPolicy::valid(record.finding, record.analysis_frames):
                             if decoded_annotations.count.i64() >= SessionIssueAnnotationPolicy::Capacity::MAX_RECORDS:
@@ -383,7 +385,7 @@ module SessionState:
                                     duplicate <- duplicate or (SessionIssueAnnotationPolicy::output_frames_match(prior.analysis_frames, record.analysis_frames) and SessionIssueAnnotationPolicy::same_analysis(prior.finding, record.finding))
                                 if not duplicate:
                                     decoded_annotations.push(record)
-                    elif tag == TAG_IMPACT:
+                    elif tag == WireTag::IMPACT:
                         if version != StudioChrome::Session::VERSION or fields.count != 10 or fields[1] != SessionImpactAnnotationPolicy::Schema::VERSION or (fields[2] != SessionImpactAnnotationPolicy::ReviewState.EventsMarked.i64() and fields[2] != SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed.i64()):
                             session_impact_invalid <- true
                         else:
@@ -420,8 +422,8 @@ module SessionState:
                                       impact_records: darray[SessionImpactAnnotationPolicy::Stored]&, path: cstr) -> bool:
             mutable text: darray[u8] = []
             if not encode_session_with_reviews(s, identity, records, impact_state, impact_records, &text):
-                session_save_error <- SAVE_ERROR_ANNOTATIONS
-                session_save_error <- SAVE_ERROR_IMPACT if impact_records.count.i64() > 0 or impact_state != SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                session_save_error <- SaveError.Annotations.i64()
+                session_save_error <- SaveError.Impact.i64() if impact_records.count.i64() > 0 or impact_state != SessionImpactAnnotationPolicy::ReviewState.Unreviewed
                 return false
             atomic_save(&text, path)
 
@@ -440,44 +442,44 @@ module SessionState:
         def load_session_with_reviews(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
                                       annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
                                       impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
-            session_load_error <- LOAD_ERROR_NONE
+            session_load_error <- LoadError.None.i64()
             session_impact_invalid <- false
             mutable text: darray[u8] = []
             if not OpsFile::read_bytes(path, &text):
-                session_load_error <- LOAD_ERROR_READ
+                session_load_error <- LoadError.Read.i64()
                 return null
             version: i64 = header_version(&text)
             if version == 0:
-                session_load_error <- LOAD_ERROR_FORMAT
+                session_load_error <- LoadError.Format.i64()
                 return null
             if version < StudioChrome::Session::VERSION and not allow_legacy:
-                session_load_error <- LOAD_ERROR_LEGACY
+                session_load_error <- LoadError.Legacy.i64()
                 return null
             session_annotation_overflow <- false
             if decode_session_with_reviews(&text, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations) is decoded:
                 return decoded
-            session_load_error <- LOAD_ERROR_IMPACT if session_impact_invalid
-            session_load_error <- LOAD_ERROR_ANNOTATIONS if session_annotation_overflow and not session_impact_invalid
-            session_load_error <- LOAD_ERROR_SOURCE if session_load_error == LOAD_ERROR_NONE and version == StudioChrome::Session::VERSION
-            session_load_error <- LOAD_ERROR_FORMAT if session_load_error == LOAD_ERROR_NONE
+            session_load_error <- LoadError.Impact.i64() if session_impact_invalid
+            session_load_error <- LoadError.Annotations.i64() if session_annotation_overflow and not session_impact_invalid
+            session_load_error <- LoadError.Source.i64() if session_load_error == LoadError.None.i64() and version == StudioChrome::Session::VERSION
+            session_load_error <- LoadError.Format.i64() if session_load_error == LoadError.None.i64()
             return null
 
         def load_error() -> i64:
             session_load_error
 
     private:
-        global mutable session_save_error: i64 = SAVE_ERROR_NONE
-        global mutable session_load_error: i64 = LOAD_ERROR_NONE
+        global mutable session_save_error: i64 = SaveError.None.i64()
+        global mutable session_load_error: i64 = LoadError.None.i64()
         global mutable session_annotation_overflow: bool = false
         global mutable session_impact_invalid: bool = false
 
         def atomic_save(out: darray[u8]&, path: cstr) -> bool:
-            session_save_error <- SAVE_ERROR_NONE
+            session_save_error <- SaveError.None.i64()
             mutable path_length: usize = 0
             while path_length < SESSION_PATH_CAPACITY and path[path_length] != 0:
                 path_length <- path_length + 1
             if path_length == 0 or path_length >= SESSION_PATH_CAPACITY:
-                session_save_error <- SAVE_ERROR_PATH
+                session_save_error <- SaveError.Path.i64()
                 return false
             # Keep the temporary in the destination directory so rename is
             # atomic on the destination filesystem. mkstemp replaces XXXXXX
@@ -493,13 +495,13 @@ module SessionState:
             temporary[path_length + suffix_length] <- 0
             descriptor: i32 = session_mkstemp(&temporary[0])
             if descriptor < 0:
-                session_save_error <- SAVE_ERROR_CREATE
+                session_save_error <- SaveError.Create.i64()
                 return false
             file: mutable heap void&? = session_fdopen(descriptor, "wb".cast[u8&])
             if file == null:
                 _ = session_close(descriptor)
                 _ = session_unlink(&temporary[0])
-                session_save_error <- SAVE_ERROR_CREATE
+                session_save_error <- SaveError.Create.i64()
                 return false
             handle: mutable heap void& = file
             mutable wrote: usize = 0
@@ -513,11 +515,11 @@ module SessionState:
             closed: i32 = session_fclose(handle)
             if wrote != out.count or flushed != 0 or synced != 0 or closed != 0:
                 _ = session_unlink(&temporary[0])
-                session_save_error <- SAVE_ERROR_WRITE
+                session_save_error <- SaveError.Write.i64()
                 return false
             committed: bool = session_rename(&temporary[0], path.cast[u8&]) == 0
             if not committed:
                 _ = session_unlink(&temporary[0])
-                session_save_error <- SAVE_ERROR_COMMIT
+                session_save_error <- SaveError.Commit.i64()
                 return false
             true
