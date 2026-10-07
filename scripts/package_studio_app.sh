@@ -42,6 +42,9 @@ python3 "$ROOT/tools/studio_generation_creation.py" --project "$ROOT" \
   --file Contents/Resources/PACKAGE-GENERATION.json \
   --file Contents/Resources/BUILD-INPUTS.json \
   --file Contents/Resources/.studio-generation.lease
+python3 "$ROOT/tools/studio_generation_creation_start.py" --project "$ROOT" \
+  --artifact "$(basename "$pending_package")/MocapStudio.app" \
+  --artifact-id "$(basename "$pending_package")"
 cp -p "$EXECUTABLE" "$APP/Contents/MacOS/MocapStudio"
 cat >"$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -118,6 +121,7 @@ input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/pack
                     project / "tools/studio_generation_contents.py",
                     project / "tools/studio_generation_controls.py",
                     project / "tools/studio_generation_creation.py",
+                    project / "tools/studio_generation_creation_start.py",
                     project / "tools/studio_build_identity.py", project / "build/generated/studio_build_identity.elisa",
                     compiler / "scripts/elisac_stage1.sh", compiler / "build/runtime/elisacore_runtime.o"))
 input_paths.extend(path for path in (project / "assets/icons").rglob("*.svg"))

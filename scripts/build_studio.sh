@@ -59,6 +59,9 @@ python3 "$ROOT/tools/studio_generation_creation.py" --project "$ROOT" \
   --artifact "$(basename "$pending_directory")" \
   --artifact-id "$(basename "$pending_directory")" --kind studio-build \
   --file inputs.json --file .studio-generation.lease "${inventory_arguments[@]}"
+python3 "$ROOT/tools/studio_generation_creation_start.py" --project "$ROOT" \
+  --artifact "$(basename "$pending_directory")" \
+  --artifact-id "$(basename "$pending_directory")"
 python3 "$ROOT/tools/studio_build_identity.py" --snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 
 clang -c -fobjc-arc -O2 -o "$pending_directory/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
