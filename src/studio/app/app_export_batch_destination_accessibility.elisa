@@ -9,18 +9,20 @@ extend Studio:
         def publish_export_batch_destination_accessibility(w: f32, h: f32,
                 state: StudioExportBatchDestinationInspectorPolicy::State,
                 paths: StudioExportBatchDestinationInspectorPolicy::Paths&,
+                source: u8[StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES]&, model: StudioExportBatchDestinationPathLineModel::Model&,
+                copy_status: StudioExportBatchDestinationInspectorPolicy::CopyStatus,
                 location_widgets: darray[usize]&, control_widgets: darray[usize]&,
                 semantic_revision: usize) -> void can Unsafe.PointerCast:
             requires StudioExportBatchDestinationInspectorPolicy::valid(state) and state.opened
             requires location_widgets.count == StudioExportBatchDestinationInspectorPolicy::Limit::LOCATION_COUNT.usize()
-            requires control_widgets.count == 3
+            requires control_widgets.count == 4
             requires location_widgets[0] != UiFlat::NONE and location_widgets[1] != UiFlat::NONE and location_widgets[2] != UiFlat::NONE and location_widgets[3] != UiFlat::NONE
-            requires control_widgets[0] != UiFlat::NONE and control_widgets[1] != UiFlat::NONE and control_widgets[2] != UiFlat::NONE
+            requires control_widgets[0] != UiFlat::NONE and control_widgets[1] != UiFlat::NONE and control_widgets[2] != UiFlat::NONE and control_widgets[3] != UiFlat::NONE
             none: usize = StudioAccessibility::SemanticId::NO_NODE
             dialog: StudioPanels::Box = StudioPanels::export_batch_destination_inspector_box(w, h)
             path_status: StudioExportBatchDestinationInspectorPolicy::Status = StudioExportBatchDestinationInspectorPolicy::selected_status(paths, state.location)
-            pages: i64 = StudioExportBatchDestinationInspectorPolicy::selected_page_count(paths, state.location)
-            visible_lines: i64 = StudioExportBatchDestinationInspectorPolicy::selected_page_line_count(paths, state.location, state.page)
+            pages: i64 = StudioExportBatchDestinationInspectorPolicy::line_page_count(model)
+            visible_lines: i64 = StudioExportBatchDestinationInspectorPolicy::line_page_line_count(model, state.page) if pages > 0 and state.page >= 0 and state.page < pages else 0
             UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Dialog,
                 "Selected export locations", "Read-only snapshot of the source take and all three captured destinations. Location previews are explicitly marked when abbreviated. Select a path to inspect its exact bounded segments; Previous and Next show every segment in order. Done returns to the queue without changing it.",
                 UiCore::Rect(dialog.x, dialog.y, dialog.w, dialog.h),
@@ -30,15 +32,17 @@ extend Studio:
                 0.0, 1.0, false)
             status_box: StudioPanels::Box = StudioPanels::box(dialog.x + 24.0, dialog.y + 78.0, dialog.w - 48.0, 24.0)
             valid_path: bool = path_status == StudioExportBatchDestinationInspectorPolicy::Status.Ready
+            line_display_ready: bool = valid_path and pages > 0
+            status_help: sview = "The complete captured path was copied." if copy_status == StudioExportBatchDestinationInspectorPolicy::CopyStatus.Copied else "The system did not confirm copying; the captured path remains available." if copy_status == StudioExportBatchDestinationInspectorPolicy::CopyStatus.Failed else "Current page and total pages. Exact byte segments follow in order." if line_display_ready else "Text metrics are unavailable for safe line layout. Copy full path exposes the complete exact value."
             UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Status,
-                "Destination path page", "Current page and total pages for the selected exact path. Path segments follow in order below.",
+                "Destination path page", status_help,
                 UiCore::Rect(status_box.x, status_box.y, status_box.w, status_box.h),
                 StudioExportBatchDestinationInspectorAccessibilityPolicy::Node::STATUS, none,
-                true, false, false, state.page.f32() + 1.0 if valid_path else 0.0, "", "", semantic_revision, 0, 0,
+                true, false, false, state.page.f32() + 1.0 if line_display_ready else 0.0, "", "", semantic_revision, 0, 0,
                 StudioExportBatchDestinationInspectorAccessibilityPolicy::Node::DIALOG, none,
                 StudioExportBatchDestinationInspectorAccessibilityPolicy::next_sibling_id(
                     StudioExportBatchDestinationInspectorAccessibilityPolicy::Node::STATUS, visible_lines),
-                1.0, pages.f32(), valid_path)
+                1.0 if line_display_ready else 0.0, pages.f32() if line_display_ready else 0.0, line_display_ready)
             publish_destination_location(w, h, state, paths.source, StudioExportBatchDestinationInspectorPolicy::Location.Source,
                 location_widgets[0], visible_lines, semantic_revision)
             publish_destination_location(w, h, state, paths.glb, StudioExportBatchDestinationInspectorPolicy::Location.Glb,
@@ -47,18 +51,18 @@ extend Studio:
                 location_widgets[2], visible_lines, semantic_revision)
             publish_destination_location(w, h, state, paths.text_report, StudioExportBatchDestinationInspectorPolicy::Location.TextReport,
                 location_widgets[3], visible_lines, semantic_revision)
-            if path_status == StudioExportBatchDestinationInspectorPolicy::Status.Ready:
+            if path_status == StudioExportBatchDestinationInspectorPolicy::Status.Ready and pages > 0:
                 if state.location == StudioExportBatchDestinationInspectorPolicy::Location.Source:
-                    publish_destination_lines(w, h, state, paths.source, visible_lines, semantic_revision)
+                    publish_destination_lines(w, h, state, source, model, visible_lines, semantic_revision)
                 elif state.location == StudioExportBatchDestinationInspectorPolicy::Location.Glb:
-                    publish_destination_lines(w, h, state, paths.glb, visible_lines, semantic_revision)
+                    publish_destination_lines(w, h, state, source, model, visible_lines, semantic_revision)
                 elif state.location == StudioExportBatchDestinationInspectorPolicy::Location.JsonReport:
-                    publish_destination_lines(w, h, state, paths.json_report, visible_lines, semantic_revision)
+                    publish_destination_lines(w, h, state, source, model, visible_lines, semantic_revision)
                 else:
-                    publish_destination_lines(w, h, state, paths.text_report, visible_lines, semantic_revision)
-            for slot in 0..<3 |slot, control_widgets, state, paths, visible_lines, w, h, semantic_revision|:
+                    publish_destination_lines(w, h, state, source, model, visible_lines, semantic_revision)
+            for slot in 0..<4 |slot, control_widgets, state, paths, model, visible_lines, w, h, semantic_revision|:
                 focus: StudioExportBatchDestinationInspectorPolicy::Focus = StudioExportBatchDestinationInspectorPolicy::focus_for_code(slot.i64() + 4)
-                enabled: bool = StudioExportBatchDestinationInspectorPolicy::action_enabled(focus, state, paths)
+                enabled: bool = StudioExportBatchDestinationInspectorPolicy::action_enabled_with_lines(focus, state, paths, model)
                 widget: usize = control_widgets[slot]
                 UiFlat::set_enabled(widget, enabled)
                 bounds: StudioPanels::Box = StudioPanels::export_batch_destination_control_box(w, h, focus)
@@ -102,17 +106,19 @@ extend Studio:
 
         def publish_destination_lines(w: f32, h: f32,
                 state: StudioExportBatchDestinationInspectorPolicy::State,
-                path: darray[u8]&, visible_lines: i64, semantic_revision: usize) -> void can Unsafe.PointerCast:
+                source: u8[StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES]&, model: StudioExportBatchDestinationPathLineModel::Model&,
+                visible_lines: i64, semantic_revision: usize) -> void can Unsafe.PointerCast:
             none: usize = StudioAccessibility::SemanticId::NO_NODE
-            total_lines: i64 = StudioExportBatchDestinationInspectorPolicy::line_count(path)
-            for row in 0..<visible_lines |row, path, state, total_lines, w, h, visible_lines, semantic_revision|:
-                range: StudioExportBatchDestinationInspectorPolicy::ByteRange = StudioExportBatchDestinationInspectorPolicy::page_line_range(path, state.page, row)
+            total_lines: i64 = model.segments.count.i64()
+            for row in 0..<visible_lines |row, source, model, state, total_lines, w, h, visible_lines, semantic_revision|:
+                range: StudioExportBatchDestinationPathLineModel::Segment = StudioExportBatchDestinationInspectorPolicy::line_page_range(model, state.page, row)
                 bounds: StudioPanels::Box = StudioPanels::export_batch_destination_path_line_box(w, h, row)
                 global_line: i64 = state.page * StudioExportBatchDestinationInspectorPolicy::Limit::LINES_PER_PAGE + row
                 node: usize = StudioExportBatchDestinationInspectorAccessibilityPolicy::line_id(row)
-                value: sview = UiText::unsafe_sview_bounded_bytes(&path[range.start], range.count)
+                value: sview = UiText::unsafe_sview_bounded_bytes(&source[range.start], range.byte_count)
+                help_text: sview = "This exact segment splits an oversized grapheme across lines; no bytes are omitted." if range.split_grapheme else "Exact path segment in page order. Previous and Next navigate without clipping."
                 UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Label,
-                    "Exact path segment", "One complete UTF-8 segment, in page order. Previous and Next navigate the path without clipping.",
+                    "Exact path segment", help_text,
                     UiCore::Rect(bounds.x, bounds.y, bounds.w, bounds.h), node, none,
                     true, false, false, global_line.f32() + 1.0, value, "", semantic_revision, 0, 0,
                     StudioExportBatchDestinationInspectorAccessibilityPolicy::Node::DIALOG, none,
@@ -124,15 +130,16 @@ extend Studio:
         def export_batch_destination_accessibility_event(widget: usize, event: i32,
                 state: StudioExportBatchDestinationInspectorPolicy::State,
                 paths: StudioExportBatchDestinationInspectorPolicy::Paths&,
+                model: StudioExportBatchDestinationPathLineModel::Model&,
                 location_widgets: darray[usize]&, control_widgets: darray[usize]&) -> StudioExportBatchDestinationInspectorPolicy::Focus?:
             requires location_widgets.count == StudioExportBatchDestinationInspectorPolicy::Limit::LOCATION_COUNT.usize()
-            requires control_widgets.count == 3
+            requires control_widgets.count == 4
             return null if widget == UiFlat::NONE or event != UiConst::WidgetEvent.Click.i32()
             for slot in 0..<4 |slot, location_widgets, widget|:
                 return StudioExportBatchDestinationInspectorPolicy::focus_for_code(slot.i64()) if location_widgets[slot] == widget
-            for slot in 0..<3 |slot, control_widgets, widget, state, paths|:
+            for slot in 0..<4 |slot, control_widgets, widget, state, paths, model|:
                 focus: StudioExportBatchDestinationInspectorPolicy::Focus = StudioExportBatchDestinationInspectorPolicy::focus_for_code(slot.i64() + 4)
                 if control_widgets[slot] == widget:
-                    return focus if StudioExportBatchDestinationInspectorPolicy::action_enabled(focus, state, paths)
+                    return focus if StudioExportBatchDestinationInspectorPolicy::action_enabled_with_lines(focus, state, paths, model)
                     return null
             null

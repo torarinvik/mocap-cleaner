@@ -1,4 +1,5 @@
 include "export_batch_destination_projection.elisa"
+include "export_batch_destination_path_line_model.elisa"
 include "../core/json_scalar.elisa"
 
 # Read-only inspection of exact paths retained by one selected queue item.
@@ -20,7 +21,7 @@ module StudioExportBatchDestinationInspectorPolicy:
             PREVIEW_SCALARS: usize = 20
             SCALARS_PER_LINE: usize = 32
             LINES_PER_PAGE: i64 = 5
-            MAX_PAGES: i64 = 26
+            MAX_PAGES: i64 = (MAX_PATH_BYTES.i64() + LINES_PER_PAGE - 1) / LINES_PER_PAGE
             MAX_UTF8_BYTES: usize = 4
 
         const enum Location of i64:
@@ -37,6 +38,7 @@ module StudioExportBatchDestinationInspectorPolicy:
             Previous = 4
             Next = 5
             Done = 6
+            CopyPath = 7
 
         const enum Status of i64:
             Ready = 0
@@ -44,6 +46,11 @@ module StudioExportBatchDestinationInspectorPolicy:
             Oversized = 2
             InvalidUtf8 = 3
             UnsupportedControl = 4
+
+        const enum CopyStatus of i64:
+            NotCopied = 0
+            Copied = 1
+            Failed = 2
 
         struct Paths:
             source: darray[u8]
@@ -204,7 +211,7 @@ module StudioExportBatchDestinationInspectorPolicy:
 
         def valid(state: State) -> bool:
             ensure result implies location_valid(state.location)
-            location_valid(state.location) and state.page >= 0 and state.page < Limit::MAX_PAGES and state.focus.i64() >= 0 and state.focus.i64() < 7
+            location_valid(state.location) and state.page >= 0 and state.page < Limit::MAX_PAGES and state.focus.i64() >= 0 and state.focus.i64() < 8
 
         def selected_path_length(paths: Paths&, location: Location) -> usize:
             return paths.source.count if location == Location.Source
@@ -278,6 +285,7 @@ module StudioExportBatchDestinationInspectorPolicy:
             ensure not state.opened implies not result
             return false if not state.opened or not valid(state)
             return true if focus == Focus.Source or focus == Focus.Glb or focus == Focus.JsonReport or focus == Focus.TextReport or focus == Focus.Done
+            return selected_status(paths, state.location) == Status.Ready if focus == Focus.CopyPath
             return false if not page_admitted(state, paths)
             return state.page > 0 if focus == Focus.Previous
             return state.page + 1 < selected_page_count(paths, state.location) if focus == Focus.Next
@@ -320,25 +328,26 @@ module StudioExportBatchDestinationInspectorPolicy:
             State{opened: state.opened, location: state.location, page: state.page, focus: Focus.Done}
 
         def next_focus(current: Focus, reverse: bool) -> Focus:
-            next: i64 = (6 if current.i64() == 0 else current.i64() - 1) if reverse else (0 if current.i64() == 6 else current.i64() + 1)
+            next: i64 = (7 if current.i64() == 0 else current.i64() - 1) if reverse else (0 if current.i64() == 7 else current.i64() + 1)
             focus_for_code(next)
 
         def focus_for_code(code: i64) -> Focus:
-            requires code >= 0 and code < 7
+            requires code >= 0 and code < 8
             return Focus.Source if code == 0
             return Focus.Glb if code == 1
             return Focus.JsonReport if code == 2
             return Focus.TextReport if code == 3
             return Focus.Previous if code == 4
             return Focus.Next if code == 5
-            Focus.Done
+            return Focus.Done if code == 6
+            Focus.CopyPath
 
         def move_focus(state: State, reverse: bool, paths: Paths&) -> State:
             requires valid(state)
             requires state.opened
             ensure action_enabled(result.focus, result, paths)
             mutable candidate: Focus = state.focus
-            for step in 0..<7 |step, candidate, reverse, state, paths|:
+            for step in 0..<8 |step, candidate, reverse, state, paths|:
                 candidate <- next_focus(candidate, reverse)
                 return State{opened: state.opened, location: state.location, page: state.page, focus: candidate} if action_enabled(candidate, state, paths)
             State{opened: state.opened, location: state.location, page: state.page, focus: Focus.Done}
@@ -352,6 +361,7 @@ module StudioExportBatchDestinationInspectorPolicy:
                 return move_page(state, -1, paths)
             if focus == Focus.Next:
                 return move_page(state, 1, paths)
+            return state if focus == Focus.CopyPath
             State{opened: false, location: state.location, page: state.page, focus: Focus.Done}
 
         def location_for_focus(focus: Focus) -> Location:
@@ -368,7 +378,8 @@ module StudioExportBatchDestinationInspectorPolicy:
             return "Text report" if focus == Focus.TextReport
             return "Previous page" if focus == Focus.Previous
             return "Next page" if focus == Focus.Next
-            "Done"
+            return "Done" if focus == Focus.Done
+            "Copy full path"
 
         def focus_help(focus: Focus, enabled: bool) -> sview:
             return "Select and inspect the exact captured source path." if focus == Focus.Source
@@ -379,7 +390,54 @@ module StudioExportBatchDestinationInspectorPolicy:
             return "No preceding path page is available." if focus == Focus.Previous
             return "Show the following path page." if focus == Focus.Next and enabled
             return "No following path page is available." if focus == Focus.Next
-            "Return to prepared exports. This view cannot change destinations or publication state."
+            return "Return to prepared exports. This view cannot change destinations or publication state." if focus == Focus.Done
+            "Copy the complete captured path to the system clipboard."
+
+        def line_page_count(model: StudioExportBatchDestinationPathLineModel::Model&) -> i64:
+            return 0 if not StudioExportBatchDestinationPathLineModel::valid(model) or model.status != StudioExportBatchDestinationPathLineModel::Status.Ready
+            StudioExportBatchDestinationPathLineModel::page_count(model).i64()
+
+        def line_page_line_count(model: StudioExportBatchDestinationPathLineModel::Model&, page: i64) -> i64:
+            requires page >= 0 and page < line_page_count(model)
+            StudioExportBatchDestinationPathLineModel::page_line_count(model, page.usize()).i64()
+
+        def line_page_range(model: StudioExportBatchDestinationPathLineModel::Model&, page: i64, row: i64) -> StudioExportBatchDestinationPathLineModel::Segment:
+            requires page >= 0 and page < line_page_count(model)
+            requires row >= 0 and row < line_page_line_count(model, page)
+            StudioExportBatchDestinationPathLineModel::segment_at(model, page.usize(), row.usize())
+
+        def action_enabled_with_lines(focus: Focus, state: State, paths: Paths&, model: StudioExportBatchDestinationPathLineModel::Model&) -> bool:
+            ensure not state.opened implies not result
+            return false if not state.opened or not valid(state)
+            return true if focus == Focus.Source or focus == Focus.Glb or focus == Focus.JsonReport or focus == Focus.TextReport or focus == Focus.Done
+            pages: i64 = line_page_count(model)
+            return selected_status(paths, state.location) == Status.Ready if focus == Focus.CopyPath
+            return state.page > 0 if focus == Focus.Previous and pages > 0
+            return state.page + 1 < pages if focus == Focus.Next and pages > 0
+            false
+
+        def move_focus_with_lines(state: State, reverse: bool, paths: Paths&, model: StudioExportBatchDestinationPathLineModel::Model&) -> State:
+            requires valid(state) and state.opened
+            ensure action_enabled_with_lines(result.focus, result, paths, model)
+            mutable candidate: Focus = state.focus
+            for step in 0..<8 |step, candidate, reverse, state, paths, model|:
+                candidate <- next_focus(candidate, reverse)
+                return State{opened: state.opened, location: state.location, page: state.page, focus: candidate} if action_enabled_with_lines(candidate, state, paths, model)
+            State{opened: state.opened, location: state.location, page: state.page, focus: Focus.Done}
+
+        def activate_with_lines(state: State, focus: Focus, paths: Paths&, model: StudioExportBatchDestinationPathLineModel::Model&) -> State:
+            requires valid(state)
+            requires action_enabled_with_lines(focus, state, paths, model)
+            if focus == Focus.Source or focus == Focus.Glb or focus == Focus.JsonReport or focus == Focus.TextReport:
+                return select_location(state, location_for_focus(focus))
+            if focus == Focus.Previous:
+                page: i64 = state.page - 1
+                return State{opened: state.opened, location: state.location, page: page, focus: Focus.Previous}
+            if focus == Focus.Next:
+                page: i64 = state.page + 1
+                return State{opened: state.opened, location: state.location, page: page, focus: Focus.Next}
+            return state if focus == Focus.CopyPath
+            State{opened: false, location: state.location, page: state.page, focus: Focus.Done}
 
         def status_message(status: Status) -> sview:
             return "Exact path shown in bounded lines; use page controls to inspect the complete value." if status == Status.Ready
