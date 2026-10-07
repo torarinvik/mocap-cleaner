@@ -3,6 +3,10 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "${MOCAP_STUDIO_GENERATION_LOCK_VERIFIED:-}" != "1" ]]; then
+  exec python3 "$ROOT/tools/studio_generation_lock.py" run -- "$BASH" "$0" "$@"
+fi
+python3 "$ROOT/tools/studio_generation_lock.py" check
 ENGINE="$(cd -- "${ELISA_ENGINE_ROOT:-$ROOT/../elisa-engine-mocap}" && pwd)"
 UI="$(cd -- "${ELISA_UI_ROOT:-$ROOT/../elisa-ui}" && pwd)"
 STAGE1="$(cd -- "${ELISA_STAGE1:-$ROOT/../Elisa-compiler}" && pwd)"
@@ -74,6 +78,7 @@ input_paths.extend(engine / "native" / name for name in (
     "storage_manifest_lock.c", "elisa_native_fallbacks.cpp"))
 input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/package_studio_app.sh",
                     project / "tools/svg_icons.py", project / "build/generated/studio_icon_paths.elisa",
+                    project / "tools/studio_generation_lock.py",
                     project / "tools/studio_build_identity.py", project / "build/generated/studio_build_identity.elisa",
                     compiler / "scripts/elisac_stage1.sh", compiler / "build/runtime/elisacore_runtime.o"))
 input_paths.extend(path for path in (project / "assets/icons").rglob("*.svg"))

@@ -51,6 +51,7 @@ def snapshot(project, engine, ui, compiler):
                 raise SystemExit(f"Studio includes standard-library source outside the selected compiler: {included}")
     paths.extend(str(path) for path in (
         project / "scripts/build_studio.sh",
+        project / "tools/studio_generation_lock.py",
         project / "scripts/prove.py",
         Path(__file__).resolve(),
         Path(__file__).resolve().with_name("build_environment.py"),

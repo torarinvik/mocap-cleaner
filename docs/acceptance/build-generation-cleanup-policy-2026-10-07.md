@@ -28,8 +28,16 @@ The compiled policy source SHA-1 is
 `913e2ed3a9f329c3929153a5edd385fa347f7304`; the law source SHA-1 is
 `a6b9fd446f66f780737b31f612b6f64106f5bcb8`. Both match commit `c45541f`.
 
-No generated-build inventory, active-generation lease, shared build/cleanup
-lock, directory Trash receipt, or reviewed cleanup action exists yet. The
-policy is not connected to mutation. Current products, active generations and
-package `previous.app` recovery backups therefore remain protected by leaving
-their directories in place. J04 and M7 cleanup acceptance remain open.
+The build and package scripts now share an OS advisory lock at
+`build/.studio-generation.lock`. Each script verifies the inherited descriptor,
+exclusive lock state, owner, inode, and no-follow path identity before work;
+standalone packaging acquires the lock and packaging called by a build reuses
+the same open-file description. Future cooperating cleanup clients must use
+this lock for their complete inventory/review/mutation transaction.
+
+This coordination covers cooperating build/package clients only. It does not
+establish whether a Studio process is using an old generation, and it does not
+provide a recoverable directory Trash receipt. No cleanup mutation is wired.
+Current products, active generations and package `previous.app` recovery
+backups therefore remain protected by leaving their directories in place.
+J04 and M7 cleanup acceptance remain open.

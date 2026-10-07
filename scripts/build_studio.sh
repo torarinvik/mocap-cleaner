@@ -13,6 +13,10 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "${MOCAP_STUDIO_GENERATION_LOCK_VERIFIED:-}" != "1" ]]; then
+  exec python3 "$ROOT/tools/studio_generation_lock.py" run -- "$BASH" "$0" "$@"
+fi
+python3 "$ROOT/tools/studio_generation_lock.py" check
 UI="$(cd -- "${ELISA_UI_ROOT:-$ROOT/../elisa-ui}" && pwd)"
 ENGINE="$(cd -- "${ELISA_ENGINE_ROOT:-$ROOT/../elisa-engine-mocap}" && pwd)"
 STAGE1="$(cd -- "${ELISA_STAGE1:-$ROOT/../Elisa-compiler}" && pwd)"
