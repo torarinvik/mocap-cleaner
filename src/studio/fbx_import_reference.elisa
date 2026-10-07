@@ -1,4 +1,5 @@
 include "app/model_source_reference.elisa"
+include "fbx_import_policy.elisa"
 include "../../build/generated/studio_build_identity.elisa"
 
 module StudioFbxImportReference:
@@ -27,6 +28,17 @@ module StudioFbxImportReference:
         affine struct Result:
             value: StudioTakeSourceRefPolicy::TakeSourceRef?
 
+        def processing_identity_matches(reference: StudioTakeSourceRefPolicy::TakeSourceRef&,
+                                        current_revision: sview, current_options: darray[u8]&) -> bool:
+            ensure result implies StudioTakeSourceRefPolicy::valid(reference) and reference.format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+            return false if not StudioTakeSourceRefPolicy::valid(reference) or reference.format != StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+            return false if current_revision.len.usize() != reference.importer_revision.count or current_options.count != 64
+            return false if not StudioTakeSourceRefPolicy::sha256_valid(current_options)
+            for index in 0..<reference.importer_revision.count |index, reference, current_revision, current_options|:
+                return false if reference.importer_revision[index] != current_revision[index].u8()
+                return false if reference.options_sha256[index] != current_options[index]
+            true
+
         def make(source: darray[u8]&, runtime: darray[u8]&, source_digest: darray[u8]&, runtime_digest: darray[u8]&, rate: i64) -> Result can Unsafe.PointerCast:
             mutable options: u8[65] = zeroed
             return Result{value: null} if options_digest(rate, &options[0]) != 0
@@ -43,3 +55,18 @@ module StudioFbxImportReference:
             return Result{value: null} if not StudioTakeSourceRefPolicy::valid(&reference)
             result: Result = Result{value: reference}
             return move result
+
+        # A persisted processing identity is current only when both the
+        # selected converter source digest and the exact configured options
+        # digest match. Unknown or unsupported saved rates cannot be inferred.
+        def current_processing_identity_matches(reference: StudioTakeSourceRefPolicy::TakeSourceRef&, rate: i64) -> bool can Unsafe.PointerCast:
+            ensure result implies StudioTakeSourceRefPolicy::valid(reference) and reference.format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+            ensure result implies rate == StudioFbxImportPolicy::Limit::DEFAULT_RATE
+            return false if not StudioTakeSourceRefPolicy::valid(reference) or reference.format != StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+            return false if rate != StudioFbxImportPolicy::Limit::DEFAULT_RATE or not StudioFbxImportPolicy::rate_valid(rate)
+            mutable options: u8[65] = zeroed
+            return false if options_digest(rate, &options[0]) != 0
+            mutable options_owned: darray[u8] = []
+            for index in 0..<64 |index, options, options_owned|:
+                options_owned.push(options[index])
+            processing_identity_matches(reference, StudioBuildIdentity::Inputs::FBX_IMPORTER_SHA256, options_owned)
