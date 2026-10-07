@@ -260,3 +260,22 @@ next qualification cycle. Their source ancestry is:
 These successful fetches establish no missing published upstream commits at
 that observation. They do not qualify the isolated compiler repair, the pending
 runtime-matched prover pair, or the newly integrated navigation handlers.
+
+## Refresh after report ownership repair
+
+All four `git fetch origin` commands succeeded before preparing the next
+immutable qualification generation. Selected ancestry is now:
+
+| Checkout | Selected HEAD | Fetched `origin/main` | Ahead / behind |
+| --- | --- | --- | --- |
+| Compiler candidate | `4afdce0862bc87cd26566b6016f5553aaf670427` | `23a0e16a854cddec3016746a0cb9480db0c4db22` | 13 / 0 |
+| Mocap prover | `897798bfafaaab5a3b02fab30f24bddca8dc3fbf` | `2610ddb60b3ac207016ca281a8e93e8212d7cb13` | 121 / 0 |
+| Elisa UI | `be0aa195100780c6c5d363f4eac2916536a5f78a` | `dc6cd3974db7d1457e2416802299331429dd9d66` | 8 / 0 |
+| Mocap engine | `f39868df75aa02b8faac3cd93fec32127c696619` | `7699ec52e3945748f3e808fc7460585d6c068353` | 24 / 0 |
+
+The engine is also 160 / 0 against fetched `origin/mocap-track`
+`1c934edbcc1bd151c6d0110ed600393a9f02c0b9`. These observations establish
+current published-source ancestry, preserving project repairs. They do not
+describe uncommitted proof-authentication and UI work by revision alone.
+Qualification must bind their exact source bytes and selected linked products;
+the active shared-source Studio run remains comparison-only after UI drift.
