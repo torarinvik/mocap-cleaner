@@ -49,6 +49,8 @@ def unique_json_object(pairs):
 
 
 def bounded_json(payload):
+    require(isinstance(payload, (bytes, bytearray)) and 0 < len(payload) <= Limits.json_bytes,
+            "generation JSON must be bounded bytes")
     # Bound parser recursion before decoding. Brackets inside JSON strings do
     # not count, including escaped quotes and escaped backslashes.
     depth = 0
