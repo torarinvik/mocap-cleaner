@@ -9,6 +9,10 @@ extend Studio:
             SessionState::impact_records_valid(records, state, identity)
 
         def save_session_to_current_path() -> bool:
+            if pending_edit_active():
+                say_file("Session save blocked while an edit result is pending. Wait for it to finish or discard the pending edit.", session_path)
+                touch()
+                return false
             mutable destination_reason: i64 = StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
             can Unsafe.PointerCast:
                 destination_reason <- export_reason(session_path, true)
@@ -66,10 +70,15 @@ extend Studio:
             _ = save_session_to_current_path()
 
         def install_session(p: cstr, loaded: StackState::Stack, allow_legacy: bool) -> void:
+            accepted: bool = StackState::same(current_stack(), loaded)
+            accepted <- commit(loaded, true) if not accepted
+            if not accepted:
+                clear_pending_session_annotations()
+                touch()
+                return
             issue_annotations <- zeroed
             pending_session_annotation_restore <- true
             session_annotations_expired <- 0
-            commit(loaded, true)
             if clip is c:
                 suggestion_impact_prepare(c)
                 suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed

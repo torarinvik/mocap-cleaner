@@ -3,6 +3,10 @@ include "app_state.elisa"
 extend Studio:
     private:
         def save_session_as() -> void:
+            if pending_edit_active():
+                say_file("Session Save As is unavailable while an edit result is pending. Wait for it to finish or discard the pending edit.", session_path)
+                touch()
+                return
             if FilePanel::save("txt", session_path, "Save the operation stack and contacts as a session") is chosen:
                 mutable reason: i64 = StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
                 can Unsafe.PointerCast:
@@ -152,6 +156,7 @@ extend Studio:
                 UiAppKitCanvas::close()
 
         def perform_replacement(kind: i64, p: cstr, allow_legacy: bool) -> void can Unsafe.PointerCast:
+            discard_pending_edit()
             contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, contact_preview_task != null)
             contact_preview_rebuild_pending <- false
             replacement_prompt_open <- false
@@ -247,6 +252,7 @@ extend Studio:
             mutable dirty: bool = false
             if history_ready:
                 dirty <- HistoryState::dirty(&history)
+            dirty <- dirty or pending_edit_active()
             if StudioReplacement::needs_prompt(clip != null, dirty):
                 replacement_prompt_open <- true
                 replacement_focus <- StudioReplacement::initial_focus()
@@ -360,6 +366,7 @@ extend Studio:
             mutable dirty: bool = false
             if history_ready:
                 dirty <- HistoryState::dirty(&history)
+            dirty <- dirty or pending_edit_active()
             if StudioReplacement::needs_prompt(clip != null, dirty):
                 pending_replacement <- Replacement.Close.i64()
                 pending_replacement_allows_legacy <- false
