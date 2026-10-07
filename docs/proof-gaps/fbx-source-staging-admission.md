@@ -151,6 +151,28 @@ The current primary policy/law source hashes are listed in the preceding
 qualification section; they match this capture. The exact report summaries
 and replay records are available in the retained JSON files above.
 
+## Current Boolean helper repair
+
+Proof commit `af85ea4fdc5e3234946d13f5948c94657d0f08a6` adds a dedicated
+Boolean-call marker checked by producer and replay. It requires a unique resolved
+owner, a direct Bool return, verified total-pure behavior, no preconditions and
+the exact call arguments. Arbitrary scalar calls cannot become proposition atoms.
+
+Clean matched generation `1c9666c5f95e4e2d9b355e4c677100e8` uses compiler
+`48dc78e2`/Stage1 `461d377b` and runtime `51365ba4`. Its immutable reports are
+under `../elisa-proof-mocap-owner-aware/build/q02-pair-1c9666c5f95e4e2d9b355e4c677100e8/`.
+Root independently inspected these artifact hashes:
+
+- `staging.report.json`: `06344812ce3544d04e94bb7860c93d69967fda1808a5d5652126535f4513440b`.
+- `run-record.json`: `c7f1e5d0d4f2dc4f766a23b3599f4995d7c49a51a69afc9e74e0e15667c850d7`.
+
+The report has 98 obligations, 36 proven and 62 unproven. All fourteen
+`stage_admitted` ensures now prove, and the package replays 36/36. Correspondence
+remains 0 checked, 0 unmatched, 38 unsupported and `source_authenticated=false`.
+Earlier postcondition failures above are historical. Refusal/constructor laws,
+generic region handoff and source/native correspondence remain open. Native
+direct conversion succeeds independently; actual Studio import still refuses.
+
 ## Historical blocker notes
 
 `StudioTakeSourceRefPolicy::valid` at source line 55 has a resource-safety

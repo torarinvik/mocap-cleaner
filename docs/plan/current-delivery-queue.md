@@ -57,8 +57,8 @@ this item.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
-- Rebuild the matched pair after every proof-source repair. The last clean
-  captured baseline is pair `655657441d704884a881f28382b46321`, built against
+- Rebuild the matched pair after every proof-source repair. The earlier clean
+  captured baseline was pair `655657441d704884a881f28382b46321`, built against
   compiler `48dc78e2` after committed helper-purity repair `fed9a108`.
   TakeSourceRef had 59 obligations, 34 proven and 25 unproven; staging had
   115 obligations, 21 proven and 94 unproven. Their 34 and 21 resource checks
@@ -66,13 +66,16 @@ this item.
   with unsupported correspondence. Pair integrity is not source authentication.
   Retain the exact immutable pair reports; do not treat package admissibility
   as verified predicates. Subsequent proof edits require a new current pair.
-- Latest `build/fbx-staging-current.json` (SHA-256
-  `b2a5e3148a4952f99d19de7837e24092004c997f1c1429e4dd5651db5721abce`)
-  marks the five staging helpers pure and verified, with no unsupported contract
-  calls. The older `current-owner-summary-repair-final/staging-current.json`
-  still rejects purity and must not be substituted for this report. Staging
-  postconditions remain unproved. Preserve shared reborrow, mutation exclusion
-  and owner-qualified generic-region constraints.
+- Current clean pair `1c9666c5f95e4e2d9b355e4c677100e8` follows proof commit
+  `af85ea4f`, using compiler `48dc78e2`. Its immutable `staging.report.json`
+  has 98 obligations, 36 proven and 62 unproven, with 36/36 replay. All fourteen
+  `stage_admitted` postconditions are proven. The owner-resolved atom rule admits
+  only verified total-pure Bool helpers without preconditions, retaining exact
+  call arguments. Source correspondence remains 0 checked, 38 unsupported and
+  unauthenticated; neither this result nor earlier reports closes Q02.
+  Exact hashes and the immutable run mapping are in
+  [the staging proof record](../proof-gaps/fbx-source-staging-admission.md).
+  Preserve shared reborrow, mutation exclusion and owner-qualified constraints.
   Zero-argument generic calls need checked call-site region substitutions;
   matching an ambient region by spelling cannot establish a valid binding.
 - Qualify generation and creation-journal laws again with the repaired pair.
@@ -82,7 +85,7 @@ this item.
   enum disequality facts cannot substitute for the checked relation between a
   helper result and its inputs. Preserve fail-closed authentication and keep
   unresolved laws open. New repairs require fresh matched products and reports;
-  the clean baseline above remains the captured evidence until then. See [the exact
+  the clean pair above remains the captured evidence until then. See [the exact
   qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
 
 **Finish evidence:** authenticated intended predicates, negative controls and
