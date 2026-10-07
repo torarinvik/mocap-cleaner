@@ -34,6 +34,27 @@ This different failure narrows diagnosis; it does not prove the same cause.
 Keep the intended owning snapshot API while investigating specialization and
 declaration-owner context. No executable probes ran.
 
+## Move confirmation and result integration
+
+The later move-controller capture reports 14 backend declines and writes no
+object. Its log is
+`build/latest-compiler-qualification/generation-move-controller-main.compile.log`,
+SHA256 `c7d451b2596d0bda0c559efc0d468e56f63c233eb4e4b7d1eee2625421fcb440`.
+The declined bodies include `classify`, `resource_clear_slot`, `state`, `reset`,
+`request`, `fail`, `cancel`, `cancel_for_owner`, `retry`, `refresh`, and two
+concrete result readers with their wrappers. This capture precedes the final
+Storage guards in `5cda1dd` and the later result messages; it cannot qualify
+those changes or establish their exact present decline set.
+
+Result classification and nine accompanying law declarations at `021a276`
+compile as an object using the selected Stage1 above. The policy requires a
+bounded operation identity, certain lock release and exact quarantine/original
+reconciliation before describing a move as recoverable or not moved. Unknown,
+contradictory and retained-handle cases remain unresolved. These are source
+compilation observations, without executable tests or authenticated proofs.
+No result dismissal, repeated cleanup or restart recovery is qualified by this
+policy compilation.
+
 ## Foot-quality execution evidence limitation
 
 The retained diagnostic bundle at
