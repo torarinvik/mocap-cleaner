@@ -18,8 +18,9 @@ Compiler `e34f2c0656aac1232ad72da6516c7eb89f866a47` has a fresh,
 clean Stage1 product after preserving project repairs and fetching upstream.
 It fixes the imported generic `view` collision that prevented Studio's nine
 optional narrowing expressions from compiling. The complete app unit now
-compiles; complete native linkage, package publication and the full current
-check remain open. Retain the exact product and extra `scripts/platform.sh`
+compiles. The full compile, native link, build seal/publication and app package
+also completed at the captured snapshot with `STUDIO_SKIP_CHECKS=1`. The
+full current check and runtime acceptance remain open. Retain the exact product and extra `scripts/platform.sh`
 recipe-input hashes from [the source compile record](../acceptance/current-law-source-compile-2026-10-07.md).
 
 The earlier prover/replay generation `953dac2d5fbf41af97a7a10f4f410dea`
@@ -32,8 +33,10 @@ compilation or portable replay alone cannot establish source authentication.
 The native generation binding's arity mismatch was traced to the reserved
 Elisa identifier `error`, which the extern parameter scanner omitted from its
 arity count. Rename that source identifier without changing the positional C
-ABI, then compile the exact binding/controller closure. Keep this separate
-from the resolved generic `view` collision.
+ABI. That rename is committed and the reduced binding has no remaining arity
+errors. Resolve its two evidence-decoder backend declines, then compile and
+integrate the transaction/controller closure; it is not included in the passing
+app build. Keep this separate from the resolved generic `view` collision.
 
 Dependency freshness is still open. The selected UI has uncommitted source
 changes that must be captured exactly before and after qualification. The
