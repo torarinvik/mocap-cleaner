@@ -166,8 +166,8 @@ Root independently inspected these artifact hashes:
 - `staging.report.json`: `06344812ce3544d04e94bb7860c93d69967fda1808a5d5652126535f4513440b`.
 - `run-record.json`: `c7f1e5d0d4f2dc4f766a23b3599f4995d7c49a51a69afc9e74e0e15667c850d7`.
 
-The report has 98 obligations, 36 proven and 62 unproven. All fourteen
-`stage_admitted` ensures now prove, and the package replays 36/36. Correspondence
+The report has 98 obligations, 36 proven and 62 unproven. All thirteen
+`stage_admitted` ensures and its resource check now prove, and the package replays 36/36. Correspondence
 remains 0 checked, 0 unmatched, 38 unsupported and `source_authenticated=false`.
 Earlier postcondition failures above are historical. Refusal/constructor laws,
 generic region handoff and source/native correspondence remain open. Native

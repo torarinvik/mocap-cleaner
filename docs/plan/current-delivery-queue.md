@@ -68,8 +68,8 @@ this item.
   as verified predicates. Subsequent proof edits require a new current pair.
 - Current clean pair `1c9666c5f95e4e2d9b355e4c677100e8` follows proof commit
   `af85ea4f`, using compiler `48dc78e2`. Its immutable `staging.report.json`
-  has 98 obligations, 36 proven and 62 unproven, with 36/36 replay. All fourteen
-  `stage_admitted` postconditions are proven. The owner-resolved atom rule admits
+  has 98 obligations, 36 proven and 62 unproven, with 36/36 replay. All thirteen
+  `stage_admitted` postconditions and its resource check are proven. The owner-resolved atom rule admits
   only verified total-pure Bool helpers without preconditions, retaining exact
   call arguments. Source correspondence remains 0 checked, 38 unsupported and
   unauthenticated; neither this result nor earlier reports closes Q02.
