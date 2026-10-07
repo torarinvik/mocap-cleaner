@@ -2,6 +2,14 @@
 
 Status: reproducible compiler backend gap; repair and current qualification open.
 
+Compiler repair commits `74bd774` and `f0d8e4e` now emit void postconditions
+without a synthetic result binding. The source covers explicit bare returns,
+void call returns and implicit fallthrough, before deferred actions and region
+cleanup, retaining the error success ABI. Source review found the initially
+missing fallthrough path and the follow-up added its guard. These commits have
+not yet been qualified by a rebuilt current product or runtime observations;
+the failing product evidence below remains the last observed compilation.
+
 The current compiler at `5b3546508e36c35fcff94ae4b7631874e651e62c`
 (product SHA-256 `89d1b2ea78f8fbfe675386d0d2b84767077bb1572e23dece46f30d9749d59ce4`)
 refuses `proof/physics_residual_report_laws.elisa` object compilation, exit 2.
