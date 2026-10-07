@@ -136,3 +136,26 @@ geometry, accessibility and scene operations. App sources changed during this
 run, so it supplies diagnostic comparison evidence only. The composed inspector
 graph must receive a new stable snapshot and current compiler run after targeted
 backend reductions and repairs; this diagnostic result does not qualify it.
+
+## Empty dynamic-array initializer repair
+
+The compiler candidate now records source revision
+`4afdce0862bc87cd26566b6016f5553aaf670427`, source-tree SHA-256
+`aaef4fd64dbddfb1b2f708d69f08ef98f805fffaf1daf3491b706fdfaf698492`,
+build-recipe SHA-256
+`eaa161adf4e56aea3a0dd5662b7743f959ed430e701d28226fbd0f5daca7eb46`
+and product SHA-256
+`61fd208871173f6fea1f0d54848df463f38405def89e2f010536723054f3b7f1`.
+The root independently inspected `bin/elisac-stage1.provenance.json`, ran
+`python3 scripts/stage1_provenance.py check . bin/elisac-stage1` successfully
+in the candidate checkout and recomputed the matching product hash.
+
+The compiler worker reports a subsequent no-bypass seed completed successfully
+after the freshness-checker repair, followed by an empty-array reduction with
+a 544-byte O0 object and LLVM global `{ ptr, i64, i64 } zeroinitializer`.
+It reports nonempty dynamic-array global initialization still refuses with no
+object. These reduction observations remain worker-reported until their exact
+artifacts are inspected. Compiler-product provenance alone does not establish
+linked runtime provenance or qualify the composed Studio graph. Remaining
+private-field ownership and call/binary backend declines require separate
+reductions and an eventual fixed-snapshot integrated build.
