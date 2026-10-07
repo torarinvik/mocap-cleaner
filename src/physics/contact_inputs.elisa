@@ -1,0 +1,44 @@
+include "../ops/rig_stack.elisa"
+include "length_boundary.elisa"
+include "track_shape_policy.elisa"
+
+module PhysicsContactInputs:
+    public:
+        def point_admitted(p: MotionQuat::V) -> bool:
+            ensure result == (PhysicsLengthBoundary::world_admitted(p.x) and PhysicsLengthBoundary::world_admitted(p.y) and PhysicsLengthBoundary::world_admitted(p.z))
+            PhysicsLengthBoundary::world_admitted(p.x) and PhysicsLengthBoundary::world_admitted(p.y) and PhysicsLengthBoundary::world_admitted(p.z)
+
+        # Validate before any world float is rounded into a physics integer.
+        def admitted(c: Rig::Clip&, length: f64) -> bool:
+            return false if c.frames < 1 or c.times.count.i64() != c.frames
+            left: i64 = Rig::node_of(c, Roles::Joint.LeftFoot.i64())
+            right: i64 = Rig::node_of(c, Roles::Joint.RightFoot.i64())
+            return false if not PhysicsTrackShapePolicy::contact_source_admitted(left, right, length)
+            return false if not Contact::valid_thresholds(Limb::micro(length * 0.05), Limb::micro(length * 0.08), Limb::micro(length * 0.5))
+            for f in 0..<c.frames:
+                t: f64 = c.times[f.usize()]
+                return false if t - t != 0.0
+                return false if f > 0 and t <= c.times[(f - 1).usize()]
+            span: f64 = c.times[c.times.count - 1] - c.times[0]
+            fps: f64 = (c.frames - 1).f64() / span if c.frames > 1 else 30.0
+            return false if fps - fps != 0.0 or fps <= 0.0
+            mutable w: Rig::World = Rig::empty_world()
+            mutable previous_left: MotionQuat::V = Rig::v(0.0, 0.0, 0.0)
+            mutable previous_right: MotionQuat::V = Rig::v(0.0, 0.0, 0.0)
+            for f in 0..<c.frames:
+                Rig::solve_world(c, f, &w)
+                return false if left.usize() >= w.pos.count or right.usize() >= w.pos.count
+                for p in w.pos:
+                    return false if not point_admitted(p)
+                l: MotionQuat::V = w.pos[left.usize()]
+                r: MotionQuat::V = w.pos[right.usize()]
+                if f > 0:
+                    lx: f64 = l.x - previous_left.x
+                    lz: f64 = l.z - previous_left.z
+                    rx: f64 = r.x - previous_right.x
+                    rz: f64 = r.z - previous_right.z
+                    return false if not PhysicsLengthBoundary::world_admitted((lx * lx + lz * lz).sqrt() * fps)
+                    return false if not PhysicsLengthBoundary::world_admitted((rx * rx + rz * rz).sqrt() * fps)
+                previous_left <- l
+                previous_right <- r
+            true
