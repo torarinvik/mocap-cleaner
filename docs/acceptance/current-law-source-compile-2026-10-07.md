@@ -138,3 +138,26 @@ The sourced `scripts/platform.sh` SHA256 is
 It remains an explicitly captured extra recipe input while the compiler's
 provenance recipe omits this newly sourced script. Full current Studio and
 proof-pair qualification are in progress and must retain that distinction.
+
+### Complete Studio build at the repaired compiler snapshot
+
+The full `scripts/build_studio.sh` invocation with `STUDIO_SKIP_CHECKS=1`
+completed successfully: main-unit compilation, native linking, source snapshot
+recheck, product seal, executable publication and app packaging. The generation
+is `build/studio-build.PNkqnW`; its input record SHA256 is
+`4d7c3fcbb3c6c95125749465a5f894a38bb17161fd781348e9a7b39e03f8a67d`
+and input inventory SHA256 is
+`f379d483991c0175fa31dcf504c9f71854bc375ee0f0cd1006e5375702a6ca0c`.
+Main object SHA256 is
+`4470da305105babae43553bbfc04b250e71fec44c78f26edc6df0bce789eca53`;
+executable SHA256 is
+`1bfb7ca42058646413ee8bc3cc081b0053aa68fa58f66ffba91b2af781801b7d`.
+Selected engine revision is `c52023cea002f8295f72d0b304ed1f5743cc10e5`.
+The UI's selected HEAD is `f33e439b3dc25eb28bb62b282128c0b0c9d6838a`
+with dirty inputs captured before/after; the snapshot check passed.
+
+This run did not execute checks, prove laws or establish native interaction.
+The new cleanup transaction/controller is outside the app input closure and
+its reduced-unit backend declines remain open. Dependency integration with
+fetched engine upstream remains open. Newly added package verifier code has
+not been exercised by this earlier build and is not yet wired into packaging.

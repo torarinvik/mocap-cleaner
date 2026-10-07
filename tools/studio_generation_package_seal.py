@@ -58,12 +58,18 @@ def verify_package_seal(project, artifact, artifact_id, root):
             "executable_sha256": executable_sha, "contents_inventory_sha256": inventory_sha,
         } and not lease_facts.st_mode & 0o222, "package lease differs or is writable")
         executables = open_artifact(root, PackageSeal.executables)
+        executables_facts = os.fstat(executables)
         executable_facts = os.stat("MocapStudio", dir_fd=executables, follow_symlinks=False)
         require(hash_file(executables, "MocapStudio", executable_facts, durable=True) == executable_sha,
                 "copied executable differs")
         rebound = open_artifact(root, PackageSeal.resources)
         try:
             require(identity(os.fstat(rebound)) == identity(resources_facts), "package resources replaced")
+        finally:
+            os.close(rebound)
+        rebound = open_artifact(root, PackageSeal.executables)
+        try:
+            require(identity(os.fstat(rebound)) == identity(executables_facts), "package executable directory replaced")
         finally:
             os.close(rebound)
         return {
