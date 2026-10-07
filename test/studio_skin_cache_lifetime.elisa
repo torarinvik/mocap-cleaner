@@ -1,0 +1,46 @@
+# Mirror the viewport's returned pose -> optional global -> cached redraw path.
+# A valid descriptor/count must keep every Vec3 payload alive across churn.
+module SkinCacheLifetime:
+    public:
+        struct Vec3:
+            x: f32
+            y: f32
+            z: f32
+        global mutable points: darray[Vec3]? = null
+        global mutable cached_frame: i64 = -1
+
+        def pose(frame: i64) -> darray[Vec3]:
+            mutable out: darray[Vec3] = []
+            for index in 0..<256 |index, frame, out|:
+                out.push(Vec3{x: frame.f32(), y: index.f32(), z: 42.0})
+            return out
+
+        def refresh(frame: i64) -> void:
+            return if cached_frame == frame
+            posed: darray[Vec3] = pose(frame)
+            points <- posed
+            cached_frame <- frame
+
+        def valid(frame: i64) -> bool:
+            if points is vertices:
+                return false if vertices.count != 256
+                for index in 0..<256 |index, vertices, frame|:
+                    value: Vec3 = vertices[index]
+                    return false if value.x != frame.f32() or value.y != index.f32() or value.z != 42.0
+                return true
+            return false
+
+        def churn(seed: i64) -> i64:
+            mutable junk: darray[i64] = []
+            for index in 0..<4096 |index, seed, junk|:
+                junk.push(seed + index.i64())
+            return junk[4095]
+
+def main() -> i32:
+    for frame in 0..<64 |frame|:
+        SkinCacheLifetime::refresh(frame.i64())
+        for redraw in 0..<32 |redraw, frame|:
+            _ = SkinCacheLifetime::churn(redraw.i64())
+            SkinCacheLifetime::refresh(frame.i64())
+            return 1 if not SkinCacheLifetime::valid(frame.i64())
+    return 0
