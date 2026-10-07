@@ -12,7 +12,8 @@ Complete all applicable categories before removing a task from this roadmap.
   dependencies, source/proof touchpoints, failure behavior and acceptance cases.
   Split compound checkboxes when implementation and qualification differ.
 - Record evidence in small documents under `docs/acceptance/`, linked from
-  an index. Put generated captures, traces, benchmark data and fixtures under
+  the [acceptance index](../acceptance/index.md). Put generated captures,
+  traces, benchmark data and fixtures under
   `build/`; record regeneration commands and input hashes so disposable
   artifacts are reproducible. Keep every maintained evidence document within
   600 lines.

@@ -6,7 +6,8 @@
 
 ### Evidence and automation
 
-- [ ] Establish the acceptance index and per-slice records described in
+- [ ] Complete the per-slice records linked from the
+      [acceptance index](../acceptance/index.md), following
       [shared acceptance requirements](acceptance-and-dependencies.md). Record
       exact source/dependency snapshots and separate compile, runtime, proof,
       native interaction, motion-quality and external usability evidence.
