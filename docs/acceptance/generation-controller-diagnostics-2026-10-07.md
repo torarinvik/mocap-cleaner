@@ -172,7 +172,12 @@ and a live Restore confirmation take precedence. Path traversal computes escape
 mode once per traversal, and oversized line requests stop at the end. No measured
 latency or native/assistive-technology runtime acceptance is claimed.
 
-The main compile started with the earlier candidate remains diagnostic because
-its compiler source changed before terminal completion. Retain its terminal log
-at `build/latest-compiler-qualification/generation-status-path-main.compile.log`;
-it cannot qualify the merged compiler or the whole current application.
+The main compile started with the earlier candidate completed with exit 0 and
+emitted `build/generation-current-main.o` (SHA256
+`ea9bdfb96861793eefc7e6e406960330a0b7901eb52db762c36e1d0057fc96ff`).
+Its terminal log at
+`build/latest-compiler-qualification/generation-status-path-main.compile.log`
+is empty (SHA256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+This remains diagnostic because compiler source changed during the invocation.
+It cannot qualify the merged compiler or the whole current application; no native
+link, executable, runtime or authenticated proof result follows from this object.
