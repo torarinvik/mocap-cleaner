@@ -172,13 +172,19 @@ module StudioModel:
                 second <- StudioSourceFingerprint::second_step(second, byte)
             StudioSourceFingerprint::Fingerprint{first: first, second: second}
 
-        # Load `path` and find `anim_name` (the first animation when absent).
-        # Null when the file or every animation is missing.
-        def load(path: cstr, anim_name: cstr) -> Memo?:
+        # Shared source loader. Explicit indices are strict; ordinary takes
+        # retain the existing name lookup and first-animation fallback.
+    private:
+        def load_selected(path: cstr, requested_animation: i64?, anim_name: cstr) -> Memo?:
             a: GlbDocument::Document? = open(path)
             if a is src:
-                found: i64 = find(src, anim_name)
-                found_any: i64 = found if found >= 0 else (0 if GlbDocument::animation_count(src) > 0 else -1)
+                mutable found_any: i64 = -1
+                if requested_animation is exact_index:
+                    return null if exact_index < 0 or exact_index >= GlbDocument::animation_count(src)
+                    found_any <- exact_index
+                else:
+                    found: i64 = find(src, anim_name)
+                    found_any <- found if found >= 0 else (0 if GlbDocument::animation_count(src) > 0 else -1)
                 return null if found_any < 0
                 anim: usize = found_any.usize()
                 if fingerprint(&src) is source_fingerprint:
@@ -193,6 +199,18 @@ module StudioModel:
                     m: Memo = Memo{pristine: src, source_fingerprint: source_fingerprint, anim: anim, frames: frames, nodes: nodes, slot: slot, source_problems: sp, bank: [], rig_cache: RigCache::new_cache(), shortest: shortest, threshold: threshold, source_impossible_frames: source_balance.impossible}
                     return move m
             return null
+
+    public:
+        # Load `path` and find `anim_name` (the first animation when absent).
+        # Null when the file or every animation is missing.
+        def load(path: cstr, anim_name: cstr) -> Memo?:
+            load_selected(path, null, anim_name)
+
+        # Locate uses the saved animation index directly. It never falls back
+        # to a different animation when that index is unavailable.
+        def load_at_index(path: cstr, animation_index: i64) -> Memo?:
+            return null if animation_index < 0
+            load_selected(path, animation_index, "")
 
         # Load `path`, find `anim_name`, clean a copy with `s` and sample
         # everything the studio draws (no reuse). Null when missing.

@@ -1,0 +1,28 @@
+# One source read owned by a worker. The bounded path bytes move with the job,
+# so cancellation can close the modal while the native file read drains.
+include "../../../Elisa-compiler/elisacore_std/elisacore_runtime.elisa"
+
+module StudioSessionLocateWorker:
+    public:
+        affine struct Job:
+            ticket: i64
+            path: darray[u8]
+            animation: i64
+
+        affine struct Result:
+            ticket: i64
+            memo: StudioModel::Memo?
+
+        def load(job: Job) -> Result can Unsafe.PointerCast:
+            ticket: i64 = job.ticket
+            mutable path_bytes: darray[u8] = move job.path
+            mutable memo: StudioModel::Memo? = null
+            if path_bytes.count > 0 and path_bytes[path_bytes.count - 1] == 0:
+                path: cstr = (&path_bytes[0]).cast[cstr]
+                memo <- StudioModel::load_at_index(path, job.animation)
+            Result{ticket: ticket, memo: move memo}
+
+# The task runtime currently lowers bare top-level function values; keep a
+# typed trampoline at top level for dispatch.
+def load_session_locate_job(job: StudioSessionLocateWorker::Job) -> StudioSessionLocateWorker::Result can Unsafe.PointerCast:
+    StudioSessionLocateWorker::load(move job)

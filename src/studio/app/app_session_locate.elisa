@@ -13,9 +13,14 @@ extend Studio:
             session_locate_source_valid <- false
             session_locate_comparison <- StudioSessionSourcePolicy::Comparison.ChangedBytes
             session_locate_memo <- null
+            pending_take_path <- ""
             SessionState::discard_locate_candidate()
 
         def begin_session_locate(p: cstr) -> void can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+            if session_locate_worker != null:
+                say_file("the previous source check is still finishing; try again shortly", pending_path())
+                touch()
+                return
             if not stage_pending_path(p):
                 say_file("session path exceeds 4095 bytes", p)
                 touch()
@@ -24,6 +29,7 @@ extend Studio:
                 say_file(session_locate_failure(), p)
                 touch()
                 return
+            gizmo_cancel() if gizmo_view >= 0
             session_locate_open <- true
             session_locate_focus <- StudioSessionLocatePolicy::initial_focus()
             session_locate_source_valid <- false
@@ -90,7 +96,7 @@ extend Studio:
                 status_file <- source_path
                 touch()
 
-        def choose_located_source() -> void can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+        def choose_located_source() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
             if FilePanel::open("glb", "Locate the original motion-capture take") is chosen:
                 session_locate_memo <- null
                 session_locate_source_valid <- false
@@ -101,14 +107,76 @@ extend Studio:
                     touch()
                     return
                 candidate_path: cstr = stored_path(slot)
-                if StudioModel::load(candidate_path, anim_name) is loaded:
-                    session_locate_memo <- null
-                    accept_located_source(move loaded, candidate_path)
-                else:
-                    say_file("no usable animation could be read from", candidate_path)
+                if SessionState::locate_candidate_identity() is saved:
+                    mutable owned_path: darray[u8] = []
+                    mutable path_ready: bool = false
+                    mutable path_at: usize = 0
+                    while path_at < PathCapacity::BYTES:
+                        byte: u8 = candidate_path[path_at]
+                        owned_path.push(byte)
+                        path_at <- path_at + 1
+                        if byte == 0:
+                            path_ready <- true
+                            break
+                    if not path_ready:
+                        status <- "take path exceeds 4095 bytes"
+                        status_file <- null
+                        touch()
+                        return
+                    session_locate_worker_ticket <- StudioSessionLocatePolicy::next_ticket(session_locate_worker_ticket)
+                    session_locate_worker_path <- candidate_path
+                    session_locate_worker_cancelled <- false
+                    job: StudioSessionLocateWorker::Job = StudioSessionLocateWorker::Job{
+                        ticket: session_locate_worker_ticket,
+                        path: move owned_path,
+                        animation: saved.animation}
+                    session_locate_worker <- task(load_session_locate_job, move job)
+                    status <- "Checking source metadata in the background. The current cleanup remains active."
+                    status_file <- null
                     touch()
 
-        def resolve_session_locate(choice: StudioSessionLocatePolicy::Choice) -> void can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+        def poll_session_locate_worker() -> void can[Threads, Ui.Window, Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            if session_locate_worker is active_task:
+                session_locate_worker <- null
+                readiness: ThreadReadiness[StudioSessionLocateWorker::Result] = poll_ready(move active_task)
+                if not readiness.complete:
+                    session_locate_worker <- move readiness.thread
+                    return
+                match join(move readiness.thread):
+                    StudioSessionLocateWorker::Result{ticket: completed_ticket, memo: completed_memo}:
+                        if completed_ticket == session_locate_worker_ticket and not session_locate_worker_cancelled and session_locate_open:
+                            if completed_memo is loaded:
+                                accept_located_source(move loaded, session_locate_worker_path)
+                            else:
+                                status <- "No usable source could be read at the saved animation index. Choose another GLB."
+                                status_file <- session_locate_worker_path
+                        elif session_locate_open and not session_locate_close_pending:
+                            clear_session_locate()
+                            if accessibility_file_ready:
+                                _ = UiFlat::request_focus(accessibility_file_trigger_widget)
+                            status <- "Session locate cancelled; the current cleanup is unchanged."
+                            status_file <- pending_path()
+                session_locate_worker_cancelled <- false
+                session_locate_worker_path <- ""
+                touch()
+                if session_locate_close_pending:
+                    session_locate_open <- false
+                    session_locate_source_valid <- false
+                    session_locate_memo <- null
+                    SessionState::discard_locate_candidate()
+                    request_window_close()
+
+        def resolve_session_locate(choice: StudioSessionLocatePolicy::Choice) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
+            if session_locate_worker != null:
+                if choice == StudioSessionLocatePolicy::Choice.Cancel:
+                    session_locate_worker_cancelled <- true
+                    clear_session_locate()
+                    if accessibility_file_ready:
+                        _ = UiFlat::request_focus(accessibility_file_trigger_widget)
+                    status <- "Source check canceled. Its background read will be discarded when it finishes."
+                    status_file <- null
+                    touch()
+                return
             action: StudioSessionLocatePolicy::Resolution = StudioSessionLocatePolicy::resolve(
                 session_locate_open, SessionState::locate_candidate_identity() != null,
                 session_locate_source_valid, session_locate_comparison, choice)
@@ -165,19 +233,29 @@ extend Studio:
         def session_locate_modal_open() -> bool:
             session_locate_open
 
-        def session_locate_accessibility_action(widget: usize, event: i32) -> bool can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+        def session_locate_loading() -> bool:
+            session_locate_worker != null
+
+        def poll_locate_worker() -> void can[Threads, Ui.Window, Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            poll_session_locate_worker()
+
+        def session_locate_accessibility_action(widget: usize, event: i32) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
             for choice in [StudioSessionLocatePolicy::Choice.Locate,
+                           StudioSessionLocatePolicy::Choice.RestoreSession,
                            StudioSessionLocatePolicy::Choice.OpenAsNewTake,
                            StudioSessionLocatePolicy::Choice.Cancel] |choice, widget, event|:
                 if widget == accessibility_session_locate_widgets[(choice.i64() - 1).usize()]:
                     if event == UiConst::WidgetEvent.Click.i32() and session_locate_open and StudioSessionLocatePolicy::action_enabled(
-                        SessionState::locate_candidate_identity() != null,
+                        SessionState::locate_candidate_identity() != null and not session_locate_loading(),
                         session_locate_source_valid, session_locate_comparison, choice):
                         resolve_session_locate(choice)
                     return true
             false
 
-        def session_locate_key(code: UiCore::Key) -> void can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+        def session_locate_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
+            if session_locate_loading():
+                resolve_session_locate(StudioSessionLocatePolicy::Choice.Cancel) if code == UiCore::Key.Escape
+                return
             if code == UiCore::Key.Escape:
                 resolve_session_locate(StudioSessionLocatePolicy::Choice.Cancel)
             elif code == UiCore::Key.L and not StudioShortcuts::command(modifiers):
@@ -203,10 +281,10 @@ extend Studio:
                 choice: StudioSessionLocatePolicy::Choice = StudioSessionLocatePolicy::Choice.Locate if session_locate_focus == StudioSessionLocatePolicy::Focus.Locate else StudioSessionLocatePolicy::Choice.RestoreSession if session_locate_focus == StudioSessionLocatePolicy::Focus.RestoreSession else StudioSessionLocatePolicy::Choice.OpenAsNewTake if session_locate_focus == StudioSessionLocatePolicy::Focus.OpenAsNewTake else StudioSessionLocatePolicy::Choice.Cancel
                 resolve_session_locate(choice)
 
-        def session_locate_pointer(w: f32, h: f32, x: f32, y: f32, button: i32) -> void can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+        def session_locate_pointer(w: f32, h: f32, x: f32, y: f32, button: i32) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
             return if button != 0
             choice: StudioSessionLocatePolicy::Choice = StudioPanels::session_locate_button_hit(
-                w, h, x, y, SessionState::locate_candidate_identity() != null,
+                w, h, x, y, SessionState::locate_candidate_identity() != null and not session_locate_loading(),
                 session_locate_source_valid, session_locate_comparison)
             if choice != StudioSessionLocatePolicy::Choice.None:
                 session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate if choice == StudioSessionLocatePolicy::Choice.Locate else StudioSessionLocatePolicy::Focus.RestoreSession if choice == StudioSessionLocatePolicy::Choice.RestoreSession else StudioSessionLocatePolicy::Focus.OpenAsNewTake if choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake else StudioSessionLocatePolicy::Focus.Cancel
