@@ -29,6 +29,10 @@ would conceal ambiguity and is not an acceptable repair.
 - Preserve the full resolved lexical owner for nested constants and function
   signatures, including nested modules; use the resolved source callee rather
   than a global leaf-name search.
+- Compare exact ordered path segments. A path hash may accelerate lookup but
+  cannot establish declaration identity; detect and refuse distinct paths with
+  the same hash, including sentinel remapping collisions. Apply this to lexical
+  context lookup as well as qualified terms.
 - Encode that identity in package terms and require independent replay to
   resolve the same declaration. Producer-only acceptance is insufficient.
 - Cover equal leaf names with different scalar sorts, qualified references,
