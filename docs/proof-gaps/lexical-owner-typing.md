@@ -1,6 +1,6 @@
 # Lexical owner identity in proposition typing
 
-Status: reproduced in the current source-matched pair; repair and qualification open.
+Status: reproduced; source repair committed as `d83d6f69`, qualification open.
 
 ## Reproduction and consequence
 
@@ -56,3 +56,16 @@ Root independently verified all 24 report/package/replay/correspondence hashes.
 All six correspondence commands exit 1, check zero functions and report
 coverage not-established. Failure policy alone independently replays 26/26
 existing theorems; it still lacks authenticated source coverage.
+
+## Committed repair awaiting qualification
+
+Proof commit `d83d6f69` records full ordered module segments with declaration
+identities, coalesces identical reopened paths and refuses conflicting identity
+records. Producer and replay select function signatures within that exact owner.
+Replay validates consistent counts, exactly one row per segment, nonempty names
+and bounded indices before qualified or lexical-context lookup. New controls
+cover both qualified owners, bare calls, collisions, duplicate/extra/inconsistent
+rows and wrong sorts. They have not compiled or run on a fresh compiler yet.
+The compiler checkout is being repaired/reseeded; stale products cannot qualify
+these changes. Flat unique-only named-type lookup remains a separate conservative
+coverage gap for repeated module-local user parameter/result type names.
