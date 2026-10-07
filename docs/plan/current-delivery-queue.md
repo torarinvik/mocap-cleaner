@@ -40,10 +40,12 @@ app build. Keep this separate from the resolved generic `view` collision.
 
 Dependency freshness is still open. The selected UI has uncommitted source
 changes that must be captured exactly before and after qualification. The
-mocap engine branch has preserved project changes and diverges from fetched
-main; integrate newer upstream commits while preserving the local provider additions
-after the separate engine installation is stable. Merely fetching or building an older selected tree does
-not close the current-dependency requirement.
+mocap engine now includes fetched main `55541b7b` at merge `dff5579b`,
+with its provider additions preserved; a full Studio build against that merged
+source passed. The new bounded generation provider is being developed on that
+branch and needs complete source/native qualification once integrated. Compiler
+provenance still needs `platform.sh` added to its recipe fingerprint; its exact
+hash is already captured by the app input snapshot.
 
 - Qualify borrow-region propagation through compiler/std callers, including
   explicit short-lived allocation refusal, distinct owners and retained scratch
