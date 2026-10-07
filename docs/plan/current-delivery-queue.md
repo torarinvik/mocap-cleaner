@@ -43,6 +43,13 @@ Remaining work:
   must exercise optional task binding, void publication and growth of both the
   outer container and nested buffers after publication. Retain commands, hashes,
   sanitizer output and terminal exits rather than deleting the fixture artifacts.
+  The first rebase onto `665f40d7` dropped project merge-resolution changes:
+  the backup-to-rebased tree diff spans 69 files, including the worker arena,
+  result adoption, callback ABI handling and provenance guards. Keep candidate
+  qualification stopped until those repairs are restored and the full tree diff
+  is reconciled. A clean worktree or ancestor check cannot establish preservation;
+  retaining the original branch under `backup/void-poll-before-main-rebase`
+  supplies the comparison source.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
