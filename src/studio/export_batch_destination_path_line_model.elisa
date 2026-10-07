@@ -99,7 +99,7 @@ module StudioExportBatchDestinationPathLineModel:
         # every output segment remains byte-capped for accessibility.
         def pack[N: usize](path: u8[N]&, path_length: usize, units: darray[Unit]&, row_width: f32,
                 horizontal_inset: f32, safety_margin: f32,
-                measure: fn(u8[N]&, usize, usize) -> WidthMeasurement, out: mutable Model&) -> Status can Memory.Allocate:
+                measure: fn(u8[N]&, usize, usize, mutable WidthMeasurement&) -> void, out: mutable Model&) -> Status can Memory.Allocate:
             requires path_length <= N and path_length <= Limit::MAX_PATH_BYTES
             ensure valid(out)
             ensure out.path_length == path_length
@@ -130,12 +130,13 @@ module StudioExportBatchDestinationPathLineModel:
                 mutable candidate_bytes: usize = line_bytes + unit.byte_count
                 mutable candidate_width: f32 = -1.0
                 mutable measurement_available: bool = true
+                mutable measurement: WidthMeasurement = WidthMeasurement{available: false, width: -1.0}
                 mutable must_flush: bool = candidate_bytes > Limit::MAX_SEGMENT_BYTES
                 if line_bytes > 0 and not must_flush:
-                    candidate_measurement: WidthMeasurement = measure(path, line_start, candidate_bytes)
-                    candidate_width <- candidate_measurement.width
-                    measurement_available <- candidate_measurement.available
-                    must_flush <- not candidate_measurement.available or not finite(candidate_width) or candidate_width < 0.0 or candidate_width > available
+                    measure(path, line_start, candidate_bytes, &measurement)
+                    candidate_width <- measurement.width
+                    measurement_available <- measurement.available
+                    must_flush <- not measurement.available or not finite(candidate_width) or candidate_width < 0.0 or candidate_width > available
                 if line_bytes > 0 and must_flush:
                     out.segments.push(Segment{start: line_start, byte_count: line_bytes,
                         measured_width: line_width, overflowed: false,
@@ -144,13 +145,13 @@ module StudioExportBatchDestinationPathLineModel:
                     line_bytes <- 0
                     line_split <- false
                     candidate_bytes <- unit.byte_count
-                    single_measurement: WidthMeasurement = measure(path, unit.start, unit.byte_count)
-                    candidate_width <- single_measurement.width
-                    measurement_available <- single_measurement.available
+                    measure(path, unit.start, unit.byte_count, &measurement)
+                    candidate_width <- measurement.width
+                    measurement_available <- measurement.available
                 elif line_bytes == 0:
-                    single_measurement: WidthMeasurement = measure(path, unit.start, unit.byte_count)
-                    candidate_width <- single_measurement.width
-                    measurement_available <- single_measurement.available
+                    measure(path, unit.start, unit.byte_count, &measurement)
+                    candidate_width <- measurement.width
+                    measurement_available <- measurement.available
                 unavailable: bool = not measurement_available or not finite(candidate_width) or candidate_width < 0.0
                 if unavailable:
                     out.segments.push(Segment{start: unit.start, byte_count: unit.byte_count,
