@@ -30,7 +30,9 @@ quaternion refuses rather than becoming identity; translation and quaternion
 components outside their wire domains refuse rather than clamp. Six further
 integer laws compile diagnostically. Quaternion normalization of a nonzero
 wire quaternion remains orientation-preserving conversion and needs numerical
-qualification. Global foot-blend conversion still requires strict v4 review.
+qualification. Global foot blend now requires its exact supported domain in
+v4, with two refusal/preservation laws; legacy out-of-range defaulting remains
+limited to approved migration. Qualify these checks through complete decoding.
 V4 finding annotations with invalid shape, unsupported schema or invalid
 record values now refuse restoration with the annotation-specific error,
 instead of being silently skipped. Exact duplicate annotations remain
