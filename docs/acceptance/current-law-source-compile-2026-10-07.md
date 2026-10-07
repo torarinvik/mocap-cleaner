@@ -114,3 +114,27 @@ Both CLI build and check entry points now derive their default compiler wrapper
 from that selection (`fc593fd`); Studio already honors it. Earlier compiler
 results are comparison evidence. The current full app and paired prover must
 be rebuilt/qualified against this compiler before accepting those deliverables.
+
+### Owner-local `view` collision repair
+
+Compiler revision `e34f2c0656aac1232ad72da6516c7eb89f866a47` preserves
+same-owner nongeneric call resolution before generic return inference. The
+Studio `view(i)` call previously entered imported generic template slot 75,
+inferred zero generic arguments and became Unmodeled before the owner-local
+return scan. Temporary tracing has been removed and the compiler checkout is
+clean at this revision.
+
+The fresh product SHA256 is
+`b2e4d197df34892b4f7a43a5ff751aecd6c95c08a998783c5687548f50559ae1`;
+runtime object SHA256 is
+`51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`.
+The app-unit compile succeeds, producing `build/view-narrowing-current/app.fixed.o`
+with SHA256 `9a07b1bd4fb20ae39c5f4dfef2b4f2d6672e8db9ef764a3b26817d2466f666b5`
+and an empty diagnostic log. This is app-unit compilation evidence, not full
+build, native linkage, runtime or proof qualification.
+
+The sourced `scripts/platform.sh` SHA256 is
+`eedfa210c0cb8d34741f4aae87b50a11d548cb8c1bf2b83ba820fc1012257b16`.
+It remains an explicitly captured extra recipe input while the compiler's
+provenance recipe omits this newly sourced script. Full current Studio and
+proof-pair qualification are in progress and must retain that distinction.
