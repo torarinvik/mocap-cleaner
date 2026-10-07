@@ -98,6 +98,12 @@ depend on completion of the P1 queue UI.
   Include Studio contact heights/speeds from `GlbTracks::to_fixed` in the caller
   inventory. Assign each conversion its physical dimension and time basis;
   preserve angular units while migrating lengths and length-derived quantities.
+  Qualify and integrate the isolated `LengthUnits` integer boundary added in
+  `dd3e296`: nearest rounding with signed half ties away from zero, explicit
+  reverse overflow admission and full-i64 source coverage. Its law graph has
+  compile evidence only. Discharge its laws and bind them to exact source before
+  relying on the conversion; caller migration and decision requalification
+  remain required.
 - For metrics distinguish measured pass, measured failure, unknown and
   inapplicable. Include sample counts, intervals and exclusion reasons. A zero
   sample count, NaN, missing contact labels or unsupported metric is not zero

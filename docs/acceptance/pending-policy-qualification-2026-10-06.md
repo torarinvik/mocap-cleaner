@@ -246,3 +246,24 @@ Investigate a safe owned or fixed-buffer text-view API and preserve the current
 effect checks. Any required UI/compiler repair must establish exact retained
 bytes and buffer lifetimes, alongside the separate checked-width validity gate.
 Do not make unsafe callbacks appear safe by dropping their declared effects.
+
+## Isolated integer length conversion
+
+Commit `dd3e296` adds `LengthUnits` and ten laws without composing the module
+into existing callers. Micrometres convert to 0.1 mm with nearest rounding,
+half ties away from zero, using division/remainder before adjustment. Reverse
+conversion admits exactly the i64-safe multiplication range. Laws cover both
+i64 extrema, signed ties, exact units, reverse refusal and the 50 micrometre
+round-trip error bound. Angular and current physical callers are unchanged.
+
+The source SHA-256 is
+`d61b44c18d73c6af5eabf97343e98ef0fe46d7ff69619f49db80dae2c92d3e8e`;
+the law SHA-256 is
+`1448ee5b4fad32951519d5af930773937a42ad2892e6a69d8248eb5ffe659c2a`.
+The current normal compiler provenance check passed; an O0 compile of the law
+graph exited zero and emitted `build/length-units-qualification/laws.o`,
+18,608 bytes, SHA-256
+`b4d2cadf71576366b4578daa70e922fb04e72ad6b18016c162c24ac0e88fb3b3`.
+`nm` lists all three kernel and ten law definitions. This establishes compiled
+source only: authenticated proof, overflow qualification, caller migration,
+threshold behavior and exported-metric compatibility remain open.
