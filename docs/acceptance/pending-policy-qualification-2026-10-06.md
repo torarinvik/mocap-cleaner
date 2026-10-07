@@ -360,3 +360,23 @@ additional compiles are outside the earlier fifteen-graph input manifest.
 They establish compilation only; authenticated discharge, full application
 integration and runtime persistence behavior remain required. The maintained
 text length check now covers 780 files, all at most 600 lines.
+
+## Final grouping inventory and context-specific compilation
+
+Commits `0098790`, `cf085bf`, `322fea7` and `6140bca` migrate role indices,
+private application constants, accessibility IDs/ranges and panel action codes.
+The lexical inventory now reports zero ordinary module scopes requiring review.
+The maintained text length check covers 781 files, all at most 600 lines.
+These results do not establish complete representation or behavior acceptance.
+
+Current candidate O0 compilation produced role laws (62,560 bytes), rig
+selection laws (919,968 bytes) and panel constant-domain laws (4,232,040 bytes).
+The panel proof graph requires explicit UiCore/UiText imports; its initial
+missing-import attempt failed and supplied no acceptance evidence.
+
+The focused accessibility graph compiled. The wider export batch-sheet graph
+refused 25 bodies with field-expression diagnostics involving accessibility
+constants and emitted no object. Renaming the ID const module to SemanticId
+did not resolve the failure. The compiler worker has this context-specific
+failure for reduction; module ownership is not yet established as its cause.
+Current full application and authenticated proof qualification remain open.

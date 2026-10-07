@@ -11,7 +11,7 @@
       [shared acceptance requirements](acceptance-and-dependencies.md). Record
       exact source/dependency snapshots and separate compile, runtime, proof,
       native interaction, motion-quality and external usability evidence.
-- [ ] Complete the constant-module migration using
+- [ ] Qualify the completed constant grouping and review finite-choice APIs using
       `scripts/inventory_constant_modules.py`. Run the lexical inventory for the
       current source snapshot to identify ordinary module scopes with multiple
       constant declarations. It includes proof/test owners and extension modules,
