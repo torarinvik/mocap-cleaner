@@ -43,3 +43,18 @@ the call site's allocation region even when the enclosing function returns
 void. Do not weaken intrinsic authentication or infer storage-free results
 from an unknown type. Rebuild and qualify the whole returned graph before
 promoting the compiler; explicit worker annotations alone did not fix this.
+
+## Regression scope
+
+Positive carrier controls must use scalar or void callers with an owned generic
+temporary result. A function already returning an array has a hidden return
+arena and cannot establish that a local carrier is created when that slot is
+absent. Likewise, an unrelated array literal or typed growable local can hide a
+failed call-demand scan. Cover inferred, explicit and qualified specialization.
+
+Negative controls must keep scalar-specialized calls, scalar results borrowing
+region-backed input, and same-named functions in different modules free of newly
+introduced local carriers. Inspect their generated function bodies separately
+from the allocating fixture entry point. Retain full compiler before/after
+carrier counts and matched Stage1 timings; passing byte reads alone does not
+establish the required absence of a runtime slowdown.
