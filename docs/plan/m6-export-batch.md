@@ -2,6 +2,13 @@
 
 [Roadmap index](../../IMPLEMENTATION_PLAN.md)
 
+Current-result admission now runs before opening export review, preparing a
+queue item and direct publication. A shared policy refuses missing clip or
+evaluated provenance, a different current stack, a failed build or a pending
+rebuild. Six policy obligations compile with d2754a8e; authenticated replay
+and native failed-edit/deferred-build export flows remain pending. Existing
+publication-time provenance checks remain in place to revalidate after review.
+
 ## 11. M6 — Export, recipes and batch production
 
 ### 11.1 Reviewed export (P0)
