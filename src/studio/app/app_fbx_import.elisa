@@ -1,6 +1,8 @@
 include "app_state.elisa"
 include "../../core/generation_policy.elisa"
 include "../fbx_import_policy.elisa"
+include "../fbx_workspace_setup_policy.elisa"
+include "../workspace_root_policy.elisa"
 include "../take_source_ref_policy.elisa"
 
 extend Studio:
@@ -14,6 +16,9 @@ extend Studio:
         global mutable fbx_import_cancelled: bool = false
         global mutable fbx_import_close_pending: bool = false
         global mutable fbx_import_close_termination: bool = false
+        global mutable fbx_setup_pending: bool = false
+        global mutable fbx_setup_prepare_pending: bool = false
+        global mutable fbx_setup_request_bytes: u8[4096] = zeroed
         global mutable fbx_import_source_bytes: u8[4096] = zeroed
         global mutable fbx_import_source_length: usize = 0
         global mutable fbx_import_source_sha256: u8[64] = zeroed
@@ -34,24 +39,80 @@ extend Studio:
                 p[(length - 4).usize()], p[(length - 3).usize()],
                 p[(length - 2).usize()], p[(length - 1).usize()])
 
-        def schedule_fbx_import(p: cstr) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            return false if not workspace_ready or fbx_import_task != null or fbx_import_start_pending
-            mutable canonical: darray[u8] = []
-            if FilePanel::resolve_path(p) is resolved:
-                canonical <- cstr_path_bytes(resolved)
-                FilePanel::release_path(resolved)
-            return false if not StudioFbxImportPolicy::terminated(&canonical, StudioFbxImportPolicy::Limit::PATH_BYTES)
+        def request_fbx_import(p: cstr) -> bool can Unsafe.PointerCast:
+            return false if fbx_import_active()
+            length: i64 = bounded_path_length(p)
+            return false if length < 1 or length >= FbxImportLimit::PATH_BYTES.i64()
             mutable index: usize = 0
-            while index < canonical.count:
-                fbx_import_source_bytes[index] <- canonical[index]
+            while index <= length.usize():
+                fbx_setup_request_bytes[index] <- p[index]
                 index <- index + 1
-            fbx_import_source_length <- canonical.count
+            fbx_setup_pending <- true
+            fbx_setup_prepare_pending <- true
             fbx_import_cancelled <- false
-            fbx_import_start_pending <- true
-            status <- "Preparing FBX character import in the background. The current take remains available until conversion succeeds."
+            status <- "Keeping the current take open. Choose a workspace for the FBX import; Studio will continue automatically when it is ready."
             status_file <- null
             touch()
             true
+
+        def resume_pending_fbx_import() -> bool:
+            return false if not fbx_setup_pending or not workspace_ready or fbx_import_task != null or fbx_import_start_pending
+            fbx_setup_pending <- false
+            fbx_import_start_pending <- true
+            status <- "Workspace ready. Starting the FBX import in the background; the current take stays open until conversion succeeds."
+            status_file <- null
+            touch()
+            true
+
+        def apply_fbx_workspace_choice(decision: StudioWorkspaceRootPolicy::Decision) -> void:
+            mutable choice: StudioFbxWorkspaceSetupPolicy::Choice = StudioFbxWorkspaceSetupPolicy::Choice.Refused
+            choice <- StudioFbxWorkspaceSetupPolicy::Choice.Ready if decision == StudioWorkspaceRootPolicy::Decision.READY
+            choice <- StudioFbxWorkspaceSetupPolicy::Choice.NeedsBuild if decision == StudioWorkspaceRootPolicy::Decision.NEEDS_BUILD
+            choice <- StudioFbxWorkspaceSetupPolicy::Choice.Cancelled if decision == StudioWorkspaceRootPolicy::Decision.CANCELLED
+            next: StudioFbxWorkspaceSetupPolicy::Next = StudioFbxWorkspaceSetupPolicy::after_choice(fbx_setup_pending, choice)
+            if next == StudioFbxWorkspaceSetupPolicy::Next.StartImport:
+                _ = resume_pending_fbx_import()
+            elif next == StudioFbxWorkspaceSetupPolicy::Next.WaitForBuildConsent:
+                status <- "FBX kept pending. Select Create build/ here in Workspace / File to continue; the current take stays open."
+                status_file <- (&fbx_setup_request_bytes[0]).cast[cstr]
+                touch()
+            elif next == StudioFbxWorkspaceSetupPolicy::Next.CancelImport:
+                cancel_pending_fbx_import_setup()
+                status <- "FBX import cancelled because no workspace was selected. The current take stays open."
+                status_file <- null
+                touch()
+            elif fbx_setup_pending:
+                status <- "Workspace could not be verified. The FBX remains pending; choose File > Locate workspace to try again."
+                status_file <- (&fbx_setup_request_bytes[0]).cast[cstr]
+                touch()
+
+        def cancel_pending_fbx_import_setup() -> void:
+            return if not fbx_setup_pending or fbx_import_task != null
+            fbx_setup_pending <- false
+            fbx_setup_prepare_pending <- false
+            fbx_import_start_pending <- false
+            fbx_import_source_length <- 0
+            fbx_setup_request_bytes[0] <- 0
+            fbx_import_cancelled <- false
+
+        def advance_fbx_workspace_setup() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return if not fbx_setup_pending or not fbx_setup_prepare_pending
+            fbx_setup_prepare_pending <- false
+            canonical: darray[u8] = canonical_fbx_source((&fbx_setup_request_bytes[0]).cast[cstr])
+            if not StudioFbxImportPolicy::terminated(&canonical, StudioFbxImportPolicy::Limit::PATH_BYTES):
+                cancel_pending_fbx_import_setup()
+                status <- "The selected FBX path could not be resolved. The current take stays open. Choose the FBX again after checking its location."
+                status_file <- null
+                touch()
+                return
+            for index in 0..<canonical.count |index, canonical|:
+                fbx_import_source_bytes[index] <- canonical[index]
+            fbx_import_source_length <- canonical.count
+            if workspace_ready:
+                _ = resume_pending_fbx_import()
+                return
+            decision: StudioWorkspaceRootPolicy::Decision = locate_workspace_root()
+            apply_fbx_workspace_choice(decision)
 
         def cstr_path_bytes(source: cstr) -> darray[u8] can[Unsafe.PointerCast, Memory.Allocate]:
             mutable output: darray[u8] = []
@@ -62,6 +123,44 @@ extend Studio:
                 return move output if value == 0
                 index <- index + 1
             return []
+
+        # Canonicalize only the containing directory. Keeping the selected
+        # basename intact lets the native staging boundary reject a symlink
+        # at the source file itself.
+        def canonical_fbx_source(source: cstr) -> darray[u8] can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            length: i64 = bounded_path_length(source)
+            return [] if length < 1 or length >= FbxImportLimit::PATH_BYTES.i64()
+            mutable slash: i64 = -1
+            for index in 0..<length |index, source, slash|:
+                slash <- index.i64() if source[index] == 47
+            basename_start: usize = (slash + 1).usize()
+            return [] if basename_start >= length.usize()
+            mutable parent: darray[u8] = []
+            if slash < 0:
+                parent.push(46)
+                parent.push(0)
+            elif slash == 0:
+                parent.push(47)
+                parent.push(0)
+            else:
+                for index in 0..<slash.usize() |index, source, parent|:
+                    parent.push(source[index])
+                parent.push(0)
+            mutable canonical_parent: darray[u8] = []
+            if FilePanel::resolve_path((&parent[0]).cast[cstr]) is resolved:
+                canonical_parent <- cstr_path_bytes(resolved)
+                FilePanel::release_path(resolved)
+            return [] if not StudioFbxImportPolicy::terminated(&canonical_parent, StudioFbxImportPolicy::Limit::PATH_BYTES)
+            mutable output: darray[u8] = []
+            parent_length: usize = canonical_parent.count - 1
+            return [] if parent_length + (length.usize() - basename_start) + 2 > FbxImportLimit::PATH_BYTES
+            for index in 0..<parent_length |index, canonical_parent, output|:
+                output.push(canonical_parent[index])
+            if output[output.count - 1] != 47:
+                output.push(47)
+            for index in basename_start..=length.usize() |index, source, output|:
+                output.push(source[index])
+            move output
 
         def copy_import_path(destination: mutable u8[4096]&, source: darray[u8]&) -> bool:
             return false if not StudioFbxImportPolicy::terminated(source, StudioFbxImportPolicy::Limit::PATH_BYTES)
@@ -203,6 +302,9 @@ extend Studio:
 
     public:
         def fbx_import_active() -> bool:
+            fbx_import_task != null or fbx_import_start_pending or fbx_setup_pending
+
+        def fbx_import_worker_active() -> bool:
             fbx_import_task != null or fbx_import_start_pending
 
         # Reopening a memo after cache eviction must load the derived runtime

@@ -40,7 +40,7 @@ extend Studio:
                 request_export(chosen, true)
 
         def dispatch_file_action(action: i64) -> void:
-            if action == StudioFilePolicy::Command.WORKSPACE.i64() and fbx_import_active():
+            if (action == StudioFilePolicy::Command.WORKSPACE.i64() or action == StudioFilePolicy::Command.CREATE_BUILD.i64() or action == StudioFilePolicy::Command.CANCEL_WORKSPACE_SETUP.i64()) and fbx_import_worker_active():
                 status <- "Wait for the FBX import to finish before changing its workspace. The current take remains available."
                 status_file <- null
                 touch()
@@ -68,14 +68,24 @@ extend Studio:
                 open_character()
             elif action == StudioFilePolicy::Command.WORKSPACE.i64():
                 decision: StudioWorkspaceRootPolicy::Decision = locate_workspace_root()
-                if decision == StudioWorkspaceRootPolicy::Decision.CANCELLED:
+                pending_import: bool = fbx_setup_pending
+                apply_fbx_workspace_choice(decision)
+                if decision == StudioWorkspaceRootPolicy::Decision.CANCELLED and not pending_import:
                     status <- "Workspace selection cancelled."
                     status_file <- null
                     touch()
             elif action == StudioFilePolicy::Command.CREATE_BUILD.i64():
-                _ = create_workspace_build()
+                created: bool = create_workspace_build()
+                if StudioFbxWorkspaceSetupPolicy::after_build(fbx_setup_pending, true, created, workspace_ready):
+                    _ = resume_pending_fbx_import()
             elif action == StudioFilePolicy::Command.CANCEL_WORKSPACE_SETUP.i64():
                 cancel_workspace_setup()
+                was_pending: bool = fbx_setup_pending
+                cancel_pending_fbx_import_setup()
+                if was_pending:
+                    status <- "Workspace setup and pending FBX import cancelled. The current take stays open."
+                    status_file <- null
+                    touch()
 
         def activate_file_menu(row: i64) -> void:
             return if row < 0 or row >= StudioFilePolicy::row_count(workspace_needs_build_confirmation())
@@ -193,8 +203,8 @@ extend Studio:
                 pending_located_memo <- null
                 clear_pending_session_annotations()
                 if fbx_path(p):
-                    if not schedule_fbx_import(p):
-                        status <- "Open the folder menu > Locate workspace, choose a folder, then select Create build/ here if prompted. Reopen your FBX once Workspace ready appears."
+                    if not request_fbx_import(p):
+                        status <- "Could not retain the FBX request safely. The current take stays open; choose the file again."
                         status_file <- p
                         touch()
                 else:
@@ -340,11 +350,15 @@ extend Studio:
                 close_authorized <- false
                 return
             if fbx_import_active():
+                worker_running: bool = fbx_import_worker_active()
+                setup_pending: bool = fbx_setup_pending
                 fbx_import_cancelled <- true
+                cancel_workspace_setup() if setup_pending
+                cancel_pending_fbx_import_setup()
                 fbx_import_close_pending <- true
                 fbx_import_close_termination <- UiAppKitCanvas::is_termination_request()
                 UiAppKitCanvas::veto_close()
-                status <- "FBX import is finishing before close. The result will be discarded and the close prompt will resume."
+                status <- "FBX import is finishing before close. The result will be discarded and the close prompt will resume." if worker_running else "Pending FBX workspace setup cancelled. The current take stays open while the close prompt resumes."
                 status_file <- null
                 touch()
                 return
