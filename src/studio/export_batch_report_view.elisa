@@ -1,0 +1,236 @@
+# Bounded, lossless UTF-8 report paging for explicit warning inspection.
+# A loaded model owns at most 1 MiB of report bytes and 20,000 segment spans.
+# Queue overview snapshots retain no report payload; one selected snapshot
+# can retain at most 2 MiB (JSON plus text), and this viewer copies only the
+# selected text (at most 1 MiB). On 64-bit targets the span payload is at most
+# 480,000 bytes. These are logical payload bounds; allocator capacity overhead
+# is additional.
+include "../core/json_scalar.elisa"
+
+module StudioExportBatchReportView:
+    public:
+        const module Limit:
+            MAX_REPORT_BYTES: usize = 1048576
+            MAX_SCALARS_PER_SEGMENT: usize = 64
+            MAX_SEGMENTS: usize = 20000
+            SEGMENTS_PER_PAGE: usize = 16
+
+        const enum Status of i64:
+            Empty = 0
+            Ready = 1
+            Oversized = 2
+            InvalidUtf8 = 3
+            UnsupportedControl = 4
+            TooManySegments = 5
+
+        struct Segment:
+            byte_start: usize
+            byte_count: usize
+            newline_bytes: usize
+
+        struct Model:
+            private:
+                report_bytes: mutable darray[u8]
+                segments: mutable darray[Segment]
+                current_status: mutable Status
+
+        def report_size_admitted(byte_count: usize) -> bool:
+            ensure result == (byte_count <= Limit::MAX_REPORT_BYTES)
+            byte_count <= Limit::MAX_REPORT_BYTES
+
+        def segment_count_admitted(segment_count: usize) -> bool:
+            ensure result == (segment_count < Limit::MAX_SEGMENTS)
+            segment_count < Limit::MAX_SEGMENTS
+
+        def scalar_count_admitted(scalar_count: usize) -> bool:
+            ensure result == (scalar_count <= Limit::MAX_SCALARS_PER_SEGMENT)
+            scalar_count <= Limit::MAX_SCALARS_PER_SEGMENT
+
+        def bytes_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def create() -> Model:
+            ensure valid(result)
+            Model{report_bytes: [], segments: [], current_status: Status.Empty}
+
+        def status(model: Model&) -> Status:
+            model.current_status
+
+        def valid(model: Model&) -> bool:
+            ensure result implies model.current_status != Status.Ready or model.report_bytes.count <= Limit::MAX_REPORT_BYTES and model.segments.count > 0 and model.segments.count <= Limit::MAX_SEGMENTS
+            if model.current_status != Status.Ready:
+                return model.report_bytes.count == 0 and model.segments.count == 0
+            return false if model.report_bytes.count > Limit::MAX_REPORT_BYTES or model.segments.count == 0 or model.segments.count > Limit::MAX_SEGMENTS
+            mutable cursor: usize = 0
+            for index in 0..<model.segments.count |index, model, cursor|:
+                segment: Segment = model.segments[index]
+                return false if segment.byte_start != cursor or segment.byte_count > Limit::MAX_REPORT_BYTES or segment.newline_bytes > 2
+                end: usize = segment.byte_start + segment.byte_count
+                return false if end < segment.byte_start or end + segment.newline_bytes < end or end + segment.newline_bytes > model.report_bytes.count
+                return false if not content_valid(model.report_bytes, segment.byte_start, end)
+                return false if segment.newline_bytes == 1 and model.report_bytes[end] != 10
+                return false if segment.newline_bytes == 2 and (model.report_bytes[end] != 13 or model.report_bytes[end + 1] != 10)
+                cursor <- end + segment.newline_bytes
+            cursor == model.report_bytes.count
+
+        # Refusal is explicit and drops partial text/segments, so a caller can
+        # never mistake a truncated prefix for a complete report.
+        def load[@r](model: mutable Model& @r, report: darray[u8]&) -> Status @r can Memory.Allocate:
+            ensure valid(model)
+            ensure result != Status.Ready or valid(model)
+            model.report_bytes.clear()
+            model.segments.clear()
+            model.current_status <- Status.Empty
+            return refuse(model, Status.Empty) if report.count == 0
+            return refuse(model, Status.Oversized) if not report_size_admitted(report.count)
+            mutable at: usize = 0
+            mutable segment_start: usize = 0
+            mutable scalar_count: usize = 0
+            while at < report.count:
+                width: usize = sequence_width(report, at)
+                return refuse(model, Status.InvalidUtf8) if width == 0
+                scalar: i64 = scalar_at(report, at, width)
+                if scalar == 10:
+                    return refuse(model, Status.TooManySegments) if not append_segment(model, segment_start, at - segment_start, 1)
+                    at <- at + 1
+                    segment_start <- at
+                    scalar_count <- 0
+                    continue
+                if scalar == 13:
+                    return refuse(model, Status.UnsupportedControl) if at + 1 >= report.count or report[at + 1] != 10
+                    return refuse(model, Status.TooManySegments) if not append_segment(model, segment_start, at - segment_start, 2)
+                    at <- at + 2
+                    segment_start <- at
+                    scalar_count <- 0
+                    continue
+                return refuse(model, Status.UnsupportedControl) if control_scalar(scalar)
+                if scalar_count == Limit::MAX_SCALARS_PER_SEGMENT:
+                    return refuse(model, Status.TooManySegments) if not append_segment(model, segment_start, at - segment_start, 0)
+                    segment_start <- at
+                    scalar_count <- 0
+                at <- at + width
+                scalar_count <- scalar_count + 1
+            return refuse(model, Status.TooManySegments) if not append_segment(model, segment_start, report.count - segment_start, 0)
+            model.report_bytes.extend(report)
+            model.current_status <- Status.Ready
+            Status.Ready
+
+        def segment_count(model: Model&) -> usize:
+            ensure result <= Limit::MAX_SEGMENTS
+            model.segments.count
+
+        def page_count(model: Model&) -> usize:
+            return 0 if model.segments.count == 0
+            (model.segments.count + Limit::SEGMENTS_PER_PAGE - 1) / Limit::SEGMENTS_PER_PAGE
+
+        def page_start(model: Model&, page: usize) -> usize:
+            requires page < page_count(model)
+            ensure result == page * Limit::SEGMENTS_PER_PAGE
+            page * Limit::SEGMENTS_PER_PAGE
+
+        def page_segment_count(model: Model&, page: usize) -> usize:
+            requires page < page_count(model)
+            start: usize = page_start(model, page)
+            remaining: usize = model.segments.count - start
+            Limit::SEGMENTS_PER_PAGE if remaining > Limit::SEGMENTS_PER_PAGE else remaining
+
+        def layout_byte_count(model: Model&) -> usize:
+            requires model.current_status == Status.Ready
+            requires valid(model)
+            ensure result == model.report_bytes.count
+            ensure result <= Limit::MAX_REPORT_BYTES
+            mutable total: usize = 0
+            for index in 0..<model.segments.count |index, model, total|:
+                descriptor: Segment = model.segments[index]
+                total <- total + descriptor.byte_count + descriptor.newline_bytes
+            total
+
+        def segment(model: Model&, index: usize) -> Segment:
+            requires model.current_status == Status.Ready
+            requires index < model.segments.count
+            model.segments[index]
+
+        def segment_content(model: Model&, index: usize) -> darray[u8]:
+            requires model.current_status == Status.Ready
+            requires index < model.segments.count
+            descriptor: Segment = model.segments[index]
+            copy_range(model.report_bytes, descriptor.byte_start, descriptor.byte_count)
+
+        def exact_report_copy(model: Model&) -> darray[u8]:
+            requires model.current_status == Status.Ready
+            ensure result.count == model.report_bytes.count
+            ensure bytes_equal(result, model.report_bytes)
+            mutable output: darray[u8] = []
+            output.extend(model.report_bytes)
+            output
+
+        def refusal_message(status: Status) -> sview:
+            return "Warning report is empty or not loaded." if status == Status.Empty
+            return "Warning report is ready for inspection." if status == Status.Ready
+            return "Warning report exceeds the 1 MiB viewing limit; the full report was refused." if status == Status.Oversized
+            return "Warning report contains invalid UTF-8; the full report was refused." if status == Status.InvalidUtf8
+            return "Warning report contains unsupported control text; the full report was refused." if status == Status.UnsupportedControl
+            "Warning report has too many lines or wrapped segments; the full report was refused."
+
+    private:
+        def refuse[@r](model: mutable Model& @r, status: Status) -> Status @r:
+            model.report_bytes.clear()
+            model.segments.clear()
+            model.current_status <- status
+            status
+
+        def append_segment[@r](model: mutable Model& @r, start: usize,
+                count: usize, newline_bytes: usize) -> bool @r can Memory.Allocate:
+            return false if not segment_count_admitted(model.segments.count)
+            model.segments.push(Segment{byte_start: start, byte_count: count, newline_bytes: newline_bytes})
+            true
+
+        def copy_range(source: darray[u8]&, start: usize, count: usize) -> darray[u8]:
+            requires start <= source.count and count <= source.count - start
+            mutable output: darray[u8] = []
+            for index in 0..<count |index, source, start, output|:
+                output.push(source[start + index])
+            output
+
+        def content_valid(source: darray[u8]&, start: usize, stop: usize) -> bool:
+            return false if start > stop or stop > source.count
+            mutable at: usize = start
+            mutable scalars: usize = 0
+            while at < stop:
+                width: usize = sequence_width(source, at)
+                return false if width == 0 or at + width > stop
+                return false if control_scalar(scalar_at(source, at, width))
+                at <- at + width
+                scalars <- scalars + 1
+            scalar_count_admitted(scalars)
+
+        def control_scalar(scalar: i64) -> bool:
+            scalar >= 0 and scalar < 32 or scalar >= 127 and scalar <= 159 or scalar == 8232 or scalar == 8233 or scalar == 8206 or scalar == 8207 or scalar >= 8234 and scalar <= 8238 or scalar >= 8294 and scalar <= 8297
+
+        def sequence_width(source: darray[u8]&, at: usize) -> usize:
+            requires at < source.count
+            lead: i64 = source[at].i64()
+            width: usize = 1 if lead < 128 else 2 if lead >= 194 and lead <= 223 else 3 if lead >= 224 and lead <= 239 else 4 if lead >= 240 and lead <= 244 else 0
+            return 0 if width == 0 or source.count - at < width
+            mutable scalar: i64 = lead - (0 if width == 1 else 192 if width == 2 else 224 if width == 3 else 240)
+            for offset in 1..<width:
+                continuation: i64 = source[at + offset].i64()
+                return 0 if continuation < 128 or continuation > 191
+                scalar <- scalar * 64 + continuation - 128
+            minimum: i64 = 0 if width == 1 else 128 if width == 2 else 2048 if width == 3 else 65536
+            return 0 if scalar < minimum or not JsonScalar::valid(scalar)
+            width
+
+        def scalar_at(source: darray[u8]&, at: usize, width: usize) -> i64:
+            requires at < source.count and width > 0 and width <= 4 and at + width <= source.count
+            requires sequence_width(source, at) == width
+            ensure JsonScalar::valid(result)
+            lead: i64 = source[at].i64()
+            mutable scalar: i64 = lead if width == 1 else lead - (192 if width == 2 else 224 if width == 3 else 240)
+            return scalar if width == 1
+            for offset in 1..<width:
+                scalar <- scalar * 64 + source[at + offset].i64() - 128
+            scalar

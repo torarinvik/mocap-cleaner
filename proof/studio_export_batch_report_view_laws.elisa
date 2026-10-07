@@ -1,0 +1,75 @@
+include "../src/studio/export_batch_report_view.elisa"
+
+module StudioExportBatchReportViewLaws:
+    public:
+        def exact_byte_limit_is_admitted() -> bool:
+            ensure result
+            StudioExportBatchReportView::report_size_admitted(StudioExportBatchReportView::Limit::MAX_REPORT_BYTES)
+
+        def first_oversized_byte_is_refused() -> bool:
+            ensure result
+            not StudioExportBatchReportView::report_size_admitted(StudioExportBatchReportView::Limit::MAX_REPORT_BYTES + 1)
+
+        def segment_budget_stops_before_overflow() -> bool:
+            ensure result
+            StudioExportBatchReportView::segment_count_admitted(StudioExportBatchReportView::Limit::MAX_SEGMENTS - 1) and not StudioExportBatchReportView::segment_count_admitted(StudioExportBatchReportView::Limit::MAX_SEGMENTS)
+
+        def scalar_wrap_limit_is_inclusive() -> bool:
+            ensure result
+            StudioExportBatchReportView::scalar_count_admitted(StudioExportBatchReportView::Limit::MAX_SCALARS_PER_SEGMENT) and not StudioExportBatchReportView::scalar_count_admitted(StudioExportBatchReportView::Limit::MAX_SCALARS_PER_SEGMENT + 1)
+
+        def empty_report_is_refused_without_segments() -> bool:
+            ensure result
+            mutable model: StudioExportBatchReportView::Model = StudioExportBatchReportView::create()
+            mutable empty: darray[u8] = []
+            loaded: StudioExportBatchReportView::Status = StudioExportBatchReportView::load(&model, empty)
+            loaded == StudioExportBatchReportView::Status.Empty and StudioExportBatchReportView::valid(model) and StudioExportBatchReportView::segment_count(model) == 0
+
+        def invalid_lead_byte_refuses_the_full_report() -> bool:
+            ensure result
+            mutable model: StudioExportBatchReportView::Model = StudioExportBatchReportView::create()
+            mutable invalid: darray[u8] = []
+            invalid.push(192)
+            loaded: StudioExportBatchReportView::Status = StudioExportBatchReportView::load(&model, invalid)
+            loaded == StudioExportBatchReportView::Status.InvalidUtf8 and StudioExportBatchReportView::valid(model) and StudioExportBatchReportView::segment_count(model) == 0
+
+        def unsupported_tab_refuses_the_full_report() -> bool:
+            ensure result
+            mutable model: StudioExportBatchReportView::Model = StudioExportBatchReportView::create()
+            mutable control: darray[u8] = []
+            control.push(9)
+            loaded: StudioExportBatchReportView::Status = StudioExportBatchReportView::load(&model, control)
+            loaded == StudioExportBatchReportView::Status.UnsupportedControl and StudioExportBatchReportView::valid(model) and StudioExportBatchReportView::segment_count(model) == 0
+
+        def page_size_is_bounded(page: usize, model: StudioExportBatchReportView::Model) -> bool:
+            requires StudioExportBatchReportView::valid(model)
+            requires StudioExportBatchReportView::status(model) == StudioExportBatchReportView::Status.Ready
+            requires page < StudioExportBatchReportView::page_count(model)
+            ensure result
+            StudioExportBatchReportView::page_segment_count(model, page) > 0 and StudioExportBatchReportView::page_segment_count(model, page) <= StudioExportBatchReportView::Limit::SEGMENTS_PER_PAGE
+
+        def pages_cover_all_wrapped_and_newline_segments(model: StudioExportBatchReportView::Model) -> bool:
+            requires StudioExportBatchReportView::valid(model)
+            requires StudioExportBatchReportView::status(model) == StudioExportBatchReportView::Status.Ready
+            ensure result
+            mutable total: usize = 0
+            for page in 0..<StudioExportBatchReportView::page_count(model) |page, model, total|:
+                total <- total + StudioExportBatchReportView::page_segment_count(model, page)
+            total == StudioExportBatchReportView::segment_count(model)
+
+        def segment_layout_covers_every_report_byte(model: StudioExportBatchReportView::Model) -> bool:
+            requires StudioExportBatchReportView::valid(model)
+            requires StudioExportBatchReportView::status(model) == StudioExportBatchReportView::Status.Ready
+            ensure result
+            StudioExportBatchReportView::layout_byte_count(model) == StudioExportBatchReportView::exact_report_copy(model).count
+
+        def refused_models_retain_no_partial_segments(model: StudioExportBatchReportView::Model) -> bool:
+            requires StudioExportBatchReportView::valid(model)
+            requires StudioExportBatchReportView::status(model) != StudioExportBatchReportView::Status.Ready
+            ensure result
+            StudioExportBatchReportView::segment_count(model) == 0
+
+        def every_refusal_has_visible_explanation(status: StudioExportBatchReportView::Status) -> bool:
+            requires status != StudioExportBatchReportView::Status.Empty and status != StudioExportBatchReportView::Status.Ready
+            ensure result
+            StudioExportBatchReportView::refusal_message(status).len > 0
