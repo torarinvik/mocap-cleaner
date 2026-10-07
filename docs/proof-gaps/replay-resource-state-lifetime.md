@@ -1,6 +1,7 @@
 # Replay resource-state lifetime validation
 
-Status: reproduced during object emission; repair and current Stage1 qualification open.
+Status: Stage0 refusal retained; current Stage1 concrete report control passes.
+Matched producer/replay and escaping-negative qualification remain open.
 
 ## Evidence and scope
 
@@ -69,3 +70,29 @@ Log SHA-256:
 `f4a7b24df270c2033fb9a1b004e8f3dcde135befc3146f5002c1326793441619`.
 This compiler product is diagnostic while its separate malformed-metadata
 repair is pending; these controls do not qualify that repair or promotion.
+
+## Concrete current Stage1 report control
+
+A strengthened harness at source SHA-256
+`0bab770f089ea819c78656f883b8e619bd760131d9dae00b85b11ac97f95a009`
+executes `resource_report_with_workspace` on a caller summary containing a
+real resource call to a callee with a formal resource-bind event. This invokes
+both top-level event replay and nested callee event replay, covering the calls
+at reporter lines 185 and 141. The control requires successful report replay;
+compilation, execution and product provenance checks all exit 0. Compilation
+peaks at 267,408 KiB under a 2 GiB watchdog, with no watchdog termination.
+
+Compiler production source is `60f5a3b2`, product SHA-256
+`04487c330fbbac27ce93660e15e6775686e32a9e1bfc29dd335788e1b750674d`.
+The clean working HEAD `edb319ed` includes subsequent test-only commits;
+the record distinguishes that HEAD/tree from the product's source revision.
+Record in the dedicated proof checkout:
+`build/q02-reporter-lifetime-reducer-20261007/resource-report-entry-controls-0bab770f-edb319ed.json`.
+Record SHA-256:
+`55f4e58309701e1ae1e6695f4399a84788b981b83ebd6f4d637a206247528dfe`.
+Log SHA-256:
+`92819e0277ab5c8e1c78bbd8bc13ab18664d87c9da4cc9b2dd1e8d4cfd8b5bea`.
+
+This resolves the focused current Stage1 reproduction, not full source
+authentication or proof-pair qualification. Retain the original Stage0
+refusal and qualify an actually escaping borrowed-name negative control.
