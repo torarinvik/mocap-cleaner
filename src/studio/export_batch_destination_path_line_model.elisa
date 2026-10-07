@@ -36,6 +36,10 @@ module StudioExportBatchDestinationPathLineModel:
 
         type WidthMeasure = fn(darray[u8]&, usize, usize) -> f32
 
+        def finite(value: f32) -> bool:
+            difference: f32 = value - value
+            difference == difference
+
         def units_cover_path(path_length: usize, units: darray[Unit]&) -> bool:
             return false if path_length == 0 or path_length > Limit::MAX_PATH_BYTES
             return false if units.count == 0 or units.count > path_length
@@ -48,7 +52,7 @@ module StudioExportBatchDestinationPathLineModel:
             next == path_length
 
         def valid(model: Model) -> bool:
-            return false if model.path_length > Limit::MAX_PATH_BYTES or model.available_width < 0.0
+            return false if model.path_length > Limit::MAX_PATH_BYTES or not finite(model.available_width) or model.available_width < 0.0
             if model.status == Status.Empty:
                 return model.path_length == 0 and model.segments.count == 0
             if model.status == Status.InvalidInput:
@@ -59,7 +63,8 @@ module StudioExportBatchDestinationPathLineModel:
             for index in 0..<model.segments.count |index, next, model|:
                 segment: Segment = model.segments[index]
                 return false if segment.start != next or segment.byte_count == 0 or segment.byte_count > Limit::MAX_SEGMENT_BYTES
-                return false if segment.measured_width < 0.0 and not segment.measurement_unavailable
+                return false if not segment.measurement_unavailable and (not finite(segment.measured_width) or segment.measured_width < 0.0)
+                return false if segment.measurement_unavailable and segment.measured_width != -1.0
                 return false if segment.measurement_unavailable and not segment.overflowed
                 return false if (segment.measured_width > model.available_width or segment.measurement_unavailable) != segment.overflowed
                 next <- next + segment.byte_count
@@ -93,15 +98,19 @@ module StudioExportBatchDestinationPathLineModel:
                 horizontal_inset: f32, safety_margin: f32,
                 measure: WidthMeasure) -> Model can Memory.Allocate:
             requires path.count <= Limit::MAX_PATH_BYTES
-            requires row_width >= 0.0 and horizontal_inset >= 0.0 and safety_margin >= 0.0
-            available: f32 = row_width - 2.0 * horizontal_inset - safety_margin
+            ensure valid(result)
+            mutable geometry_valid: bool = finite(row_width) and finite(horizontal_inset) and finite(safety_margin) and row_width >= 0.0 and horizontal_inset >= 0.0 and safety_margin >= 0.0
+            available_candidate: f32 = row_width - 2.0 * horizontal_inset - safety_margin if geometry_valid else 0.0
+            geometry_valid <- geometry_valid and finite(available_candidate)
+            available: f32 = available_candidate if geometry_valid and available_candidate > 0.0 else 0.0
             mutable segments: darray[Segment] = []
+            return Model{status: Status.InvalidInput, path_length: path.count,
+                available_width: 0.0, segments: segments} if not geometry_valid
             if path.count == 0:
-                return Model{status: Status.Empty, path_length: 0,
-                    available_width: (0.0 if available < 0.0 else available), segments: segments}
+                return Model{status: Status.Empty, path_length: 0, available_width: available, segments: segments}
             if available <= 0.0 or not units_cover_path(path.count, units):
                 return Model{status: Status.InvalidInput, path_length: path.count,
-                    available_width: (0.0 if available < 0.0 else available), segments: segments}
+                    available_width: available, segments: segments}
             mutable line_start: usize = 0
             mutable line_bytes: usize = 0
             mutable line_split: bool = false
@@ -113,7 +122,7 @@ module StudioExportBatchDestinationPathLineModel:
                 mutable must_flush: bool = candidate_bytes > Limit::MAX_SEGMENT_BYTES
                 if line_bytes > 0 and not must_flush:
                     candidate_width <- measure(path, line_start, candidate_bytes)
-                    must_flush <- candidate_width != candidate_width or candidate_width < 0.0 or candidate_width > available
+                    must_flush <- not finite(candidate_width) or candidate_width < 0.0 or candidate_width > available
                 if line_bytes > 0 and must_flush:
                     segments.push(Segment{start: line_start, byte_count: line_bytes,
                         measured_width: line_width, overflowed: false,
@@ -125,7 +134,7 @@ module StudioExportBatchDestinationPathLineModel:
                     candidate_width <- measure(path, unit.start, unit.byte_count)
                 elif line_bytes == 0:
                     candidate_width <- measure(path, unit.start, unit.byte_count)
-                unavailable: bool = candidate_width != candidate_width or candidate_width < 0.0
+                unavailable: bool = not finite(candidate_width) or candidate_width < 0.0
                 if unavailable:
                     segments.push(Segment{start: unit.start, byte_count: unit.byte_count,
                         measured_width: -1.0, overflowed: true,
