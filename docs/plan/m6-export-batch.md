@@ -262,8 +262,13 @@ qualifies the integrated application or native workflow.
 - [ ] Move synchronous publication, cancellation, resume and acknowledgement IO
       off the UI path with owned requests, explicit busy state, cancellation/drain
       semantics and stale-result rejection. Qualify responsiveness and cleanup.
-- [ ] Wire `export_batch_destination_projection.elisa` into the bound queue and
-      selected-item inspector. Its saved private snapshot owns source, GLB, JSON
+- [ ] Compose `export_batch_destination_binding.elisa` with the selected-item
+      inspector. Its read-only queue extension now rejects invalid queue state,
+      negative/off-end selections and malformed paths, and borrows captured path
+      fields directly without copying result/report payloads. Three refusal
+      contracts and laws compile to a fresh 1,038,520-byte O0 graph; independent
+      replay and integrated qualification remain pending. The projection's
+      private snapshot owns source, GLB, JSON
       and text paths with exact-copy contracts and six laws; the fresh O0 law
       graph emitted 101,360 bytes. Independent replay is pending. The current
       overview still includes only source and GLB labels;
