@@ -10,6 +10,9 @@ module StudioFbxImportWorker:
     private:
         @link_name("elisa_fbx_to_glb")
         extern convert(source: cstr, destination: cstr, rate: i64) -> i64
+        @link_name("elisa_studio_fbx_file_digest")
+        extern file_digest(path: cstr, digest: mutable u8&, maximum: u64) -> i64
+
         @link_name("elisa_studio_fbx_stage")
         extern stage(build_root: cstr, source: cstr, snapshot: mutable u8&, destination: mutable u8&, digest: mutable u8&, capacity: u32) -> i64
 
@@ -24,6 +27,8 @@ module StudioFbxImportWorker:
         const enum Status of i64:
             InvalidJob = -100
             UnreadableAnimation = -101
+            SourceChanged = -102
+            DigestUnavailable = -103
 
         affine struct Job:
             ticket: i64
@@ -38,6 +43,7 @@ module StudioFbxImportWorker:
             source: darray[u8]
             destination: darray[u8]
             source_sha256: darray[u8]
+            runtime_sha256: darray[u8]
             memo: StudioModel::Memo?
 
         def load(job: Job) -> Result can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
@@ -47,6 +53,7 @@ module StudioFbxImportWorker:
             mutable build_root: darray[u8] = job.build_root
             mutable destination: darray[u8] = []
             mutable source_digest: darray[u8] = []
+            mutable runtime_digest: darray[u8] = []
             mutable animation: darray[u8] = move job.animation
             mutable status: i64 = Status.InvalidJob.i64()
             mutable memo: StudioModel::Memo? = null
@@ -69,9 +76,19 @@ module StudioFbxImportWorker:
                     if StudioFbxImportPolicy::terminated(&snapshot_owned, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&destination, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioTakeSourceRefPolicy::sha256_valid(&source_digest) and not StudioFbxImportPolicy::same_path(&source, &destination) and not StudioFbxImportPolicy::same_path(&snapshot_owned, &destination):
                         status <- convert(snapshot, destination_path, rate)
                     if status == 0:
+                        mutable current_source: u8[65] = zeroed
+                        mutable current_runtime: u8[65] = zeroed
+                        if file_digest(source_path, &current_source[0], 536870912.u64()) != 0 or file_digest(destination_path, &current_runtime[0], 536870912.u64()) != 0:
+                            status <- Status.DigestUnavailable.i64()
+                        else:
+                            for index in 0..<64 |index, current_source, current_runtime, source_digest, runtime_digest, status|:
+                                status <- Status.SourceChanged.i64() if current_source[index] != source_digest[index]
+                                runtime_digest.push(current_runtime[index])
+                            status <- Status.DigestUnavailable.i64() if not StudioTakeSourceRefPolicy::sha256_valid(&runtime_digest)
+                    if status == 0:
                         memo <- StudioModel::load(destination_path, animation_name)
                         status <- Status.UnreadableAnimation.i64() if memo == null else 0
-            Result{ticket: ticket, status: status, source: move source, destination: move destination, source_sha256: move source_digest, memo: move memo}
+            Result{ticket: ticket, status: status, source: move source, destination: move destination, source_sha256: move source_digest, runtime_sha256: move runtime_digest, memo: move memo}
 
 def load_fbx_import_job(job: StudioFbxImportWorker::Job) -> StudioFbxImportWorker::Result can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
     StudioFbxImportWorker::load(move job)
