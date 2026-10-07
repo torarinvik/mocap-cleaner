@@ -45,11 +45,14 @@ Remaining work:
   sanitizer output and terminal exits rather than deleting the fixture artifacts.
   The first rebase onto `665f40d7` dropped project merge-resolution changes:
   the backup-to-rebased tree diff spans 69 files, including the worker arena,
-  result adoption, callback ABI handling and provenance guards. Keep candidate
-  qualification stopped until those repairs are restored and the full tree diff
-  is reconciled. A clean worktree or ancestor check cannot establish preservation;
-  retaining the original branch under `backup/void-poll-before-main-rebase`
-  supplies the comparison source.
+  result adoption, callback ABI handling and provenance guards. Preservation
+  commit `3f578e5a` restores them: root independently verified its tree hash
+  equals the backup's `5d5c40f2b75e8d21c39ea57b6e9efeba7e51b082`.
+  Candidate `f9e23008` differs only by a trailing blank-line removal and retains
+  current-main ancestry. A clean worktree or ancestor check alone cannot
+  establish preservation; the retained original branch under
+  `backup/void-poll-before-main-rebase` supplies the comparison source.
+  Candidate seed, lifetime, performance and regression qualification remain open.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
