@@ -1,0 +1,46 @@
+include "../src/studio/export_batch_destination_path_line_adapter.elisa"
+
+# The adapter is also compiled in the application UI graph, where the AppKit
+# host supplies these legacy metric hooks. Checked measurements remain
+# explicitly unavailable in this proof context unless a checked provider is
+# installed.
+def ui_measure_text_width(text: sview, size: f32, weighted: bool) -> f32:
+    0.0
+
+def ui_text_line_height(size: f32) -> f32:
+    16.0
+
+module StudioExportBatchDestinationPathLineAdapterLaws:
+    private:
+        const PATH_CAPACITY: usize = StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES
+
+        def byte_array_matches(path: darray[u8]&, source: u8[PATH_CAPACITY]&) -> bool:
+            return false if path.count > PATH_CAPACITY
+            for index in 0..<path.count |index, path, source|:
+                return false if path[index] != source[index]
+            true
+
+    public:
+        def preparation_preserves_exact_valid_utf8_bytes() -> bool can Memory.Allocate:
+            ensure result
+            mutable path: darray[u8] = []
+            path.push(65)
+            path.push(195)
+            path.push(165)
+            path.push(47)
+            path.push(66)
+            mutable source: u8[PATH_CAPACITY] = zeroed
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            status: StudioExportBatchDestinationPathLineAdapter::Status = StudioExportBatchDestinationPathLineAdapter::prepare(path, 240.0, StudioExportBatchDestinationPathLineAdapter::Layout::HORIZONTAL_INSET, StudioExportBatchDestinationPathLineAdapter::Layout::SAFETY_MARGIN, source, model)
+            return false if status != StudioExportBatchDestinationPathLineAdapter::Status.Ready
+            StudioExportBatchDestinationPathLineModel::valid(model) and model.path_length == path.count and byte_array_matches(path, source)
+
+        def preparation_refuses_invalid_utf8_without_publishing_ranges() -> bool can Memory.Allocate:
+            ensure result
+            mutable path: darray[u8] = []
+            path.push(65)
+            path.push(195)
+            mutable source: u8[PATH_CAPACITY] = zeroed
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            status: StudioExportBatchDestinationPathLineAdapter::Status = StudioExportBatchDestinationPathLineAdapter::prepare(path, 240.0, StudioExportBatchDestinationPathLineAdapter::Layout::HORIZONTAL_INSET, StudioExportBatchDestinationPathLineAdapter::Layout::SAFETY_MARGIN, source, model)
+            status == StudioExportBatchDestinationPathLineAdapter::Status.InvalidUtf8 and model.status == StudioExportBatchDestinationPathLineModel::Status.InvalidInput and model.segments.count == 0
