@@ -233,14 +233,23 @@ qualifies the integrated application or native workflow.
       application. Report-first keyboard/pointer dispatch and sheet-then-report
       drawing are wired, with guards for background scroll/text/file-drop/native
       toolbar actions and stale pointer gestures. Verify opening/closing, focus
-      restoration and disabled-action refusal end to end. Add a discoverable
-      entry after enqueue/recovery actions and accessibility are established.
+      restoration and disabled-action refusal end to end. Qualify the composed
+      Export queue entry for empty, populated and recovery states, including its
+      availability and focus behavior after enqueue and return from review.
 - [ ] Complete and qualify batch native accessibility. Report publisher widgets
       and controller event routing are now composed; report lines use individual
       nodes backed by the page cache. Finish sheet row/action semantics, stable
       node IDs, parent/sibling metadata, focus, page status and announcements.
       Native actions must use the same admission and controller routes as pointer
       and keyboard actions; stale UI observations cannot authorize writes.
+      Qualify the shared UI capacity repair (`elisa-ui` commit `be0aa195`):
+      semantic IDs remain bounded to 0–319, while widget actions accept only
+      0–255. Exercise widget sentinel 256, semantic-only IDs 256–319, sentinel
+      320 and invalid IDs; none may dispatch a widget action. Pure policy/law
+      objects compiled, but native action routing remains unqualified. Check
+      allocation exhaustion preserves the queue, disables unavailable native
+      actions and leaves keyboard/pointer routes usable. Derive capacities from
+      the shared constant module rather than duplicating numeric limits.
 - [ ] Qualify the new Queue reviewed result entry from export review, including
       native accessibility and warning admission. Add recovery inventory/reopen
       and selected failed/cancelled retry routes. Establish native preflight facts and immutable
