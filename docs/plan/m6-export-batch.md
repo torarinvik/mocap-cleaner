@@ -238,8 +238,10 @@ qualifies the integrated application or native workflow.
       availability and focus behavior after enqueue and return from review.
 - [ ] Complete and qualify batch native accessibility. Report publisher widgets
       and controller event routing are now composed; report lines use individual
-      nodes backed by the page cache. Finish sheet row/action semantics, stable
-      node IDs, parent/sibling metadata, focus, page status and announcements.
+      nodes backed by the page cache. Sheet row/action publisher widgets and
+      event routes are now composed, with retained row status views and cleanup
+      on close. Qualify stable node IDs, parent/sibling metadata, focus, page
+      status and announcements in the integrated app and native window.
       Native actions must use the same admission and controller routes as pointer
       and keyboard actions; stale UI observations cannot authorize writes.
       Qualify the shared UI capacity repair (`elisa-ui` commit `be0aa195`):
