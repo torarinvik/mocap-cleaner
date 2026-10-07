@@ -134,3 +134,18 @@ changed source digest and no bypass was used. These observations are source
 compilation evidence only. Exact-byte native replay, repeated operations,
 cancellation, uncertain release, focus/VoiceOver and authenticated proof
 acceptance remain required before closing recovery.
+
+## Recovery status priority
+
+`02b05e3` keeps the selected operation's current reconciliation result visible
+when other pending receipts exist, appending their unresolved count. An incomplete
+listing also stays explicit alongside selected-operation evidence. Queued scans
+show Waiting, active scans show Reconciling, and inactive stale observations
+request refresh/reselection instead of claiming work is still running. Closing,
+invalid metadata and overflow retain precedence. No receipt is promoted or
+removed by this presentation change.
+
+Ten status law declarations accompany the pure classifier. Their first compile
+attempt was refused because the compiler candidate source digest had changed
+while it was rebuilding; no stale-product bypass was used. Qualification awaits
+the rebuilt product. UI/runtime and authenticated proof acceptance remain open.
