@@ -63,6 +63,12 @@ Complete all applicable categories before removing a task from this roadmap.
 - General owned-array value threading is marked planned in the guide. Use
   working expression forms and existing array extension methods until the
   selected compiler supports and qualifies additional forms.
+- Preserve borrow exclusivity across calls, including references carried in
+  aggregates, conditional references and function values. Split simultaneous
+  borrows onto disjoint fields or pass a value when suitable. For a global
+  that the callee also writes, use a pure value transform and assign its result
+  at the caller. Unsafe grants do not establish non-aliasing; retain explicit
+  ownership and aliasing obligations at foreign boundaries.
 
 - Use `can` grants to propagate unsafe capabilities through adapters and their
   callers. Introduce `trusted` only where tracking deliberately ends; document
