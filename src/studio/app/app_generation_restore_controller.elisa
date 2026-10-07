@@ -5,6 +5,7 @@ include "../state/generation_restore_selection_policy.elisa"
 include "../io/build_generation_restore_worker.elisa"
 include "../state/generation_restore_confirmation_policy.elisa"
 include "../state/generation_move_result_policy.elisa"
+include "../state/generation_restore_review_identity_policy.elisa"
 
 extend Studio:
     private:
@@ -12,6 +13,8 @@ extend Studio:
         global mutable generation_restore_root: darray[u8] = []
         global mutable generation_restore_root_move_ticket: i64 = 0
         global mutable generation_restore_operation_id: darray[u8] = []
+        global mutable generation_restore_artifact_id: darray[u8] = []
+        global mutable generation_restore_relative_path: darray[u8] = []
         global mutable generation_restore_task: Thread[StudioBuildGenerationRestoreWorker::Result, Joinable]? = null
         global mutable generation_restore_reply: StudioBuildGenerationRestoreWorker::Result? = null
         global mutable generation_restore_ticket: i64 = 0
@@ -32,6 +35,8 @@ extend Studio:
                 generation_restore_root <- move copied
                 generation_restore_root_move_ticket <- move_ticket
                 generation_restore_operation_id <- []
+                generation_restore_artifact_id <- []
+                generation_restore_relative_path <- []
                 generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.Idle
                 true
             false
@@ -56,6 +61,10 @@ extend Studio:
                     return false if not StudioBuildGenerationCandidateProvider::bytes_equal(current_root, selected.root)
                     return false if generation_restore_root.count > 0 and not StudioBuildGenerationCandidateProvider::bytes_equal(generation_restore_root, selected.root)
                     return false if generation_restore_operation_id.count > 0 and not StudioBuildGenerationCandidateProvider::bytes_equal(generation_restore_operation_id, selected.operation)
+                    if generation_restore_operation_id.count > 0:
+                        if generation_recovery_scan_reply is observed:
+                            return StudioGenerationRestoreReviewIdentityPolicy::exact_match(generation_restore_root, generation_restore_operation_id, generation_restore_artifact_id, generation_restore_relative_path, selected.root, selected.operation, observed.observation.artifact_id, observed.observation.relative_path)
+                        return false
                     return true
                 return false
             return false if generation_restore_root.count == 0 or generation_restore_root_move_ticket <= 0
@@ -67,6 +76,9 @@ extend Studio:
                 if generation_restore_operation_id.count > 0:
                     for index in 0..<generation_restore_operation_id.count |moved|:
                         return false if generation_restore_operation_id[index] != moved.operation_id[index]
+                    if generation_move_wire is captured:
+                        return generation_restore_saved_wire_identity_matches(captured, moved.operation_id, moved.operation_id_bytes)
+                    return false
                 true
             false
 
@@ -83,21 +95,30 @@ extend Studio:
             if generation_review_recovery_mode:
                 return false if not generation_recovery_browser_restore_admitted()
                 if generation_recovery_selected_identity() is selected:
-                    root: darray[u8] = generation_restore_copy_bytes(selected.root)
-                    operation: darray[u8] = generation_restore_copy_bytes(selected.operation)
-                    generation_restore_root <- move root
-                    generation_restore_operation_id <- move operation
-                    generation_restore_root_move_ticket <- generation_recovery_scan_ticket
-                    return generation_restore_root_move_ticket > 0
+                    if generation_recovery_scan_reply is observed:
+                        root: darray[u8] = generation_restore_copy_bytes(selected.root)
+                        operation: darray[u8] = generation_restore_copy_bytes(selected.operation)
+                        artifact_id: darray[u8] = generation_restore_copy_bytes(observed.observation.artifact_id)
+                        relative_path: darray[u8] = generation_restore_copy_bytes(observed.observation.relative_path)
+                        return false if not StudioGenerationRestoreReviewIdentityPolicy::valid(root, operation, artifact_id, relative_path)
+                        return false if not StudioGenerationRestoreReviewIdentityPolicy::same_bytes(root, observed.root) or not StudioGenerationRestoreReviewIdentityPolicy::same_bytes(operation, observed.operation)
+                        generation_restore_root <- move root
+                        generation_restore_operation_id <- move operation
+                        generation_restore_artifact_id <- move artifact_id
+                        generation_restore_relative_path <- move relative_path
+                        generation_restore_root_move_ticket <- generation_recovery_scan_ticket
+                        return generation_restore_root_move_ticket > 0
                 return false
             if generation_move_reply is moved:
                 return false if not generation_restore_reply_source_valid(moved)
-                mutable operation_id: darray[u8] = []
-                for index in 0..<moved.operation_id_bytes.usize() |moved, operation_id|:
-                    operation_id.push(moved.operation_id[index])
-                return false if operation_id.count.i64() != moved.operation_id_bytes
-                generation_restore_operation_id <- move operation_id
-                true
+                if generation_move_wire is captured:
+                    return false if not generation_restore_capture_wire_metadata(captured, moved.operation_id, moved.operation_id_bytes)
+                    mutable operation_id: darray[u8] = []
+                    for index in 0..<moved.operation_id_bytes.usize() |moved, operation_id|:
+                        operation_id.push(moved.operation_id[index])
+                    return false if operation_id.count.i64() != moved.operation_id_bytes
+                    generation_restore_operation_id <- move operation_id
+                    return true
             false
 
         def generation_restore_release_retry_enabled() -> bool:
@@ -147,12 +168,65 @@ extend Studio:
             generation_restore_root <- []
             generation_restore_root_move_ticket <- 0
             generation_restore_operation_id <- []
+            generation_restore_artifact_id <- []
+            generation_restore_relative_path <- []
 
         def generation_restore_copy_bytes(source: darray[u8]&) -> darray[u8] can Memory.Allocate:
             mutable copied: darray[u8] = []
             for byte in source |source, copied|:
                 copied.push(byte)
             copied
+
+        def generation_restore_copy_wire_path(source: u8[StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()]&) -> darray[u8] can Memory.Allocate:
+            mutable copied: darray[u8] = []
+            mutable index: usize = 0
+            while index < StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize() and source[index] != 0:
+                copied.push(source[index])
+                index <- index + 1
+            return [] if index == 0 or index >= StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()
+            return [] if source[index] != 0
+            for suffix_index in (index + 1)..<StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize() |suffix_index, source|:
+                return [] if source[suffix_index] != 0
+            copied
+
+        def generation_restore_copy_wire_id(source: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&) -> darray[u8] can Memory.Allocate:
+            mutable copied: darray[u8] = []
+            mutable index: usize = 0
+            while index < StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() and source[index] != 0:
+                copied.push(source[index])
+                index <- index + 1
+            return [] if index == 0 or index >= StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()
+            for suffix_index in (index + 1)..<StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize() |suffix_index, source|:
+                return [] if source[suffix_index] != 0
+            copied
+
+        def generation_restore_capture_wire_metadata(wire: StudioBuildGenerationMoveWire::Wire,
+                operation_buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&,
+                operation_bytes: i64) -> bool can Memory.Allocate:
+            return false if not wire.valid or operation_bytes <= 0 or operation_bytes > StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES
+            root: darray[u8] = generation_restore_copy_wire_path(wire.root)
+            operation: darray[u8] = []
+            for index in 0..<operation_bytes.usize() |index, operation_buffer, operation|:
+                operation.push(operation_buffer[index])
+            artifact_id: darray[u8] = generation_restore_copy_wire_id(wire.artifact_id)
+            relative_path: darray[u8] = generation_restore_copy_wire_path(wire.path)
+            return false if not StudioGenerationRestoreReviewIdentityPolicy::valid(root, operation, artifact_id, relative_path)
+            return false if not StudioGenerationRestoreReviewIdentityPolicy::same_bytes(root, generation_restore_root)
+            generation_restore_artifact_id <- move artifact_id
+            generation_restore_relative_path <- move relative_path
+            true
+
+        def generation_restore_saved_wire_identity_matches(wire: StudioBuildGenerationMoveWire::Wire,
+                operation_buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&,
+                operation_bytes: i64) -> bool can Memory.Allocate:
+            return false if not wire.valid or operation_bytes <= 0 or operation_bytes > StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES
+            root: darray[u8] = generation_restore_copy_wire_path(wire.root)
+            operation: darray[u8] = []
+            for index in 0..<operation_bytes.usize() |index, operation_buffer, operation|:
+                operation.push(operation_buffer[index])
+            artifact_id: darray[u8] = generation_restore_copy_wire_id(wire.artifact_id)
+            relative_path: darray[u8] = generation_restore_copy_wire_path(wire.path)
+            StudioGenerationRestoreReviewIdentityPolicy::exact_match(generation_restore_root, generation_restore_operation_id, generation_restore_artifact_id, generation_restore_relative_path, root, operation, artifact_id, relative_path)
 
         def generation_restore_action() -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
             if generation_restore_release_retry_enabled():
