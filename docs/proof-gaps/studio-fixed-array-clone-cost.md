@@ -172,3 +172,23 @@ SHA-256 is `8d9a392159753f8cfd7181359df1497e28418326aa8a3dd1cd294e2cf65a12f6`;
 command and outcome are in `capture-frozen-snapshots-o2-record.json` in the
 same artifact directory. This isolated diagnostic is not a full-graph speed
 comparison or evidence that other hotspots have been resolved.
+
+## Implemented snapshot control, pending current qualification
+
+Compiler source `a9b22071` seeded successfully and produced
+`7778893b9139dd7d43d07b8f260fa50bebbf7262d63318ab25a527a6a50f1132`.
+The implemented helper captures ordinary large sret values before contracts and
+cleanup, keeps the contract result slot separate, and returns the captured bytes
+through the final sret copy. A 32,776-byte fixture combines an ensure with deferred
+mutation of the first field and both array endpoints. O0 and O2 return the original
+values (exit 42); the separate false ensure aborts at runtime (134).
+Root inspected the fixtures/evidence and independently matched all three executable
+hashes. Evidence is retained in the compiler checkout under
+`build/large-return-snapshot-a9b22071-final/evidence.log`, SHA-256
+`66dfce575beab1e5931306576027e141224ca49f31aaaa0fc8dedd31f4213f38`.
+
+Upstream subsequently advanced to `528b24bd`; these results are captured comparison
+evidence. The rebased repair at `36f7dcba` still needs a fresh product and repeated
+controls. Error-function success out-parameter returns are excluded from this
+helper and need their own evaluation/cleanup timing audit. Complete Studio O2,
+all return paths and current-main performance remain open.
