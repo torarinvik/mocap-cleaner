@@ -1,0 +1,59 @@
+include "export_batch_identity.elisa"
+include "export_batch_display_projection.elisa"
+
+# Owned inspection data only: no review token, queue identity or write authority.
+# Fetch for one selected item; overview rows need not retain sidecar paths.
+module StudioExportBatchDestinationProjection:
+    public:
+        const enum Location of i64:
+            Source = 0
+            Glb = 1
+            JsonReport = 2
+            TextReport = 3
+
+        struct Snapshot:
+            private:
+                source: darray[u8]
+                glb: darray[u8]
+                json_report: darray[u8]
+                text_report: darray[u8]
+
+        def path_admitted(path: darray[u8]&) -> bool:
+            ensure result implies path.count > 0 and path.count <= StudioExportBatchIdentity::Limit::MAX_PATH_BYTES
+            return false if path.count == 0 or path.count > StudioExportBatchIdentity::Limit::MAX_PATH_BYTES
+            for index in 0..<path.count |index, path|:
+                return false if path[index] == 0
+            true
+
+        def valid(snapshot: Snapshot&) -> bool:
+            path_admitted(snapshot.source) and path_admitted(snapshot.glb) and path_admitted(snapshot.json_report) and path_admitted(snapshot.text_report)
+
+        def project(source: darray[u8]&, glb: darray[u8]&, json_report: darray[u8]&, text_report: darray[u8]&) -> Snapshot:
+            requires path_admitted(source) and path_admitted(glb) and path_admitted(json_report) and path_admitted(text_report)
+            ensure valid(result)
+            ensure StudioExportBatchDisplayProjection::bytes_equal(result.source, source)
+            ensure StudioExportBatchDisplayProjection::bytes_equal(result.glb, glb)
+            ensure StudioExportBatchDisplayProjection::bytes_equal(result.json_report, json_report)
+            ensure StudioExportBatchDisplayProjection::bytes_equal(result.text_report, text_report)
+            Snapshot{source: StudioExportBatchDisplayProjection::copy_bytes(source), glb: StudioExportBatchDisplayProjection::copy_bytes(glb),
+                json_report: StudioExportBatchDisplayProjection::copy_bytes(json_report), text_report: StudioExportBatchDisplayProjection::copy_bytes(text_report)}
+
+        def path(snapshot: Snapshot&, location: Location) -> darray[u8]:
+            requires valid(snapshot)
+            ensure (location == Location.Source or location == Location.Glb or location == Location.JsonReport or location == Location.TextReport) implies path_admitted(result)
+            ensure location != Location.Source or StudioExportBatchDisplayProjection::bytes_equal(result, snapshot.source)
+            ensure location != Location.Glb or StudioExportBatchDisplayProjection::bytes_equal(result, snapshot.glb)
+            ensure location != Location.JsonReport or StudioExportBatchDisplayProjection::bytes_equal(result, snapshot.json_report)
+            ensure location != Location.TextReport or StudioExportBatchDisplayProjection::bytes_equal(result, snapshot.text_report)
+            return StudioExportBatchDisplayProjection::copy_bytes(snapshot.source) if location == Location.Source
+            return StudioExportBatchDisplayProjection::copy_bytes(snapshot.glb) if location == Location.Glb
+            return StudioExportBatchDisplayProjection::copy_bytes(snapshot.json_report) if location == Location.JsonReport
+            return StudioExportBatchDisplayProjection::copy_bytes(snapshot.text_report) if location == Location.TextReport
+            []
+
+        def location_label(location: Location) -> sview:
+            return "Source take" if location == Location.Source
+            return "GLB output" if location == Location.Glb
+            return "JSON report" if location == Location.JsonReport
+            return "Text report" if location == Location.TextReport
+            "Unavailable location"
