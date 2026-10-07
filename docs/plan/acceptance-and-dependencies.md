@@ -120,6 +120,36 @@ inverse and report conversions together before qualifying changed decisions.
   Screenshots, an issued click and process liveness alone cannot demonstrate
   completed input routing or accessibility interaction.
 
+## Paired measurements and aggregate reports
+
+Apply these criteria to diagnosis, comparison, CLI output, export reports and
+batch summaries. Include them in J02/J03/J04 acceptance evidence.
+
+- A before/after comparison uses the same metric definition, physical units,
+  sampling domain and captured source/settings identity. Record sample counts
+  and exclusions for both sides. Different domains require an explicit aligned
+  comparison; silently comparing differently filtered totals is invalid.
+- Represent availability at the same granularity as the measurement. If one
+  shared flag governs a pair, refusal or overflow clears both values atomically.
+  Independent flags must be checked together before calculating improvement.
+  An unavailable value cannot survive as an apparently measured zero or number.
+- Check accumulation and report conversion bounds before arithmetic. Cover
+  overflow in either member after the other already contains a positive value,
+  merging an unavailable contributor, and repeated merges after refusal. Retain
+  the reason and avoid percentages when the baseline is zero or unavailable.
+- Batch summaries expose measured, failed, unavailable and inapplicable counts
+  and the aggregation rule. A subtotal over available clips is labelled partial;
+  omitted clips remain visible with reasons. An aggregate cannot certify a
+  failed or unevaluated individual preservation gate.
+- Render absent measurements as readable states in Studio and CLI text, and as
+  explicit availability/reason fields with absent or null numbers in structured
+  reports. Verify report readers preserve those states through round trips.
+  Presentation placeholders cannot become numeric input to quality decisions.
+
+**Finish evidence:** authenticated arithmetic/availability laws, matching
+CLI/Studio/report outcomes for a frozen fixture, mixed-availability batch cases,
+and review of the displayed reason and available recovery action.
+
 ## Scope and release decisions
 
 P0/P1/P2 identify release order, not permission to discard requested work.
