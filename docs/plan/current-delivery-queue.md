@@ -41,15 +41,18 @@ arity count. Rename that source identifier without changing the positional C
 ABI. That rename is committed and the reduced binding has no remaining arity
 errors. The complete transaction adapter now compiles as an object with current
 Stage1 `e34f2c`, including both evidence decoders. Integrate and qualify its
-controller/native link closure; it is not included in the passing app build.
+controller/native link closure; its adapter compilation does not establish UI
+integration or native interaction acceptance.
 Keep this separate from the resolved generic `view` collision.
 
 Dependency freshness is still open. The selected UI has uncommitted source
 changes that must be captured exactly before and after qualification. The
 mocap engine now includes fetched main `55541b7b` at merge `dff5579b`,
 with its provider additions preserved; a full Studio build against that merged
-source passed. The new bounded generation provider is being developed on that
-branch and needs complete source/native qualification once integrated. Compiler
+source passed. The bounded generation provider and its Elisa façade now compile,
+and the native provider, creation scanner and bounded JSON scanner are registered
+in the Studio build and source fingerprint (`b668720`). Qualify their complete
+link/package closure and background controller integration. Compiler
 provenance still needs `platform.sh` added to its recipe fingerprint; its exact
 hash is already captured by the app input snapshot.
 
@@ -215,12 +218,29 @@ negative controls, meaningful history entries and session/export parity.
   verify identity, location, locks and durable journal/parent synchronization.
 - Before persisting a move intent, match the complete reviewed identity under
   retained global and artifact locks: artifact/path/device/inode plus product,
-  manifest, contents-inventory and lease-record digests. The current begin-move
-  ABI accepts an expected product digest only; extend its reviewed-identity
-  admission before UI integration. Re-enumerating and releasing locks cannot
-  close the race between review and mutation. Define package manifest evidence
-  explicitly so copied inputs and package metadata are both covered. Refuse
-  changed controls even when the executable bytes are unchanged.
+  manifest, contents-inventory and lease-record digests. The native
+  `validate_reviewed` operation and Elisa adapter now compare those controls
+  under the begin transaction's retained locks, with repeat validation before
+  intent and mutation. Wire the controller to require that admission, rather
+  than treating a successful begin as complete review validation. Build manifest
+  evidence hashes exact `inputs.json` bytes; packages hash exact
+  `PACKAGE-GENERATION.json` and separately `BUILD-INPUTS.json` bytes. The contents
+  inventory excludes these controls. Refuse changed controls even when the
+  executable bytes are unchanged. Extend the durable receipt to retain these
+  reviewed control digests and qualify restart reconciliation against them;
+  the current v1 receipt retains product/inventory/lease evidence only.
+- Integrate the bounded candidate façade with background dispatch, explicit
+  overflow/refusal states and a paged accessible review list. Unknown age stays
+  protected; only verified filesystem birthtime supplies retention evidence.
+  A verified Published4 resolves its matching publication intent, while an
+  unmatched intent stays protected. Failed/partial generations still need
+  cleanup admission based on their creation evidence, without a fabricated
+  product identity.
+- Connect the compiled owning Restore job to the controller. Cancellation or a
+  stale ticket suppresses UI publication but must drain the reply and retain any
+  unclosed native handle. Restore success requires committed restore, confirmed
+  lock release and exact durable reconciliation; compilation of the worker and
+  task instantiation does not qualify its runtime behavior.
 - Qualify generation recovery through this outcome matrix before exposing it:
 
   | Observed state | Required UI and action |
