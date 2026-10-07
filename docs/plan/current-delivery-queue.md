@@ -145,15 +145,14 @@ Complete parameter inspection, range/anchor controls and accessible alternatives
 before adding another algorithm. Do not infer impact labels from improvement
 metrics or call an intentional fast movement noise without evidence.
 
-The current suggestion adapter also needs explicit admission of computed
-boundary/velocity distances before integer conversion. Finite input coordinates
-alone do not establish a finite subtraction, norm or rate-scaled distance.
-Reject nonfinite or out-of-domain computed values as unavailable before casting;
-retain the candidate and explain the missing preservation evidence. Apply exact
-current/candidate sampling-domain admission to contact, joint and velocity
-comparisons as well as balance. Equal array lengths alone do not establish
-matching frame times. Qualify overflow, equal-length different-time and ordinary
-aligned cases without changing the preservation tolerances.
+Computed boundary/velocity distances now pass finite, nonnegative and bounded
+admission before integer conversion (`0d1f557`), with contracts and companion
+laws. Contact, boundary, joint and velocity comparisons also require the shared
+current/candidate sampling-domain check. Qualify these implemented paths with
+overflow, equal-length different-time and ordinary aligned cases, preserving
+the existing tolerances. Confirm that unavailable measurements retain the
+candidate and explain the missing preservation evidence in the UI. Source
+implementation alone does not close these runtime and proof requirements.
 
 **Finish evidence:** complete interactions, local and aggregate quality gates,
 negative controls, meaningful history entries and session/export parity.
