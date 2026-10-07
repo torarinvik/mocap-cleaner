@@ -112,3 +112,18 @@ Staging, source-reference, native-output and copy packages were refused as
 `source-inadmissible`. All six report `source_authenticated:false` and every
 correspondence command exits 1. The overall qualification exits 1. These
 current results supersede historical replay counts without closing Q02.
+
+The builtin-integer cast witness repair now has a fresh matched pair on
+compiler `2ef1fa26`: generation `27a76cce72424a72ba1a75bb0e8c2f96`, proof
+source `56460af7` (repair `6f640b7`, lifetime annotations `b9b00b39`, refusal
+controls `56460af7`). Pair integrity/freshness and the control runner pass.
+The bounded `terminated` example verifies; missing guard, cast/receiver equality,
+arbitrary range, custom cast hook, float and shadowing controls remain refused.
+Each report has zero semantic errors and replay gaps; expected refusals give
+per-source exit 1, while the control runner exits 0.
+Root independently verified all five source/report hash pairs and both product
+hashes against `build/q02-cast-controls-56460af7-2ef1fa26/evidence.json`, SHA-256
+`f6ca5e6201f291d8f462c20ce69838c5578c75ae8f8bbb409c811fb04fe2d425`.
+This establishes the narrow type-witness control behavior, not FBX package
+source correspondence. Rerun the six current FBX laws against this pair.
+An upstream fetch still resolves compiler/prover main to `665f40d7`/`ec4ceacd`.
