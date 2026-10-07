@@ -60,6 +60,12 @@ Complete all applicable categories before removing a task from this roadmap.
   clean compilation closure. Included dependencies also produce findings, so a
   clean local file does not imply a clean application. Do not use `-permissive`
   or renamed underscore locals to hide findings.
+- Fetched compiler tip `665f40d7` documents the landed accumulator diagnostic:
+  gentle mode reports supported rewrites; strict mode also explains candidates
+  whose control flow or value shape prevents rewriting. After qualifying that
+  compiler, use those reasons to choose a helper or retain necessary mutation.
+  Do not apply a suggested fold blindly to arrays, escaping allocations or
+  loops whose intermediate state is read; source contracts still govern changes.
 - General owned-array value threading is marked planned in the guide. Use
   working expression forms and existing array extension methods until the
   selected compiler supports and qualifies additional forms.
