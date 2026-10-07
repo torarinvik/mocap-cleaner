@@ -13,12 +13,12 @@ def main():
         raise SystemExit("usage: studio_verify_fbx_abi.py PROJECT ENGINE")
     project, engine = map(Path, sys.argv[1:])
     native = (engine / "native/fbx_to_glb.c").read_text()
-    worker = (project / "src/studio/fbx_import_worker.elisa").read_text()
+    adapter = (project / "src/studio/fbx_import_native.elisa").read_text()
     native_signature = r"int64_t\s+elisa_fbx_to_glb\s*\(\s*const\s+char\s*\*\s*input\s*,\s*const\s+char\s*\*\s*output\s*,\s*double\s+rate\s*\)"
-    worker_signature = r'@link_name\("elisa_fbx_to_glb"\)\s+extern\s+convert\(source:\s*cstr,\s*destination:\s*cstr,\s*rate:\s*f64\)\s*->\s*i64'
+    adapter_signature = r'@link_name\("elisa_fbx_to_glb"\)\s+(?:@trusted\("[^"\n]*"\)\s+)?extern\s+raw_convert\(source:\s*cstr,\s*destination:\s*cstr,\s*rate:\s*f64\)\s*->\s*i64'
     if not re.search(native_signature, native):
         raise SystemExit("Studio FBX ABI: expected native double rate declaration; review the adapter")
-    if not re.search(worker_signature, worker):
+    if not re.search(adapter_signature, adapter):
         raise SystemExit("Studio FBX ABI: Elisa converter must declare an f64 rate")
     print("Studio FBX converter rate ABI matches (double/f64)")
 

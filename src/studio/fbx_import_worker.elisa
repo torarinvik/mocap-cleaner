@@ -5,18 +5,11 @@ include "app/model.elisa"
 include "fbx_import_policy.elisa"
 include "take_source_ref_policy.elisa"
 include "fbx_import_reference.elisa"
+include "fbx_import_native.elisa"
 include "../../build/generated/studio_runtime.elisa"
 
 module StudioFbxImportWorker:
     private:
-        @link_name("elisa_fbx_to_glb")
-        extern convert(source: cstr, destination: cstr, rate: f64) -> i64 can Blocking.IO
-        @link_name("elisa_studio_fbx_file_digest")
-        extern file_digest(path: cstr, digest: mutable u8&, maximum: u64) -> i64 can Blocking.IO
-
-        @link_name("elisa_studio_fbx_stage")
-        extern stage(build_root: cstr, source: cstr, snapshot: mutable u8&, destination: mutable u8&, digest: mutable u8&, capacity: u32) -> i64 can Blocking.IO
-
         def path_copy(bytes: u8[4096]&) -> darray[u8]:
             mutable out: darray[u8] = []
             for index in 0..<4096 |index, bytes, out|:
@@ -69,35 +62,28 @@ module StudioFbxImportWorker:
             mutable status: i64 = Status.InvalidJob.i64()
             mutable memo: StudioModel::Memo? = null
             if ticket > 0 and StudioFbxImportPolicy::rate_valid(rate) and StudioFbxImportPolicy::terminated(&source, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&build_root, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&animation, StudioFbxImportPolicy::Limit::ANIMATION_BYTES):
-                source_path: cstr = (&source[0]).cast[cstr]
-                root_path: cstr = (&build_root[0]).cast[cstr]
-                mutable snapshot_bytes: u8[4096] = zeroed
-                mutable output_bytes: u8[4096] = zeroed
-                mutable digest_bytes: u8[65] = zeroed
-                status <- stage(root_path, source_path, &snapshot_bytes[0], &output_bytes[0], &digest_bytes[0], 4096.u32())
+                mutable snapshot_owned: darray[u8] = []
+                match StudioFbxImportNative::stage(&build_root, &source):
+                    StudioFbxImportNative::StagingResult{status: staged_status, snapshot: staged_snapshot, destination: staged_destination, source_sha256: staged_digest}:
+                        status <- staged_status
+                        destination <- move staged_destination
+                        source_digest <- move staged_digest
+                        snapshot_owned <- move staged_snapshot
                 if status == 0:
-                    destination <- path_copy(&output_bytes)
-                    snapshot: cstr = (&snapshot_bytes[0]).cast[cstr]
-                    destination_path: cstr = (&output_bytes[0]).cast[cstr]
-                    animation_name: cstr = (&animation[0]).cast[cstr]
-                    for index in 0..<64 |index, source_digest, digest_bytes|:
-                        source_digest.push(digest_bytes[index])
-                    snapshot_owned: darray[u8] = path_copy(&snapshot_bytes)
                     status <- Status.InvalidJob.i64()
                     if StudioFbxImportPolicy::terminated(&snapshot_owned, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&destination, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioTakeSourceRefPolicy::sha256_valid(&source_digest) and not StudioFbxImportPolicy::same_path(&source, &destination) and not StudioFbxImportPolicy::same_path(&snapshot_owned, &destination):
-                        status <- convert(snapshot, destination_path, rate.f64())
+                        status <- StudioFbxImportNative::convert(&snapshot_owned, &destination, rate)
                     if status == 0:
-                        mutable current_source: u8[65] = zeroed
-                        mutable current_runtime: u8[65] = zeroed
-                        if file_digest(source_path, &current_source[0], 536870912.u64()) != 0 or file_digest(destination_path, &current_runtime[0], 536870912.u64()) != 0:
+                        current_source: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(&source)
+                        current_runtime: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(&destination)
+                        if current_source.status != 0 or current_runtime.status != 0:
                             status <- Status.DigestUnavailable.i64()
                         else:
-                            for index in 0..<64 |index, current_source, current_runtime, source_digest, runtime_digest, status|:
-                                status <- Status.SourceChanged.i64() if current_source[index] != source_digest[index]
-                                runtime_digest.push(current_runtime[index])
-                            status <- Status.DigestUnavailable.i64() if not StudioTakeSourceRefPolicy::sha256_valid(&runtime_digest)
+                            status <- Status.SourceChanged.i64() if not StudioFbxImportPolicy::same_path(&current_source.bytes, &source_digest)
+                            runtime_digest <- move current_runtime.bytes
                     if status == 0:
-                        memo <- StudioModel::load(destination_path, animation_name)
+                        trusted Unsafe.PointerCast:
+                            memo <- StudioModel::load((&destination[0]).cast[cstr], (&animation[0]).cast[cstr])
                         status <- Status.UnreadableAnimation.i64() if memo == null else 0
                         if memo is held:
                             mutable owned: StudioModel::Memo = move held
