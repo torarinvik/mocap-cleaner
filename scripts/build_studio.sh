@@ -51,13 +51,19 @@ clang -std=c11 -O2 -c -o "$pending_directory/studio_file_path.o" "$ENGINE/native
 clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_file_path_namespace.o" "$ENGINE/native/file_path_namespace_appkit.m"
 clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_workspace_root.o" "$ENGINE/native/workspace_root_appkit.m"
 clang -fobjc-arc -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_generation_lease_appkit.o" "$ENGINE/native/studio_generation_lease_appkit.m"
+for source in io current path inventory journal restore reconcile binding; do
+  clang -fobjc-arc -Wall -Wextra -Werror -O2 -I "$ENGINE/native" \
+    -c -o "$pending_directory/studio_build_trash_${source}.o" \
+    "$ENGINE/native/studio_build_generation_trash_${source}_appkit.m"
+done
 clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
 clang++ -c -std=c++17 -O2 -o "$pending_directory/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
 bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$pending_object" "$ROOT/src/studio/app/main.elisa"
 [[ -s "$pending_object" ]] || { echo "compiler did not emit a fresh Studio object" >&2; exit 1; }
 python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 clang -o "$pending_directory/mocap_studio" \
-  "$pending_object" "$pending_directory/studio_canvas_shim.o" "$pending_directory/studio_viewport_metal.o" "$pending_directory/studio_file_panel.o" "$pending_directory/studio_file_trash.o" "$pending_directory/studio_file_path.o" "$pending_directory/studio_file_path_namespace.o" "$pending_directory/studio_workspace_root.o" "$pending_directory/studio_generation_lease_appkit.o" "$pending_directory/studio_storage_manifest_lock.o" \
+  "$pending_object" "$pending_directory/studio_canvas_shim.o" "$pending_directory/studio_viewport_metal.o" "$pending_directory/studio_file_panel.o" "$pending_directory/studio_file_trash.o" "$pending_directory/studio_file_path.o" "$pending_directory/studio_file_path_namespace.o" "$pending_directory/studio_workspace_root.o" "$pending_directory/studio_generation_lease_appkit.o" \
+  "$pending_directory/studio_build_trash_io.o" "$pending_directory/studio_build_trash_current.o" "$pending_directory/studio_build_trash_path.o" "$pending_directory/studio_build_trash_inventory.o" "$pending_directory/studio_build_trash_journal.o" "$pending_directory/studio_build_trash_restore.o" "$pending_directory/studio_build_trash_reconcile.o" "$pending_directory/studio_build_trash_binding.o" "$pending_directory/studio_storage_manifest_lock.o" \
   "$pending_directory/studio_native_fallbacks.o" "$RUNTIME" \
   -framework Cocoa -framework Foundation -framework CoreText -framework CoreGraphics -framework ImageIO \
   -framework QuartzCore -framework IOSurface -framework Metal -framework UniformTypeIdentifiers
@@ -67,6 +73,10 @@ python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE
 # Failure preserves the previous executable and its recorded input identity.
 inventory_arguments=(
   --file main.o --file mocap_studio
+  --file studio_build_trash_io.o --file studio_build_trash_current.o
+  --file studio_build_trash_path.o --file studio_build_trash_inventory.o
+  --file studio_build_trash_journal.o --file studio_build_trash_restore.o
+  --file studio_build_trash_reconcile.o --file studio_build_trash_binding.o
   --file studio_canvas_shim.o --file studio_viewport_metal.o
   --file studio_file_panel.o --file studio_file_trash.o --file studio_file_path.o
   --file studio_file_path_namespace.o --file studio_workspace_root.o

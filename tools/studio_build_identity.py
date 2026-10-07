@@ -73,6 +73,16 @@ def snapshot(project, engine, ui, compiler):
             "file_path.c", "file_path_namespace_appkit.m",
             "workspace_root_appkit.m", "storage_manifest_lock.c",
             "studio_generation_lease_appkit.m",
+            "studio_build_generation_trash_io_appkit.m",
+            "studio_build_generation_trash_current_appkit.m",
+            "studio_build_generation_trash_path_appkit.m",
+            "studio_build_generation_trash_inventory_appkit.m",
+            "studio_build_generation_trash_journal_appkit.m",
+            "studio_build_generation_trash_restore_appkit.m",
+            "studio_build_generation_trash_reconcile_appkit.m",
+            "studio_build_generation_trash_binding_appkit.m",
+            "studio_build_generation_trash_appkit.h",
+            "studio_build_generation_trash_private.h",
             "studio_generation_lease_appkit.h",
             "elisa_native_fallbacks.cpp"))))
     native_tools = {}
