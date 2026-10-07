@@ -254,3 +254,12 @@ The proof-side source lookup repair and recipe pin are committed as
 `ac9df91b` and `67d6ac74` in the isolated proof worktree. The producer/replay
 capture does not qualify the full application or authenticate source
 correspondence.
+
+The follow-up source repair is committed as `2cd4e96b`. It projects each
+function signature with its module owner and builds a per-proposition function
+environment using the nearest exact owner-path prefix, respecting lexical
+shadowing and refusing duplicate declarations at that owner. Repeated-leaf
+qualified calls are also refused while the kernel arena erases their owner.
+This source change has not yet compiled: the pinned compiler wrapper currently
+rejects its own selected product as stale against a restored source-file
+freshness check. No pair or proof result is claimed for `2cd4e96b`.

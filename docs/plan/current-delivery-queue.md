@@ -110,7 +110,10 @@ this item. Keep native interaction and motion quality separately open.
 - Continue reducing connective/source admission gaps and fact growth. Extra
   enum disequality facts cannot substitute for the checked relation between a
   helper result and its inputs. Preserve fail-closed authentication and keep
-  unresolved laws open; see [the exact qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
+  unresolved laws open. A candidate owner-aware function-signature projection
+  is committed in the isolated proof worktree but is not compiled or qualified;
+  the matched-pair results above remain the current evidence. See [the exact
+  qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
 
 **Finish evidence:** authenticated intended predicates, negative controls and
 unchanged regression expectations. Unresolved laws retain their gap records.
