@@ -117,6 +117,17 @@
       Keep Cancel available for every invalid candidate, skip disabled choices
       during keyboard navigation and restore focus after dismissal. Exercise
       chooser cancellation, repeated activation and replacement-save failure.
+- [ ] Qualify transactional path publication in take/session/Locate flows.
+      `copy_path`, `stage_pending_path` and `set_session_path` now scan for an
+      admitted terminator before writing retained buffers. Five integer laws
+      cover capacity admission; copied helper bodies compile in a reduced
+      context under `build/path-copy-qualification/`. Neither establishes
+      native C-string validity or actual destination preservation. Exercise
+      empty, 4095-byte and overlong paths, both take slots, self-copy and a
+      refused request while a valid replacement/Locate candidate is staged.
+      Verify original bytes, terminators, path pointers, dirty state and
+      pending candidate remain unchanged on refusal. Source buffers must stay
+      owned and stable across native dialogs and asynchronous worker capture.
 - [ ] Add bounded autosave/recovery snapshots in `build/`, a clear Restore
       or Discard flow, retention policy and cleanup controls. Recover committed
       edits only; distinguish autosave from the user's saved session.
