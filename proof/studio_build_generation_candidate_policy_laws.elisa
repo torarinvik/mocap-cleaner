@@ -58,11 +58,11 @@ module StudioBuildGenerationCandidatePolicyLaws:
             StudioBuildGenerationCandidatePolicy::selected_projection_allowed(protection, true)
 
         def protected_identity_cannot_be_added(identities: darray[StudioBuildGenerationCandidatePolicy::Identity]&,
-                                               artifact_id: darray[u8]&) -> bool:
+                                               identity: StudioBuildGenerationCandidatePolicy::Identity&) -> bool:
             requires StudioBuildGenerationCandidatePolicy::identities_valid(identities)
-            requires StudioBuildGenerationCandidatePolicy::identity_valid(artifact_id)
+            requires StudioBuildGenerationCandidatePolicy::full_identity_valid(identity)
             ensure not result
-            StudioBuildGenerationCandidatePolicy::may_select_identity(identities, artifact_id, false)
+            StudioBuildGenerationCandidatePolicy::may_select_identity(identities, identity, false)
 
         def selection_count_never_overflows(item_bytes: i64,
                                             selected_bytes: i64) -> bool:
@@ -143,14 +143,22 @@ module StudioBuildGenerationCandidatePolicyLaws:
             ensure result
             StudioBuildGenerationCandidatePolicy::initial_model().candidate_count == 0 and StudioBuildGenerationCandidatePolicy::initial_model().selected_count == 0 and StudioBuildGenerationCandidatePolicy::initial_model().selected_bytes == 0 and StudioBuildGenerationCandidatePolicy::initial_model().review_state == StudioBuildGenerationCandidatePolicy::ReviewState.Fresh and not StudioBuildGenerationCandidatePolicy::review_allowed(StudioBuildGenerationCandidatePolicy::initial_model().candidate_count, StudioBuildGenerationCandidatePolicy::initial_model().selected_count, StudioBuildGenerationCandidatePolicy::initial_model().selected_bytes, StudioBuildGenerationCandidatePolicy::initial_model().inventory_revision)
 
-        def refresh_clears_prior_selection(model: mutable StudioBuildGenerationCandidatePolicy::Model&,
-                                           next_revision: i64,
-                                           candidate_count: i64) -> bool:
+        def refresh_preserves_verified_selection(model: mutable StudioBuildGenerationCandidatePolicy::Model&,
+                                                 next_revision: i64,
+                                                 candidate_count: i64,
+                                                 retained_count: i64,
+                                                 retained_bytes: i64,
+                                                 removed_count: i64) -> bool:
             requires next_revision > model.inventory_revision
+            requires StudioBuildGenerationCandidatePolicy::model_valid(model)
             requires candidate_count >= 0 and candidate_count <= StudioBuildGenerationCandidatePolicy::Capacity::MAX_CANDIDATES
             requires model.progress_state != StudioBuildGenerationCandidatePolicy::ProgressState.Running
+            requires retained_count >= 0 and retained_count <= candidate_count
+            requires retained_bytes >= 0 and retained_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
+            requires removed_count >= 0 and removed_count <= StudioBuildGenerationCandidatePolicy::Capacity::MAX_CANDIDATES
+            requires retained_count + removed_count == model.selected_count
             ensure result
-            StudioBuildGenerationCandidatePolicy::refresh_model(model, next_revision, candidate_count) and model.selected_count == 0 and model.selected_bytes == 0 and model.review_state == StudioBuildGenerationCandidatePolicy::ReviewState.Fresh and model.reviewed_revision == -1 and model.confirmed_revision == -1
+            StudioBuildGenerationCandidatePolicy::refresh_model(model, next_revision, candidate_count, retained_count, retained_bytes, removed_count) and model.selected_count == retained_count and model.selected_bytes == retained_bytes and model.selection_removed_count == removed_count and model.review_state == StudioBuildGenerationCandidatePolicy::ReviewState.Fresh and model.reviewed_revision == -1 and model.confirmed_revision == -1
 
         def changed_review_identity_is_rejected(reviewed: darray[StudioBuildGenerationCandidatePolicy::Identity]&,
                                                 current: darray[StudioBuildGenerationCandidatePolicy::Identity]&) -> bool:
@@ -159,8 +167,167 @@ module StudioBuildGenerationCandidatePolicyLaws:
             ensure not result
             StudioBuildGenerationCandidatePolicy::selection_revision_matches(reviewed, current)
 
+        def unchanged_identity_order_survives_review(reviewed: darray[StudioBuildGenerationCandidatePolicy::Identity]&,
+                                                     current: darray[StudioBuildGenerationCandidatePolicy::Identity]&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::identities_valid(reviewed) and StudioBuildGenerationCandidatePolicy::identities_valid(current)
+            requires reviewed.count == current.count
+            requires StudioBuildGenerationCandidatePolicy::all_identities_selected(reviewed, current)
+            ensure result
+            StudioBuildGenerationCandidatePolicy::selection_revision_matches(reviewed, current)
+
+        def reused_artifact_id_with_changed_object_is_not_same_identity(original: StudioBuildGenerationCandidatePolicy::Identity&,
+                                                                        fresh: StudioBuildGenerationCandidatePolicy::Identity&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::full_identity_valid(original) and StudioBuildGenerationCandidatePolicy::full_identity_valid(fresh)
+            requires StudioBuildGenerationCandidatePolicy::bytes_equal(original.artifact_id, fresh.artifact_id)
+            requires original.device != fresh.device or original.inode != fresh.inode or not StudioBuildGenerationCandidatePolicy::bytes_equal(original.manifest_digest, fresh.manifest_digest) or not StudioBuildGenerationCandidatePolicy::bytes_equal(original.product_digest, fresh.product_digest) or not StudioBuildGenerationCandidatePolicy::bytes_equal(original.inventory_digest, fresh.inventory_digest) or not StudioBuildGenerationCandidatePolicy::bytes_equal(original.lease_receipt_digest, fresh.lease_receipt_digest)
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::same_identity(original, fresh)
+
+        def same_id_with_replaced_object_is_removed(original: StudioBuildGenerationCandidatePolicy::Identity&,
+                                                    fresh_candidates: darray[StudioBuildGenerationCandidatePolicy::Candidate]&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::full_identity_valid(original)
+            requires fresh_candidates.count == 1 and StudioBuildGenerationCandidatePolicy::candidate_valid(fresh_candidates[0])
+            requires StudioBuildGenerationCandidatePolicy::bytes_equal(original.artifact_id, fresh_candidates[0].identity.artifact_id)
+            requires not StudioBuildGenerationCandidatePolicy::same_identity(original, fresh_candidates[0].identity)
+            ensure result == StudioBuildGenerationCandidatePolicy::SelectionRemoval.IdentityChanged
+            StudioBuildGenerationCandidatePolicy::selection_removal(original, fresh_candidates)
+
+        def exact_eligible_selection_survives_refresh(original: StudioBuildGenerationCandidatePolicy::Identity&,
+                                                      fresh_candidates: darray[StudioBuildGenerationCandidatePolicy::Candidate]&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::full_identity_valid(original)
+            requires fresh_candidates.count == 1 and StudioBuildGenerationCandidatePolicy::candidate_valid(fresh_candidates[0])
+            requires StudioBuildGenerationCandidatePolicy::same_identity(original, fresh_candidates[0].identity)
+            requires StudioBuildGenerationPolicy::eligible(fresh_candidates[0].facts)
+            ensure result == StudioBuildGenerationCandidatePolicy::SelectionRemoval.Retained
+            StudioBuildGenerationCandidatePolicy::selection_removal(original, fresh_candidates)
+
+        def exact_newly_protected_selection_is_removed(original: StudioBuildGenerationCandidatePolicy::Identity&,
+                                                       fresh_candidates: darray[StudioBuildGenerationCandidatePolicy::Candidate]&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::full_identity_valid(original)
+            requires fresh_candidates.count == 1 and StudioBuildGenerationCandidatePolicy::candidate_valid(fresh_candidates[0])
+            requires StudioBuildGenerationCandidatePolicy::same_identity(original, fresh_candidates[0].identity)
+            requires StudioBuildGenerationPolicy::protection_reason(fresh_candidates[0].facts) != StudioBuildGenerationPolicy::Protection.None
+            ensure result == StudioBuildGenerationCandidatePolicy::SelectionRemoval.NewlyProtected
+            StudioBuildGenerationCandidatePolicy::selection_removal(original, fresh_candidates)
+
+        def absent_selection_is_removed(original: StudioBuildGenerationCandidatePolicy::Identity&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::full_identity_valid(original)
+            ensure result == StudioBuildGenerationCandidatePolicy::SelectionRemoval.Missing
+            empty: darray[StudioBuildGenerationCandidatePolicy::Candidate] = []
+            StudioBuildGenerationCandidatePolicy::selection_removal(original, empty)
+
         def terminal_unknown_is_sticky(completed: i64, total: i64) -> bool:
             requires total >= 1 and total <= StudioBuildGenerationCandidatePolicy::Capacity::MAX_CANDIDATES
             requires completed >= 0 and completed < total
             ensure result
             StudioBuildGenerationCandidatePolicy::next_progress(StudioBuildGenerationCandidatePolicy::ProgressState.Unknown, true, false, false, false, completed, total) == StudioBuildGenerationCandidatePolicy::ProgressState.Unknown
+
+        def page_count_uses_bounded_ceiling(candidate_count: i64) -> bool:
+            requires candidate_count >= 0 and candidate_count <= StudioBuildGenerationCandidatePolicy::Capacity::MAX_CANDIDATES
+            ensure result
+            StudioBuildGenerationCandidatePolicy::page_count(candidate_count) * StudioBuildGenerationCandidatePolicy::Capacity::PAGE_SIZE >= candidate_count and (StudioBuildGenerationCandidatePolicy::page_count(candidate_count) == 0 or (StudioBuildGenerationCandidatePolicy::page_count(candidate_count) - 1) * StudioBuildGenerationCandidatePolicy::Capacity::PAGE_SIZE < candidate_count)
+
+        def page_start_is_aligned(candidate_count: i64, page_index: i64) -> bool:
+            requires candidate_count >= 0 and candidate_count <= StudioBuildGenerationCandidatePolicy::Capacity::MAX_CANDIDATES
+            requires page_index >= 0 and (page_index < StudioBuildGenerationCandidatePolicy::page_count(candidate_count) or candidate_count == 0 and page_index == 0)
+            ensure result
+            StudioBuildGenerationCandidatePolicy::page_start(candidate_count, page_index) % StudioBuildGenerationCandidatePolicy::Capacity::PAGE_SIZE == 0
+
+        def selected_bytes_never_exceed_storage_cap(item_bytes: i64,
+                                                     selected_bytes: i64) -> bool:
+            requires item_bytes >= 0 and item_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
+            requires selected_bytes >= 0 and selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
+            ensure result
+            not StudioBuildGenerationCandidatePolicy::selection_count_allows_add(0, item_bytes, selected_bytes) or item_bytes + selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
+
+        def stale_or_protected_selection_is_removed(selected: bool,
+                                                     identity_matches: bool,
+                                                     facts_valid: bool,
+                                                     eligible: bool) -> bool:
+            ensure result == (selected and (not identity_matches or not facts_valid or not eligible))
+            StudioBuildGenerationCandidatePolicy::must_remove_after_refresh(selected, identity_matches, facts_valid, eligible) == (selected and (not identity_matches or not facts_valid or not eligible))
+
+        def selection_set_change_invalidates_review(reviewed: darray[StudioBuildGenerationCandidatePolicy::Identity]&,
+                                                    current: darray[StudioBuildGenerationCandidatePolicy::Identity]&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::identities_valid(reviewed) and StudioBuildGenerationCandidatePolicy::identities_valid(current)
+            requires not StudioBuildGenerationCandidatePolicy::selection_revision_matches(reviewed, current)
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::selection_revision_matches(reviewed, current)
+
+        def duplicate_selection_identity_is_invalid(identities: darray[StudioBuildGenerationCandidatePolicy::Identity]&) -> bool:
+            requires identities.count > 1
+            requires StudioBuildGenerationCandidatePolicy::bytes_equal(identities[0].artifact_id, identities[1].artifact_id)
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::identities_valid(identities)
+
+        def invalid_identity_cannot_enter_selection(identities: darray[StudioBuildGenerationCandidatePolicy::Identity]&, identity: StudioBuildGenerationCandidatePolicy::Identity&) -> bool:
+            requires StudioBuildGenerationCandidatePolicy::identities_valid(identities)
+            requires not StudioBuildGenerationCandidatePolicy::full_identity_valid(identity)
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::may_select_identity(identities, identity, true)
+
+        def confirmation_requires_fresh_protection_facts(review_state: StudioBuildGenerationCandidatePolicy::ReviewState,
+                                                          reviewed_revision: i64,
+                                                          inventory_revision: i64,
+                                                          selected_count: i64,
+                                                          unchanged: bool) -> bool:
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::may_confirm(review_state, reviewed_revision, inventory_revision, selected_count, unchanged, false)
+
+        def stale_review_cannot_start(reviewed_revision: i64,
+                                      confirmed_revision: i64,
+                                      inventory_revision: i64,
+                                      selected_count: i64,
+                                      unchanged: bool,
+                                      eligible: bool,
+                                      no_recovery: bool,
+                                      inactive: bool) -> bool:
+            requires reviewed_revision != inventory_revision or confirmed_revision != inventory_revision
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::may_start(StudioBuildGenerationCandidatePolicy::ReviewState.Confirmed, reviewed_revision, confirmed_revision, inventory_revision, selected_count, unchanged, eligible, no_recovery, inactive)
+
+        def recovery_required_selection_cannot_start(reviewed_revision: i64,
+                                                      inventory_revision: i64,
+                                                      selected_count: i64,
+                                                      unchanged: bool,
+                                                      eligible: bool,
+                                                      inactive: bool) -> bool:
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::may_start(StudioBuildGenerationCandidatePolicy::ReviewState.Confirmed, inventory_revision, inventory_revision, inventory_revision, selected_count, unchanged, eligible, false, inactive)
+
+        def already_active_transaction_cannot_start(reviewed_revision: i64,
+                                                     inventory_revision: i64,
+                                                     selected_count: i64,
+                                                     unchanged: bool,
+                                                     eligible: bool,
+                                                     no_recovery: bool) -> bool:
+            ensure not result
+            StudioBuildGenerationCandidatePolicy::may_start(StudioBuildGenerationCandidatePolicy::ReviewState.Confirmed, inventory_revision, inventory_revision, inventory_revision, selected_count, unchanged, eligible, no_recovery, false)
+
+        def final_known_item_completes_batch(completed: i64, total: i64,
+                                             failed: bool) -> StudioBuildGenerationCandidatePolicy::ProgressState:
+            requires total >= 1 and total <= StudioBuildGenerationCandidatePolicy::Capacity::MAX_CANDIDATES
+            requires completed + 1 == total
+            ensure result == (StudioBuildGenerationCandidatePolicy::ProgressState.Partial if failed else StudioBuildGenerationCandidatePolicy::ProgressState.Complete)
+            StudioBuildGenerationCandidatePolicy::next_progress(StudioBuildGenerationCandidatePolicy::ProgressState.Running, true, failed, false, false, completed, total)
+
+        def unknown_item_is_not_counted_as_resolved(completed: i64, total: i64) -> bool:
+            requires total >= 1 and total <= StudioBuildGenerationCandidatePolicy::Capacity::MAX_CANDIDATES
+            requires completed >= 0 and completed < total
+            ensure result
+            StudioBuildGenerationCandidatePolicy::next_progress(StudioBuildGenerationCandidatePolicy::ProgressState.Running, false, false, false, false, completed, total) == StudioBuildGenerationCandidatePolicy::ProgressState.Unknown and completed < total
+
+        def unresolved_collision_only_offers_inspection(quarantine_verified: bool,
+                                                        original_available: bool) -> bool:
+            ensure result
+            StudioBuildGenerationCandidatePolicy::recovery_action(true, true, quarantine_verified, original_available, true) == StudioBuildGenerationCandidatePolicy::RecoveryAction.Inspect
+
+        def unknown_recovery_facts_only_offer_inspection(quarantine_verified: bool,
+                                                          original_available: bool,
+                                                          conflict: bool) -> bool:
+            ensure result
+            StudioBuildGenerationCandidatePolicy::recovery_action(false, false, quarantine_verified, original_available, conflict) == StudioBuildGenerationCandidatePolicy::RecoveryAction.Inspect
+
+        def missing_quarantine_identity_never_offers_restore(original_available: bool) -> bool:
+            ensure result
+            StudioBuildGenerationCandidatePolicy::recovery_action(true, true, false, original_available, false) != StudioBuildGenerationCandidatePolicy::RecoveryAction.Restore

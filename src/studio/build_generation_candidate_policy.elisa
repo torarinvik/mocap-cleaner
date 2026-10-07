@@ -11,6 +11,7 @@ module StudioBuildGenerationCandidatePolicy:
             PAGE_SIZE: i64 = 32
             MAX_ID_BYTES: i64 = StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES
             MAX_PATH_BYTES: i64 = StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES
+            DIGEST_BYTES: i64 = 64
 
         const enum ReviewState of i64:
             Fresh = 0
@@ -32,13 +33,26 @@ module StudioBuildGenerationCandidatePolicy:
             RetryReview = 2
             None = 3
 
-        struct Candidate:
-            artifact_id: darray[u8]
-            relative_path: darray[u8]
-            facts: StudioBuildGenerationPolicy::Facts
+        const enum SelectionRemoval of i64:
+            Retained = 0
+            Missing = 1
+            IdentityChanged = 2
+            NewlyProtected = 3
 
         struct Identity:
             artifact_id: darray[u8]
+            relative_path: darray[u8]
+            artifact: StudioBuildGenerationPolicy::Artifact
+            device: i64
+            inode: i64
+            manifest_digest: darray[u8]
+            product_digest: darray[u8]
+            inventory_digest: darray[u8]
+            lease_receipt_digest: darray[u8]
+
+        struct Candidate:
+            identity: Identity
+            facts: StudioBuildGenerationPolicy::Facts
 
         struct RowProjection:
             artifact_id: darray[u8]
@@ -58,6 +72,7 @@ module StudioBuildGenerationCandidatePolicy:
             page_count: mutable i64
             selected_count: mutable i64
             selected_bytes: mutable i64
+            selection_removed_count: mutable i64
             review_state: mutable ReviewState
             reviewed_revision: mutable i64
             confirmed_revision: mutable i64
@@ -74,7 +89,7 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result.candidate_count == 0 and result.selected_count == 0 and result.selected_bytes == 0
             ensure result.review_state == ReviewState.Fresh and result.reviewed_revision == -1 and result.confirmed_revision == -1
             ensure model_valid(result)
-            Model{inventory_revision: 0, candidate_count: 0, page_index: 0, page_count: 0, selected_count: 0, selected_bytes: 0, review_state: ReviewState.Fresh, reviewed_revision: -1, confirmed_revision: -1, progress_state: ProgressState.Idle, progress_total: 0, progress_completed: 0, progress_failed: 0, progress_untouched: 0, current_index: -1, cancel_requested: false, recovery_action: RecoveryAction.None}
+            Model{inventory_revision: 0, candidate_count: 0, page_index: 0, page_count: 0, selected_count: 0, selected_bytes: 0, selection_removed_count: 0, review_state: ReviewState.Fresh, reviewed_revision: -1, confirmed_revision: -1, progress_state: ProgressState.Idle, progress_total: 0, progress_completed: 0, progress_failed: 0, progress_untouched: 0, current_index: -1, cancel_requested: false, recovery_action: RecoveryAction.None}
 
         def identity_valid(artifact_id: darray[u8]&) -> bool:
             ensure result implies artifact_id.count > 0 and artifact_id.count <= Capacity::MAX_ID_BYTES
@@ -83,40 +98,72 @@ module StudioBuildGenerationCandidatePolicy:
                 return false if byte == 0
             true
 
-        def same_identity(left: darray[u8]&, right: darray[u8]&) -> bool:
+        def digest_valid(digest: darray[u8]&) -> bool:
+            return false if digest.count != Capacity::DIGEST_BYTES
+            for byte in digest:
+                return false if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102) or (byte >= 65 and byte <= 70))
+            true
+
+        def full_identity_valid(identity: Identity&) -> bool:
+            return false if not identity_valid(identity.artifact_id) or identity.relative_path.count == 0 or identity.relative_path.count > Capacity::MAX_PATH_BYTES or (identity.artifact != StudioBuildGenerationPolicy::Artifact.Build and identity.artifact != StudioBuildGenerationPolicy::Artifact.Package) or identity.device < 0 or identity.inode < 0
+            for byte in identity.relative_path:
+                return false if byte == 0
+            digest_valid(identity.manifest_digest) and digest_valid(identity.product_digest) and digest_valid(identity.inventory_digest) and digest_valid(identity.lease_receipt_digest)
+
+        def bytes_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
             return false if left.count != right.count
             for index in 0..<left.count |left, right|:
                 return false if left[index] != right[index]
             true
 
+        def same_identity(left: Identity&, right: Identity&) -> bool:
+            ensure result implies full_identity_valid(left) and full_identity_valid(right)
+            full_identity_valid(left) and full_identity_valid(right) and bytes_equal(left.artifact_id, right.artifact_id) and bytes_equal(left.relative_path, right.relative_path) and left.artifact == right.artifact and left.device == right.device and left.inode == right.inode and bytes_equal(left.manifest_digest, right.manifest_digest) and bytes_equal(left.product_digest, right.product_digest) and bytes_equal(left.inventory_digest, right.inventory_digest) and bytes_equal(left.lease_receipt_digest, right.lease_receipt_digest)
+
         def identities_valid(identities: darray[Identity]&) -> bool:
             return false if identities.count > Capacity::MAX_CANDIDATES
             for index in 0..<identities.count |identities|:
-                return false if not identity_valid(identities[index].artifact_id)
+                return false if not full_identity_valid(identities[index])
                 for other in 0..<index |identities|:
-                    return false if same_identity(identities[index].artifact_id, identities[other].artifact_id)
+                    return false if bytes_equal(identities[index].artifact_id, identities[other].artifact_id)
             true
 
-        def identity_selected(identities: darray[Identity]&, artifact_id: darray[u8]&) -> bool:
-            return false if not identity_valid(artifact_id) or not identities_valid(identities)
-            for identity in identities:
-                return true if same_identity(identity.artifact_id, artifact_id)
+        def identity_selected(identities: darray[Identity]&, wanted: Identity&) -> bool:
+            return false if not full_identity_valid(wanted) or not identities_valid(identities)
+            for stored in identities:
+                return true if same_identity(stored, wanted)
             false
 
-        def may_select_identity(identities: darray[Identity]&, artifact_id: darray[u8]&, eligible: bool) -> bool:
-            ensure result implies identity_valid(artifact_id) and identities_valid(identities) and identities.count < Capacity::MAX_CANDIDATES
-            identities_valid(identities) and identity_valid(artifact_id) and eligible and identities.count < Capacity::MAX_CANDIDATES and not identity_selected(identities, artifact_id)
+        def all_identities_selected(required: darray[Identity]&, available: darray[Identity]&) -> bool:
+            return false if not identities_valid(required) or not identities_valid(available)
+            for identity in required:
+                return false if not identity_selected(available, identity)
+            true
 
-        def may_remove_identity(identities: darray[Identity]&, artifact_id: darray[u8]&) -> bool:
-            ensure result implies identity_valid(artifact_id) and identities_valid(identities)
-            identities_valid(identities) and identity_valid(artifact_id) and identity_selected(identities, artifact_id)
+        def may_select_identity(identities: darray[Identity]&, identity: Identity&, eligible: bool) -> bool:
+            ensure result implies full_identity_valid(identity) and identities_valid(identities) and identities.count < Capacity::MAX_CANDIDATES
+            identities_valid(identities) and full_identity_valid(identity) and eligible and identities.count < Capacity::MAX_CANDIDATES and not identity_selected(identities, identity)
+
+        def may_remove_identity(identities: darray[Identity]&, identity: Identity&) -> bool:
+            ensure result implies full_identity_valid(identity) and identities_valid(identities)
+            identities_valid(identities) and full_identity_valid(identity) and identity_selected(identities, identity)
 
         def candidate_valid(candidate: Candidate&) -> bool:
             ensure result implies StudioBuildGenerationPolicy::facts_valid(candidate.facts)
-            return false if not identity_valid(candidate.artifact_id) or candidate.relative_path.count == 0 or candidate.relative_path.count > Capacity::MAX_PATH_BYTES
-            for byte in candidate.relative_path:
+            return false if not full_identity_valid(candidate.identity)
+            for byte in candidate.identity.relative_path:
                 return false if byte == 0
-            StudioBuildGenerationPolicy::facts_valid(candidate.facts)
+            StudioBuildGenerationPolicy::facts_valid(candidate.facts) and candidate.facts.artifact == candidate.identity.artifact
+
+        def selection_removal(identity: Identity&, fresh_candidates: darray[Candidate]&) -> SelectionRemoval:
+            return SelectionRemoval.Missing if not full_identity_valid(identity)
+            return SelectionRemoval.IdentityChanged if fresh_candidates.count > Capacity::MAX_CANDIDATES
+            mutable same_artifact_found: bool = false
+            for candidate in fresh_candidates:
+                same_artifact_found <- true if bytes_equal(candidate.identity.artifact_id, identity.artifact_id)
+                if full_identity_valid(candidate.identity) and same_identity(candidate.identity, identity):
+                    return SelectionRemoval.Retained if candidate_valid(candidate) and StudioBuildGenerationPolicy::eligible(candidate.facts) else SelectionRemoval.NewlyProtected
+            SelectionRemoval.IdentityChanged if same_artifact_found else SelectionRemoval.Missing
 
         def count_valid(count: i64) -> bool:
             ensure result == (count >= 0 and count <= Capacity::MAX_CANDIDATES)
@@ -152,7 +199,7 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result.selected implies result.selectable
             protection: StudioBuildGenerationPolicy::Protection = StudioBuildGenerationPolicy::protection_reason(candidate.facts)
             eligible: bool = protection == StudioBuildGenerationPolicy::Protection.None
-            RowProjection{artifact_id: candidate.artifact_id, relative_path: candidate.relative_path, artifact: candidate.facts.artifact, state: candidate.facts.state, age_days: candidate.facts.age_days, size_bytes: candidate.facts.size_bytes, protection: protection, selected: selected_projection_allowed(protection, selected), selectable: eligible}
+            RowProjection{artifact_id: candidate.identity.artifact_id, relative_path: candidate.identity.relative_path, artifact: candidate.facts.artifact, state: candidate.facts.state, age_days: candidate.facts.age_days, size_bytes: candidate.facts.size_bytes, protection: protection, selected: selected_projection_allowed(protection, selected), selectable: eligible}
 
         def selected_projection_allowed(protection: StudioBuildGenerationPolicy::Protection,
                                         requested_selection: bool) -> bool:
@@ -196,9 +243,7 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result implies identities_valid(reviewed_identities) and identities_valid(current_selection)
             return false if not identities_valid(reviewed_identities) or not identities_valid(current_selection)
             return false if reviewed_identities.count != current_selection.count
-            for identity in reviewed_identities:
-                return false if not identity_selected(current_selection, identity.artifact_id)
-            true
+            all_identities_selected(reviewed_identities, current_selection)
 
         def review_allowed(candidate_count: i64, selected_count: i64,
                            selected_bytes: i64, inventory_revision: i64) -> bool:
@@ -243,23 +288,31 @@ module StudioBuildGenerationCandidatePolicy:
             ensure result implies model.selected_count >= 0 and model.selected_count <= model.candidate_count
             ensure result implies model.selected_bytes >= 0 and model.selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
             ensure result implies progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index)
-            count_valid(model.candidate_count) and page_index_valid(model.candidate_count, model.page_index) and model.inventory_revision >= 0 and model.selected_count >= 0 and model.selected_count <= model.candidate_count and model.selected_bytes >= 0 and model.selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES and progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index) and model.review_state >= ReviewState.Fresh and model.review_state <= ReviewState.Confirmed and model.confirmed_revision >= -1 and model.reviewed_revision >= -1
+            count_valid(model.candidate_count) and page_index_valid(model.candidate_count, model.page_index) and model.inventory_revision >= 0 and model.selected_count >= 0 and model.selected_count <= model.candidate_count and model.selected_bytes >= 0 and model.selected_bytes <= StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES and model.selection_removed_count >= 0 and model.selection_removed_count <= Capacity::MAX_CANDIDATES and progress_valid(model.progress_state, model.progress_total, model.progress_completed, model.progress_failed, model.progress_untouched, model.current_index) and model.review_state >= ReviewState.Fresh and model.review_state <= ReviewState.Confirmed and model.confirmed_revision >= -1 and model.reviewed_revision >= -1
 
-        # Refresh always drops selection accounting and invalidates both review
-        # tokens. The controller clears its identity array when this succeeds.
+        # The caller filters its retained identity tokens against the fresh
+        # candidates, then passes the retained totals and removal count here.
+        # Sort and filter changes preserve exact matching selections.
         def refresh_model(model: mutable Model&, next_revision: i64,
-                          candidate_count: i64) -> bool:
-            ensure result implies next_revision > model.inventory_revision
+                          candidate_count: i64, retained_selection_count: i64,
+                          retained_selection_bytes: i64,
+                          removed_selection_count: i64) -> bool:
+            ensure result implies next_revision == model.inventory_revision
             ensure result implies model.review_state == ReviewState.Fresh
-            ensure result implies model.selected_count == 0 and model.selected_bytes == 0
+            ensure result implies model.selected_count == retained_selection_count and model.selected_bytes == retained_selection_bytes
+            ensure result implies model.selection_removed_count == removed_selection_count
             return false if model.progress_state == ProgressState.Running
             return false if not refresh_revision(model.inventory_revision, next_revision, candidate_count)
+            return false if retained_selection_count < 0 or retained_selection_count > candidate_count or retained_selection_bytes < 0 or retained_selection_bytes > StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES or removed_selection_count < 0
+            return false if retained_selection_count + removed_selection_count != model.selected_count
+            return false if removed_selection_count > Capacity::MAX_CANDIDATES or removed_selection_count > model.selected_count
             model.inventory_revision <- next_revision
             model.candidate_count <- candidate_count
             model.page_count <- page_count(candidate_count)
             model.page_index <- 0
-            model.selected_count <- 0
-            model.selected_bytes <- 0
+            model.selected_count <- retained_selection_count
+            model.selected_bytes <- retained_selection_bytes
+            model.selection_removed_count <- removed_selection_count
             model.review_state <- ReviewState.Fresh
             model.reviewed_revision <- -1
             model.confirmed_revision <- -1
@@ -279,6 +332,7 @@ module StudioBuildGenerationCandidatePolicy:
             return false if selected_count < 0 or selected_count > model.candidate_count or selected_bytes < 0 or selected_bytes > StudioBuildGenerationPolicy::Limit::MAX_GENERATION_BYTES
             model.selected_count <- selected_count
             model.selected_bytes <- selected_bytes
+            model.selection_removed_count <- 0
             model.review_state <- ReviewState.Fresh
             model.reviewed_revision <- -1
             model.confirmed_revision <- -1
