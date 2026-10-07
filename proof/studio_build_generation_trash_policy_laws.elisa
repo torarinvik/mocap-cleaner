@@ -1,0 +1,221 @@
+include "../src/studio/build_generation_trash_policy.elisa"
+
+module StudioBuildGenerationTrashPolicyLaws:
+    private:
+        def valid_journal() -> StudioBuildGenerationTrashPolicy::JournalFacts:
+            StudioBuildGenerationTrashPolicy::JournalFacts{
+                schema_version: StudioBuildGenerationTrashPolicy::Protocol::VERSION,
+                phase: StudioBuildGenerationTrashPolicy::Phase.Intent,
+                operation_id_reserved: true,
+                operation_id_valid: true,
+                operation_id_bytes: 36,
+                artifact_id_valid: true,
+                artifact_id_bytes: 30,
+                original_basename_valid: true,
+                original_path_bytes: 256,
+                build_root_identity_verified: true,
+                source_directory_identity_verified: true,
+                artifact_lease_identity_verified: true,
+                lease_protocol: StudioBuildGenerationTrashPolicy::Protocol::LEASE_VERSION,
+                executable_digest_valid: true,
+                lease_receipt_matches: true,
+                receipt_size_bytes: 1024
+            }
+
+        def original_only(matches: bool) -> StudioBuildGenerationTrashPolicy::Locations:
+            StudioBuildGenerationTrashPolicy::Locations{
+                original_exists: true,
+                original_identity_matches: matches,
+                quarantine_exists: false,
+                quarantine_identity_matches: false
+            }
+
+        def quarantine_only(matches: bool) -> StudioBuildGenerationTrashPolicy::Locations:
+            StudioBuildGenerationTrashPolicy::Locations{
+                original_exists: false,
+                original_identity_matches: false,
+                quarantine_exists: true,
+                quarantine_identity_matches: matches
+            }
+
+    public:
+        def valid_receipt_facts_admit() -> bool:
+            ensure result
+            StudioBuildGenerationTrashPolicy::facts_valid(valid_journal())
+
+        def missing_operation_reservation_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            facts.operation_id_reserved <- false
+            not StudioBuildGenerationTrashPolicy::facts_valid(facts)
+
+        def oversized_path_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            facts.original_path_bytes <- StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES + 1
+            not StudioBuildGenerationTrashPolicy::facts_valid(facts)
+
+        def mismatched_lease_receipt_refuses() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            facts.lease_receipt_matches <- false
+            not StudioBuildGenerationTrashPolicy::facts_valid(facts)
+
+        def move_requires_both_locks_and_durable_intent() -> bool:
+            ensure result
+            facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            admitted: bool = StudioBuildGenerationTrashPolicy::may_begin_move(
+                facts, true, true, true, true, true)
+            global_missing: bool = not StudioBuildGenerationTrashPolicy::may_begin_move(
+                facts, true, true, false, true, true)
+            lease_missing: bool = not StudioBuildGenerationTrashPolicy::may_begin_move(
+                facts, true, true, true, false, true)
+            intent_missing: bool = not StudioBuildGenerationTrashPolicy::may_begin_move(
+                facts, true, true, true, true, false)
+            admitted and global_missing and lease_missing and intent_missing
+
+        def unknown_protection_inventory_refuses_move() -> bool:
+            ensure result
+            facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            not StudioBuildGenerationTrashPolicy::may_begin_move(
+                facts, true, false, true, true, true)
+
+        def source_exact_and_quarantine_absent_is_not_moved() -> bool:
+            ensure result
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Move, original_only(true))
+            location == StudioBuildGenerationTrashPolicy::Location.NotMoved
+
+        def quarantine_exact_and_source_absent_is_moved() -> bool:
+            ensure result
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Move, quarantine_only(true))
+            location == StudioBuildGenerationTrashPolicy::Location.InQuarantine
+
+        def restore_reconciliation_preserves_quarantine_until_move() -> bool:
+            ensure result
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Restore, quarantine_only(true))
+            location == StudioBuildGenerationTrashPolicy::Location.InQuarantine
+
+        def restore_exact_source_and_empty_quarantine_is_restored() -> bool:
+            ensure result
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Restore, original_only(true))
+            location == StudioBuildGenerationTrashPolicy::Location.BackAtOriginal
+
+        def both_locations_are_conflict() -> bool:
+            ensure result
+            locations: StudioBuildGenerationTrashPolicy::Locations = StudioBuildGenerationTrashPolicy::Locations{
+                    original_exists: true,
+                    original_identity_matches: true,
+                    quarantine_exists: true,
+                    quarantine_identity_matches: true
+                }
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Move, locations)
+            location == StudioBuildGenerationTrashPolicy::Location.Conflict
+
+        def identity_mismatch_is_conflict() -> bool:
+            ensure result
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Move, original_only(false))
+            location == StudioBuildGenerationTrashPolicy::Location.Conflict
+
+        def missing_both_locations_is_unknown() -> bool:
+            ensure result
+            locations: StudioBuildGenerationTrashPolicy::Locations = StudioBuildGenerationTrashPolicy::Locations{
+                    original_exists: false,
+                    original_identity_matches: false,
+                    quarantine_exists: false,
+                    quarantine_identity_matches: false
+                }
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Move, locations)
+            location == StudioBuildGenerationTrashPolicy::Location.Unknown
+
+        def impossible_identity_observation_fails_closed() -> bool:
+            ensure result
+            locations: StudioBuildGenerationTrashPolicy::Locations =
+                StudioBuildGenerationTrashPolicy::Locations{
+                    original_exists: false,
+                    original_identity_matches: true,
+                    quarantine_exists: false,
+                    quarantine_identity_matches: false
+                }
+            location: StudioBuildGenerationTrashPolicy::Location =
+                StudioBuildGenerationTrashPolicy::reconcile(
+                    StudioBuildGenerationTrashPolicy::Direction.Move, locations)
+            location == StudioBuildGenerationTrashPolicy::Location.Unknown
+
+        def restore_intent_is_persisted_from_verified_quarantine() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            facts.phase <- StudioBuildGenerationTrashPolicy::Phase.Quarantined
+            locations: StudioBuildGenerationTrashPolicy::Locations = quarantine_only(true)
+            admitted: bool = StudioBuildGenerationTrashPolicy::may_persist_restore_intent(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, true, true, true)
+            missing_receipt: bool = not StudioBuildGenerationTrashPolicy::may_persist_restore_intent(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, true, true, false)
+            admitted and missing_receipt
+
+        def restore_requires_destination_absent_and_both_locks() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            facts.phase <- StudioBuildGenerationTrashPolicy::Phase.RestoreIntent
+            locations: StudioBuildGenerationTrashPolicy::Locations = quarantine_only(true)
+            admitted: bool = StudioBuildGenerationTrashPolicy::may_begin_restore(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, true, true, true)
+            collision: bool = not StudioBuildGenerationTrashPolicy::may_begin_restore(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, true, true, false)
+            lock_missing: bool = not StudioBuildGenerationTrashPolicy::may_begin_restore(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, true, false, true)
+            admitted and collision and lock_missing
+
+        def restore_intent_must_be_durable_before_rename() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            locations: StudioBuildGenerationTrashPolicy::Locations = quarantine_only(true)
+            not StudioBuildGenerationTrashPolicy::may_begin_restore(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, true, true, true)
+
+        def receipt_requires_durable_move_and_held_locks() -> bool:
+            ensure result
+            facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            locations: StudioBuildGenerationTrashPolicy::Locations = quarantine_only(true)
+            accepted: bool = StudioBuildGenerationTrashPolicy::may_record_quarantine(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Move,
+                locations, true, true)
+            durability_missing: bool = not StudioBuildGenerationTrashPolicy::may_record_quarantine(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Move,
+                locations, false, true)
+            lock_released: bool = not StudioBuildGenerationTrashPolicy::may_record_quarantine(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Move,
+                locations, true, false)
+            accepted and durability_missing and lock_released
+
+        def restore_receipt_requires_durable_restore() -> bool:
+            ensure result
+            mutable facts: StudioBuildGenerationTrashPolicy::JournalFacts = valid_journal()
+            facts.phase <- StudioBuildGenerationTrashPolicy::Phase.RestoreIntent
+            locations: StudioBuildGenerationTrashPolicy::Locations = original_only(true)
+            accepted: bool = StudioBuildGenerationTrashPolicy::may_record_restored(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, true, true)
+            durability_missing: bool = not StudioBuildGenerationTrashPolicy::may_record_restored(
+                facts, StudioBuildGenerationTrashPolicy::Direction.Restore,
+                locations, false, true)
+            accepted and durability_missing

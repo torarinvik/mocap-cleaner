@@ -1,0 +1,158 @@
+# Pure transaction rules for moving a sealed build directory into managed
+# recovery storage. The adapter supplies freshly verified descriptor facts.
+module StudioBuildGenerationTrashPolicy:
+    public:
+        const enum Direction of i64:
+            Move = 0
+            Restore = 1
+
+        const enum Phase of i64:
+            Intent = 0
+            Quarantined = 1
+            RestoreIntent = 2
+            Restored = 3
+            Unknown = 4
+
+        const enum Location of i64:
+            NotMoved = 0
+            InQuarantine = 1
+            BackAtOriginal = 2
+            Conflict = 3
+            Unknown = 4
+
+        const module Protocol:
+            VERSION: i64 = 1
+            LEASE_VERSION: i64 = 1
+            MAX_OPERATION_ID_BYTES: i64 = 64
+            MAX_ARTIFACT_ID_BYTES: i64 = 96
+            MAX_PATH_BYTES: i64 = 4095
+            MAX_RECEIPT_BYTES: i64 = 1048576
+
+        struct JournalFacts:
+            schema_version: i64
+            phase: Phase
+            operation_id_reserved: bool
+            operation_id_valid: bool
+            operation_id_bytes: i64
+            artifact_id_valid: bool
+            artifact_id_bytes: i64
+            original_basename_valid: bool
+            original_path_bytes: i64
+            build_root_identity_verified: bool
+            source_directory_identity_verified: bool
+            artifact_lease_identity_verified: bool
+            lease_protocol: i64
+            executable_digest_valid: bool
+            lease_receipt_matches: bool
+            receipt_size_bytes: i64
+
+        struct Locations:
+            original_exists: bool
+            original_identity_matches: bool
+            quarantine_exists: bool
+            quarantine_identity_matches: bool
+
+        def facts_valid(facts: JournalFacts) -> bool:
+            ensure result == (facts.schema_version == Protocol::VERSION and (facts.phase == Phase.Intent or facts.phase == Phase.Quarantined or facts.phase == Phase.RestoreIntent or facts.phase == Phase.Restored or facts.phase == Phase.Unknown) and facts.operation_id_reserved and facts.operation_id_valid and facts.operation_id_bytes > 0 and facts.operation_id_bytes <= Protocol::MAX_OPERATION_ID_BYTES and facts.artifact_id_valid and facts.artifact_id_bytes > 0 and facts.artifact_id_bytes <= Protocol::MAX_ARTIFACT_ID_BYTES and facts.original_basename_valid and facts.original_path_bytes > 0 and facts.original_path_bytes <= Protocol::MAX_PATH_BYTES and facts.build_root_identity_verified and facts.source_directory_identity_verified and facts.artifact_lease_identity_verified and facts.lease_protocol == Protocol::LEASE_VERSION and facts.executable_digest_valid and facts.lease_receipt_matches and facts.receipt_size_bytes > 0 and facts.receipt_size_bytes <= Protocol::MAX_RECEIPT_BYTES)
+            (facts.schema_version == Protocol::VERSION and
+                (facts.phase == Phase.Intent or facts.phase == Phase.Quarantined or
+                    facts.phase == Phase.RestoreIntent or facts.phase == Phase.Restored or
+                    facts.phase == Phase.Unknown) and
+                facts.operation_id_reserved and facts.operation_id_valid and
+                facts.operation_id_bytes > 0 and
+                facts.operation_id_bytes <= Protocol::MAX_OPERATION_ID_BYTES and
+                facts.artifact_id_valid and facts.artifact_id_bytes > 0 and
+                facts.artifact_id_bytes <= Protocol::MAX_ARTIFACT_ID_BYTES and
+                facts.original_basename_valid and facts.original_path_bytes > 0 and
+                facts.original_path_bytes <= Protocol::MAX_PATH_BYTES and
+                facts.build_root_identity_verified and
+                facts.source_directory_identity_verified and
+                facts.artifact_lease_identity_verified and
+                facts.lease_protocol == Protocol::LEASE_VERSION and
+                facts.executable_digest_valid and facts.lease_receipt_matches and
+                facts.receipt_size_bytes > 0 and
+                facts.receipt_size_bytes <= Protocol::MAX_RECEIPT_BYTES)
+
+        def locations_valid(locations: Locations) -> bool:
+            ensure result == ((not locations.original_identity_matches or locations.original_exists) and
+                (not locations.quarantine_identity_matches or locations.quarantine_exists))
+            ((not locations.original_identity_matches or locations.original_exists) and
+                (not locations.quarantine_identity_matches or locations.quarantine_exists))
+
+        # Names choose where to inspect, but only descriptor-bound identity
+        # observations determine whether an interrupted transaction is known.
+        def reconcile(direction: Direction, locations: Locations) -> Location:
+            ensure (result == Location.Conflict or result == Location.Unknown or
+                (direction == Direction.Move and
+                    (result == Location.NotMoved or result == Location.InQuarantine)) or
+                (direction == Direction.Restore and
+                    (result == Location.InQuarantine or result == Location.BackAtOriginal)))
+            return Location.Unknown if not locations_valid(locations)
+            return Location.Unknown if direction != Direction.Move and direction != Direction.Restore
+            return Location.Unknown if not locations.original_exists and not locations.quarantine_exists
+            return Location.Conflict if locations.original_exists and locations.quarantine_exists
+            if direction == Direction.Move:
+                return Location.NotMoved if locations.original_exists and locations.original_identity_matches
+                return Location.InQuarantine if locations.quarantine_exists and locations.quarantine_identity_matches
+                return Location.Conflict
+            return Location.BackAtOriginal if locations.original_exists and locations.original_identity_matches
+            return Location.InQuarantine if locations.quarantine_exists and locations.quarantine_identity_matches
+            Location.Conflict
+
+        def may_begin_move(facts: JournalFacts, cleanup_eligible: bool,
+                           protection_inventory_verified: bool,
+                           global_lock_exclusive: bool,
+                           artifact_lease_exclusive: bool,
+                           intent_durable: bool) -> bool:
+            ensure result == (facts_valid(facts) and facts.phase == Phase.Intent and cleanup_eligible and
+                protection_inventory_verified and global_lock_exclusive and
+                artifact_lease_exclusive and intent_durable)
+            (facts_valid(facts) and facts.phase == Phase.Intent and cleanup_eligible and
+                protection_inventory_verified and global_lock_exclusive and
+                artifact_lease_exclusive and intent_durable)
+
+        def may_record_quarantine(facts: JournalFacts, direction: Direction,
+                                  locations: Locations, move_and_parents_durable: bool,
+                                  locks_still_held: bool) -> bool:
+            ensure result == (facts_valid(facts) and facts.phase == Phase.Intent and direction == Direction.Move and
+                reconcile(direction, locations) == Location.InQuarantine and
+                move_and_parents_durable and locks_still_held)
+            (facts_valid(facts) and facts.phase == Phase.Intent and direction == Direction.Move and
+                reconcile(direction, locations) == Location.InQuarantine and
+                move_and_parents_durable and locks_still_held)
+
+        def may_begin_restore(facts: JournalFacts, direction: Direction,
+                              locations: Locations, global_lock_exclusive: bool,
+                              artifact_lease_exclusive: bool,
+                              original_name_absent: bool) -> bool:
+            ensure result == (facts_valid(facts) and facts.phase == Phase.RestoreIntent and direction == Direction.Restore and
+                reconcile(direction, locations) == Location.InQuarantine and
+                global_lock_exclusive and artifact_lease_exclusive and
+                original_name_absent)
+            (facts_valid(facts) and facts.phase == Phase.RestoreIntent and direction == Direction.Restore and
+                reconcile(direction, locations) == Location.InQuarantine and
+                global_lock_exclusive and artifact_lease_exclusive and original_name_absent)
+
+        def may_persist_restore_intent(facts: JournalFacts, direction: Direction,
+                                       locations: Locations,
+                                       global_lock_exclusive: bool,
+                                       artifact_lease_exclusive: bool,
+                                       receipt_durable: bool) -> bool:
+            ensure result == (facts_valid(facts) and facts.phase == Phase.Quarantined and
+                direction == Direction.Restore and
+                reconcile(direction, locations) == Location.InQuarantine and
+                global_lock_exclusive and artifact_lease_exclusive and receipt_durable)
+            (facts_valid(facts) and facts.phase == Phase.Quarantined and
+                direction == Direction.Restore and
+                reconcile(direction, locations) == Location.InQuarantine and
+                global_lock_exclusive and artifact_lease_exclusive and receipt_durable)
+
+        def may_record_restored(facts: JournalFacts, direction: Direction,
+                                locations: Locations, restore_and_parents_durable: bool,
+                                locks_still_held: bool) -> bool:
+            ensure result == (facts_valid(facts) and facts.phase == Phase.RestoreIntent and direction == Direction.Restore and
+                reconcile(direction, locations) == Location.BackAtOriginal and
+                restore_and_parents_durable and locks_still_held)
+            (facts_valid(facts) and facts.phase == Phase.RestoreIntent and direction == Direction.Restore and
+                reconcile(direction, locations) == Location.BackAtOriginal and
+                restore_and_parents_durable and locks_still_held)
