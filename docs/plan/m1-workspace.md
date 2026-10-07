@@ -9,6 +9,10 @@ The existing correction scope/capacity and transform laws describe admission;
 qualify complete decoding and unchanged current document/history on refusal,
 including a seventeenth correction. Legacy field clamping and malformed-line
 handling remain separate migration behavior to review before schema acceptance.
+Operation, contact-edit and retime-band insertion failures likewise reject the
+candidate, and invalid retime records refuse instead of disappearing. Qualify
+each capacity boundary and invalid band using the complete decoder and native
+restore flow; a successful load must retain every recognized authored record.
 
 ## 6. M1 — A workspace that explains itself and protects work
 
