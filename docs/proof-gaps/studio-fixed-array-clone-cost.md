@@ -68,3 +68,23 @@ Required evidence:
   unknown and opaque types must not silently become storage-free.
 - The separate void-poll/global-publication ownership repair and actual FBX UI
   journey. Faster compilation cannot qualify a dangling result.
+
+## Fresh complete-graph LLVM attempt
+
+Source-matched compiler `b6e132d2`, product SHA-256
+`76687087d31873332811e73508596ec5eb007e4dfa2bb963713ff4237eaa81ce`,
+was invoked on the complete Studio graph with `-O2 -emit llvm` under the
+generation lock. Generated runtime declarations select this exact compiler.
+Pre/post input snapshots match. The 4 GiB RSS guard stopped the process at
+4,237,184 KiB; compile and wrapper exit codes are both 125. No LLVM file was
+produced. This is a bounded diagnostic attempt, not a current Studio build.
+No process sample identifies its expensive phase yet.
+
+Retained artifacts: `build/studio-build.AwD3UL/`.
+Input manifest SHA-256:
+`ceacc53586557f8c12d8685e3a507665fe1d8e862e0f80146f47666352919694`.
+Compiler log SHA-256:
+`bb18ed435a27ec0a775409c3d5d99fdb1c12524b07c2078bad0f99f536d34b40`.
+Next isolate O0 LLVM generation from the O2 pipeline before increasing memory
+or attempting object emission; retain both outcomes and keep O2 qualification
+open. A lower-optimization diagnostic cannot close release acceptance.
