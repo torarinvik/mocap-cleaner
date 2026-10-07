@@ -18,9 +18,37 @@ extend Studio:
             Review = 4
             Restore = 5
             Operations = 6
+            Path = 7
 
         const module GenerationReviewLimit:
             CONTROLS: i64 = 7
+
+        def generation_review_path_bytes() -> darray[u8] can Memory.Allocate:
+            mutable root: darray[u8] = []
+            mutable relative: darray[u8] = []
+            if generation_review_recovery_mode:
+                return [] if not generation_recovery_scan_current()
+                if generation_recovery_scan_reply is reply:
+                    return [] if not reply.observation.output_details_valid
+                    root.extend(reply.root)
+                    relative.extend(reply.observation.relative_path)
+            elif generation_inventory is snapshot:
+                return [] if generation_inspected_row < 0 or generation_inspected_row >= snapshot.rows.count.i64()
+                root.extend(generation_scan_root)
+                relative.extend(snapshot.rows[generation_inspected_row].relative_path)
+            else:
+                return []
+            return [] if root.count == 0 or relative.count == 0
+            mutable path: darray[u8] = []
+            path.extend(root)
+            if root[root.count - 1] != 47:
+                path.push(47)
+            path.extend(relative)
+            path
+
+        def generation_review_open_path() -> void can Memory.Allocate:
+            path: darray[u8] = generation_review_path_bytes()
+            generation_path_open_with(path)
 
         def generation_review_box(w: f32, h: f32) -> StudioPanels::Box:
             width: f32 = 820.0 if w >= 852.0 else w - 32.0
@@ -37,6 +65,9 @@ extend Studio:
             StudioPanels::box(d.x + 20.0, d.y + 103.0 + slot.f32() * 26.0, d.w - 40.0, 24.0)
 
         def generation_review_action(action: i64) -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            if action == GenerationReviewAction.Path.i64():
+                generation_review_open_path()
+                return
             if action == GenerationReviewAction.Review.i64():
                 generation_move_review_action() if generation_move_action_enabled()
                 return
@@ -70,7 +101,11 @@ extend Studio:
             touch()
 
         def generation_review_pointer(w: f32, h: f32, x: f32, y: f32, button: i32) -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            return if generation_path_pointer(w, h, x, y, button)
             return if button != 0
+            if StudioPanels::inside(StudioGenerationReviewPathInspector::inspect_button_box(w, h), x, y) and StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()):
+                generation_review_open_path()
+                return
             for action in 0..<GenerationReviewLimit::CONTROLS |w, h, x, y, action|:
                 if StudioPanels::inside(generation_review_control_box(w, h, action), x, y):
                     generation_review_focus <- action
@@ -102,6 +137,10 @@ extend Studio:
             touch()
 
         def generation_review_key(code: i64) -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            return if generation_path_key(code)
+            if code == UiCore::Key.P and StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()):
+                generation_review_open_path()
+                return
             previous_inspected_row: i64 = generation_inspected_row
             if code == UiCore::Key.Escape or code == UiCore::Key.Left or code == UiCore::Key.Right or code == UiCore::Key.Up or code == UiCore::Key.Down:
                 cancel_generation_move_review()
@@ -186,3 +225,8 @@ extend Studio:
                 label: sview = generation_move_action_label() if action == GenerationReviewAction.Review.i64() else generation_restore_action_label() if action == GenerationReviewAction.Restore.i64() else ("Generations" if generation_review_recovery_mode else "Operations") if action == GenerationReviewAction.Operations.i64() else "Previous" if action == 0 else "Next" if action == 1 else "Refresh" if action == 2 else "Back to Storage"
                 enabled: bool = generation_move_action_enabled() if action == GenerationReviewAction.Review.i64() else generation_restore_action_enabled() if action == GenerationReviewAction.Restore.i64() else true
                 StudioDraw::text(control.x + 12.0, control.y + 8.0, 12.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
+            inspect_box: StudioPanels::Box = StudioGenerationReviewPathInspector::inspect_button_box(w, h)
+            inspect_enabled: bool = StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes())
+            StudioDraw::rect(inspect_box.x, inspect_box.y, inspect_box.w, inspect_box.h, StudioDraw::panel())
+            StudioDraw::text(inspect_box.x + 9.0, inspect_box.y + 9.0, 11.0, "Inspect full path [P]", StudioDraw::ink() if inspect_enabled else StudioDraw::muted())
+            draw_generation_path_inspector(w, h)

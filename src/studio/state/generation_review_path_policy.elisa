@@ -1,0 +1,70 @@
+# Exact bounded path segments for generation and recovery review.
+module StudioGenerationReviewPathPolicy:
+    public:
+        const module Limit:
+            MAX_PATH_BYTES: i64 = 8191
+            LINE_BYTES: usize = 44
+            LINES_PER_PAGE: i64 = 5
+            MAX_PAGES: i64 = (MAX_PATH_BYTES + (LINE_BYTES.i64() * LINES_PER_PAGE) - 1) / (LINE_BYTES.i64() * LINES_PER_PAGE)
+
+        const module Node:
+            INSPECT: usize = 303
+            DIALOG: usize = 322
+            STATUS: usize = 323
+            LINE_FIRST: usize = 324
+            LINE_COUNT: i64 = 5
+            PREVIOUS: usize = 329
+            NEXT: usize = 330
+            DONE: usize = 331
+
+        def path_valid(path: darray[u8]&) -> bool:
+            ensure result implies path.count > 0 and path.count.i64() <= Limit::MAX_PATH_BYTES
+            return false if path.count == 0 or path.count.i64() > Limit::MAX_PATH_BYTES
+            for byte in path:
+                return false if byte == 0
+            true
+
+        def line_end(path: darray[u8]&, start: usize) -> usize:
+            requires path_valid(path)
+            requires start <= path.count
+            ensure result <= path.count
+            ensure result <= start + Limit::LINE_BYTES
+            ensure start < path.count implies result > start
+            return path.count if start >= path.count
+            mutable end: usize = start + Limit::LINE_BYTES
+            end <- path.count if end > path.count
+            hard_end: usize = end
+            while end > start and end < path.count and path[end] >= 128 and path[end] <= 191:
+                end <- end - 1
+            return hard_end if end == start
+            end
+
+        def line_start(path: darray[u8]&, line: usize) -> usize:
+            requires path_valid(path)
+            ensure result <= path.count
+            mutable offset: usize = 0
+            for index in 0..<line |index, path, offset|:
+                offset <- line_end(path, offset)
+            offset
+
+        def page_count(path: darray[u8]&) -> i64:
+            ensure path_valid(path) implies result > 0 and result <= Limit::MAX_PAGES
+            return 0 if not path_valid(path)
+            mutable offset: usize = 0
+            mutable pages: i64 = 0
+            while offset < path.count:
+                for row in 0..<Limit::LINES_PER_PAGE |row, path, offset|:
+                    offset <- line_end(path, offset) if offset < path.count
+                pages <- pages + 1
+            pages
+
+        def visible_lines(path: darray[u8]&, page: i64) -> i64:
+            ensure result >= 0 and result <= Limit::LINES_PER_PAGE
+            ensure path_valid(path) and page >= 0 and page < page_count(path) implies result > 0
+            return 0 if not path_valid(path) or page < 0 or page >= page_count(path)
+            mutable offset: usize = line_start(path, (page * Limit::LINES_PER_PAGE).usize())
+            mutable count: i64 = 0
+            while count < Limit::LINES_PER_PAGE and offset < path.count:
+                offset <- line_end(path, offset)
+                count <- count + 1
+            count
