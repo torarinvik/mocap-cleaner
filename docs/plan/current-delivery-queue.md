@@ -135,6 +135,20 @@ negative controls, meaningful history entries and session/export parity.
 - Supply a recoverable generated-build cleanup flow as well as animation-output
   cleanup. Preserve current products, active generations and required receipts;
   explain what can be removed and why before mutation.
+- Bind activity protection to the running artifact with a process-lifetime
+  shared lease. Cleanup must acquire its exclusive lease and retain it through
+  revalidation, the directory move and durable receipt publication. Unknown or
+  legacy lease metadata stays protected. A failed lease acquisition must explain
+  the refusal before a Studio window opens.
+- Qualify direct launches, symlink launches, Finder launches, copied/renamed
+  bundles and simultaneous launch/cleanup. Distributed bundles must acquire
+  their own artifact-local lease without accessing the developer checkout.
+  Precreate lease files during build/package creation; launching an installed
+  bundle must not modify its signed contents.
+- Implement recoverable directory moves and receipts before exposing generation
+  deletion. Existing regular-file Trash support does not qualify directory
+  cleanup. Restore must refuse destination collisions and preserve recovery
+  evidence when durability or lock release is uncertain.
 
 **Finish evidence:** source hashes unchanged, output reopens as reviewed, reports
 bind to that output, interrupted states reconcile, and restore cannot overwrite
