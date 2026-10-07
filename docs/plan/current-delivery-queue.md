@@ -248,6 +248,14 @@ window size, long filenames, translated text, enlarged text and failures while
 an existing take remains loaded. Companion layout bounds/refusal laws must prove
 that invalid dimensions cannot produce overlapping or negative content regions.
 
+Partial implementation: empty-document import failures now select the failure
+guide through a contracted ticket/loaded/cancelled/closing policy. The guide uses
+the UI metric planner for grapheme-safe wrapping, with six visible rows and a
+viewport clip. Full Studio semantic checks and the focused 200-combination O2
+feedback test pass on compiler `e24c29e6`; evidence is retained in
+`build/failure-guide-e24/record.json`. Layout proofs, a discoverable full-details
+view, failures with a loaded take, and runtime/visual qualification remain open.
+
 
 | Event | Required result |
 | --- | --- |
