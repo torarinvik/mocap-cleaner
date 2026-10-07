@@ -20,8 +20,8 @@ def selected_toolchain(compiler):
     configured = os.environ.get("ELISA_STAGE1")
     if configured and Path(configured).resolve(strict=True) != compiler_root:
         raise ValueError("CLI compiler differs from ELISA_STAGE1 checkout")
-    expected_runtime = (compiler_root / "build/runtime/elisacore_runtime.o").resolve(strict=True)
-    runtime = Path(os.environ.get("MOCAP_CLI_RUNTIME", expected_runtime)).resolve(strict=True)
+    expected_runtime = (compiler_root / "build/runtime/elisacore_runtime.o").resolve()
+    runtime = Path(os.environ.get("MOCAP_CLI_RUNTIME", expected_runtime)).resolve()
     if runtime != expected_runtime:
         raise ValueError("CLI runtime must belong to the selected compiler checkout")
     return compiler_root, runtime
@@ -58,6 +58,18 @@ def main() -> int:
     provenance_check = [sys.executable, str(compiler_root / "scripts/stage1_provenance.py"),
                         "check", str(compiler_root), str(compiler_root / "bin/elisac-stage1")]
     status = subprocess.call(provenance_check)
+    if status:
+        return status
+    # Object compilation bypasses the Stage1 wrapper's executable-link path.
+    # Refresh the exact runtime here so a compiler/source update cannot leave
+    # this manual native link using the previous runtime product.
+    runtime_environment = os.environ.copy()
+    runtime_environment["ELISA_STAGE1_BIN"] = str(compiler_root / "bin/elisac-stage1")
+    runtime_environment["ELISA_RUNTIME_OBJ"] = str(runtime)
+    status = subprocess.call(
+        ["bash", str(compiler_root / "scripts/build_runtime_object.sh")],
+        env=runtime_environment,
+    )
     if status:
         return status
     runtime_digest = file_digest(runtime)
