@@ -66,11 +66,12 @@ this item.
   with unsupported correspondence. Pair integrity is not source authentication.
   Retain the exact immutable pair reports; do not treat package admissibility
   as verified predicates. Subsequent proof edits require a new current pair.
-- Helper purity now passes for `path_valid`, `bytes_equal`, `path_bound`,
-  `paths_bound` and `copy_digest_bound`. Staging contract calls are no longer
-  unsupported, but their postconditions remain unproved. Diagnose the remaining
-  relational facts while preserving shared reborrow, mutation exclusion and
-  owner-qualified generic-region constraints.
+- The retained staging report still marks `path_valid`, `bytes_equal`,
+  `path_bound`, `paths_bound` and `copy_digest_bound` as `pure:false`, despite
+  verified bodies. Two staging contract calls remain unsupported and their
+  postconditions remain unproved. The earlier purity-closure summary was wrong;
+  diagnose the remaining gate before claiming closure. Preserve shared reborrow,
+  mutation exclusion and owner-qualified generic-region constraints.
   Zero-argument generic calls need checked call-site region substitutions;
   matching an ambient region by spelling cannot establish a valid binding.
 - Qualify generation and creation-journal laws again with the repaired pair.
