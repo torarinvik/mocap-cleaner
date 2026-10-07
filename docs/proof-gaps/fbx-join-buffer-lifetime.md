@@ -58,3 +58,14 @@ introduced local carriers. Inspect their generated function bodies separately
 from the allocating fixture entry point. Retain full compiler before/after
 carrier counts and matched Stage1 timings; passing byte reads alone does not
 establish the required absence of a runtime slowdown.
+
+An independent reducer exposes another call-demand gap in candidate `cd6c98b9`:
+a scalar `inspect()` returns `Owned::bytes()[0].i64()`, where a non-generic
+module function returns `darray[u8]`. Current-main compiler `665f40d7` emits
+LLVM (exit 0); the candidate refuses `inspect` with "region-backed call has no
+live allocation arena" (exit 2). The frozen source, exact commands, compiler
+hashes and logs are retained in `build/qualified-owned-call-dy7nj95a/record.json`.
+This is compile/lowering evidence, not a runtime correctness result for main.
+Resolve qualified concrete calls as well as generic specialization; retain the
+fail-closed guard. A scalar caller with no other allocations must acquire the
+needed carrier only when its resolved result owns storage.
