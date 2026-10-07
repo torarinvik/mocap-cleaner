@@ -1,0 +1,151 @@
+# Bounded read-only provider contract for generated build cleanup rows.
+# The native snapshot owns descriptor validation and journal reconciliation.
+include "../build_generation_candidate_provider_binding_policy.elisa"
+
+module StudioBuildGenerationCandidateProvider:
+    public:
+        const module Limit:
+            MAX_ROWS: i64 = 512
+            MAX_PATH_BYTES: i64 = 4095
+            MAX_ID_BYTES: i64 = 96
+
+        const enum Outcome of i64:
+            Complete = 0
+            Overflow = 1
+            Refused = 2
+
+        const enum Artifact of i64:
+            Build = 0
+            Package = 1
+
+        const enum CreationPhase of i64:
+            Created = 0
+            Building = 1
+            Failed = 2
+            Sealed = 3
+            Published = 4
+            Unknown = 5
+
+        const enum Protection of i64:
+            Eligible = 0
+            Current = 1
+            Active = 2
+            Retention = 3
+            Recovery = 4
+            Unsealed = 5
+            Invalid = 6
+
+        struct SealedDigests:
+            manifest: darray[u8]
+            product: darray[u8]
+            inventory: darray[u8]
+            lease_receipt: darray[u8]
+
+        enum ProductIdentity:
+            Absent
+            Present(digests: SealedDigests)
+
+        enum SizeEvidence:
+            Unknown
+            Verified(bytes: i64)
+
+        enum CreationEvidence:
+            LegacyAbsent
+            Journaled(revision: i64, creation_digest: darray[u8], latest_record_digest: darray[u8],
+                      observed_tree_digest: darray[u8])
+
+        struct Row:
+            artifact_id: darray[u8]
+            relative_path: darray[u8]
+            artifact: Artifact
+            phase: CreationPhase
+            protection: Protection
+            device: i64
+            inode: i64
+            build_root_device: i64
+            build_root_inode: i64
+            age_days: i64
+            retention_days: i64
+            size_evidence: SizeEvidence
+            creation_evidence: CreationEvidence
+            product_identity: ProductIdentity
+
+        struct Snapshot:
+            outcome: Outcome
+            rows: darray[Row]
+            refusal_code: i64
+
+        def row_valid(row: Row) -> bool:
+            ensure result implies row.artifact_id.count > 0 and row.artifact_id.count <= Limit::MAX_ID_BYTES
+            ensure result implies row.relative_path.count > 0 and row.relative_path.count <= Limit::MAX_PATH_BYTES
+            ensure result implies row.device >= 0 and row.inode >= 0 and row.build_root_device >= 0 and row.build_root_inode >= 0
+            return false if row.artifact_id.count == 0 or row.artifact_id.count > Limit::MAX_ID_BYTES
+            return false if row.relative_path.count == 0 or row.relative_path.count > Limit::MAX_PATH_BYTES
+            return false if row.device < 0 or row.inode < 0 or row.build_root_device < 0 or row.build_root_inode < 0 or row.age_days < 0 or row.retention_days < 0 or row.retention_days > 36500
+            return false if row.artifact != Artifact.Build and row.artifact != Artifact.Package
+            return false if row.phase < CreationPhase.Created or row.phase > CreationPhase.Unknown
+            return false if row.protection < Protection.Eligible or row.protection > Protection.Invalid
+            for byte in row.artifact_id:
+                return false if byte == 0
+            for byte in row.relative_path:
+                return false if byte == 0
+            return false if row.protection == Protection.Eligible and (row.phase != CreationPhase.Sealed and row.phase != CreationPhase.Published)
+            return false if not creation_evidence_valid(row.creation_evidence)
+            return false if row.protection == Protection.Eligible and product_identity_absent(row.product_identity)
+            return false if row.protection == Protection.Eligible and size_unknown(row.size_evidence)
+            return false if not size_valid(row.size_evidence)
+            return product_identity_valid(row.product_identity)
+
+        def size_unknown(evidence: SizeEvidence) -> bool:
+            match evidence:
+                SizeEvidence.Unknown: true
+                SizeEvidence.Verified(bytes): false
+
+        def size_valid(evidence: SizeEvidence) -> bool:
+            match evidence:
+                SizeEvidence.Unknown: true
+                SizeEvidence.Verified(bytes): bytes >= 0 and bytes <= 1000000000000000
+
+        def product_identity_absent(identity: ProductIdentity) -> bool:
+            match identity:
+                ProductIdentity.Absent: true
+                ProductIdentity.Present(digests): false
+
+        def product_identity_valid(identity: ProductIdentity) -> bool:
+            match identity:
+                ProductIdentity.Absent: true
+                ProductIdentity.Present(digests): digest_valid(digests.manifest) and digest_valid(digests.product) and digest_valid(digests.inventory) and digest_valid(digests.lease_receipt)
+
+        def digest_valid(digest: darray[u8]&) -> bool:
+            return false if digest.count != 64
+            for byte in digest:
+                return false if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102))
+            true
+
+        def snapshot_valid(snapshot: Snapshot) -> bool:
+            ensure result implies snapshot.rows.count <= Limit::MAX_ROWS
+            return false if snapshot.rows.count > Limit::MAX_ROWS
+            return false if snapshot.outcome < Outcome.Complete or snapshot.outcome > Outcome.Refused
+            return false if snapshot.outcome == Outcome.Refused and snapshot.rows.count != 0
+            return false if snapshot.outcome == Outcome.Overflow and snapshot.rows.count != 0
+            return false if snapshot.outcome == Outcome.Complete and snapshot.refusal_code != 0
+            for index in 0..<snapshot.rows.count |snapshot|:
+                return false if not row_valid(snapshot.rows[index])
+                for other in 0..<index |snapshot|:
+                    return false if bytes_equal(snapshot.rows[index].artifact_id, snapshot.rows[other].artifact_id)
+            true
+
+        def bytes_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |left, right|:
+                return false if left[index] != right[index]
+            true
+
+        def digest_validity_consistent(row: Row) -> bool:
+            ensure result == product_identity_valid(row.product_identity)
+            product_identity_valid(row.product_identity)
+
+        def creation_evidence_valid(evidence: CreationEvidence) -> bool:
+            match evidence:
+                CreationEvidence.LegacyAbsent: true
+                CreationEvidence.Journaled(revision, creation, latest, observed): revision >= 1 and digest_valid(creation) and digest_valid(latest) and (observed.count == 0 or digest_valid(observed))
