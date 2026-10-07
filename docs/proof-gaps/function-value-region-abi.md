@@ -101,6 +101,17 @@ bounded counts and refusal, but do not prove task ABI correctness or result-regi
 publication. Current compiler qualification for these three callback integrations
 remains open, alongside the previously converted candidate scan.
 
+Contact preview submits an affine Memo containing nested dynamic buffers.
+`StudioModel::build_with` copies the pristine document, rig order and markers for
+the displayed Clip, but previously assigned the nested source reference directly.
+`StudioTakeSourceRefCopy` now copies all six byte arrays into the caller-selected
+region before Clip construction, with byte/count preservation contracts and seven
+companion laws. Compilation, authenticated proof and post-frame lifetime evidence
+for this change remain open. This removes one source-level alias; it does not
+establish that the submitted Memo's allocation owner survives the task, or that
+joined output can safely outlive the publication frame. Those require an explicit
+ownership path and current compiler/runtime evidence.
+
 Rebuild the current compiler and runtime with source provenance, rerun the focused
 FBX task probe, and exercise actual Studio import, display switching and edited
 surfaces. Retain source-preservation and malformed-input controls. Compile and
