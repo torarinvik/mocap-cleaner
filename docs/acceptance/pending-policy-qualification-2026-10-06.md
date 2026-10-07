@@ -64,3 +64,19 @@ ASCII digit admission. Normal `bb1f4095` compiled the law source (syntax/type
 evidence), and a dynamic compile-only reproduction emitted `_main` in
 `build/goto-input-codegen.QUGNec/input.o` with exit 0. Neither artifact was
 executed; current producer and independent replay remain required.
+
+## Integrated compiler diagnosis, 2026-10-07
+
+The source-matched candidate compiler `73319dd1` rejected the full Studio
+snapshot at `app/app_pointer_input.elisa:95`: an ignored-result assignment used
+a conditional suffix that the parser refused. Commit `f3a4aa0` replaced that
+suffix with an explicit nested condition. The next full compile is pending;
+this repair alone does not qualify the integrated application.
+
+The uncomposed destination inspector's three backend declines were separately
+traced to incorrect enum variant syntax (`Status::Empty` rather than
+`Status.Empty`). Corrected policy and main law sources emitted fresh O0 objects
+of 147,696 and 159,416 bytes respectively. This is compilation evidence only.
+The accessibility law graph, independent proof replay, app composition and
+native interaction acceptance remain open. These inspector failures do not
+establish a compiler module-ownership collision.
