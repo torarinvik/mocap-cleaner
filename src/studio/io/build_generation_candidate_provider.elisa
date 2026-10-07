@@ -1,6 +1,8 @@
 # Bounded read-only provider contract for generated build cleanup rows.
 # The native snapshot owns descriptor validation and journal reconciliation.
 include "../build_generation_candidate_provider_binding_policy.elisa"
+include "build_generation_candidate_provider_native.elisa"
+include "../build_generation_candidate_provider_retention.elisa"
 
 module StudioBuildGenerationCandidateProvider:
     public:
@@ -36,10 +38,16 @@ module StudioBuildGenerationCandidateProvider:
             Invalid = 6
 
         struct SealedDigests:
-            manifest: darray[u8]
+            manifest: DigestEvidence
+            input_record: DigestEvidence
             product: darray[u8]
             inventory: darray[u8]
             lease_receipt: darray[u8]
+
+        enum DigestEvidence:
+            Unknown
+            NotApplicable
+            Verified(value: darray[u8])
 
         enum ProductIdentity:
             Absent
@@ -71,9 +79,10 @@ module StudioBuildGenerationCandidateProvider:
             product_identity: ProductIdentity
 
         struct Snapshot:
-            outcome: Outcome
-            rows: darray[Row]
-            refusal_code: i64
+            outcome: mutable Outcome
+            rows: mutable darray[Row]
+            refusal_code: mutable i64
+            diagnostic: darray[u8]
 
         def row_valid(row: Row) -> bool:
             ensure result implies row.artifact_id.count > 0 and row.artifact_id.count <= Limit::MAX_ID_BYTES
@@ -94,7 +103,7 @@ module StudioBuildGenerationCandidateProvider:
             return false if row.protection == Protection.Eligible and product_identity_absent(row.product_identity)
             return false if row.protection == Protection.Eligible and size_unknown(row.size_evidence)
             return false if not size_valid(row.size_evidence)
-            return product_identity_valid(row.product_identity)
+            return product_identity_valid_for(row.product_identity, row.artifact)
 
         def size_unknown(evidence: SizeEvidence) -> bool:
             match evidence:
@@ -114,13 +123,36 @@ module StudioBuildGenerationCandidateProvider:
         def product_identity_valid(identity: ProductIdentity) -> bool:
             match identity:
                 ProductIdentity.Absent: true
-                ProductIdentity.Present(digests): digest_valid(digests.manifest) and digest_valid(digests.product) and digest_valid(digests.inventory) and digest_valid(digests.lease_receipt)
+                ProductIdentity.Present(digests): digest_evidence_verified(digests.manifest) and digest_valid(digests.product) and digest_valid(digests.inventory) and digest_valid(digests.lease_receipt) and digest_evidence_valid(digests.input_record)
+
+        def product_identity_valid_for(identity: ProductIdentity, artifact: Artifact) -> bool:
+            match identity:
+                ProductIdentity.Absent: true
+                ProductIdentity.Present(digests): product_identity_valid(identity) and (artifact == Artifact.Build and digest_evidence_not_applicable(digests.input_record) or artifact == Artifact.Package and digest_evidence_verified(digests.input_record))
 
         def digest_valid(digest: darray[u8]&) -> bool:
             return false if digest.count != 64
             for byte in digest:
                 return false if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102))
             true
+
+        def digest_evidence_valid(evidence: DigestEvidence) -> bool:
+            match evidence:
+                DigestEvidence.Unknown: true
+                DigestEvidence.NotApplicable: true
+                DigestEvidence.Verified(value): digest_valid(value)
+
+        def digest_evidence_verified(evidence: DigestEvidence) -> bool:
+            match evidence:
+                DigestEvidence.Unknown: false
+                DigestEvidence.NotApplicable: false
+                DigestEvidence.Verified(value): digest_valid(value)
+
+        def digest_evidence_not_applicable(evidence: DigestEvidence) -> bool:
+            match evidence:
+                DigestEvidence.Unknown: false
+                DigestEvidence.NotApplicable: true
+                DigestEvidence.Verified(value): false
 
         def snapshot_valid(snapshot: Snapshot) -> bool:
             ensure result implies snapshot.rows.count <= Limit::MAX_ROWS
@@ -149,3 +181,185 @@ module StudioBuildGenerationCandidateProvider:
             match evidence:
                 CreationEvidence.LegacyAbsent: true
                 CreationEvidence.Journaled(revision, creation, latest, observed): revision >= 1 and digest_valid(creation) and digest_valid(latest) and (observed.count == 0 or digest_valid(observed))
+
+        private:
+            def outcome_value(raw: i32) -> Outcome:
+                match raw:
+                    0: Outcome.Complete
+                    1: Outcome.Overflow
+                    _: Outcome.Refused
+
+            def artifact_value(raw: i32) -> Artifact:
+                match raw:
+                    0: Artifact.Build
+                    _: Artifact.Package
+
+            def phase_value(raw: i32) -> CreationPhase:
+                match raw:
+                    0: CreationPhase.Created
+                    1: CreationPhase.Building
+                    2: CreationPhase.Failed
+                    3: CreationPhase.Sealed
+                    4: CreationPhase.Published
+                    _: CreationPhase.Unknown
+
+            def protection_value(raw: i32) -> Protection:
+                match raw:
+                    0: Protection.Eligible
+                    1: Protection.Current
+                    2: Protection.Active
+                    3: Protection.Retention
+                    4: Protection.Recovery
+                    5: Protection.Unsealed
+                    _: Protection.Invalid
+
+            def collect_text(buffer: u8&, capacity: i32, output: mutable darray[u8]&) -> bool can[Memory.Allocate]:
+                output.clear()
+                mutable index: i32 = 0
+                while index < capacity and buffer[index.usize()] != 0:
+                    output.push(buffer[index.usize()])
+                    index <- index + 1
+                index < capacity
+
+            def scan_error(buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.usize()]&, output: mutable darray[u8]&) -> void can[Memory.Allocate]:
+                output.clear()
+                mutable index: usize = 0
+                while index < StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.usize() and buffer[index] != 0:
+                    output.push(buffer[index])
+                    index <- index + 1
+
+        public:
+            def scan_default(build_root: cstr) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+                scan(build_root, StudioBuildGenerationCandidateProviderRetention::DEFAULT_RETENTION_DAYS)
+
+            def scan(build_root: cstr, retention_days: i64) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+                mutable result: Snapshot = Snapshot{outcome: Outcome.Refused, rows: [], refusal_code: 1, diagnostic: []}
+                return result if retention_days < 0 or retention_days > StudioBuildGenerationCandidateProviderNative::Limit::MAX_RETENTION_DAYS
+                mutable token: i64 = 0
+                mutable raw_outcome: i32 = -1
+                mutable count: i64 = -1
+                mutable refusal: i64 = -1
+                mutable error_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.usize()] = zeroed
+                error_pointer: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                mutable status: i32 = build_candidates_open(
+                    build_root, retention_days, &token, &raw_outcome, &count, &refusal,
+                    error_pointer,
+                    StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
+                scan_error(&error_buffer[0], &result.diagnostic)
+                mutable decoded_outcome: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_outcome(raw_outcome)
+                if status != 0 or decoded_outcome.kind != StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid or count < 0 or count > Limit::MAX_ROWS or (token == 0 and count != 0):
+                    if token != 0: build_candidates_close(token)
+                    return result
+                result.outcome <- outcome_value(raw_outcome)
+                result.refusal_code <- refusal
+                if raw_outcome != 0: return result
+                if refusal != 0 or token == 0 and count > 0: return result
+                mutable index: i64 = 0
+                mutable valid: bool = true
+                while index < count and valid:
+                    mutable artifact_raw: i32 = -1
+                    mutable phase_raw: i32 = -1
+                    mutable protection_raw: i32 = -1
+                    mutable device: i64 = -1
+                    mutable inode: i64 = -1
+                    mutable build_device: i64 = -1
+                    mutable build_inode: i64 = -1
+                    mutable revision: i64 = -1
+                    mutable creation_kind: i32 = -1
+                    mutable age: i64 = -1
+                    mutable row_retention: i64 = -1
+                    mutable size_bytes: i64 = -1
+                    mutable size_known: i32 = -1
+                    mutable product_kind: i32 = -1
+                    mutable id_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::ID_CAPACITY.usize()] = zeroed
+                    mutable path_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::PATH_CAPACITY.usize()] = zeroed
+                    mutable creation_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable latest_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable observed_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable manifest_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable input_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable product_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable inventory_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable lease_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+                    mutable row_error: u8[StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.usize()] = zeroed
+                    id_pointer: mutable u8& = (&id_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    path_pointer: mutable u8& = (&path_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    creation_pointer: mutable u8& = (&creation_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    latest_pointer: mutable u8& = (&latest_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    observed_pointer: mutable u8& = (&observed_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    manifest_pointer: mutable u8& = (&manifest_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    input_pointer: mutable u8& = (&input_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    product_pointer: mutable u8& = (&product_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    inventory_pointer: mutable u8& = (&inventory_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    lease_pointer: mutable u8& = (&lease_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    row_error_pointer: mutable u8& = (&row_error[0]).cast[mutable u8&] can Unsafe.PointerCast
+                    status <- build_candidates_row(token, index,
+                        &artifact_raw, &phase_raw, &protection_raw, &device, &inode, &build_device,
+                        &build_inode, &revision, &creation_kind, &age, &row_retention, &size_bytes,
+                        &size_known, &product_kind, id_pointer,
+                        StudioBuildGenerationCandidateProviderNative::Limit::ID_CAPACITY.u32(),
+                        path_pointer,
+                        StudioBuildGenerationCandidateProviderNative::Limit::PATH_CAPACITY.u32(),
+                        creation_pointer, latest_pointer, observed_pointer, manifest_pointer,
+                        input_pointer, product_pointer, inventory_pointer, lease_pointer,
+                        row_error_pointer,
+                        StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
+                    mutable id: darray[u8] = []
+                    mutable path: darray[u8] = []
+                    mutable creation: darray[u8] = []
+                    mutable latest: darray[u8] = []
+                    mutable observed: darray[u8] = []
+                    mutable manifest: darray[u8] = []
+                    mutable input_record: darray[u8] = []
+                    mutable product: darray[u8] = []
+                    mutable inventory: darray[u8] = []
+                    mutable lease: darray[u8] = []
+                    valid <- status == 0
+                    valid <- valid and collect_text(id_pointer, StudioBuildGenerationCandidateProviderNative::Limit::ID_CAPACITY, &id)
+                    valid <- valid and collect_text(path_pointer, StudioBuildGenerationCandidateProviderNative::Limit::PATH_CAPACITY, &path)
+                    valid <- valid and collect_text(creation_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &creation)
+                    valid <- valid and collect_text(latest_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &latest)
+                    valid <- valid and collect_text(observed_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &observed)
+                    valid <- valid and collect_text(manifest_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &manifest)
+                    valid <- valid and collect_text(input_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &input_record)
+                    valid <- valid and collect_text(product_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &product)
+                    valid <- valid and collect_text(inventory_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &inventory)
+                    valid <- valid and collect_text(lease_pointer, StudioBuildGenerationCandidateProviderNative::Limit::DIGEST_CAPACITY, &lease)
+                    mutable artifact_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_artifact(artifact_raw)
+                    mutable phase_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_phase(phase_raw)
+                    mutable protection_decoded: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_protection(protection_raw)
+                    valid <- valid and artifact_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and phase_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and protection_decoded.kind == StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid and creation_kind >= 0 and creation_kind <= 1 and product_kind >= 0 and product_kind <= 1 and (size_known == 0 or size_known == 1)
+                    if valid:
+                        mutable creation_evidence: CreationEvidence = CreationEvidence.LegacyAbsent
+                        if creation_kind == 1:
+                            valid <- revision >= 1 and digest_valid(creation) and digest_valid(latest) and (observed.count == 0 or digest_valid(observed))
+                            creation_evidence <- CreationEvidence.Journaled(revision, creation, latest, observed)
+                        else:
+                            valid <- revision == 0 and creation.count == 0 and latest.count == 0 and observed.count == 0
+                        mutable product_identity: ProductIdentity = ProductIdentity.Absent
+                        mutable size: SizeEvidence = SizeEvidence.Unknown
+                        if product_kind == 1:
+                            mutable input_evidence: DigestEvidence = DigestEvidence.NotApplicable
+                            if artifact_raw == 1:
+                                valid <- digest_valid(input_record)
+                                input_evidence <- DigestEvidence.Verified(input_record)
+                            else:
+                                valid <- input_record.count == 0
+                            valid <- valid and digest_valid(manifest) and digest_valid(product) and digest_valid(inventory) and digest_valid(lease) and size_known == 1
+                            product_identity <- ProductIdentity.Present(SealedDigests{manifest: DigestEvidence.Verified(manifest), input_record: input_evidence, product: product, inventory: inventory, lease_receipt: lease})
+                        else:
+                            valid <- manifest.count == 0 and input_record.count == 0 and product.count == 0 and inventory.count == 0 and lease.count == 0 and size_known == 0
+                        size <- SizeEvidence.Verified(size_bytes) if size_known == 1 else SizeEvidence.Unknown
+                        mutable row: Row = Row{artifact_id: id, relative_path: path, artifact: artifact_value(artifact_raw), phase: phase_value(phase_raw), protection: protection_value(protection_raw), device: device, inode: inode, build_root_device: build_device, build_root_inode: build_inode, age_days: age, retention_days: row_retention, size_evidence: size, creation_evidence: creation_evidence, product_identity: product_identity}
+                        valid <- valid and StudioBuildGenerationCandidateProviderBindingPolicy::row_output_admitted(status, artifact_raw, phase_raw, protection_raw, product_kind, device, inode, age, row_retention, size_bytes, size_known, path.count.i64(), id.count.i64()) and row_valid(row)
+                        if valid: result.rows.push(row)
+                    index <- index + 1
+                mutable close_status: i32 = build_candidates_close(token)
+                if not valid or close_status != 0:
+                    result.rows.clear()
+                    result.outcome <- Outcome.Refused
+                    result.refusal_code <- 4
+                else:
+                    result.outcome <- Outcome.Complete
+                    result.refusal_code <- 0
+                result
