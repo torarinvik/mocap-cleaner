@@ -96,10 +96,27 @@ qualification scope; it does not establish that all ten paths fail at runtime.
 Cleanup restoration, recovery reconciliation and recovery discovery now capture
 `StudioWorkerPathCapture::Path` values instead of submitting dynamic path arrays.
 Each value contains its bytes and count inline; reconstruction occurs inside the
-worker. The existing capture/restore contracts and seven companion laws cover
+worker. The existing capture/restore contracts and ten companion laws cover
 bounded counts and refusal, but do not prove task ABI correctness or result-region
 publication. Current compiler qualification for these three callback integrations
 remains open, alongside the previously converted candidate scan.
+
+Seed19's current-source diagnostic product `0e1698e53d8e60b9761e366c4a670db4b958ef69aee1208e14453303136c7d7c`
+uses runtime `37637ffa62447f4a16008ed834fbb5bc9ef3ade0f32d9669d84d3860d6ab9449`
+and dirty source tree `9ee5163beebab821207fecca7da9e05b51568e18d60bd59a8bd0febbfcc73d7f`
+at merged HEAD `3714380c`. Its provenance check passes. The three worker source
+objects and both capture/copy law objects compile at O2, with matching runtime
+source closure guards. These object-only units need not emit their otherwise
+unreachable functions; this is source compilation evidence, not execution or
+proof discharge. The clean-archive prover build correctly refuses this dirty
+compiler snapshot, so a committed repair and rebuilt pair remain required.
+
+This compiler caught storage dependency invalidation when callers appended NULs
+to both reconstructed paths. `restore_terminated` now constructs a complete
+terminated path inside its own helper before returning it; callers do not mutate
+those buffers before native calls. Recovery scan and Restore then compile.
+The complete app still declines three task-result extraction sites for missing
+concrete hidden caller slots; standalone worker compilation does not close them.
 
 Contact preview submits an affine Memo containing nested dynamic buffers.
 `StudioModel::build_with` copies the pristine document, rig order and markers for
