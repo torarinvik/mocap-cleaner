@@ -201,6 +201,12 @@ hide a degenerate correction intermediate. Five new admission/equivalence
 obligations accompany this change. Qualify cancellation at half weight,
 zero imported keys, underflow/overflow and unchanged bytes on refusal with
 authenticated replay and native corpus evidence.
+Gizmo completion feedback now distinguishes a ready result, a deferred rebuild
+and a failed rebuild through a typed outcome policy with three obligations.
+A failed rebuild still retains the recorded history entry and the previous
+visible result; feedback explicitly offers Undo. Atomic candidate evaluation
+before history publication remains required. Qualify deferred completion,
+refusal followed by Undo/Redo and initial-load failure without a prior result.
 
 The preflight also refuses overlapping GLB byte spans among distinct tracks,
 and bounds each span before multiplying its key/component counts. Half-open
