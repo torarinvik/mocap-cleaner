@@ -99,6 +99,7 @@ sys.path.insert(0, str(project / "tools"))
 from studio_generation_lock import verified_lock
 from studio_generation_contents import verify_record
 from studio_generation_controls import seal_control
+from studio_generation_creation_package_seal import record_package_seal
 
 def generated_id(directory, prefix):
     name = directory.name
@@ -143,8 +144,10 @@ input_paths.extend((project / "scripts/build_studio.sh", project / "scripts/pack
                     project / "tools/studio_generation_creation_failure.py",
                     project / "tools/studio_generation_creation_seal.py",
                     project / "tools/studio_generation_creation_publish.py",
+                    project / "tools/studio_generation_package_seal.py",
+                    project / "tools/studio_generation_creation_package_seal.py",
                     project / "tools/studio_build_identity.py", project / "build/generated/studio_build_identity.elisa",
-                    compiler / "scripts/elisac_stage1.sh", compiler / "build/runtime/elisacore_runtime.o"))
+                    compiler / "scripts/elisac_stage1.sh", compiler / "scripts/platform.sh", compiler / "build/runtime/elisacore_runtime.o"))
 input_paths.extend(path for path in (project / "assets/icons").rglob("*.svg"))
 source_hash = hashlib.sha256()
 for path in sorted(set(input_paths)):
@@ -251,6 +254,9 @@ if input_record is not None:
 seal_control(output.parent / "PACKAGE-GENERATION.json",
              json.dumps(package_record, indent=2, sort_keys=True) + "\n")
 seal_control(lease_path, json.dumps(lease_record, sort_keys=True) + "\n", readonly=True)
+if input_record is not None:
+    record_package_seal(project, artifact, package_generation_id)
+
 
 PY
 
