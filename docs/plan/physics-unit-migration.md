@@ -13,6 +13,13 @@ replay and the world-float boundary remain open. World floats must round once
 at the final unit boundary, rather than first rounding to micrometres.
 Coverage includes both signed half-unit ties, values below half a unit and
 exact report-unit recovery; compilation does not establish proof validity.
+The world adapter now has explicit finite/range admission and rounds once
+directly from metres into 0.1 mm units, with a bounded inverse. Seven additional
+world-boundary obligations cover nonfinite/out-of-range refusal, both supported
+coordinate limits, signed half-unit ties and a one-metre inverse. Compilation
+was refused before source processing because the compiler source changed during
+its repair batch; current product rebuild and proof qualification are pending.
+Physics callers remain on their old scale until the complete migration lands.
 
 | Boundary | Current callers | Required dimension |
 | --- | --- | --- |
