@@ -62,6 +62,9 @@ extend Studio:
                         current.first, current.second, current.animation, current.frames, current.nodes)
                     session_locate_source_valid <- true
                     session_locate_focus <- StudioSessionLocatePolicy::Focus.OpenAsNewTake if session_locate_comparison != StudioSessionSourcePolicy::Comparison.Matching
+                    if SessionState::copy_locate_candidate_source_reference() is expected_reference:
+                        if StudioTakeSourceRefPolicy::bytes_equal(expected_reference.reference.original_path, path_bytes(path)):
+                            _ = start_session_locate_worker_for_path(path)
             file_menu_open <- false
             help_open <- false
             touch()
@@ -95,6 +98,43 @@ extend Studio:
             else:
                 has_loaded: bool = candidate.source_reference != null
                 StudioSessionLocateSourceAdmissionPolicy::legacy_admit(method, false, has_loaded, take_matches)
+
+        def start_session_locate_worker_for_path(candidate_path: cstr) -> bool can[Unsafe.PointerCast, Memory.Allocate, Threads]:
+            return false if session_locate_worker != null
+            if SessionState::locate_candidate_identity() is saved:
+                mutable owned_path: darray[u8] = session_locate_terminated_path(candidate_path)
+                mutable build_root: darray[u8] = session_locate_terminated_path(workspace_build_directory())
+                mutable job: StudioSessionLocateWorker::Job = zeroed
+                session_locate_worker_ticket <- StudioSessionLocatePolicy::next_ticket(session_locate_worker_ticket)
+                job.ticket <- session_locate_worker_ticket
+                job.animation_index <- saved.animation
+                mutable copied: bool = owned_path.count >= 2 and owned_path.count <= PathCapacity::BYTES and build_root.count >= 1 and build_root.count <= PathCapacity::BYTES
+                if copied:
+                    for index in 0..<owned_path.count |index, owned_path, job|:
+                        job.source_path[index] <- owned_path[index]
+                    for index in 0..<build_root.count |index, build_root, job|:
+                        job.build_root[index] <- build_root[index]
+                if SessionState::copy_locate_candidate_source_reference() is reference:
+                    mutable encoded_reference: darray[u8] = []
+                    copied <- copied and SessionSourceReferenceCodec::encode(reference, &encoded_reference) and encoded_reference.count <= SessionSourceReferenceCodec::Limit::LINE_BYTES
+                    if copied:
+                        job.has_source_reference <- true
+                        job.source_reference_count <- encoded_reference.count.i64()
+                        for index in 0..<encoded_reference.count |index, encoded_reference, job|:
+                            job.source_reference_line[index] <- encoded_reference[index]
+                if not copied:
+                    return false
+                session_locate_memo <- null
+                session_locate_source_valid <- false
+                session_locate_worker_path <- candidate_path
+                session_locate_worker_cancelled <- false
+                session_locate_worker <- task(load_session_locate_job, move job)
+                session_locate_focus <- StudioSessionLocatePolicy::Focus.Cancel
+                status <- "Checking source bytes, processing identity and selected animation in the background. The current cleanup remains active."
+                status_file <- null
+                touch()
+                return true
+            false
 
         def request_prepared_replacement(kind: i64, p: cstr) -> void can Unsafe.PointerCast:
             cancel_export_result() if export_result_open
@@ -156,57 +196,10 @@ extend Studio:
                     touch()
                     return
                 candidate_path: cstr = stored_path(slot)
-                if SessionState::locate_candidate_identity() is saved:
-                    mutable owned_path: darray[u8] = []
-                    mutable path_ready: bool = false
-                    mutable path_at: usize = 0
-                    while path_at < PathCapacity::BYTES:
-                        byte: u8 = candidate_path[path_at]
-                        owned_path.push(byte)
-                        path_at <- path_at + 1
-                        if byte == 0:
-                            path_ready <- true
-                            break
-                    if not path_ready:
-                        status <- "take path exceeds 4095 bytes"
-                        status_file <- null
-                        touch()
-                        return
-                    session_locate_memo <- null
-                    session_locate_source_valid <- false
-                    session_locate_worker_ticket <- StudioSessionLocatePolicy::next_ticket(session_locate_worker_ticket)
-                    session_locate_worker_path <- candidate_path
-                    session_locate_worker_cancelled <- false
-                    mutable build_root: darray[u8] = session_locate_terminated_path(workspace_build_directory())
-                    mutable source_reference: SessionSourceReferenceCodec::Record? = SessionState::copy_locate_candidate_source_reference()
-                    mutable job: StudioSessionLocateWorker::Job = zeroed
-                    job.ticket <- session_locate_worker_ticket
-                    job.animation_index <- saved.animation
-                    mutable copied_path: bool = owned_path.count >= 2 and owned_path.count <= 4096 and build_root.count >= 1 and build_root.count <= 4096
-                    if copied_path:
-                        for byte_index in 0..<owned_path.count |byte_index, owned_path, job|:
-                            job.source_path[byte_index] <- owned_path[byte_index]
-                        for root_index in 0..<build_root.count |root_index, build_root, job|:
-                            job.build_root[root_index] <- build_root[root_index]
-                    if source_reference is reference:
-                        mutable encoded_reference: darray[u8] = []
-                        copied_path <- copied_path and SessionSourceReferenceCodec::encode(reference, &encoded_reference) and encoded_reference.count <= SessionSourceReferenceCodec::Limit::LINE_BYTES
-                        if copied_path:
-                            job.has_source_reference <- true
-                            job.source_reference_count <- encoded_reference.count.i64()
-                            for reference_index in 0..<encoded_reference.count |reference_index, encoded_reference, job|:
-                                job.source_reference_line[reference_index] <- encoded_reference[reference_index]
-                    if copied_path:
-                        session_locate_worker <- task(load_session_locate_job, move job)
-                    else:
-                        session_locate_worker_path <- ""
-                        session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate
-                        status <- "Source reference or path exceeds the bounded Locate request capacity."
-                        status_file <- null
-                        touch()
-                        return
-                    session_locate_focus <- StudioSessionLocatePolicy::Focus.Cancel
-                    status <- "Checking source metadata in the background. The current cleanup remains active."
+                if not start_session_locate_worker_for_path(candidate_path):
+                    session_locate_worker_path <- ""
+                    session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate
+                    status <- "Source reference or path exceeds the bounded Locate request capacity."
                     status_file <- null
                     touch()
 

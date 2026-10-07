@@ -154,6 +154,13 @@ extend Studio:
             touch()
 
         def finish_close() -> void can[Ui.Window]:
+            if session_source_save_task != null:
+                session_source_save_close_pending <- true
+                UiAppKitCanvas::veto_close()
+                status <- "Finishing source verification for the session save before closing. The current take remains open."
+                status_file <- null
+                touch()
+                return
             if contact_preview_task != null:
                 contact_preview_close_pending <- true
                 contact_preview_close_termination <- replacement_is_termination
@@ -253,6 +260,10 @@ extend Studio:
             clear_pending_session_annotations()
             if kind == Replacement.Session.i64():
                 if clip is c:
+                    if SessionState::inspect_locate_candidate(p) and SessionState::locate_candidate_has_source_reference():
+                        SessionState::discard_locate_candidate()
+                        begin_session_locate(p)
+                        return
                     mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
                     mutable decoded_impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
                     mutable decoded_impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = []
@@ -328,11 +339,30 @@ extend Studio:
             pending: cstr = pending_path()
             kind: i64 = pending_replacement
             allow_legacy: bool = pending_replacement_allows_legacy
+            if action == StudioReplacement::Choice.Discard.i64() and session_source_save_task != null:
+                session_source_save_cancelled <- true
+                if kind != Replacement.Close.i64():
+                    session_source_save_replacement_pending <- false
+                    session_source_save_discard_pending <- true
+                    status <- "Stopping the background source check before replacing the take. The current cleanup remains open until it drains."
+                    status_file <- null
+                    touch()
+                    return
             if action == StudioReplacement::Choice.Save.i64():
+                if session_source_save_task != null:
+                    status <- "Session source verification is still running. The replacement prompt remains open."
+                    status_file <- null
+                    touch()
+                    return
                 if not save_session_to_current_path():
                     replacement_save_failed <- true
                     touch()
                     return
+                session_source_save_replacement_pending <- true
+                status <- "Verifying the session source before replacement. The current take remains open."
+                status_file <- null
+                touch()
+                return
             if kind == Replacement.Close.i64():
                 capture_worker_close_approval() if contact_preview_task != null
                 finish_close()
@@ -348,6 +378,13 @@ extend Studio:
             # made after the user chooses Save or Discard in the prompt.
             if close_authorized:
                 close_authorized <- false
+                return
+            if session_source_save_task != null:
+                session_source_save_reopen_close_prompt <- true
+                UiAppKitCanvas::veto_close()
+                status <- "The source check for the session save is finishing before close. The current cleanup remains open."
+                status_file <- null
+                touch()
                 return
             if fbx_import_active():
                 worker_running: bool = fbx_import_worker_active()
