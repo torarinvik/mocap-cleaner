@@ -43,6 +43,29 @@ def declared_plan(files, directories, kind):
     return entries
 
 
+def verify_published(parent, filename, payload, expected_identity):
+    fd = os.open(filename, FILE_FLAGS, dir_fd=parent)
+    try:
+        before = os.fstat(fd)
+        owned(before)
+        require(identity(before) == expected_identity and not before.st_mode & 0o077,
+                "published creation record identity or permissions changed")
+        require(before.st_size == len(payload), "published creation record size changed")
+        observed = bytearray()
+        while len(observed) <= len(payload):
+            chunk = os.read(fd, min(65536, len(payload) + 1 - len(observed)))
+            if not chunk:
+                break
+            observed.extend(chunk)
+        require(observed == payload and version(os.fstat(fd)) == version(before),
+                "published creation record content changed")
+        require(version(os.stat(filename, dir_fd=parent, follow_symlinks=False)) == version(before),
+                "published creation record binding changed")
+        return before
+    finally:
+        os.close(fd)
+
+
 def publish_initial(build, payload, filename, revalidate):
     try:
         os.mkdir(Journal.directory, 0o700, dir_fd=build)
@@ -92,13 +115,14 @@ def publish_initial(build, payload, filename, revalidate):
         named = os.stat(filename, dir_fd=parent, follow_symlinks=False)
         require(identity(named) == identity(written) and named.st_nlink == 1,
                 "creation journal replaced after removing temporary link")
+        named = verify_published(parent, filename, payload, identity(written))
         os.fsync(parent)
         os.fsync(build)
         revalidate()
         require(identity(os.stat(Journal.directory, dir_fd=build, follow_symlinks=False)) ==
                 identity(parent_facts), "creation journal directory changed after publication")
-        require(version(os.stat(filename, dir_fd=parent, follow_symlinks=False)) == version(named),
-                "creation journal changed after publication")
+        after = verify_published(parent, filename, payload, identity(written))
+        require(version(after) == version(named), "creation journal changed after publication")
     except (OSError, ValueError) as error:
         if linked:
             raise ValueError("creation journal publication is uncertain; retain and inspect " +
