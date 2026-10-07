@@ -1,0 +1,92 @@
+# Pure admission for a durable creation journal. Native code must retain both
+# exclusive locks and recheck descriptor identities through record publication.
+# Admission is not evidence that a write, product seal or publication succeeded.
+include "build_generation_creation_policy.elisa"
+
+module StudioBuildGenerationCreationJournalPolicy:
+    public:
+        const enum Phase of i64:
+            Unknown = 0
+            Created = 1
+            Building = 2
+            Failed = 3
+            Abandoned = 4
+            Sealed = 5
+            Published = 6
+
+        const module Limit:
+            MAX_REVISION: i64 = 9223372036854775807
+
+        struct Evidence:
+            global_lock_exclusive: bool
+            artifact_lease_exclusive: bool
+            root_identity_verified: bool
+            artifact_identity_verified: bool
+            journal_identity_verified: bool
+            prior_record_durable: bool
+            builder_owned: bool
+            builder_inactive_verified: bool
+            sealed_product_verified: bool
+            publication_durable: bool
+            expected_revision: i64
+            observed_revision: i64
+
+        def revisions_match(evidence: Evidence) -> bool:
+            ensure result == (evidence.expected_revision > 0 and
+                evidence.expected_revision < Limit::MAX_REVISION and
+                evidence.observed_revision == evidence.expected_revision)
+            (evidence.expected_revision > 0 and
+                evidence.expected_revision < Limit::MAX_REVISION and
+                evidence.observed_revision == evidence.expected_revision)
+
+        def transition_allowed(previous: Phase, next: Phase,
+                               evidence: Evidence) -> bool:
+            ensure not result or previous != next
+            if next == Phase.Abandoned:
+                return ((previous == Phase.Created or previous == Phase.Building) and
+                    evidence.builder_inactive_verified)
+            return false if not evidence.builder_owned
+            return true if previous == Phase.Created and next == Phase.Building
+            return true if previous == Phase.Building and next == Phase.Failed
+            if previous == Phase.Building and next == Phase.Sealed:
+                return evidence.sealed_product_verified
+            if previous == Phase.Sealed and next == Phase.Published:
+                return evidence.sealed_product_verified and evidence.publication_durable
+            false
+
+        def may_advance(previous: Phase, next: Phase, evidence: Evidence) -> bool:
+            ensure result == (revisions_match(evidence) and
+                evidence.global_lock_exclusive and evidence.artifact_lease_exclusive and
+                evidence.root_identity_verified and evidence.artifact_identity_verified and
+                evidence.journal_identity_verified and evidence.prior_record_durable and
+                not (evidence.builder_owned and evidence.builder_inactive_verified) and
+                transition_allowed(previous, next, evidence))
+            (revisions_match(evidence) and
+                evidence.global_lock_exclusive and evidence.artifact_lease_exclusive and
+                evidence.root_identity_verified and evidence.artifact_identity_verified and
+                evidence.journal_identity_verified and evidence.prior_record_durable and
+                not (evidence.builder_owned and evidence.builder_inactive_verified) and
+                transition_allowed(previous, next, evidence))
+
+        def next_revision(revision: i64) -> i64:
+            require revision > 0 and revision < Limit::MAX_REVISION
+            ensure result > revision and result <= Limit::MAX_REVISION
+            ensure result == revision + 1
+            revision + 1
+
+        # Only confirmed durable phases are mapped here. An interrupted write
+        # must remain Unknown until native reconciliation establishes its phase.
+        def cleanup_outcome(phase: Phase) -> StudioBuildGenerationCreationPolicy::Outcome:
+            ensure (result == StudioBuildGenerationCreationPolicy::Outcome.Failed) == (phase == Phase.Failed)
+            ensure (result == StudioBuildGenerationCreationPolicy::Outcome.Abandoned) == (phase == Phase.Abandoned)
+            ensure (result == StudioBuildGenerationCreationPolicy::Outcome.Running) == (phase == Phase.Created or phase == Phase.Building)
+            ensure (result == StudioBuildGenerationCreationPolicy::Outcome.Sealed) == (phase == Phase.Sealed or phase == Phase.Published)
+            if phase == Phase.Failed:
+                return StudioBuildGenerationCreationPolicy::Outcome.Failed
+            if phase == Phase.Abandoned:
+                return StudioBuildGenerationCreationPolicy::Outcome.Abandoned
+            if phase == Phase.Created or phase == Phase.Building:
+                return StudioBuildGenerationCreationPolicy::Outcome.Running
+            if phase == Phase.Sealed or phase == Phase.Published:
+                return StudioBuildGenerationCreationPolicy::Outcome.Sealed
+            StudioBuildGenerationCreationPolicy::Outcome.Unknown

@@ -1,0 +1,158 @@
+include "../src/studio/build_generation_creation_journal_policy.elisa"
+
+module StudioBuildGenerationCreationJournalPolicyLaws:
+    private:
+        def verified() -> StudioBuildGenerationCreationJournalPolicy::Evidence:
+            StudioBuildGenerationCreationJournalPolicy::Evidence{
+                global_lock_exclusive: true,
+                artifact_lease_exclusive: true,
+                root_identity_verified: true,
+                artifact_identity_verified: true,
+                journal_identity_verified: true,
+                prior_record_durable: true,
+                builder_owned: true,
+                builder_inactive_verified: false,
+                sealed_product_verified: true,
+                publication_durable: true,
+                expected_revision: 8,
+                observed_revision: 8
+            }
+
+    public:
+        def owned_builder_can_start_and_record_failure() -> bool:
+            ensure result
+            evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            (StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Created,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building, evidence) and
+                StudioBuildGenerationCreationJournalPolicy::may_advance(
+                    StudioBuildGenerationCreationJournalPolicy::Phase.Building,
+                    StudioBuildGenerationCreationJournalPolicy::Phase.Failed, evidence))
+
+        def active_builder_cannot_be_abandoned() -> bool:
+            ensure result
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Abandoned, verified())
+
+        def verified_inactive_builder_can_be_abandoned_without_ownership() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.builder_owned <- false
+            evidence.builder_inactive_verified <- true
+            StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Created,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Abandoned, evidence)
+
+        def sealing_requires_verified_product() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.sealed_product_verified <- false
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Sealed, evidence)
+
+        def publication_requires_durability() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.publication_durable <- false
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Sealed,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Published, evidence)
+
+        def changed_revision_refuses() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.observed_revision <- 9
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Created,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building, evidence)
+
+        def invalid_or_exhausted_revision_refuses() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.expected_revision <- 0
+            evidence.observed_revision <- 0
+            invalid: bool = not StudioBuildGenerationCreationJournalPolicy::revisions_match(evidence)
+            evidence.expected_revision <- StudioBuildGenerationCreationJournalPolicy::Limit::MAX_REVISION
+            evidence.observed_revision <- evidence.expected_revision
+            invalid and not StudioBuildGenerationCreationJournalPolicy::revisions_match(evidence)
+
+        def lost_lock_or_undurable_record_refuses() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.global_lock_exclusive <- false
+            unlocked: bool = not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Created,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building, evidence)
+            evidence.global_lock_exclusive <- true
+            evidence.prior_record_durable <- false
+            unlocked and not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Created,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building, evidence)
+
+        def failed_generation_cannot_restart_in_place() -> bool:
+            ensure result
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Failed,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building, verified())
+
+        def published_generation_cannot_be_reclassified_as_failed() -> bool:
+            ensure result
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Published,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Failed, verified())
+
+        def repeated_or_unknown_phase_refuses() -> bool:
+            ensure result
+            (not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building, verified()) and
+                not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                    StudioBuildGenerationCreationJournalPolicy::Phase.Unknown,
+                    StudioBuildGenerationCreationJournalPolicy::Phase.Building, verified()))
+
+        def final_revision_does_not_wrap() -> bool:
+            ensure result
+            StudioBuildGenerationCreationJournalPolicy::next_revision(
+                StudioBuildGenerationCreationJournalPolicy::Limit::MAX_REVISION - 1) ==
+                StudioBuildGenerationCreationJournalPolicy::Limit::MAX_REVISION
+
+        def incomplete_generation_is_not_a_failed_cleanup_candidate() -> bool:
+            ensure result
+            StudioBuildGenerationCreationJournalPolicy::cleanup_outcome(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Created) ==
+                StudioBuildGenerationCreationPolicy::Outcome.Running
+
+        def verified_seal_and_publication_can_advance() -> bool:
+            ensure result
+            (StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Sealed, verified()) and
+                StudioBuildGenerationCreationJournalPolicy::may_advance(
+                    StudioBuildGenerationCreationJournalPolicy::Phase.Sealed,
+                    StudioBuildGenerationCreationJournalPolicy::Phase.Published, verified()))
+
+        def inconsistent_builder_evidence_refuses() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.builder_inactive_verified <- true
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Sealed, evidence)
+
+        def unknown_journal_identity_refuses() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.journal_identity_verified <- false
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Created,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building, evidence)
+
+        def lost_artifact_lease_refuses() -> bool:
+            ensure result
+            mutable evidence: StudioBuildGenerationCreationJournalPolicy::Evidence = verified()
+            evidence.artifact_lease_exclusive <- false
+            not StudioBuildGenerationCreationJournalPolicy::may_advance(
+                StudioBuildGenerationCreationJournalPolicy::Phase.Building,
+                StudioBuildGenerationCreationJournalPolicy::Phase.Failed, evidence)
