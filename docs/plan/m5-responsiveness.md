@@ -116,3 +116,19 @@ each completed report or invalid run immediately with elapsed time and exit
 code. A slow first task no longer hides other workers' progress. The message
 says `report completed`, not `proved`; baseline and replay gates still determine
 acceptance. Qualification of parallel progress and failure reporting is pending.
+
+### Current compiler qualification gaps
+
+- [ ] Qualify the source-matched candidate compiler's module-constant generic
+      argument resolution in the complete Studio graph. Candidate `73319dd1`
+      emits the reduced `UiText::fixed_bytes_view_range[Buffer::CAPACITY]` call.
+      Nonconstant and negative arguments emit no object; these reductions alone
+      do not establish full application compilation.
+- [ ] Reject array-extent mismatches during semantic checking, with the expected
+      and supplied extents and owner-qualified constant in the diagnostic. A
+      reduced wrong-owner extent currently reaches invalid LLVM argument types
+      before refusing emission. Preserve refusal while improving this boundary.
+- [ ] Reduce and repair the remaining full-graph optional-view/frame/camera/pick/
+      gizmo backend declines. Stripped optional-return and affine-view narrowing
+      reductions compile, so their success does not explain the full-graph
+      failures. Retain complete graph diagnostics and exact input snapshots.
