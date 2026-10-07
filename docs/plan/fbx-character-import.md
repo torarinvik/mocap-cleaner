@@ -67,7 +67,10 @@ Build evidence is retained in `build/latest-compiler-qualification/` and generat
 The first authorized native FBX check produced a GLB containing a mesh, skin and
 animation, refused an existing destination without changing it, and preserved the
 original FBX digest. Results are in `build/fbx-runtime-8t_omy1p/results.json`.
-This does not yet establish skin deformation, pose correspondence or UI switching.
+Further deterministic, malformed/truncated and bounded FIFO refusal checks are
+recorded in [captured native evidence](../acceptance/fbx-native-checks-2026-10-07.md).
+Independent Blender pose evidence is under `build/fbx-pose-check-bb274`; the
+mesh outlier remains under investigation. UI switching remains unverified.
 The converter currently retains one largest supported skinned mesh; multiple
 mesh/material fidelity remains open.
 
@@ -79,12 +82,21 @@ build and runtime results remain evidence for their captured source tuple.
 
 Next acceptance work:
 
-- Complete malformed/truncated input, bounded FIFO refusal, deterministic output,
-  cancellation/restart and source-preservation checks.
+- Complete cancellation/restart and repeat authorized runtime checks against the
+  final current application tuple.
 - Inspect actual Open FBX, character deformation, pose edits and Character/Skeleton
   switching in the current application.
 - Implement persisted original/runtime references for session reopen and Locate,
-  including changed-source refusal and cache recovery.
+  including changed-source refusal and cache recovery. Persist format, original
+  digest, runtime digest, importer/options identity and animation selection using
+  a versioned bounded codec. Legacy GLB sessions must remain readable.
+  `session_locate_worker.elisa` currently calls `Model::load_at_index` on the
+  original path; replace this direct GLB assumption with format-aware loading.
+  A relocated FBX must match its saved original digest before applying edits.
+  Reuse cache only when its runtime digest and importer/options match; otherwise
+  regenerate from a verified source under the chosen workspace. Handle missing
+  cache, missing source, changed source and interrupted regeneration explicitly.
+  Add refusal and round-trip laws alongside the codec and admission logic.
 - Repair shared-field reborrow replay and zero-argument generic-region proof
   handoff gaps, then obtain current source correspondence evidence. Native staging
   correspondence remains a separate requirement.
