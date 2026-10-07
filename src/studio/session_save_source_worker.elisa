@@ -1,0 +1,158 @@
+# Background capture of the exact source record written into a session v5 file.
+# The worker owns only bounded inline request/reply buffers; it never borrows UI
+# strings or publishes a session file.
+include "../../build/generated/studio_runtime.elisa"
+include "state/session_source_reference_codec.elisa"
+include "session_save_source_policy.elisa"
+include "fbx_import_native.elisa"
+include "fbx_import_reference.elisa"
+
+module StudioSessionSaveSourceWorker:
+    public:
+        const enum Status of i64:
+            Ready = 0
+            InvalidRequest = 1
+            SourceUnavailable = 2
+            RuntimeUnavailable = 3
+            ReferenceChanged = 4
+            ProcessingChanged = 5
+            InvalidAnimation = 6
+            EncodingFailed = 7
+
+        const module Limit:
+            PATH_BYTES: usize = 4096
+            ANIMATION_BYTES: usize = 1024
+            LINE_BYTES: usize = SessionSourceReferenceCodec::Limit::LINE_BYTES
+
+        affine struct Job:
+            ticket: i64
+            source_path: u8[4096]
+            runtime_path: u8[4096]
+            animation_name: u8[1024]
+            animation_count: i64
+            has_reference: bool
+            reference_count: i64
+            reference_line: u8[20000]
+
+        affine struct Result:
+            ticket: i64
+            status: i64
+            line_count: i64
+            line: u8[20000]
+
+        private:
+            def owned_path[@r](buffer: u8[4096]&) -> darray[u8] @r can Memory.Allocate:
+                mutable output: darray[u8] @r = []
+                mutable ended: bool = false
+                for index in 0..<4096 |index, buffer, output, ended|:
+                    if not ended:
+                        output.push(buffer[index])
+                        ended <- buffer[index] == 0
+                    else:
+                        return [] if buffer[index] != 0
+                return [] if not ended or output.count < 2
+                return move output
+
+            def owned_reference[@r](buffer: u8[20000]&, count: i64) -> darray[u8] @r can Memory.Allocate:
+                mutable output: darray[u8] @r = []
+                return move output if count < 1 or count > 20000
+                for index in 0..<20000 |index, buffer, output|:
+                    if index < count.usize():
+                        output.push(buffer[index])
+                    else:
+                        return [] if buffer[index] != 0
+                return move output
+
+            def empty_reference(buffer: u8[20000]&) -> bool:
+                for byte in buffer:
+                    return false if byte != 0
+                true
+
+            def owned_animation[@r](buffer: u8[1024]&, count: i64) -> darray[u8] @r can Memory.Allocate:
+                mutable output: darray[u8] @r = []
+                return move output if count < 1 or count >= 1024
+                for index in 0..<1024 |index, buffer, output|:
+                    if index < count.usize():
+                        return [] if buffer[index] == 0
+                        output.push(buffer[index])
+                    else:
+                        return [] if buffer[index] != 0
+                return move output
+
+            def without_terminator[@r](bytes: darray[u8]&) -> darray[u8] @r can Memory.Allocate:
+                mutable output: darray[u8] @r = []
+                return move output if bytes.count < 2 or bytes[bytes.count - 1] != 0
+                for index in 0..<(bytes.count - 1) |index, bytes, output|:
+                    output.push(bytes[index])
+                return move output
+
+            def same_bytes(left: darray[u8]&, right: darray[u8]&) -> bool:
+                StudioTakeSourceRefPolicy::bytes_equal(left, right)
+
+            def source_digest(path: darray[u8]&) -> darray[u8]? can[Blocking.IO, Memory.Allocate, Unsafe.RawExtern]:
+                observed: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(path)
+                return null if observed.status != 0 or not StudioTakeSourceRefPolicy::sha256_valid(observed.bytes)
+                return move observed.bytes
+
+            def ready_result(ticket: i64, record: SessionSourceReferenceCodec::Record&) -> Result can Memory.Allocate:
+                mutable encoded: darray[u8] = []
+                return Result{ticket: ticket, status: Status.EncodingFailed.i64(), line_count: 0, line: zeroed} if not SessionSourceReferenceCodec::encode(record, &encoded)
+                mutable output: u8[20000] = zeroed
+                for index in 0..<encoded.count |index, encoded, output|:
+                    output[index] <- encoded[index]
+                Result{ticket: ticket, status: Status.Ready.i64(), line_count: encoded.count.i64(), line: output}
+
+        def capture(job: Job) -> Result can[Blocking.IO, Memory.Allocate, Unsafe.RawExtern]:
+            ensure result.ticket == job.ticket
+            ensure result.status == Status.Ready.i64() implies result.line_count > 0 and result.line_count <= Limit::LINE_BYTES.i64()
+            ensure result.status != Status.Ready.i64() implies result.line_count == 0
+            invalid: Result = Result{ticket: job.ticket, status: Status.InvalidRequest.i64(), line_count: 0, line: zeroed}
+            return invalid if job.ticket <= 0
+            return invalid if (not job.has_reference and (job.reference_count != 0 or not empty_reference(&job.reference_line))) or (job.has_reference and job.reference_count <= 0)
+            mutable source_path: darray[u8] = owned_path(&job.source_path)
+            mutable runtime_path: darray[u8] = owned_path(&job.runtime_path)
+            mutable animation: darray[u8] = owned_animation(&job.animation_name, job.animation_count)
+            return invalid if source_path.count < 2 or runtime_path.count < 2 or animation.count == 0
+            mutable observed_source: darray[u8] = []
+            mutable observed_runtime: darray[u8] = []
+            if source_digest(&source_path) is digest:
+                observed_source <- move digest
+            else:
+                return Result{ticket: job.ticket, status: Status.SourceUnavailable.i64(), line_count: 0, line: zeroed}
+            if source_digest(&runtime_path) is digest:
+                observed_runtime <- move digest
+            else:
+                return Result{ticket: job.ticket, status: Status.RuntimeUnavailable.i64(), line_count: 0, line: zeroed}
+            mutable reference: StudioTakeSourceRefPolicy::TakeSourceRef? = null
+            if job.has_reference:
+                mutable encoded_reference: darray[u8] = owned_reference(&job.reference_line, job.reference_count)
+                if SessionSourceReferenceCodec::decode(&encoded_reference) is decoded:
+                    return invalid if not same_bytes(decoded.animation_name, animation)
+                    reference <- move decoded.reference
+                else:
+                    return Result{ticket: job.ticket, status: Status.ReferenceChanged.i64(), line_count: 0, line: zeroed}
+            else:
+                return invalid if not same_bytes(without_terminator(&source_path), without_terminator(&runtime_path))
+                return invalid if not same_bytes(observed_source, observed_runtime)
+                reference <- StudioTakeSourceRefPolicy::TakeSourceRef{
+                    format: StudioTakeSourceRefPolicy::SourceFormat.DirectGlb,
+                    original_path: without_terminator(&source_path), original_sha256: observed_source,
+                    runtime_glb_path: without_terminator(&runtime_path), runtime_glb_sha256: observed_runtime,
+                    importer_revision: [], options_sha256: []}
+            if reference is current:
+                mutable processing_matches: bool = current.format == StudioTakeSourceRefPolicy::SourceFormat.DirectGlb
+                processing_matches <- StudioFbxImportReference::current_processing_identity_matches(current, StudioFbxImportPolicy::Limit::DEFAULT_RATE) if current.format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+                kind: StudioSessionSaveSourcePolicy::Kind = StudioSessionSaveSourcePolicy::Kind.DirectGlb if current.format == StudioTakeSourceRefPolicy::SourceFormat.DirectGlb else StudioSessionSaveSourcePolicy::Kind.FbxDerived
+                admitted: bool = StudioSessionSaveSourcePolicy::admit(kind, StudioTakeSourceRefPolicy::valid(current),
+                    same_bytes(current.original_path, without_terminator(&source_path)), same_bytes(current.runtime_glb_path, without_terminator(&runtime_path)),
+                    same_bytes(current.original_sha256, observed_source), same_bytes(current.runtime_glb_sha256, observed_runtime),
+                    processing_matches, animation.count > 0)
+                return Result{ticket: job.ticket, status: Status.ReferenceChanged.i64(), line_count: 0, line: zeroed} if not admitted
+                record: SessionSourceReferenceCodec::Record = SessionSourceReferenceCodec::Record{reference: move current, animation_name: move animation}
+                ready_result(job.ticket, record)
+            else:
+                Result{ticket: job.ticket, status: Status.ReferenceChanged.i64(), line_count: 0, line: zeroed}
+
+# Typed thread trampoline for session source capture.
+def capture_session_source_save_job(job: StudioSessionSaveSourceWorker::Job) -> StudioSessionSaveSourceWorker::Result can[Blocking.IO, Memory.Allocate, Unsafe.RawExtern]:
+    StudioSessionSaveSourceWorker::capture(move job)

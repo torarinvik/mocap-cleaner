@@ -1,0 +1,51 @@
+# Admission for the source metadata captured before writing a session v5 record.
+include "take_source_ref_policy.elisa"
+include "state/session_source_reference_codec.elisa"
+
+module StudioSessionSaveSourcePolicy:
+    public:
+        const enum Kind of i64:
+            DirectGlb = 0
+            FbxDerived = 1
+
+        def admit(kind: Kind, reference_valid: bool, source_path_matches: bool,
+                  runtime_path_matches: bool, source_digest_matches: bool,
+                  runtime_digest_matches: bool, processing_identity_matches: bool,
+                  animation_name_valid: bool) -> bool:
+            ensure result implies reference_valid and source_path_matches and runtime_path_matches
+            ensure result implies source_digest_matches and runtime_digest_matches and animation_name_valid
+            ensure result implies kind == Kind.DirectGlb or processing_identity_matches
+            return false if not reference_valid or not source_path_matches or not runtime_path_matches
+            return false if not source_digest_matches or not runtime_digest_matches or not animation_name_valid
+            return false if kind == Kind.FbxDerived and not processing_identity_matches
+            kind == Kind.DirectGlb or kind == Kind.FbxDerived
+
+        def direct_glb_admit(reference: StudioTakeSourceRefPolicy::TakeSourceRef&,
+                             source_path: darray[u8]&, runtime_path: darray[u8]&,
+                             source_digest: darray[u8]&, runtime_digest: darray[u8]&, animation_name: darray[u8]&) -> bool:
+            valid_animation: bool = animation_name.count > 0 and animation_name.count <= SessionSourceReferenceCodec::Limit::ANIMATION_BYTES
+            return false if not StudioTakeSourceRefPolicy::valid(reference) or reference.format != StudioTakeSourceRefPolicy::SourceFormat.DirectGlb
+            return false if not StudioTakeSourceRefPolicy::path_valid(source_path) or not StudioTakeSourceRefPolicy::path_valid(runtime_path)
+            return false if not StudioTakeSourceRefPolicy::sha256_valid(source_digest) or not StudioTakeSourceRefPolicy::sha256_valid(runtime_digest)
+            admit(Kind.DirectGlb,
+                  StudioTakeSourceRefPolicy::valid(reference),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.original_path, source_path),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.runtime_glb_path, runtime_path),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.original_sha256, source_digest),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.runtime_glb_sha256, runtime_digest),
+                  true, valid_animation)
+
+        def fbx_admit(reference: StudioTakeSourceRefPolicy::TakeSourceRef&,
+                      source_path: darray[u8]&, runtime_path: darray[u8]&,
+                      source_digest: darray[u8]&, runtime_digest: darray[u8]&, animation_name: darray[u8]&, processing_identity_matches: bool) -> bool:
+            valid_animation: bool = animation_name.count > 0 and animation_name.count <= SessionSourceReferenceCodec::Limit::ANIMATION_BYTES
+            return false if not StudioTakeSourceRefPolicy::valid(reference) or reference.format != StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+            return false if not StudioTakeSourceRefPolicy::path_valid(source_path) or not StudioTakeSourceRefPolicy::path_valid(runtime_path)
+            return false if not StudioTakeSourceRefPolicy::sha256_valid(source_digest) or not StudioTakeSourceRefPolicy::sha256_valid(runtime_digest)
+            admit(Kind.FbxDerived,
+                  StudioTakeSourceRefPolicy::valid(reference),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.original_path, source_path),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.runtime_glb_path, runtime_path),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.original_sha256, source_digest),
+                  StudioTakeSourceRefPolicy::bytes_equal(reference.runtime_glb_sha256, runtime_digest),
+                  processing_identity_matches, valid_animation)
