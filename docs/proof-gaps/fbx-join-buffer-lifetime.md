@@ -78,3 +78,29 @@ Root retained `d355c139-record.json` and LLVM SHA-256
 beside the original failed run. This independently verifies that qualified
 concrete lowering is accepted; it does not prove the complete proof/Studio
 graphs, runtime performance or all carrier counts. Keep those gates open.
+
+## Fresh focused compiler regression
+
+The source-matched `b6e132d2` product, Stage1 SHA-256
+`76687087d31873332811e73508596ec5eb007e4dfa2bb963713ff4237eaa81ce`,
+passes the nested void-poll/global-publication fixture at O0 and O2 (exit 42).
+After the publishing frame ends, the fixture grows outer and nested buffers
+and checks their retained bytes. Generated LLVM was compiled with ASan; that
+executable also exits 42 without diagnostics. Leak detection is disabled,
+so this does not qualify leaks.
+
+Scalar/generic controls remain free of local carriers; owned-result controls
+have call-site carriers. Explicit builtin-Arena API execution exits 0.
+Generic and concrete missing-owner fixtures refuse at the frontend with
+undefined `MissingOwner` (exit 1). These establish overall invalid-source
+refusal, not direct coverage of the backend's unresolved-owner branch.
+The new controls are committed as `bed743ad`; compiler provenance validation
+still passes because they change tests, not compiler source inputs.
+
+Retained compiler-checkout evidence:
+`build/void-poll-b6e132d2-qualified-controls/evidence.log`, SHA-256
+`2d30f777b98079c911ff7adeb85e2d2f3fed2700e1e140f6d15d5f92ad4e6b02`.
+Wrapper exit is 0. Root independently checked the evidence hash and current
+provenance. Full current-main gate comparisons, carrier counts, no-slowdown
+measurements, complete Memo ownership and the actual Studio FBX journey remain
+open; this focused pass does not close them.
