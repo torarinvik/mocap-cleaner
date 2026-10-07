@@ -44,6 +44,16 @@ extend Studio:
             true
 
         def generation_restore_current_source_valid() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
+            if generation_review_recovery_mode:
+                return false if not generation_recovery_browser_restore_admitted()
+                identity: StudioGenerationRecoveryLedger::Identity? = generation_recovery_selected_identity()
+                if identity is selected:
+                    current_root: darray[u8] = path_bytes(workspace_build_directory())
+                    return false if not StudioBuildGenerationCandidateProvider::bytes_equal(current_root, selected.root)
+                    return false if generation_restore_root.count > 0 and not StudioBuildGenerationCandidateProvider::bytes_equal(generation_restore_root, selected.root)
+                    return false if generation_restore_operation_id.count > 0 and not StudioBuildGenerationCandidateProvider::bytes_equal(generation_restore_operation_id, selected.operation)
+                    return true
+                return false
             return false if generation_restore_root.count == 0 or generation_restore_root_move_ticket <= 0
             current_root: darray[u8] = path_bytes(workspace_build_directory())
             return false if not StudioBuildGenerationCandidateProvider::bytes_equal(current_root, generation_restore_root)
@@ -58,12 +68,24 @@ extend Studio:
 
         def generation_restore_current_key() -> StudioGenerationRestoreConfirmationPolicy::SourceKey:
             mutable operation_bytes: i64 = generation_restore_operation_id.count.i64()
+            if operation_bytes == 0 and generation_review_recovery_mode:
+                operation_bytes <- generation_recovery_selected_operation_bytes()
             if operation_bytes == 0 and generation_move_reply is moved:
                 operation_bytes <- moved.operation_id_bytes
             StudioGenerationRestoreConfirmationPolicy::SourceKey{move_ticket: generation_restore_root_move_ticket, root_bytes: generation_restore_root.count.i64(), operation_id_bytes: operation_bytes}
 
         def generation_restore_bind_operation_id() -> bool:
             return false if generation_restore_operation_id.count > 0
+            if generation_review_recovery_mode:
+                return false if not generation_recovery_browser_restore_admitted()
+                if generation_recovery_selected_identity() is selected:
+                    root: darray[u8] = generation_restore_copy_bytes(selected.root)
+                    operation: darray[u8] = generation_restore_copy_bytes(selected.operation)
+                    generation_restore_root <- move root
+                    generation_restore_operation_id <- move operation
+                    generation_restore_root_move_ticket <- generation_recovery_scan_ticket
+                    return generation_restore_root_move_ticket > 0
+                return false
             if generation_move_reply is moved:
                 return false if not generation_restore_reply_source_valid(moved)
                 mutable operation_id: darray[u8] = []
@@ -91,10 +113,9 @@ extend Studio:
             return false if generation_move_task != null or generation_restore_task != null or generation_restore_reply != null
             return false if not generation_restore_current_source_valid()
             key: StudioGenerationRestoreConfirmationPolicy::SourceKey = generation_restore_current_key()
-            return false if not StudioGenerationRestoreConfirmationPolicy::key_valid(key)
             match generation_restore_state:
-                StudioGenerationRestoreConfirmationPolicy::State.Idle: true
-                StudioGenerationRestoreConfirmationPolicy::State.Reviewing(previous): StudioGenerationRestoreConfirmationPolicy::same_key(previous, key) and generation_restore_operation_id.count > 0
+                StudioGenerationRestoreConfirmationPolicy::State.Idle: generation_recovery_browser_restore_admitted() if generation_review_recovery_mode else StudioGenerationRestoreConfirmationPolicy::key_valid(key)
+                StudioGenerationRestoreConfirmationPolicy::State.Reviewing(previous): StudioGenerationRestoreConfirmationPolicy::key_valid(key) and StudioGenerationRestoreConfirmationPolicy::same_key(previous, key) and generation_restore_operation_id.count > 0
                 StudioGenerationRestoreConfirmationPolicy::State.Running(previous, job_ticket): false
                 StudioGenerationRestoreConfirmationPolicy::State.Draining(previous, job_ticket): false
                 StudioGenerationRestoreConfirmationPolicy::State.RecoveryPending(job_ticket): false
@@ -102,6 +123,11 @@ extend Studio:
 
         def generation_restore_cancel_review() -> void:
             generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::cancel_review(generation_restore_state)
+
+        def generation_restore_clear_selection() -> void:
+            generation_restore_root <- []
+            generation_restore_root_move_ticket <- 0
+            generation_restore_operation_id <- []
 
         def generation_restore_copy_bytes(source: darray[u8]&) -> darray[u8] can Memory.Allocate:
             mutable copied: darray[u8] = []

@@ -8,6 +8,7 @@ extend Studio:
         global mutable generation_review_page: i64 = 0
         global mutable generation_inspected_row: i64 = -1
         global mutable generation_review_focus: i64 = -1
+        global mutable generation_review_recovery_mode: bool = false
 
         const enum GenerationReviewAction of i64:
             Previous = 0
@@ -16,9 +17,10 @@ extend Studio:
             Back = 3
             Review = 4
             Restore = 5
+            Operations = 6
 
         const module GenerationReviewLimit:
-            CONTROLS: i64 = 6
+            CONTROLS: i64 = 7
 
         def generation_review_box(w: f32, h: f32) -> StudioPanels::Box:
             width: f32 = 820.0 if w >= 852.0 else w - 32.0
@@ -41,6 +43,15 @@ extend Studio:
             if action == GenerationReviewAction.Restore.i64():
                 generation_restore_action()
                 return
+            if action == GenerationReviewAction.Operations.i64():
+                cancel_generation_move_review()
+                generation_recovery_browser_reset()
+                generation_review_recovery_mode <- not generation_review_recovery_mode
+                generation_recovery_browser_begin() if generation_review_recovery_mode
+                generation_review_page <- 0
+                generation_inspected_row <- -1
+                touch()
+                return
             cancel_generation_move_review()
             generation_restore_cancel_review()
             if action == GenerationReviewAction.Previous.i64():
@@ -50,7 +61,10 @@ extend Studio:
             elif action == GenerationReviewAction.Refresh.i64():
                 generation_review_page <- 0
                 generation_inspected_row <- -1
-                request_generation_inventory()
+                if generation_review_recovery_mode:
+                    generation_recovery_browser_refresh()
+                else:
+                    request_generation_inventory()
             elif action == GenerationReviewAction.Back.i64():
                 generation_review_key(UiCore::Key.Escape)
             touch()
@@ -68,11 +82,13 @@ extend Studio:
                     cancel_generation_move_review()
                     generation_restore_cancel_review()
                     generation_inspected_row <- StudioGenerationReviewListPolicy::inspection_target(count, generation_review_page, slot)
+                    generation_recovery_browser_select(generation_inspected_row) if generation_review_recovery_mode
                     generation_review_focus <- -1
                     touch()
                     return
 
         def generation_review_count() -> i64:
+            return generation_recovery_browser_count() if generation_review_recovery_mode
             if generation_inventory is snapshot:
                 return snapshot.rows.count.i64() if snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Complete else 0
             0
@@ -86,6 +102,7 @@ extend Studio:
             touch()
 
         def generation_review_key(code: i64) -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            previous_inspected_row: i64 = generation_inspected_row
             if code == UiCore::Key.Escape or code == UiCore::Key.Left or code == UiCore::Key.Right or code == UiCore::Key.Up or code == UiCore::Key.Down:
                 cancel_generation_move_review()
                 generation_restore_cancel_review()
@@ -93,6 +110,7 @@ extend Studio:
             pages: i64 = StudioGenerationReviewListPolicy::page_count(count)
             if code == UiCore::Key.Escape:
                 generation_review_open <- false
+                generation_recovery_browser_unselect() if generation_review_recovery_mode
             elif code == UiCore::Key.Tab:
                 generation_review_focus <- (GenerationReviewAction.Back.i64() if StudioShortcuts::shift(modifiers) else GenerationReviewAction.Previous.i64()) if generation_review_focus < 0 else (generation_review_focus + (GenerationReviewLimit::CONTROLS - 1 if StudioShortcuts::shift(modifiers) else 1)) % GenerationReviewLimit::CONTROLS
             elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
@@ -113,6 +131,9 @@ extend Studio:
                         generation_inspected_row <- generation_inspected_row + 1
                     elif code == UiCore::Key.Up and generation_inspected_row > first:
                         generation_inspected_row <- generation_inspected_row - 1
+            if generation_review_recovery_mode and generation_inspected_row != previous_inspected_row:
+                generation_recovery_browser_select(generation_inspected_row) if generation_inspected_row >= 0
+                generation_recovery_browser_unselect() if generation_inspected_row < 0
             touch()
 
         def draw_generation_review(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate]:
@@ -135,7 +156,16 @@ extend Studio:
             StudioText::put_i(pages)
             StudioText::put("   •   Left/Right: pages   Up/Down: inspect   Esc: back")
             StudioDraw::text(x + 24.0, y + 78.0, 11.0, StudioText::view(), StudioDraw::muted())
-            if generation_inventory is snapshot:
+            if generation_review_recovery_mode:
+                for slot in 0..<StudioGenerationReviewListPolicy::visible_rows(count, generation_review_page) |slot, count, x, y, width|:
+                    index: i64 = StudioGenerationReviewListPolicy::inspection_target(count, generation_review_page, slot)
+                    if index >= 0:
+                        row_y: f32 = y + 108.0 + slot.f32() * 26.0
+                        StudioDraw::rect(x + 20.0, row_y - 5.0, width - 40.0, 24.0, StudioDraw::color(47, 68, 92) if index == generation_inspected_row else StudioDraw::color(29, 34, 44))
+                        StudioDraw::text(x + 28.0, row_y, 11.0, generation_recovery_row_name(index), StudioDraw::ink())
+                if generation_inspected_row >= 0 and generation_inspected_row < count:
+                    StudioDraw::text(x + 24.0, y + height - 100.0, 10.0, generation_recovery_row_value(generation_inspected_row), StudioDraw::ink())
+            elif generation_inventory is snapshot:
                 for slot in 0..<StudioGenerationReviewListPolicy::visible_rows(count, generation_review_page) |snapshot, slot, count, x, y, width|:
                     index: i64 = StudioGenerationReviewListPolicy::inspection_target(count, generation_review_page, slot)
                     if index >= 0:
@@ -153,6 +183,6 @@ extend Studio:
             for action in 0..<GenerationReviewLimit::CONTROLS |w, h, action|:
                 control: StudioPanels::Box = generation_review_control_box(w, h, action)
                 StudioDraw::rect(control.x, control.y, control.w, control.h, StudioDraw::color(47, 68, 92) if generation_review_focus == action else StudioDraw::color(38, 44, 56))
-                label: sview = generation_move_action_label() if action == GenerationReviewAction.Review.i64() else generation_restore_action_label() if action == GenerationReviewAction.Restore.i64() else "Previous" if action == 0 else "Next" if action == 1 else "Refresh" if action == 2 else "Back to Storage"
+                label: sview = generation_move_action_label() if action == GenerationReviewAction.Review.i64() else generation_restore_action_label() if action == GenerationReviewAction.Restore.i64() else ("Generations" if generation_review_recovery_mode else "Operations") if action == GenerationReviewAction.Operations.i64() else "Previous" if action == 0 else "Next" if action == 1 else "Refresh" if action == 2 else "Back to Storage"
                 enabled: bool = generation_move_action_enabled() if action == GenerationReviewAction.Review.i64() else generation_restore_action_enabled() if action == GenerationReviewAction.Restore.i64() else true
                 StudioDraw::text(control.x + 12.0, control.y + 8.0, 12.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
