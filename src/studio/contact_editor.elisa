@@ -2,22 +2,30 @@
 # explicit Plant/Lift action changes the contact state.
 module StudioContactEditor:
     public:
-        const NO_SIDE: i64 = -1
-        const SIDE_COUNT: i64 = 4
-        # Contact selection and stored ranges share the stack's 10M frame cap.
-        const MAX_FRAMES: i64 = 10000000
-        const PLANT: i64 = 0
-        const LIFT: i64 = 1
-        const RESET: i64 = 2
-        const DELETE: i64 = 3
-        const MERGE: i64 = 4
-        const SPLIT: i64 = 5
-        const ACTION_COUNT: i64 = 6
-        const MAX_EDITS: i64 = 32
-        const DRAG_SLOP: i64 = 3
-        const NUDGE_FIRST: i64 = 0
-        const NUDGE_LAST: i64 = 1
-        const NUDGE_INTERVAL: i64 = 2
+        const module Selection:
+            NO_SIDE: i64 = -1
+
+        const module Capacity:
+            SIDE_COUNT: i64 = 4
+            ACTION_COUNT: i64 = 6
+            MAX_EDITS: i64 = 32
+
+        const module Limit:
+            MAX_FRAMES: i64 = 10000000
+            DRAG_SLOP: i64 = 3
+
+        const enum Action of i64:
+            Plant = 0
+            Lift = 1
+            Reset = 2
+            Delete = 3
+            Merge = 4
+            Split = 5
+
+        const enum NudgeTarget of i64:
+            First = 0
+            Last = 1
+            Interval = 2
 
         struct ResetPlan:
             count: i64
@@ -47,23 +55,23 @@ module StudioContactEditor:
         # invert the interval are rejected without partial movement.
         def nudge_plan(first: i64, last: i64, frame_count: i64, target: i64, delta: i64) -> NudgePlan:
             requires frame_count >= 1
-            requires frame_count <= MAX_FRAMES
+            requires frame_count <= Limit::MAX_FRAMES
             requires first >= 0
             requires first <= last
             requires last < frame_count
-            requires delta >= 0 - MAX_FRAMES
-            requires delta <= MAX_FRAMES
-            ensure result.valid == (delta != 0 and (target == NUDGE_FIRST and delta >= 0 - first and delta <= last - first or target == NUDGE_LAST and delta >= first - last and delta <= frame_count - 1 - last or target == NUDGE_INTERVAL and delta >= 0 - first and delta <= frame_count - 1 - last))
+            requires delta >= 0 - Limit::MAX_FRAMES
+            requires delta <= Limit::MAX_FRAMES
+            ensure result.valid == (delta != 0 and (target == NudgeTarget.First.i64() and delta >= 0 - first and delta <= last - first or target == NudgeTarget.Last.i64() and delta >= first - last and delta <= frame_count - 1 - last or target == NudgeTarget.Interval.i64() and delta >= 0 - first and delta <= frame_count - 1 - last))
             ensure result.first >= 0
             ensure result.first <= result.last
             ensure result.last < frame_count
-            ensure not result.valid or result.first == (first + delta if target == NUDGE_FIRST or target == NUDGE_INTERVAL else first)
-            ensure not result.valid or result.last == (last + delta if target == NUDGE_LAST or target == NUDGE_INTERVAL else last)
+            ensure not result.valid or result.first == (first + delta if target == NudgeTarget.First.i64() or target == NudgeTarget.Interval.i64() else first)
+            ensure not result.valid or result.last == (last + delta if target == NudgeTarget.Last.i64() or target == NudgeTarget.Interval.i64() else last)
             ensure result.valid or result.first == first
             ensure result.valid or result.last == last
-            valid: bool = delta != 0 and (target == NUDGE_FIRST and delta >= 0 - first and delta <= last - first or target == NUDGE_LAST and delta >= first - last and delta <= frame_count - 1 - last or target == NUDGE_INTERVAL and delta >= 0 - first and delta <= frame_count - 1 - last)
-            moved_first: i64 = first + delta if valid and (target == NUDGE_FIRST or target == NUDGE_INTERVAL) else first
-            moved_last: i64 = last + delta if valid and (target == NUDGE_LAST or target == NUDGE_INTERVAL) else last
+            valid: bool = delta != 0 and (target == NudgeTarget.First.i64() and delta >= 0 - first and delta <= last - first or target == NudgeTarget.Last.i64() and delta >= first - last and delta <= frame_count - 1 - last or target == NudgeTarget.Interval.i64() and delta >= 0 - first and delta <= frame_count - 1 - last)
+            moved_first: i64 = first + delta if valid and (target == NudgeTarget.First.i64() or target == NudgeTarget.Interval.i64()) else first
+            moved_last: i64 = last + delta if valid and (target == NudgeTarget.Last.i64() or target == NudgeTarget.Interval.i64()) else last
             NudgePlan{valid: valid, first: moved_first, last: moved_last}
 
         # Split immediately before `frame`: the selected frame starts the
@@ -72,7 +80,7 @@ module StudioContactEditor:
         def split_plan(first: i64, last: i64, frame: i64) -> SplitPlan:
             requires first >= 0
             requires first <= last
-            requires last < MAX_FRAMES
+            requires last < Limit::MAX_FRAMES
             requires frame >= 0
             ensure result.valid == (frame > first and frame <= last)
             ensure not result.valid or result.left_last + 1 == result.right_first
@@ -87,16 +95,16 @@ module StudioContactEditor:
         def merge_plan(side_a: i64, first_a: i64, last_a: i64, planted_a: bool, side_b: i64, first_b: i64, last_b: i64, planted_b: bool) -> MergePlan:
             requires first_a >= 0
             requires first_a <= last_a
-            requires last_a < MAX_FRAMES
+            requires last_a < Limit::MAX_FRAMES
             requires first_b >= 0
             requires first_b <= last_b
-            requires last_b < MAX_FRAMES
+            requires last_b < Limit::MAX_FRAMES
             ensure result.first >= 0
             ensure result.first <= first_a
             ensure result.first <= first_b
             ensure first_a > first_b or result.first == first_a
             ensure first_a < first_b or result.first == first_b
-            ensure result.last < MAX_FRAMES
+            ensure result.last < Limit::MAX_FRAMES
             ensure result.last >= last_a
             ensure result.last >= last_b
             ensure last_a < last_b or result.last == last_a
@@ -110,7 +118,7 @@ module StudioContactEditor:
         # before the removed slot keep their index; later slots shift left.
         def delete_source_index(destination: i64, removed: i64, count: i64) -> i64:
             requires count >= 1
-            requires count <= MAX_EDITS
+            requires count <= Capacity::MAX_EDITS
             requires removed >= 0
             requires removed < count
             requires destination >= 0
@@ -131,7 +139,7 @@ module StudioContactEditor:
         def reset_interval(first: i64, last: i64, frame: i64) -> ResetPlan:
             requires first >= 0
             requires first <= last
-            requires last < MAX_FRAMES
+            requires last < Limit::MAX_FRAMES
             requires frame >= 0
             ensure result.count == (0 if first == frame and last == frame else 1 if frame < first or frame > last or first == frame or last == frame else 2)
             ensure result.left_first == (0 if first == frame and last == frame else first + 1 if first == frame and frame < last else first)
@@ -147,22 +155,22 @@ module StudioContactEditor:
 
         def selection_valid(side: i64, frame: i64, frames: i64) -> bool:
             ensure not result or side >= 0
-            ensure not result or side < SIDE_COUNT
+            ensure not result or side < Capacity::SIDE_COUNT
             ensure not result or frame >= 0
             ensure not result or frame < frames
-            ensure not result or frames <= MAX_FRAMES
-            ensure result or frames < 1 or frames > MAX_FRAMES or side < 0 or side >= SIDE_COUNT or frame < 0 or frame >= frames
-            frames >= 1 and frames <= MAX_FRAMES and side >= 0 and side < SIDE_COUNT and frame >= 0 and frame < frames
+            ensure not result or frames <= Limit::MAX_FRAMES
+            ensure result or frames < 1 or frames > Limit::MAX_FRAMES or side < 0 or side >= Capacity::SIDE_COUNT or frame < 0 or frame >= frames
+            frames >= 1 and frames <= Limit::MAX_FRAMES and side >= 0 and side < Capacity::SIDE_COUNT and frame >= 0 and frame < frames
 
         def action_valid(action: i64) -> bool:
-            ensure result == (action == PLANT or action == LIFT or action == RESET or action == DELETE or action == MERGE or action == SPLIT)
-            action == PLANT or action == LIFT or action == RESET or action == DELETE or action == MERGE or action == SPLIT
+            ensure result == (action == Action.Plant.i64() or action == Action.Lift.i64() or action == Action.Reset.i64() or action == Action.Delete.i64() or action == Action.Merge.i64() or action == Action.Split.i64())
+            action == Action.Plant.i64() or action == Action.Lift.i64() or action == Action.Reset.i64() or action == Action.Delete.i64() or action == Action.Merge.i64() or action == Action.Split.i64()
 
         def plants(action: i64) -> bool:
-            requires action == PLANT or action == LIFT
-            ensure result == (action == PLANT)
-            action == PLANT
+            requires action == Action.Plant.i64() or action == Action.Lift.i64()
+            ensure result == (action == Action.Plant.i64())
+            action == Action.Plant.i64()
 
         def is_drag(delta_x: i64) -> bool:
-            ensure result == (delta_x <= 0 - DRAG_SLOP or delta_x >= DRAG_SLOP)
-            delta_x <= 0 - DRAG_SLOP or delta_x >= DRAG_SLOP
+            ensure result == (delta_x <= 0 - Limit::DRAG_SLOP or delta_x >= Limit::DRAG_SLOP)
+            delta_x <= 0 - Limit::DRAG_SLOP or delta_x >= Limit::DRAG_SLOP
