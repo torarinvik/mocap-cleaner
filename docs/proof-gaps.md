@@ -21,6 +21,8 @@ status descriptions and evidence are preserved in the linked records.
 - [Scoped constant call summary replay](proof-gaps/summary-call-constant-rebind.md)
 - [Export report-stage Boolean branch replay](proof-gaps/report-stage-boolean-replay.md)
 
+- [Limb length and IEEE adapter qualification](proof-gaps/limb-length-float-boundary.md)
+
 ## Current qualification limits
 
 The complete check is not green. Native storage qualification requires fresh
