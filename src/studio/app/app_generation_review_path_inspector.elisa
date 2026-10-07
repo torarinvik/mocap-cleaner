@@ -11,17 +11,35 @@ module StudioGenerationReviewPathInspector:
             start: usize = StudioGenerationReviewPathPolicy::line_start(path, (page * StudioGenerationReviewPathPolicy::Limit::LINES_PER_PAGE + row).usize())
             end: usize = StudioGenerationReviewPathPolicy::line_end(path, start)
             StudioText::begin()
-            for index in start..<end |index, path|:
-                StudioText::byte(path[index])
+            if StudioGenerationReviewPathPolicy::escaped_display(path):
+                for index in start..<end |index, path|:
+                    StudioText::byte(92)
+                    StudioText::byte(120)
+                    StudioText::byte(hex_digit(path[index] / 16))
+                    StudioText::byte(hex_digit(path[index] % 16))
+            else:
+                for index in start..<end |index, path|:
+                    StudioText::byte(path[index])
             StudioText::view()
 
+        def hex_digit(value: u8) -> u8:
+            if value < 10:
+                return 48 + value
+            87 + value
+
+        def to_box(geometry: StudioGenerationReviewPathPolicy::Geometry) -> StudioPanels::Box:
+            StudioPanels::box(geometry.x, geometry.y, geometry.w, geometry.h)
+
         def button_box(w: f32, h: f32, action: i64) -> StudioPanels::Box:
-            d: StudioPanels::Box = StudioPanels::box((w - 820.0) / 2.0, (h - 500.0) / 2.0, 820.0, 500.0)
-            StudioPanels::box(d.x + 24.0 + action.f32() * 134.0, d.y + 420.0, 120.0, 38.0)
+            d: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::panel_geometry(w, h)
+            to_box(StudioGenerationReviewPathPolicy::panel_button_box(d, action))
 
         def inspect_button_box(w: f32, h: f32) -> StudioPanels::Box:
-            d: StudioPanels::Box = StudioPanels::box((w - 820.0) / 2.0, (h - 660.0) / 2.0, 820.0, 660.0)
-            StudioPanels::box(d.x + d.w - 174.0, d.y + 14.0, 150.0, 32.0)
+            d: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::review_geometry(w, h)
+            to_box(StudioGenerationReviewPathPolicy::review_inspect_box(d))
+
+        def inspect_button_label(width: f32) -> sview:
+            "Inspect path [P]" if width >= 105.0 else "Path [P]"
 
         def button_hit(w: f32, h: f32, x: f32, y: f32) -> i64:
             for action in 0..<3 |w, h, x, y, action|:
@@ -34,27 +52,35 @@ module StudioGenerationReviewPathInspector:
             return if not opened
             pages: i64 = StudioGenerationReviewPathPolicy::page_count(path)
             visible: i64 = StudioGenerationReviewPathPolicy::visible_lines(path, page)
-            d: StudioPanels::Box = StudioPanels::box((w - 820.0) / 2.0, (h - 500.0) / 2.0, 820.0, 500.0)
+            geometry: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::panel_geometry(w, h)
+            d: StudioPanels::Box = to_box(geometry)
             StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
             StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
-            StudioDraw::bold(d.x + 24.0, d.y + 22.0, 19.0, "Build artifact path", StudioDraw::ink())
-            StudioDraw::text(d.x + 24.0, d.y + 51.0, 12.0, "Recorded build root plus artifact path; exact bytes continue across pages without omission.", StudioDraw::muted())
+            inset: f32 = StudioGenerationReviewPathPolicy::panel_inset(geometry)
+            if not StudioGenerationReviewPathPolicy::panel_supported(geometry):
+                if d.w >= 40.0 and d.h >= 32.0:
+                    StudioDraw::bold(d.x + inset, d.y + 18.0, 10.0, "Enlarge window to inspect path", StudioDraw::ink())
+                    StudioDraw::text(d.x + inset, d.y + 36.0, 8.0, "No path segments are hidden.", StudioDraw::muted())
+                return
+            StudioDraw::bold(d.x + inset, d.y + 18.0, 17.0, "Build artifact path", StudioDraw::ink())
+            escaped: bool = StudioGenerationReviewPathPolicy::escaped_display(path)
+            StudioDraw::text(d.x + inset, d.y + 40.0, 9.0, "Invalid/control bytes use exact \\xHH escapes." if escaped else "Recorded build root plus artifact path; exact path continues across pages.", StudioDraw::muted())
             for row in 0..<visible |row, d, page, path|:
-                line_box: StudioPanels::Box = StudioPanels::box(d.x + 24.0, d.y + 76.0 + row.f32() * 49.0, d.w - 48.0, 38.0)
+                line_box: StudioPanels::Box = to_box(StudioGenerationReviewPathPolicy::panel_row_box(geometry, row))
                 StudioDraw::rect(line_box.x, line_box.y, line_box.w, line_box.h, StudioDraw::panel())
-                StudioDraw::text(line_box.x + 12.0, line_box.y + 11.0, 12.0, line(path, page, row), StudioDraw::ink())
+                StudioDraw::text(line_box.x + 6.0, line_box.y + 3.0, 9.0, line(path, page, row), StudioDraw::ink())
             StudioText::begin()
             StudioText::put("Page ")
             StudioText::put_i(page + 1)
             StudioText::put(" of ")
             StudioText::put_i(pages)
-            StudioDraw::text(d.x + 24.0, d.y + 338.0, 12.0, StudioText::view(), StudioDraw::muted())
+            StudioDraw::text(d.x + inset, d.y + d.h - 76.0, 10.0, StudioText::view(), StudioDraw::muted())
             for action in 0..<3 |action, w, h, focus, page, pages|:
                 b: StudioPanels::Box = button_box(w, h, action)
                 enabled: bool = action == 2 or (action == 0 and page > 0) or (action == 1 and page + 1 < pages)
-                label: sview = "Previous" if action == 0 else "Next" if action == 1 else "Done"
+                label: sview = "Prev" if action == 0 and b.w < 86.0 else "Previous" if action == 0 else "Next" if action == 1 else "Done"
                 StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if focus == action else StudioDraw::panel())
-                StudioDraw::text(b.x + 13.0, b.y + 11.0, 12.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
+                StudioDraw::text(b.x + 6.0, b.y + 7.0, 9.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
 
 extend Studio:
     private:
