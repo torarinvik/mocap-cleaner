@@ -192,3 +192,17 @@ At primary commit `459e51c`, a read-only inventory of tracked `.elisa`, `.py`,
 None exceeded 600 lines. This observation covers tracked primary-repository
 files only; it does not qualify uncommitted provider additions or dependency
 repositories. The file-length gate remains required on each final snapshot.
+
+## Generation transaction adapter compile
+
+Current clean Stage1 `e34f2c` compiled the complete
+`src/studio/io/build_generation_trash_transaction.elisa` object with exit 0,
+including begin and restore evidence decoders. Source SHA256 is
+`f228b3b9253fb750c644d1f65cdc655f3726717b34b868d24292b86617bd835a`;
+binding policy SHA256 is
+`fb9eb9117c83c37c6489764f329a1e99d875c1346797e28b33761d92ddc31ce4`;
+object SHA256 is
+`cb10e36524517be9bcbdc32294b8315e15c290b17578ece79bc023e7d479c80b`.
+This replaces the prior decoder compile blocker. Native link, background
+controller dispatch, directory move/restore, accessibility and fault-case
+qualification remain open.
