@@ -170,6 +170,10 @@ It returns the owned candidate and restores Memo ownership without publishing
 the visible clip or history. Rebuild uses this helper; edit/Undo/Redo admission
 still needs to call it before history mutation. Current full-graph compilation
 and authenticated ownership/frame-condition evidence remain pending.
+Publication is also a separate helper requiring a nonnull owned candidate;
+it installs the clip, built stack, generations, readouts, timeline and findings.
+This is a structural prerequisite, not completed transaction admission. Its
+ownership transfer and complete UI composition still need compiler qualification.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;
