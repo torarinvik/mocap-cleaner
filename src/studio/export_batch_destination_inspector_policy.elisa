@@ -92,34 +92,28 @@ module StudioExportBatchDestinationInspectorPolicy:
             scalar < 32 or scalar >= 127 and scalar <= 159 or scalar == 8232 or scalar == 8233 or scalar == 8206 or scalar == 8207 or scalar >= 8234 and scalar <= 8238 or scalar >= 8294 and scalar <= 8297
 
         def status(path: darray[u8]&) -> Status:
-            outcome: mutable Status = Status::Ready
-            outcome <- Status::Empty if path.count == 0
-            outcome <- Status::Oversized if path.count > Limit::MAX_PATH_BYTES
+            return Status.Empty if path.count == 0
+            return Status.Oversized if path.count > Limit::MAX_PATH_BYTES
             mutable at: usize = 0
-            while at < path.count and outcome == Status::Ready:
-                if path[at] == 0:
-                    outcome <- Status::UnsupportedControl
-                    at <- path.count
-                    continue
+            while at < path.count:
+                current_byte: u8 = path[at]
+                return Status.UnsupportedControl if current_byte == 0
                 width: usize = utf8_width(path, at)
-                if width == 0:
-                    outcome <- Status::InvalidUtf8
-                    at <- path.count
-                    continue
-                scalar: mutable i64 = path[at].i64() if width == 1 else -1
+                return Status.InvalidUtf8 if width == 0
+                scalar: mutable i64 = current_byte.i64()
                 if width > 1:
-                    lead: i64 = path[at].i64()
-                    scalar <- lead - (192 if width == 2 else 224 if width == 3 else 240)
+                    scalar <- current_byte.i64() - (192 if width == 2 else 224 if width == 3 else 240)
                     for offset in 1..<width:
-                        scalar <- scalar * 64 + path[at + offset].i64() - 128
-                if control_scalar(scalar):
-                    outcome <- Status::UnsupportedControl
-                else:
-                    at <- at + width
-            outcome
+                        continuation: u8 = path[at + offset]
+                        scalar <- scalar * 64 + continuation.i64() - 128
+                return Status.UnsupportedControl if control_scalar(scalar)
+                at <- at + width
+            Status.Ready
 
         def path_admitted(path: darray[u8]&) -> bool:
-            status(path) == Status::Ready
+            path_status: Status = status(path)
+            return true if path_status == Status.Ready
+            false
 
         def paths_admitted(paths: Paths&) -> bool:
             path_admitted(paths.source) and path_admitted(paths.glb) and path_admitted(paths.json_report) and path_admitted(paths.text_report)
@@ -287,13 +281,16 @@ module StudioExportBatchDestinationInspectorPolicy:
         def move_page(state: State, direction: i64, paths: Paths&) -> State:
             requires valid(state)
             requires direction == -1 or direction == 1
-            requires selected_status(paths, state.location) == Status::Ready
+            requires selected_status(paths, state.location) == Status.Ready
             requires direction != -1 or state.page > 0
             requires direction != 1 or state.page + 1 < selected_page_count(paths, state.location)
-            page: i64 = state.page + direction
-            focus: Focus = Focus::Previous if direction == -1 else Focus::Next
-            State{opened: state.opened, location: state.location, page: page,
-                focus: focus}
+            if direction == -1:
+                previous_page: i64 = state.page - 1
+                return State{opened: state.opened, location: state.location,
+                    page: previous_page, focus: Focus.Previous}
+            next_page: i64 = state.page + 1
+            State{opened: state.opened, location: state.location,
+                page: next_page, focus: Focus.Next}
 
         def next_focus(current: Focus, reverse: bool) -> Focus:
             next: i64 = (6 if current.i64() == 0 else current.i64() - 1) if reverse else (0 if current.i64() == 6 else current.i64() + 1)
