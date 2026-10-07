@@ -67,7 +67,7 @@ extend Studio:
                     warnings: i64 = current_export_warnings()
                     if descriptor >= 0 and staged_read and output_fingerprint is fingerprint and report is frozen and report_ready and recipe_ready:
                         enqueued <- enqueue_prepared_snapshot(destination, temporary, captured_generation, c.anim.i64(),
-                            frames, nodes, recipe_bytes, output_bytes, frozen.json, frozen.summary, warnings, descriptor)
+                            frames, nodes, c.source_fingerprint, recipe_bytes, output_bytes, frozen.json, frozen.summary, warnings, descriptor)
                     released <- end_storage_transaction(descriptor) if descriptor >= 0
                     if enqueued and released:
                         export_review_open <- false
@@ -93,6 +93,7 @@ extend Studio:
         # exact workspace root before reserving an ID or persisting snapshots.
         def enqueue_prepared_snapshot(destination: cstr, temporary: cstr,
                 generation: i64, animation_id: i64, frames: i64, nodes: i64,
+                captured_source: StudioSourceFingerprint::Fingerprint,
                 recipe_bytes: darray[u8]&, output_bytes: darray[u8]&, json_bytes: darray[u8]&, text_bytes: darray[u8]&, warning_count: i64,
                 descriptor: i32) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             mutable root_candidate: darray[u8] = batch_path_bytes(workspace_build_directory())
@@ -110,7 +111,7 @@ extend Studio:
             mutable source_c: darray[u8] = nul_terminated(source_facts.canonical_path)
             if StudioModel::open((&source_c[0]).cast[cstr]) is source_document:
                 if StudioModel::fingerprint(&source_document) is source_fingerprint:
-                    return false if source_fingerprint.first != c.source_fingerprint.first or source_fingerprint.second != c.source_fingerprint.second
+                    return false if source_fingerprint.first != captured_source.first or source_fingerprint.second != captured_source.second
                 else:
                     return false
             else:
@@ -168,6 +169,7 @@ extend Studio:
 
             if prepared_export_queue is queue:
                 added: bool = StudioExportBatchReviewBinding::enqueue_prepared(&queue, preflight, identity, warning_count, true, descriptor)
+                prepared_export_queue <- move queue
                 return added
             else:
                 mutable batch_id: darray[u8] = []
