@@ -45,46 +45,46 @@ preservation, malformed/oversized/truncated input refusal, cancellation/restart,
 multiple animation stacks, missing surface fallback, pose edits and real viewport
 inspection. Source compilation does not establish these runtime results.
 
-## Current slice
+## Current implementation and remaining work
 
-Commit `d51f9d6` makes the existing surface switch Character/Skeleton and uses a
-contracted fallback policy. Its policy laws compile with the selected current
-compiler. The FBX chooser, producer and source/cache integration remain open.
+The Open FBX controller now dispatches the import worker, retains the original
+source identity, admits only a current successful result, and supports the
+Character/Skeleton switch with a skeleton fallback when no surface is available.
+Exclusive private staging, source/runtime digests, importer/options identity and
+memo source references are integrated. Session reopen and Locate still need FBX
+source-reference integration.
 
-Commit `8cf0fcf` adds a worker-owned FBX job/result and publication policy laws.
-Paths remain owned while conversion and GLB loading run; invalid jobs refuse, and
-publication requires the current positive ticket, no cancellation, successful
-conversion and a loaded memo. Worker and law objects compiled with the captured
-`ac0f4423` compiler product. The worker is not yet dispatched by the UI.
-
-A subsequent fetch found newer compiler upstream `1a7b0d96648e8007cc7160900c424c1ed7529838`
-and engine upstream `a3d756eae40ee9d1228010599ae79f2233007a67`. Preserve local
-repairs when integrating these before current qualification; the object compiles
-above are diagnostic evidence for their captured older tuple.
-
-Commit `4c597da` adds the original/runtime source-reference policy and 17 laws.
-It binds direct GLB identity or an FBX-derived cache to separate original/runtime
-paths and raw SHA-256 digests plus importer revision/options. Native file identity
-and canonicalization still need to establish those inputs. Session and controller
-integration remain open.
-
-The selected compiler checkout merged fetched upstream into `bb274b14`, retaining
-project-specific repairs. Reseeding first refused the shared Stage0 product's dirty
-build provenance. A clean detached Stage0 checkout at `6f0988a2` was built under
-`build/toolchain-stage0-current`; Go records `vcs.modified=false`. The replacement
-seed is running with that explicit bootstrap binary. Current qualification waits
-for its terminal result and a matching runtime rebuild.
-
-The compiler reseed completed successfully on `bb274b14`: Stage1 SHA-256
-`36389f6b18268d4266bd68aacd813c703cd788956b611b9fad9964da11a2aa32`.
-The matching runtime rebuilt successfully with SHA-256
+A full native Studio build completed on compiler `bb274b14` with the project
+repairs retained. Its Stage1 SHA-256 is
+`36389f6b18268d4266bd68aacd813c703cd788956b611b9fad9964da11a2aa32`;
+matching runtime SHA-256 is
 `51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`.
-FBX worker and policy-law objects compile with this product.
+The executable SHA-256 is
+`97ea9a61994205f488848d198df163c631fd9d24e562648455eacd74a0486585`.
+Build evidence is retained in `build/latest-compiler-qualification/` and generation
+`build/studio-build.yOXPzH`.
 
-Engine commit `28e6adb` extends the converter to retain one largest supported
-skinned mesh and inverse bind matrices alongside the animation hierarchy. Studio
-commit `7ecc7f1` registers the converter, parser objects and exact parser pins in
-the build inventory/input closure. This is build integration, not yet a working
-Open FBX journey. Multiple mesh/material fidelity and native pose correspondence
-still need evidence. Exclusive cache staging, original/runtime source integration,
-worker dispatch, session reopening and current app rebuild remain open.
+The first authorized native FBX check produced a GLB containing a mesh, skin and
+animation, refused an existing destination without changing it, and preserved the
+original FBX digest. Results are in `build/fbx-runtime-8t_omy1p/results.json`.
+This does not yet establish skin deformation, pose correspondence or UI switching.
+The converter currently retains one largest supported skinned mesh; multiple
+mesh/material fidelity remains open.
+
+Compiler upstream performance changes `fb9747ee` and `63585c5f` are integrated in
+selected checkout merge `48dc78e2`. Rebuild is queued behind another active
+host compiler seed. Rebuild the Studio and proof products with the resulting
+matched compiler/runtime before treating them as current qualification. Earlier
+build and runtime results remain evidence for their captured source tuple.
+
+Next acceptance work:
+
+- Complete malformed/truncated input, bounded FIFO refusal, deterministic output,
+  cancellation/restart and source-preservation checks.
+- Inspect actual Open FBX, character deformation, pose edits and Character/Skeleton
+  switching in the current application.
+- Implement persisted original/runtime references for session reopen and Locate,
+  including changed-source refusal and cache recovery.
+- Repair shared-field reborrow replay and zero-argument generic-region proof
+  handoff gaps, then obtain current source correspondence evidence. Native staging
+  correspondence remains a separate requirement.
