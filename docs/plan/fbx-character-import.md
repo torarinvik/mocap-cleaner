@@ -61,3 +61,16 @@ A subsequent fetch found newer compiler upstream `1a7b0d96648e8007cc7160900c424c
 and engine upstream `a3d756eae40ee9d1228010599ae79f2233007a67`. Preserve local
 repairs when integrating these before current qualification; the object compiles
 above are diagnostic evidence for their captured older tuple.
+
+Commit `4c597da` adds the original/runtime source-reference policy and 17 laws.
+It binds direct GLB identity or an FBX-derived cache to separate original/runtime
+paths and raw SHA-256 digests plus importer revision/options. Native file identity
+and canonicalization still need to establish those inputs. Session and controller
+integration remain open.
+
+The selected compiler checkout merged fetched upstream into `bb274b14`, retaining
+project-specific repairs. Reseeding first refused the shared Stage0 product's dirty
+build provenance. A clean detached Stage0 checkout at `6f0988a2` was built under
+`build/toolchain-stage0-current`; Go records `vcs.modified=false`. The replacement
+seed is running with that explicit bootstrap binary. Current qualification waits
+for its terminal result and a matching runtime rebuild.
