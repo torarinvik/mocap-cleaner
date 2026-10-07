@@ -45,10 +45,14 @@ Remaining work:
   disabled leak detection cannot qualify leaks. The production path remains
   nonblocking. See [lifetime evidence](../proof-gaps/fbx-join-buffer-lifetime.md).
 - Compare the required seed, self-host, native and registered 32-script fast gates
-  against fetched main `665f40d7` or newer. Match exact failing fixture lists,
-  preserving original expectations. The baseline has 24 passing/8 failing fast
+  against fetched main `341f72ba` or newer. The latest fetch adds semantic
+  indexing, a view-origin fixpoint optimization and runtime AST lookup inlining.
+  Preserve those changes alongside the project repairs. Match exact failing fixture lists,
+  preserving original expectations. The historical `665f40d7` baseline has 24 passing/8 failing fast
   scripts, native 566/566 and self-host A–D passing. Logs are retained under
   `/tmp/elisa-compiler-baseline-665f40d7/build/baseline-665f40d7/`.
+  Rebuild and rerun current main before using it as the promotion baseline;
+  historical gate outcomes cannot qualify the three new performance commits.
 - Keep the preserved void-ensure behavior delta explicit: the old candidate native
   expectation yields 565/566; revised success/failure checks yield 567/567 and
   verify the exact guard/panic. This Stage0-built backend harness is not direct
