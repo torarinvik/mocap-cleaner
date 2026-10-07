@@ -115,3 +115,33 @@ reproduce the complete O2 pipeline by itself.
 No object, linked application, FBX import or user journey was qualified by
 this diagnostic. Subsequent compiler source repairs require a fresh product
 before current implementation qualification.
+
+## Isolated SROA expansion
+
+Standalone LLVM 23.1.2 `opt -passes=default<O2>` on that retained O0 IR
+was intentionally stopped by a 1,536 MiB RSS watchdog. The observed peak was
+2,319,872 KiB after 5.58 seconds; process exit is -15 (SIGTERM), not an
+optimizer-reported failure. The polling cap can overshoot between samples.
+`build/studio-opt-isolation-20261007/result.json` retains command and outcome.
+
+The pass trace identifies a concrete expansion: SROA processes
+`StudioSessionSaveSourceWorker.capture` at 1,157 instructions after SimplifyCFG;
+the following EarlyCSE pass sees 281,111 instructions. This precedes module
+inlining. Extracting that function from the O0 file and running only SROA
+also succeeds, expanding the 1,782-line extracted module to 281,736 lines.
+The extraction/SROA shell exits 0. Exact commands and artifact hashes are in
+`build/studio-opt-isolation-20261007/capture-run-record.json`.
+Extracted IR SHA-256:
+`5b162de996b372b5ce8b4d6857cb7f8b98850445b1e279c89e364db8cb168ecb`.
+SROA output SHA-256:
+`1cd24034250f2ab9e9b72c6c5f17578a02b7f82f8961ce0b569d8e447c40951f`.
+
+The worker returns a 20,024-byte record. Remaining first-class aggregate
+loads cross contract-check blocks before their final sret stores. Existing
+copy lowering rewrites nearby copies to memmove but conservatively leaves
+these cross-block loads/stores intact. The repair must preserve the returned
+snapshot while retaining contract evaluation and correct ownership. Moving a
+load past a possible source mutation would change semantics. Qualify any
+repair with snapshot-mutation, contract success/failure and aggregate ownership
+controls, then recompile the complete current graph. This reducer supplies a
+specific optimization lead; it does not establish the only full-build hotspot.
