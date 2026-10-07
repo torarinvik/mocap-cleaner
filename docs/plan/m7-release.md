@@ -68,6 +68,15 @@
 - [ ] Run clean-build and warm developer-loop checks separately; report
       timings with hardware and contention. Performance gates must identify
       which path they measure rather than implying cached timing is cold.
+- [ ] Stage immutable build inputs before long integrated compilation. Preserve
+      the source/include sibling layout, native headers, compiler product,
+      standard-library tree and linked runtime as one generation. Record each
+      original-to-staged path and byte hash, explicit runtime/standard-library
+      selection and tool configuration. Compare source inventories before and
+      after copying; reject a mixed copy or a newly unresolved include. Compile
+      from the staged tree and verify its inputs again before sealing output.
+      Shared checkout changes must produce a new generation rather than alter
+      an active build. Keep observed drift visible even if later reverted.
 
 ### Usability and release readiness
 
