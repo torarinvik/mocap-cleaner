@@ -81,7 +81,7 @@ and the authorized full check. This remains an open toolchain gate.
 
 ## Isolated bootstrap local-borrow inference (2026-10-07)
 
-Three small sources under `build/region-inference-reduction/` distinguish a
+Small sources under `build/region-inference-reduction/` distinguish a
 current seed failure from generic protocol conformance. The clean detached
 Go bootstrap at source `4a68f508` has product SHA-256
 `c62c72051b37a02a48a87c4ddcd6a158c9133dc14b6a6833aa036df003e87bc7`.
@@ -99,6 +99,24 @@ Source SHA-256 values, in the table's order:
 - `24086b893de358b9a74b5ca5f920c3640a1396796c6380cb71692cd7b1b968b4`
 - `6f2f88ef443a517316c1aa03c36fb79d363456a7b6139513d58f7fe5b599aa94`
 
-The compiler worker received these reductions. Investigate local-address
-region inference independently of owner mismatch and interface conformance.
-This is diagnostic evidence, not current Stage1 or application qualification.
+Further reduction narrows the actionable case to copying a container-bearing
+record. Scalar-only record region inference may reflect a value-shape rule;
+do not change lifetime validation solely to admit that first reduction.
+
+| Additional source | Case | Terminal outcome |
+| --- | --- | --- |
+| `container.elisa` | `Box` has an empty `darray[i64]` field; borrow the freshly constructed local. | Exit 0; 608-byte object. |
+| `copied-container.elisa` | Same fields and borrow, but initialize `seed` from the literal and `local` from `seed`. | Refused: cannot infer region `r`; no object. |
+| `named.elisa` | Explicit named region annotation on the scalar-only record local. | Refused: named values do not carry an independent region; inference also fails. |
+
+Additional source SHA-256 values, in that table's order:
+
+- `721676c6eb14ed331348d50acbf16ac60e41aaa26cc08d3ce815f1f0fe9dd8e5`
+- `24ece343afd5ae61e154dd5756754df449997c18b30f41f4380cfd52a6ed8b8e`
+- `c9d6880f4fe902f47c86e68706779a844e89b445a3e49eeef10613f7eaa3350b`
+
+The compiler worker received these reductions. Inspect region adoption through
+record copies, matching the driver's `compile_file = file` pattern, separately
+from owner mismatch and interface conformance. Do not add artificial container
+fields or erase owner ties as a workaround. This is diagnostic evidence, not
+current Stage1 or application qualification.
