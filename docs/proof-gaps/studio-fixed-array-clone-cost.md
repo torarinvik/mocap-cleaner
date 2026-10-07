@@ -88,3 +88,26 @@ Compiler log SHA-256:
 Next isolate O0 LLVM generation from the O2 pipeline before increasing memory
 or attempting object emission; retain both outcomes and keep O2 qualification
 open. A lower-optimization diagnostic cannot close release acceptance.
+
+## O0 complete-graph LLVM isolation
+
+The same source-matched compiler product subsequently completed
+`-O0 -emit llvm` under the generation lock and 4 GiB RSS cap. Compile and
+wrapper exit codes are both 0; the post-run input snapshot check passed.
+`build/studio-build.6x886Z/studio.ll` contains 49,019,150 bytes and 5,886
+function definitions. Its SHA-256 is
+`f4242c512991a7822c07db8e72e2e5036d32e70333de60d32c6415b97e162e17`.
+The input manifest SHA-256 is
+`bf2a2de3090a0fc60cf6b630b65827d76b32a3441836bf6cce65c2df1fb07fd5`.
+
+The retained `largest-functions.txt` ranks emitted functions by IR lines.
+`StudioIconPaths.draw` leads with 12,225 lines, followed by
+`SessionState.decode_session_with_source_reference` with 5,698 lines.
+This size ranking does not identify an optimization hotspot. The compiler
+prints LLVM after its optimization pipeline, so the O0 success and O2 guard
+refusal narrow the next investigation to that pipeline; a sampled pass or
+isolated reproduction is still required to identify the cause.
+
+No object, linked application, FBX import or user journey was qualified by
+this diagnostic. Subsequent compiler source repairs require a fresh product
+before current implementation qualification.
