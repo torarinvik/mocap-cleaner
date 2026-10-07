@@ -30,6 +30,16 @@
 - [ ] Audit actual proof coverage per critical contract. Reduce unknown or
       unsupported cases by priority, record remaining limits honestly, and
       retain the existing proof-regression baseline gate.
+- [ ] Review law bodies and contracts independently before accepting automated
+      proof totals. Refusal laws must either return the admission predicate with
+      a false-result contract or its negation with a true-result contract.
+      Identity uniqueness must cover both equal and distinct inputs. Invariant
+      laws must require the invariant to hold; merely equating the result to the
+      returned expression does not assert it. Track exact source hashes and
+      declaration identities for each report, so worker-wait evidence cannot
+      qualify job-identity or worker-policy laws. Verify known contradictory
+      contracts are refused by the proof acceptance pipeline and retain complete
+      obligations, source correspondence and independent replay as separate gates.
 - [ ] Add reproducible UI interaction checks for file lifecycle, stack editing,
       contacts, retime, gizmo cancellation, comparison and export. Supplement
       captures with real native-window checks for input routing and GPU paths.
