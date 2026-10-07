@@ -216,6 +216,12 @@ selection, retention presets, reviewed batch move, receipt reconciliation and
 Restore implementation. Current implementation and evidence are recorded in
 `docs/studio-ux.md`; running-window and failure-path acceptance remains open.
 
+- [ ] Reflow Storage controls at narrow window widths: `storage_button_box`
+      currently uses fixed horizontal offsets despite shrinking the dialog.
+      Keep every footer action, Inspect path, exemption and selection action
+      reachable without overlap or clipped confirmation labels. Define the
+      supported minimum size, update drawing/hit targets/accessibility from the
+      same layout, and qualify keyboard navigation and resize during review.
 - [ ] Add inspectable hard-link/allocation accounting to the overview and
       qualify timestamp presentation through native inputs. Label logical
       bytes, allocated bytes reported and unknown measurements separately.
