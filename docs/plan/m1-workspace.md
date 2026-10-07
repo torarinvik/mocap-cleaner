@@ -110,6 +110,10 @@ current detector before presenting an ignored finding as still applicable.
       or be explicitly invalidated; a root switch must not silently redirect
       publication. Qualify rejected-root, long-path, active-job and repeat-switch
       cases through the native UI and path-policy proofs.
+      The switch guard now also refuses an active Storage transaction or
+      uncertain lock release; three laws cover held, uncertain and idle states.
+      Qualify lock-release failure followed by Locate workspace/Create build,
+      verifying root preferences, lock paths and retained document are unchanged.
 
 - [ ] Establish an explicit canonical workspace root with a writable `build/`
       directory. Persist its location separately from source/session contents;
