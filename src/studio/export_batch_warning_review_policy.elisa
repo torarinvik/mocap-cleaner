@@ -6,6 +6,17 @@ module StudioExportBatchWarningReviewPolicy:
         const module Domain:
             MAX_EPOCH: i64 = 1000000000000
 
+        const enum Control of i64:
+            Previous = 0
+            Next = 1
+            Acknowledge = 2
+            Back = 3
+
+        struct Controls:
+            previous: bool
+            next: bool
+            acknowledge: bool
+
         struct Ticket:
             epoch: i64
             index: i64
@@ -31,3 +42,32 @@ module StudioExportBatchWarningReviewPolicy:
                 warning_count: i64, explicit_review: bool) -> bool:
             ensure result == (current(captured, observed) and exact_report and complete_layout and warning_count > 0 and explicit_review)
             current(captured, observed) and exact_report and complete_layout and warning_count > 0 and explicit_review
+
+        def control_enabled(control: Control, controls: Controls) -> bool:
+            ensure control != Control.Back or result
+            ensure control != Control.Acknowledge or result == controls.acknowledge
+            return controls.previous if control == Control.Previous
+            return controls.next if control == Control.Next
+            return controls.acknowledge if control == Control.Acknowledge
+            control == Control.Back
+
+        def next_control(current: Control, reverse: bool) -> Control:
+            if reverse:
+                return Control.Back if current == Control.Previous
+                return Control.Previous if current == Control.Next
+                return Control.Next if current == Control.Acknowledge
+                return Control.Acknowledge if current == Control.Back
+            else:
+                return Control.Next if current == Control.Previous
+                return Control.Acknowledge if current == Control.Next
+                return Control.Back if current == Control.Acknowledge
+                return Control.Previous if current == Control.Back
+            Control.Back
+
+        def move_control(current: Control, reverse: bool, controls: Controls) -> Control:
+            ensure control_enabled(result, controls)
+            mutable candidate: Control = current
+            for step in 0..<4 |step, candidate, reverse, controls|:
+                candidate <- next_control(candidate, reverse)
+                return candidate if control_enabled(candidate, controls)
+            Control.Back
