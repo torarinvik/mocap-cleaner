@@ -137,6 +137,37 @@ batch summaries. Include them in J02/J03/J04 acceptance evidence.
 CLI/Studio/report outcomes for a frozen fixture, mixed-availability batch cases,
 and review of the displayed reason and available recovery action.
 
+## Interaction and recovery acceptance for every slice
+
+Apply this checklist to each new or changed user-facing workflow, using the same
+captured document identity across its pointer, keyboard and accessibility paths.
+
+- Define entry, loading, ready, empty, unavailable, failed, cancelled and success
+  states where applicable. Each state names what happened, which result remains
+  usable and the next available action. Distinguish a preserved previous result
+  from a newly completed result; never rely on color or a transient toast alone.
+- Put the scope and consequence beside actions that change edits, publish files
+  or move generated artifacts. Display the selected take, range, destination and
+  affected item count before confirmation. Refresh invalidated reviews before
+  allowing confirmation; repeated activation cannot duplicate the operation.
+- Keep ordinary successful actions direct. Use confirmation when there is a
+  concrete replacement, loss or publication consequence, with explicit action
+  labels and a safe cancellation path. An error should offer a relevant recovery
+  action without requiring the user to reconstruct their selection or draft.
+- Preserve entered values and context after recoverable failure. Specify what
+  Retry captures, whether a chooser can change the destination, and which
+  identity/settings invalidate retry. Cancellation must reach a terminal state
+  with an accurate account of any files or edits already committed.
+- Review long labels, paths, dense lists and minimum-window layouts. Primary
+  actions, error details and cancellation stay reachable; full values have an
+  inspectable alternative when abbreviated. Verify focus return and announced
+  state changes through the actual native window.
+
+**Finish evidence:** a recorded state-transition walkthrough, refusal/retry cases,
+pointer and keyboard completion, accessibility names/actions/focus, and unchanged
+source/document evidence after cancellation or failed mutation. A screenshot or
+pure admission law alone does not close this checklist.
+
 ## Scope and release decisions
 
 P0/P1/P2 identify release order, not permission to discard requested work.

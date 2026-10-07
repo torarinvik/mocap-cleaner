@@ -14,12 +14,16 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting every subsequent source slice.
 
-- Finish borrow-region propagation through compiler/std callers, preserving
-  distinct owners where a shared region is invalid. Do not relax lifetime
-  validation to bootstrap the compiler.
-- Align the proof snapshot's std paths with the validated runtime trust root.
-  Keep runtime privileges restricted to individual selected std sources;
-  clear whole-unit legacy bypasses, including direct-product invocations.
+The committed compiler repairs now produce a source-matched Stage1 seed and
+support validated snapshot std roots. These are intermediate results; integrated
+application and paired-prover qualification remain open.
+
+- Qualify borrow-region propagation through compiler/std callers, including
+  explicit short-lived allocation refusal, distinct owners and retained scratch
+  capacity. Do not relax lifetime validation to bootstrap the compiler.
+- Qualify the proof snapshot's std paths against the validated runtime trust
+  root. Keep runtime privileges restricted to individual selected std sources;
+  verify whole-unit legacy bypasses refuse, including direct-product invocations.
 - Fetch dependency upstreams, preserve project repairs, build the selected
   compiler and its linked runtime, then build prover and replay together.
 - Retain immutable source/include manifests, native inputs, product hashes,
@@ -177,3 +181,11 @@ results; a stale lock or previous status is not evidence of a running build.
 After a failed integrated run, prioritize its concrete diagnostic before opening
 another unrelated source batch. External reviewer gates do not prevent independent
 implementation, but remain visible until the required person supplies evidence.
+
+For each active qualification record the owning task, source generation, command,
+PID or session, log location and last observed state. Replace a running state with
+its terminal exit and diagnostic when it ends. A compiler failure identifies the
+failed declaration or lowering step and a reproducible input; an external blocker
+identifies the missing decision and dependent work. Keep these distinct from
+unqualified implementation. Resume independent work while a build runs, and state
+the next concrete action after failure instead of reporting a generic stall.
