@@ -153,6 +153,21 @@ negative controls, meaningful history entries and session/export parity.
   their own artifact-local lease without accessing the developer checkout.
   Precreate lease files during build/package creation; launching an installed
   bundle must not modify its signed contents.
+- Qualify the implemented explicit build/package contents inventories against
+  native cleanup validation. Evidence and schema are recorded in
+  [the inventory acceptance record](../acceptance/build-generation-cleanup-policy-2026-10-07.md).
+  Reject unknown descendants, linked entries, changed file contents, writable
+  entries, replaced ancestors and mismatched artifact/build identities. Repeat
+  enumeration on retained descriptors must start at the beginning and distinguish
+  read errors from end of directory. Revalidate immediately before mutation.
+- Cover failed and partial generations with an independent durable creation
+  journal and declared ownership; do not invent a sealed executable identity
+  for a build that never linked. Refuse an active builder, preserve diagnostic
+  evidence required by recovery, and reconcile crashes at every creation stage.
+- Present managed quarantine as recoverable storage. Report moved bytes
+  separately from freed disk space; retain external inventory and transaction
+  records until their recovery dependencies are resolved. Provide restore from
+  the journal identity even after the original generation name is reused.
 - Implement recoverable directory moves and receipts before exposing generation
   deletion. Existing regular-file Trash support does not qualify directory
   cleanup. Restore must refuse destination collisions and preserve recovery
