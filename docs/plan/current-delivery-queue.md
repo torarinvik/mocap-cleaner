@@ -25,10 +25,15 @@ recipe-input hashes from [the source compile record](../acceptance/current-law-s
 
 The earlier prover/replay generation `953dac2d5fbf41af97a7a10f4f410dea`
 was built against compiler `0fb79267` before subsequent prover commits. It is
-comparison evidence. The current proof pair is being rebuilt against `e34f2c`
-with source-owned struct projections, const-enum symbols and checked helper
-summaries. Require terminal success and strict integrity/freshness checks;
-compilation or portable replay alone cannot establish source authentication.
+comparison evidence. The current strict O2 pair, generation
+`8a85f9729079469a980012854b4f63cd`, was built from proof HEAD
+`828886b67c3c70939e9185a80668649d45163262` against compiler
+`e34f2c0656aac1232ad72da6516c7eb89f866a47`. Pair integrity and
+source/compiler/runtime freshness pass. The proof record gives exact source,
+product and manifest hashes. Focused source correspondence remains partial,
+with the portable replay trust record still reporting
+`source_authenticated: false`; the full `scripts/check.sh` and runtime
+acceptance remain open.
 
 The native generation binding's arity mismatch was traced to the reserved
 Elisa identifier `error`, which the extern parameter scanner omitted from its
@@ -79,13 +84,19 @@ this item. Keep native interaction and motion quality separately open.
 - For each law retain its exact declaration, preconditions, checked predicate,
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
-- Repair current struct/const-enum correspondence refusal, authenticated
-  summaries for multi-branch enum/bool helpers and control-flow fact snapshot
-  growth. Extra enum disequality facts cannot substitute for the missing
-  checked relation between a helper result and its inputs. The generation cleanup graph has 89 obligations, only 33
-  proven and replayed, and no authenticated source obligations. Preserve its
-  safety contracts and fail-closed authentication while fixing these gaps;
-  see [the exact qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
+- The current proof commit adds bounded struct-field projections,
+  symbolic const-enum terms, source-owned immutable integer constants and
+  checked guarded helper summaries. In the generation-policy graph, 89
+  obligations produced 33 proven and 56 unproven. Exact-source correspondence
+  checks `facts_valid` and `protection_reason`, leaves `eligible` unmatched on
+  13 return ensures, and reports 19 unsupported functions. Coverage is partial
+  and `source_authenticated` remains false. The creation-journal graph has 195
+  obligations (53 proven, 142 unproven); its package is rejected as
+  inadmissible. The proof record has exact source and product identities.
+- Continue reducing connective/source admission gaps and fact growth. Extra
+  enum disequality facts cannot substitute for the checked relation between a
+  helper result and its inputs. Preserve fail-closed authentication and keep
+  unresolved laws open; see [the exact qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
 
 **Finish evidence:** authenticated intended predicates, negative controls and
 unchanged regression expectations. Unresolved laws retain their gap records.

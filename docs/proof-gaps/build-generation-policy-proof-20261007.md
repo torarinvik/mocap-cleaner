@@ -133,3 +133,68 @@ Retained current JSON is in the proof checkout at
 `build/focused-qualification-9667344-enumfix/` (`report.json`, `package.json`,
 `replay.json`, and `correspondence.json`). The full
 `scripts/check.sh` run remains pending the parent task's source freeze.
+
+## Current correspondence repair pair (2026-10-07)
+
+The proof checkout committed bounded source-owned struct projections, symbolic
+const-enum terms, immutable integer constant lookup, guarded pure helper
+summaries and scoped-call evaluation in proof commit
+`828886b67c3c70939e9185a80668649d45163262`. This also fixes an immutable tuple
+assignment that had silently left helper return types empty. Scoped helper
+calls are refused when their short name is ambiguous. The source-authentication
+claim remains false unless every reported source obligation is matched to a
+replayed theorem.
+
+The exact producer/replay generation is
+`8a85f9729079469a980012854b4f63cd`. Both strict O2 product manifests record
+proof HEAD `828886b67c3c70939e9185a80668649d45163262`, proof source tree
+`736b0ce4350a9c405ecaa808ef25b7dc71a0fa95c225f06c0e845259f37f7ed9`, compiler
+revision `e34f2c0656aac1232ad72da6516c7eb89f866a47`, compiler product SHA-256
+`b2e4d197df34892b4f7a43a5ff751aecd6c95c08a998783c5687548f50559ae1`, compiler
+source tree SHA-256
+`220301ca3a395c676f8bb655d9f095278e970218a61517e747909bfcfae192fe`, build
+recipe SHA-256 `a666bf810cb3950297866e5ee41b53677778c2157c6c77929dda451532064139`,
+Stage1 provenance SHA-256
+`2757edaf410fb718c9b7148f7d0d8a009624d9397fff1cc7688337025db2c62a`, and
+runtime SHA-256
+`51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`. The
+producer SHA-256 is
+`b491033be1f3063cc3fb0c3e4552a969de5dbd2a30c69bf776f27a244d2259eb`, with
+manifest SHA-256
+`942b681acd9c195c7db65dd9d2d0f575dca6f43de015d497c8f289264dda53fa`. The
+independent replay SHA-256 is
+`53681640da2fc604f383dca1a44c95b6dc3412f0c0ef456f7cc0d4d21c2e6662`, with
+manifest SHA-256
+`f0744db5478ffd25fae10bde9e0df7f9e399bcdf5fd96ba78d4745d59834c30e`. Pair
+integrity and current source/compiler/runtime freshness both pass.
+
+For the generation policy, the captured source hashes are unchanged:
+`src/studio/build_generation_policy.elisa` is
+`7e4fbcccb30fbfe28264387de9fa70b074d3e5e5679c2864ee7398c154e5ccb7`, and
+`proof/studio_build_generation_policy_laws.elisa` is
+`2032823d9708a5f44ff488d476b1ec8164cf75dfebd712c490cb875b09235f2e`. The
+report has 89 obligations, 33 proven and 56 unproven, with no semantic errors.
+The package replays 33/33 theorems. Exact-source correspondence checks two
+zero-obligation helpers (`facts_valid`, `protection_reason`), leaves one
+function unmatched on its 13 return ensures (`eligible`), and reports 19
+unsupported functions. Coverage is partial and `source_authenticated` remains
+false. The package/replay result therefore does not authenticate the complete
+source.
+
+The creation-journal capture also preserves exact source hashes:
+`src/studio/build_generation_creation_journal_policy.elisa` is
+`f3115ea879f977f9743f034aeca94b5e3aeb3b8b2848fb9440d69aba24c42722`,
+`src/studio/build_generation_creation_policy.elisa` is
+`42b50c648d0d3982554b6134c00e92c87167a06396305a8c15a75742feebfdc5`, the
+shared generation policy is
+`7e4fbcccb30fbfe28264387de9fa70b074d3e5e5679c2864ee7398c154e5ccb7`, and
+`proof/studio_build_generation_creation_journal_policy_laws.elisa` is
+`48e9a172db9b891bafa819475c90fb56e8ff086f8a4539c10aadfc5342173fc7`. Its
+report has 195 obligations, 53 proven and 142 unproven. Package creation and
+correspondence reject the source as `source-inadmissible`; no source function
+is authenticated. Captures are retained under
+`elisa-proof-mocap/build/focused-qualification-pair-8a85f972-generation-policy/`
+and `...-creation-journal/`.
+
+The authorized full `scripts/check.sh` run is pending. The proof-authentication
+work remains incomplete even if that repository-wide regression check passes.
