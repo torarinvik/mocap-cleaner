@@ -96,7 +96,7 @@ Remaining work:
   `emit_ast_parity_smoke` reports 28 differing cases. The resumed baseline also
   reports header parity failure (58 divergent cases; the final refusal is
   `zeroed_relative_nested_module_reference_alias`) and interface parity failure
-  (63 of 336 cases). Its `emit_interpret` check is active; these failures are
+  (63 of 336 cases). These failures are
   terminal baseline results, not interruptions or candidate results. Remaining
   failed scripts are interpret, packed, test-runner, unsafe and slice-real,
   alongside AST, header and interface. Slice-real fails generated Stage0 inputs
