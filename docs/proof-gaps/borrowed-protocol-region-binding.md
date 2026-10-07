@@ -45,8 +45,10 @@ Freshness and source/product provenance checks pass. Product SHA-256:
 `0da393abce7e82920db3560cd15aed93642c23df6d185099011caea1aeb0a740`.
 Runtime object SHA-256:
 `d6f6e22e02740dfdf3a2d1461660e726a9ea5ef211a4ddda29b14ef5329dc9f3`.
-The prover pin advanced to that compiler in proof commit `03d515d4`; its new
-complete CLI build is running and is not yet qualification evidence.
+The prover pin advanced to that compiler in proof commit `03d515d4`. That
+complete CLI build failed; retained diagnostics required borrowed-return
+repairs and correction of runtime source attribution. No current pair was
+qualified by that run.
 
 Stage1 interface emission accepts the generic darray protocol positive and
 preserves tied signatures. Direct non-generic wrong-owner and function-local
@@ -76,3 +78,27 @@ LLVM emission. Rebuild from current Go source preserving upstream/local
 repairs, then rebuild the exact compiler/std/runtime and proof CLI pair.
 Check complete source/product provenance before running authenticated proofs
 and the authorized full check. This remains an open toolchain gate.
+
+## Isolated bootstrap local-borrow inference (2026-10-07)
+
+Three small sources under `build/region-inference-reduction/` distinguish a
+current seed failure from generic protocol conformance. The clean detached
+Go bootstrap at source `4a68f508` has product SHA-256
+`c62c72051b37a02a48a87c4ddcd6a158c9133dc14b6a6833aa036df003e87bc7`.
+Each source was compiled directly with `-emit obj -O0`; no executable ran.
+
+| Source | Case | Terminal outcome |
+| --- | --- | --- |
+| `input.elisa` | A local mutable `Box` is passed as `&local` to `borrowed[@r](box: Box& @r) -> Box& @r`. | Refused: cannot infer region parameter `r`; no object. |
+| `plain.elisa` | The same local is passed to `measure(box: Box&) -> i64`. | Exit 0; 568-byte object. |
+| `forward.elisa` | An explicitly tied caller parameter is forwarded to the tied `borrowed` helper. | Exit 0; 456-byte object. |
+
+Source SHA-256 values, in the table's order:
+
+- `691a61bf8a17f6121d83ee9b907f99742dfa343f46243e327a9eb159b12c568c`
+- `24086b893de358b9a74b5ca5f920c3640a1396796c6380cb71692cd7b1b968b4`
+- `6f2f88ef443a517316c1aa03c36fb79d363456a7b6139513d58f7fe5b599aa94`
+
+The compiler worker received these reductions. Investigate local-address
+region inference independently of owner mismatch and interface conformance.
+This is diagnostic evidence, not current Stage1 or application qualification.
