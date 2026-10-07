@@ -1,0 +1,141 @@
+include "app_export_batch_sheet.elisa"
+include "../export_batch_destination_binding.elisa"
+include "../export_batch_destination_inspector_ticket_policy.elisa"
+include "panels_export_batch_destination_inspector.elisa"
+
+# Read-only selected-item path inspector. It retains only owned path bytes and
+# scalar UI context; all queue identity and write authority stay in the binding.
+extend Studio:
+    private:
+        global mutable prepared_destination_inspector_state: StudioExportBatchDestinationInspectorPolicy::State = zeroed
+        global mutable prepared_destination_inspector_paths: StudioExportBatchDestinationInspectorPolicy::Paths = zeroed
+        global mutable prepared_destination_inspector_ticket: StudioExportBatchDestinationInspectorTicketPolicy::Ticket = zeroed
+        global mutable prepared_destination_inspector_return_focus: StudioExportBatchPanelPolicy::Focus = StudioExportBatchPanelPolicy::Focus.Close
+        global mutable prepared_destination_inspector_return_widget: usize = UiFlat::NONE
+
+        def prepared_destination_inspector_stale() -> bool:
+            return true if not StudioExportBatchDestinationInspectorPolicy::valid(prepared_destination_inspector_state)
+            return true if not prepared_destination_inspector_state.opened or not prepared_sheet_open()
+            if prepared_export_queue is queue:
+                return true if not StudioExportBatchReviewBinding::valid(queue)
+                index: i64 = prepared_destination_inspector_ticket.index
+                return true if index < 0 or index >= StudioExportBatchReviewBinding::item_count(queue).i64()
+                item: StudioExportBatchQueue::Item = StudioExportBatchReviewBinding::item(queue, index)
+                observed: StudioExportBatchDestinationInspectorTicketPolicy::Ticket = StudioExportBatchDestinationInspectorTicketPolicy::Ticket{
+                    revision: prepared_revision, index: prepared_sheet.selected,
+                    attempt: StudioExportBatchReviewBinding::item_attempt(queue, index),
+                    state: item.state, warning_count: item.warning_count, approved: item.approved}
+                return not StudioExportBatchDestinationInspectorTicketPolicy::current(
+                    prepared_destination_inspector_ticket, observed, true, true,
+                    StudioExportBatchWarningReviewPolicy::Domain::MAX_EPOCH,
+                    StudioExportBatchReviewBinding::Limit::MAX_ATTEMPTS)
+            true
+
+        def close_prepared_destination_inspector() -> void can Memory.Release:
+            return if not prepared_destination_inspector_state.opened
+            prepared_destination_inspector_state <- StudioExportBatchDestinationInspectorPolicy::State{
+                opened: false, location: StudioExportBatchDestinationInspectorPolicy::Location.Source,
+                page: 0, focus: StudioExportBatchDestinationInspectorPolicy::Focus.Done}
+            prepared_destination_inspector_paths <- zeroed
+            prepared_destination_inspector_ticket <- zeroed
+            if prepared_sheet_open():
+                prepared_sheet.focus <- prepared_destination_inspector_return_focus
+            if prepared_destination_inspector_return_widget != UiFlat::NONE:
+                _ = UiFlat::request_focus(prepared_destination_inspector_return_widget)
+            prepared_destination_inspector_return_focus <- StudioExportBatchPanelPolicy::Focus.Close
+            prepared_destination_inspector_return_widget <- UiFlat::NONE
+            touch()
+
+        def invalidate_prepared_destination_inspector() -> void can Memory.Release:
+            prepared_message <- "The selected queue item changed. Reopen the destination inspector to capture its current paths."
+            close_prepared_destination_inspector()
+
+    public:
+        def prepared_destination_inspector_open() -> bool:
+            StudioExportBatchDestinationInspectorPolicy::valid(prepared_destination_inspector_state) and prepared_destination_inspector_state.opened
+
+        def open_prepared_destination_inspector(return_focus_widget: usize) -> void can[Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            return if prepared_destination_inspector_open() or not prepared_sheet_open()
+            return if return_focus_widget != UiFlat::NONE and return_focus_widget >= UiFlat::MAX_WIDGETS
+            index: i64 = prepared_sheet.selected
+            if prepared_export_queue is queue:
+                return if not StudioExportBatchReviewBinding::valid(queue)
+                if index < 0 or index >= StudioExportBatchReviewBinding::item_count(queue).i64():
+                    prepared_message <- "No selected queue item is available to inspect."
+                    touch()
+                    return
+                item: StudioExportBatchQueue::Item = StudioExportBatchReviewBinding::item(queue, index)
+                if StudioExportBatchReviewBinding::destination_projection(queue, index) is snapshot:
+                    paths: StudioExportBatchDestinationInspectorPolicy::Paths = StudioExportBatchDestinationInspectorPolicy::capture(snapshot)
+                    attempt: i64 = StudioExportBatchReviewBinding::item_attempt(queue, index)
+                    ticket: StudioExportBatchDestinationInspectorTicketPolicy::Ticket = StudioExportBatchDestinationInspectorTicketPolicy::Ticket{
+                        revision: prepared_revision, index: index, attempt: attempt,
+                        state: item.state, warning_count: item.warning_count, approved: item.approved}
+                    return if not StudioExportBatchDestinationInspectorTicketPolicy::valid(ticket,
+                        StudioExportBatchWarningReviewPolicy::Domain::MAX_EPOCH,
+                        StudioExportBatchReviewBinding::Limit::MAX_ATTEMPTS)
+                    prepared_destination_inspector_paths <- paths
+                    prepared_destination_inspector_ticket <- ticket
+                    prepared_destination_inspector_return_focus <- prepared_sheet.focus
+                    prepared_destination_inspector_return_widget <- return_focus_widget
+                    prepared_destination_inspector_state <- StudioExportBatchDestinationInspectorPolicy::create()
+                    prepared_message <- "Inspecting the exact paths captured for this queue item. This view is read-only."
+                    touch()
+                    return
+            prepared_message <- "Captured destination paths are unavailable for this queue item. Refresh the queue and try again."
+            touch()
+
+        def prepared_destination_inspector_key(code: UiCore::Key) -> bool can[Memory.Release]:
+            return false if not prepared_destination_inspector_open()
+            if prepared_destination_inspector_stale():
+                invalidate_prepared_destination_inspector()
+                return true
+            if code == UiCore::Key.Escape:
+                close_prepared_destination_inspector()
+            elif code == UiCore::Key.Tab:
+                prepared_destination_inspector_state <- StudioExportBatchDestinationInspectorPolicy::move_focus(
+                    prepared_destination_inspector_state, StudioShortcuts::shift(modifiers),
+                    prepared_destination_inspector_paths)
+                touch()
+            elif code == UiCore::Key.Left:
+                prepared_destination_inspector_activate(StudioExportBatchDestinationInspectorPolicy::Focus.Previous)
+            elif code == UiCore::Key.Right:
+                prepared_destination_inspector_activate(StudioExportBatchDestinationInspectorPolicy::Focus.Next)
+            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                prepared_destination_inspector_activate(prepared_destination_inspector_state.focus)
+            true
+
+        def prepared_destination_inspector_pointer(w: f32, h: f32, x: f32, y: f32) -> bool can Memory.Release:
+            return false if not prepared_destination_inspector_open()
+            if prepared_destination_inspector_stale():
+                invalidate_prepared_destination_inspector()
+                return true
+            if StudioPanels::export_batch_destination_inspector_hit(w, h, x, y,
+                    prepared_destination_inspector_state, prepared_destination_inspector_paths) is focus:
+                prepared_destination_inspector_state.focus <- focus
+                prepared_destination_inspector_activate(focus)
+                return true
+            true
+
+        def draw_prepared_destination_inspector(w: f32, h: f32) -> void can Memory.Release:
+            return if not prepared_destination_inspector_open()
+            if prepared_destination_inspector_stale():
+                invalidate_prepared_destination_inspector()
+                return
+            StudioPanels::export_batch_destination_inspector_panel(w, h,
+                prepared_destination_inspector_state, prepared_destination_inspector_paths)
+
+    private:
+        def prepared_destination_inspector_activate(focus: StudioExportBatchDestinationInspectorPolicy::Focus) -> void can Memory.Release:
+            return if not prepared_destination_inspector_open()
+            if prepared_destination_inspector_stale():
+                invalidate_prepared_destination_inspector()
+                return
+            return if not StudioExportBatchDestinationInspectorPolicy::action_enabled(
+                focus, prepared_destination_inspector_state, prepared_destination_inspector_paths)
+            if focus == StudioExportBatchDestinationInspectorPolicy::Focus.Done:
+                close_prepared_destination_inspector()
+                return
+            prepared_destination_inspector_state <- StudioExportBatchDestinationInspectorPolicy::activate(
+                prepared_destination_inspector_state, focus, prepared_destination_inspector_paths)
+            touch()
