@@ -221,3 +221,14 @@ source implementation and focused compilation, not complete application or
 proof qualification. The cached-valid flag's relationship to the model's
 immutable open/close lifetime still needs contract/source-correspondence
 evidence, alongside native report open/page/close and acknowledgement checks.
+
+The integrated run for `9bd6700` recorded 528 inputs in
+`build/report-model-optional/full-studio-9bd6700/inputs-before.json`. The root
+initially rehashed every input successfully, then detected an external change
+to `elisa-ui/src/core/ui_paint.elisa` while compiler PID 49071 was still active.
+The application sources remained unchanged. This run may supply terminal
+diagnostics, but cannot qualify its original snapshot, even if the UI change
+is later reverted. Preserve that mismatch and inspect the post-run manifest
+before repairs. Prepare the next compilation from a verified immutable copy
+of the complete source/include graph and linked inputs; shared-checkout edits
+must not silently change the compiled generation or its provenance.
