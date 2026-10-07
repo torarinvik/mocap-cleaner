@@ -59,6 +59,13 @@ migration. Compilation/replay awaits the repaired current compiler/prover.
 
 ## Qualification still required
 
+- Propagate a typed unavailable/refused outcome from invalid contact, COM and
+  world-coordinate inputs through CLI reports and Studio overlays. Missing feet,
+  nonfinite coordinates or collapsed thresholds must not become all-false
+  contact flags that are interpreted as airborne or a clean balance result.
+  Track-shape guards now refuse mismatched contact/COM counts before indexing;
+  this prevents invalid access but does not yet supply that reporting outcome.
+  Verify refused corrections preserve the source document and prior findings.
 - Authenticated rounding, sign, domain, saturation and inverse laws.
 - Negative coordinates, sub-unit heights, half-unit ties, extreme supported
   coordinates and nonfinite input refusal.
