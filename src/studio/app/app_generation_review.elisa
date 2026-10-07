@@ -1,6 +1,7 @@
 include "app_generation_inventory.elisa"
 include "generation_review_copy.elisa"
 include "../state/generation_review_list_policy.elisa"
+include "../state/generation_review_focus_policy.elisa"
 
 extend Studio:
     private:
@@ -21,7 +22,8 @@ extend Studio:
             Path = 7
 
         const module GenerationReviewLimit:
-            CONTROLS: i64 = 7
+            FOOTER_CONTROLS: i64 = 7
+            FOCUS_COUNT: i64 = StudioGenerationReviewFocusPolicy::Limit::COUNT
 
         def generation_review_path_bytes() -> darray[u8] can Memory.Allocate:
             mutable root: darray[u8] = []
@@ -48,7 +50,22 @@ extend Studio:
 
         def generation_review_open_path() -> void can Memory.Allocate:
             path: darray[u8] = generation_review_path_bytes()
-            generation_path_open_with(path)
+            generation_path_open_with(path, GenerationReviewAction.Path.i64())
+
+        def generation_review_focus_enabled(index: i64, pages: i64) -> bool can[Unsafe.PointerCast, Memory.Allocate]:
+            return pages > 0 if index == GenerationReviewAction.Previous.i64() and generation_review_page > 0
+            return generation_review_page + 1 < pages if index == GenerationReviewAction.Next.i64()
+            return true if index == GenerationReviewAction.Refresh.i64() or index == GenerationReviewAction.Back.i64() or index == GenerationReviewAction.Operations.i64()
+            return generation_move_action_enabled() if index == GenerationReviewAction.Review.i64()
+            return generation_restore_action_enabled() if index == GenerationReviewAction.Restore.i64()
+            return StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()) if index == GenerationReviewAction.Path.i64()
+            false
+
+        def generation_review_next_focus(reverse: bool, pages: i64) -> i64 can[Unsafe.PointerCast, Memory.Allocate]:
+            mutable enabled: darray[bool] = []
+            for index in 0..<GenerationReviewLimit::FOCUS_COUNT |index, enabled, pages|:
+                enabled.push(generation_review_focus_enabled(index, pages))
+            StudioGenerationReviewFocusPolicy::next(generation_review_focus, reverse, enabled)
 
         def generation_review_box(w: f32, h: f32) -> StudioPanels::Box:
             width: f32 = 820.0 if w >= 852.0 else w - 32.0
@@ -57,7 +74,7 @@ extend Studio:
 
         def generation_review_control_box(w: f32, h: f32, action: i64) -> StudioPanels::Box:
             d: StudioPanels::Box = generation_review_box(w, h)
-            width: f32 = (d.w - 48.0 - (GenerationReviewLimit::CONTROLS - 1).f32() * 8.0) / GenerationReviewLimit::CONTROLS.f32()
+            width: f32 = (d.w - 48.0 - (GenerationReviewLimit::FOOTER_CONTROLS - 1).f32() * 8.0) / GenerationReviewLimit::FOOTER_CONTROLS.f32()
             StudioPanels::box(d.x + 24.0 + action.f32() * (width + 8.0), d.y + d.h - 48.0, width, 30.0)
 
         def generation_review_row_box(w: f32, h: f32, slot: i64) -> StudioPanels::Box:
@@ -106,7 +123,7 @@ extend Studio:
             if StudioPanels::inside(StudioGenerationReviewPathInspector::inspect_button_box(w, h), x, y) and StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()):
                 generation_review_open_path()
                 return
-            for action in 0..<GenerationReviewLimit::CONTROLS |w, h, x, y, action|:
+            for action in 0..<GenerationReviewLimit::FOOTER_CONTROLS |w, h, x, y, action|:
                 if StudioPanels::inside(generation_review_control_box(w, h, action), x, y):
                     generation_review_focus <- action
                     generation_review_action(action)
@@ -151,7 +168,8 @@ extend Studio:
                 generation_review_open <- false
                 generation_recovery_browser_unselect() if generation_review_recovery_mode
             elif code == UiCore::Key.Tab:
-                generation_review_focus <- (GenerationReviewAction.Back.i64() if StudioShortcuts::shift(modifiers) else GenerationReviewAction.Previous.i64()) if generation_review_focus < 0 else (generation_review_focus + (GenerationReviewLimit::CONTROLS - 1 if StudioShortcuts::shift(modifiers) else 1)) % GenerationReviewLimit::CONTROLS
+                next_focus: i64 = generation_review_next_focus(StudioShortcuts::shift(modifiers), pages)
+                generation_review_focus <- next_focus if next_focus >= 0
             elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
                 generation_review_action(generation_review_focus) if generation_review_focus >= 0
             elif code == UiCore::Key.Left:
@@ -219,7 +237,7 @@ extend Studio:
                     row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
                     StudioDraw::text(x + 24.0, y + height - 100.0, 12.0, StudioGenerationReviewCopy::protection(row), StudioDraw::ink())
             StudioDraw::text(x + 24.0, y + height - 72.0, 11.0, StudioGenerationReviewCopy::moved_bytes_explanation(), StudioDraw::muted())
-            for action in 0..<GenerationReviewLimit::CONTROLS |w, h, action|:
+            for action in 0..<GenerationReviewLimit::FOOTER_CONTROLS |w, h, action|:
                 control: StudioPanels::Box = generation_review_control_box(w, h, action)
                 StudioDraw::rect(control.x, control.y, control.w, control.h, StudioDraw::color(47, 68, 92) if generation_review_focus == action else StudioDraw::color(38, 44, 56))
                 label: sview = generation_move_action_label() if action == GenerationReviewAction.Review.i64() else generation_restore_action_label() if action == GenerationReviewAction.Restore.i64() else ("Generations" if generation_review_recovery_mode else "Operations") if action == GenerationReviewAction.Operations.i64() else "Previous" if action == 0 else "Next" if action == 1 else "Refresh" if action == 2 else "Back to Storage"
@@ -227,6 +245,6 @@ extend Studio:
                 StudioDraw::text(control.x + 12.0, control.y + 8.0, 12.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
             inspect_box: StudioPanels::Box = StudioGenerationReviewPathInspector::inspect_button_box(w, h)
             inspect_enabled: bool = StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes())
-            StudioDraw::rect(inspect_box.x, inspect_box.y, inspect_box.w, inspect_box.h, StudioDraw::panel())
+            StudioDraw::rect(inspect_box.x, inspect_box.y, inspect_box.w, inspect_box.h, StudioDraw::color(47, 68, 92) if generation_review_focus == GenerationReviewAction.Path.i64() else StudioDraw::panel())
             StudioDraw::text(inspect_box.x + 9.0, inspect_box.y + 9.0, 11.0, StudioGenerationReviewPathInspector::inspect_button_label(inspect_box.w), StudioDraw::ink() if inspect_enabled else StudioDraw::muted())
             draw_generation_path_inspector(w, h)
