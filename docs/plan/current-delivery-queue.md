@@ -58,18 +58,19 @@ this item.
   source identity and independent replay result. Test contradictory assertions
   as negative controls; never replace unknown results with compile counts.
 - Rebuild the matched pair after every proof-source repair. The last clean
-  captured baseline is pair `ce0b63a0ae264349a74f818057e5c107`, built against
-  compiler `48dc78e2` after owner-aware resource-summary repair `0e7db722`.
+  captured baseline is pair `655657441d704884a881f28382b46321`, built against
+  compiler `48dc78e2` after committed helper-purity repair `fed9a108`.
   TakeSourceRef had 59 obligations, 34 proven and 25 unproven; staging had
   117 obligations, 21 proven and 96 unproven. Their 34 and 21 resource checks
   replayed respectively, but both packages remained source-unauthenticated
   with unsupported correspondence. Pair integrity is not source authentication.
   Retain the exact immutable pair reports; do not treat package admissibility
   as verified predicates. Subsequent proof edits require a new current pair.
-- Qualify helper purity after the owner-aware summary lookup repair. The next
-  committed repair `fed9a108` handles bounded loops and restricted immutable
-  darray capture wrappers; its fresh pair is still being built. Preserve shared
-  reborrow, mutation exclusion and owner-qualified generic-region constraints.
+- Helper purity now passes for `path_valid`, `bytes_equal`, `path_bound`,
+  `paths_bound` and `copy_digest_bound`. Staging contract calls are no longer
+  unsupported, but their postconditions remain unproved. Diagnose the remaining
+  relational facts while preserving shared reborrow, mutation exclusion and
+  owner-qualified generic-region constraints.
   Zero-argument generic calls need checked call-site region substitutions;
   matching an ambient region by spelling cannot establish a valid binding.
 - Qualify generation and creation-journal laws again with the repaired pair.
