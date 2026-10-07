@@ -2,6 +2,7 @@
 # Every output starts empty/unknown and is decoded only after the native call;
 # the caller still applies StudioBuildGenerationTrashPolicy at each boundary.
 include "../build_generation_trash_binding_policy.elisa"
+include "../state/generation_handle_policy.elisa"
 
 module StudioBuildGenerationTrashTransaction:
     public:
@@ -253,3 +254,13 @@ module StudioBuildGenerationTrashTransaction:
 
         def close(handle: i64) -> StudioBuildGenerationTrashBindingPolicy::DecodedStatus can[Blocking.IO]:
             status(studio_build_trash_close(handle))
+
+        # UI/background owners use this entry point and retain the token when
+        # native close refuses admission. ReleaseUncertain consumes the token
+        # but still requires recovery before another mutation.
+        def close_owned(handle: mutable i64&) -> StudioBuildGenerationTrashBindingPolicy::DecodedStatus can[Blocking.IO]:
+            requires handle >= 0
+            ensure handle >= 0
+            decoded: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = close(handle)
+            handle <- StudioGenerationHandlePolicy::remaining(handle, decoded)
+            decoded
