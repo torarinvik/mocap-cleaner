@@ -262,26 +262,22 @@ qualifies the integrated application or native workflow.
 - [ ] Move synchronous publication, cancellation, resume and acknowledgement IO
       off the UI path with owned requests, explicit busy state, cancellation/drain
       semantics and stale-result rejection. Qualify responsiveness and cleanup.
-- [ ] Compose `export_batch_destination_binding.elisa` with the selected-item
-      inspector. Its read-only queue extension now rejects invalid queue state,
-      negative/off-end selections and malformed paths, and borrows captured path
-      fields directly without copying result/report payloads. Three refusal
-      contracts and laws compile to a fresh 1,038,520-byte O0 graph; independent
-      replay and integrated qualification remain pending. The projection's
-      private snapshot owns source, GLB, JSON
-      and text paths with exact-copy contracts and six laws; the fresh O0 law
-      graph emitted 101,360 bytes. Independent replay is pending. The current
-      overview still includes only source and GLB labels;
-      receipt stages alone do not identify the sidecar locations. Add complete
-      selected-item path inspection and explicit abbreviated-preview markers.
-      Keep queue identities and review authority private. Inspect all three exact
-      destinations when publication is partial or durability is uncertain.
-- [ ] Integrate the retained destination inspector as the foremost modal:
+- [ ] Qualify the composed selected-item destination binding and inspector.
+      The saved source includes the read-only getter, owned four-path capture,
+      shared entry admission, retained controller, visible Inspect locations
+      action, fourteen-control sheet navigation, modal dispatch and native
+      accessibility routes. Qualify invalid queue/selection/path refusals and
+      exact source, GLB, JSON and text paths end to end. Independent replay must
+      establish exact-copy and stale-context laws. Keep queue identities and
+      review authority private; inspect all three destinations after partial
+      publication or uncertain durability. A compiled pure policy does not
+      qualify the complete inspector or its native behavior.
+- [ ] Qualify the retained destination inspector as the foremost modal:
       capture the selected item's four owned paths once, retain the selection,
       queue revision and attempt, and reject stale item context before showing
       another item's locations. Inspection grants no publication or approval
       authority. Route pointer, keyboard and native actions through the same
-      typed controls. Escape and Done restore the sheet's selected-row focus;
+      typed controls. Escape and Done restore the invoking sheet control's focus;
       close the inspector when its sheet closes or its bound item disappears.
       Clear borrowed views before replacing or releasing their owned paths.
       Show source, GLB, JSON report and text report as named choices; distinguish
