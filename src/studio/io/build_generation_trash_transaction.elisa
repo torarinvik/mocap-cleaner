@@ -3,6 +3,7 @@
 # the caller still applies StudioBuildGenerationTrashPolicy at each boundary.
 include "../build_generation_trash_binding_policy.elisa"
 include "../state/generation_handle_policy.elisa"
+include "../state/generation_receipt_control_policy.elisa"
 
 module StudioBuildGenerationTrashTransaction:
     public:
@@ -19,6 +20,7 @@ module StudioBuildGenerationTrashTransaction:
             status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus
             evidence: StudioBuildGenerationTrashBindingPolicy::RestoreEvidence
             output_details_valid: bool
+            receipt_scope: StudioGenerationReceiptControlPolicy::Evidence
             artifact_id: darray[u8]
             relative_path: darray[u8]
 
@@ -186,14 +188,21 @@ module StudioBuildGenerationTrashTransaction:
             mutable path_valid: bool = collect_path(path_buffer, relative_path)
             collect_error(error_buffer, error_bytes)
             mutable decoded_status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = status(code)
+            mutable scope_raw: i32 = 0
+            mutable scope_status: i32 = -1
+            if code == StudioBuildGenerationTrashNative::Status.Acquired.i32() and native_handle > 0:
+                scope_status <- studio_build_trash_receipt_scope(native_handle, &scope_raw)
+            receipt_scope: StudioGenerationReceiptControlPolicy::Evidence = StudioGenerationReceiptControlPolicy::decode_scope(scope_raw, scope_status == StudioBuildGenerationTrashNative::Status.Acquired.i32())
             if code == StudioBuildGenerationTrashNative::Status.Acquired.i32() and not (id_valid and path_valid):
+                decoded_status <- status(-1)
+            if code == StudioBuildGenerationTrashNative::Status.Acquired.i32() and receipt_scope == StudioGenerationReceiptControlPolicy::Evidence.Unknown:
                 decoded_status <- status(-1)
             handle <- native_handle
             evidence: StudioBuildGenerationTrashBindingPolicy::RestoreEvidence =
                 StudioBuildGenerationTrashBindingPolicy::decode_restore_evidence(
-                    code, native_handle, phase_raw, durable_raw, id_valid and path_valid,
+                    code if receipt_scope != StudioGenerationReceiptControlPolicy::Evidence.Unknown else -1, native_handle, phase_raw, durable_raw, id_valid and path_valid,
                     artifact_id.count.i64(), relative_path.count.i64())
-            RestoreStartResult{status: decoded_status, evidence: evidence, output_details_valid: id_valid and path_valid, artifact_id: artifact_id, relative_path: relative_path}
+            RestoreStartResult{status: decoded_status, evidence: evidence, output_details_valid: id_valid and path_valid, receipt_scope: receipt_scope, artifact_id: artifact_id, relative_path: relative_path}
 
         def persist_restore_intent(handle: i64,
                                    receipt_bytes: mutable i64&,
