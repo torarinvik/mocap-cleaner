@@ -2,42 +2,48 @@
 # transaction. A successful move means StudioFileTrash returned a valid receipt.
 module StudioStorageMovePolicy:
     public:
-        const MOVE_NOT_ATTEMPTED: i64 = 0
-        const MOVE_VERIFIED: i64 = 1
-        # Use only when a fresh exact-identity snapshot confirms the file is
-        # back at its original path; the native return code alone is not proof.
-        const MOVE_FAILED_ORIGINAL_KNOWN: i64 = 2
-        const MOVE_UNKNOWN_AFTER_FAILURE: i64 = 3
+        const enum MoveState of i64:
+            NotAttempted = 0
+            Verified = 1
+            # Use only when a fresh exact-identity snapshot confirms the file is
+            # back at its original path; the native return code alone is not proof.
+            FailedOriginalKnown = 2
+            UnknownAfterFailure = 3
 
-        const WRITE_NOT_ATTEMPTED: i64 = 0
-        const WRITE_SUCCEEDED: i64 = 1
-        const WRITE_FAILED: i64 = 2
-        const WRITE_UNKNOWN: i64 = 3
+        const enum WriteState of i64:
+            NotAttempted = 0
+            Succeeded = 1
+            Failed = 2
+            Unknown = 3
 
-        const ROLLBACK_NOT_ATTEMPTED: i64 = 0
-        const ROLLBACK_SUCCEEDED: i64 = 1
-        const ROLLBACK_FAILED: i64 = 2
-        const ROLLBACK_UNKNOWN: i64 = 3
+        const enum RollbackState of i64:
+            NotAttempted = 0
+            Succeeded = 1
+            Failed = 2
+            Unknown = 3
 
-        const OUTCOME_INVALID: i64 = 0
-        const OUTCOME_NOT_STARTED: i64 = 1
-        const OUTCOME_MOVE_FAILED_ORIGINAL: i64 = 2
-        const OUTCOME_MOVE_UNKNOWN: i64 = 3
-        const OUTCOME_RECEIPT_PENDING: i64 = 4
-        const OUTCOME_DURABILITY_UNKNOWN: i64 = 5
-        const OUTCOME_RECORDED: i64 = 6
-        const OUTCOME_ROLLBACK_REQUIRED: i64 = 7
-        const OUTCOME_ORIGINAL_RESTORED: i64 = 8
-        const OUTCOME_RECOVERY_RECEIPT_RETAINED: i64 = 9
-        const OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED: i64 = 10
-        const OUTCOME_COUNT: i64 = 11
+        const enum Outcome of i64:
+            Invalid = 0
+            NotStarted = 1
+            MoveFailedOriginal = 2
+            MoveUnknown = 3
+            ReceiptPending = 4
+            DurabilityUnknown = 5
+            Recorded = 6
+            RollbackRequired = 7
+            OriginalRestored = 8
+            RecoveryReceiptRetained = 9
+            RollbackUnknownReceiptRetained = 10
+
+        const module Capacity:
+            OUTCOME_COUNT: i64 = 11
 
         # Only resolved states permit another move. Even if a caller loses the
         # retained-receipt flag, unresolved or unknown transaction facts block.
         def may_start_new_move(retained_receipt_present: bool,
                                move_outcome: i64) -> bool:
-            ensure result == (not retained_receipt_present and (move_outcome == OUTCOME_NOT_STARTED or move_outcome == OUTCOME_MOVE_FAILED_ORIGINAL or move_outcome == OUTCOME_RECORDED or move_outcome == OUTCOME_ORIGINAL_RESTORED))
-            not retained_receipt_present and (move_outcome == OUTCOME_NOT_STARTED or move_outcome == OUTCOME_MOVE_FAILED_ORIGINAL or move_outcome == OUTCOME_RECORDED or move_outcome == OUTCOME_ORIGINAL_RESTORED)
+            ensure result == (not retained_receipt_present and (move_outcome == Outcome.NotStarted.i64() or move_outcome == Outcome.MoveFailedOriginal.i64() or move_outcome == Outcome.Recorded.i64() or move_outcome == Outcome.OriginalRestored.i64()))
+            not retained_receipt_present and (move_outcome == Outcome.NotStarted.i64() or move_outcome == Outcome.MoveFailedOriginal.i64() or move_outcome == Outcome.Recorded.i64() or move_outcome == Outcome.OriginalRestored.i64())
 
         # The native checked move may run only after a durable, valid identity
         # has been freshly matched, freshly deemed eligible, and confirmed.
@@ -51,54 +57,54 @@ module StudioStorageMovePolicy:
 
         def pre_move_outcome(move_state: i64, write_state: i64,
                              rollback_state: i64) -> i64:
-            ensure result >= OUTCOME_INVALID
-            ensure result <= OUTCOME_MOVE_UNKNOWN
-            ensure result == (OUTCOME_INVALID if move_state < MOVE_NOT_ATTEMPTED or move_state > MOVE_UNKNOWN_AFTER_FAILURE or move_state == MOVE_VERIFIED or write_state != WRITE_NOT_ATTEMPTED or rollback_state != ROLLBACK_NOT_ATTEMPTED else OUTCOME_NOT_STARTED if move_state == MOVE_NOT_ATTEMPTED else OUTCOME_MOVE_FAILED_ORIGINAL if move_state == MOVE_FAILED_ORIGINAL_KNOWN else OUTCOME_MOVE_UNKNOWN)
-            return OUTCOME_INVALID if move_state < MOVE_NOT_ATTEMPTED or move_state > MOVE_UNKNOWN_AFTER_FAILURE or move_state == MOVE_VERIFIED
-            return OUTCOME_INVALID if write_state != WRITE_NOT_ATTEMPTED or rollback_state != ROLLBACK_NOT_ATTEMPTED
-            return OUTCOME_NOT_STARTED if move_state == MOVE_NOT_ATTEMPTED
-            return OUTCOME_MOVE_FAILED_ORIGINAL if move_state == MOVE_FAILED_ORIGINAL_KNOWN
-            OUTCOME_MOVE_UNKNOWN
+            ensure result >= Outcome.Invalid.i64()
+            ensure result <= Outcome.MoveUnknown.i64()
+            ensure result == (Outcome.Invalid.i64() if move_state < MoveState.NotAttempted.i64() or move_state > MoveState.UnknownAfterFailure.i64() or move_state == MoveState.Verified.i64() or write_state != WriteState.NotAttempted.i64() or rollback_state != RollbackState.NotAttempted.i64() else Outcome.NotStarted.i64() if move_state == MoveState.NotAttempted.i64() else Outcome.MoveFailedOriginal.i64() if move_state == MoveState.FailedOriginalKnown.i64() else Outcome.MoveUnknown.i64())
+            return Outcome.Invalid.i64() if move_state < MoveState.NotAttempted.i64() or move_state > MoveState.UnknownAfterFailure.i64() or move_state == MoveState.Verified.i64()
+            return Outcome.Invalid.i64() if write_state != WriteState.NotAttempted.i64() or rollback_state != RollbackState.NotAttempted.i64()
+            return Outcome.NotStarted.i64() if move_state == MoveState.NotAttempted.i64()
+            return Outcome.MoveFailedOriginal.i64() if move_state == MoveState.FailedOriginalKnown.i64()
+            Outcome.MoveUnknown.i64()
 
         def failed_write_outcome(rollback_state: i64) -> i64:
-            ensure result >= OUTCOME_INVALID
-            ensure result <= OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED
-            ensure result == (OUTCOME_INVALID if rollback_state < ROLLBACK_NOT_ATTEMPTED or rollback_state > ROLLBACK_UNKNOWN else OUTCOME_ROLLBACK_REQUIRED if rollback_state == ROLLBACK_NOT_ATTEMPTED else OUTCOME_ORIGINAL_RESTORED if rollback_state == ROLLBACK_SUCCEEDED else OUTCOME_RECOVERY_RECEIPT_RETAINED if rollback_state == ROLLBACK_FAILED else OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED)
-            return OUTCOME_INVALID if rollback_state < ROLLBACK_NOT_ATTEMPTED or rollback_state > ROLLBACK_UNKNOWN
-            if rollback_state == ROLLBACK_NOT_ATTEMPTED:
-                return OUTCOME_ROLLBACK_REQUIRED
-            if rollback_state == ROLLBACK_SUCCEEDED:
-                return OUTCOME_ORIGINAL_RESTORED
-            if rollback_state == ROLLBACK_FAILED:
-                return OUTCOME_RECOVERY_RECEIPT_RETAINED
-            OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED
+            ensure result >= Outcome.Invalid.i64()
+            ensure result <= Outcome.RollbackUnknownReceiptRetained.i64()
+            ensure result == (Outcome.Invalid.i64() if rollback_state < RollbackState.NotAttempted.i64() or rollback_state > RollbackState.Unknown.i64() else Outcome.RollbackRequired.i64() if rollback_state == RollbackState.NotAttempted.i64() else Outcome.OriginalRestored.i64() if rollback_state == RollbackState.Succeeded.i64() else Outcome.RecoveryReceiptRetained.i64() if rollback_state == RollbackState.Failed.i64() else Outcome.RollbackUnknownReceiptRetained.i64())
+            return Outcome.Invalid.i64() if rollback_state < RollbackState.NotAttempted.i64() or rollback_state > RollbackState.Unknown.i64()
+            if rollback_state == RollbackState.NotAttempted.i64():
+                return Outcome.RollbackRequired.i64()
+            if rollback_state == RollbackState.Succeeded.i64():
+                return Outcome.OriginalRestored.i64()
+            if rollback_state == RollbackState.Failed.i64():
+                return Outcome.RecoveryReceiptRetained.i64()
+            Outcome.RollbackUnknownReceiptRetained.i64()
 
         def verified_move_outcome(write_state: i64, rollback_state: i64) -> i64:
-            ensure result >= OUTCOME_INVALID
-            ensure result <= OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED
-            return OUTCOME_INVALID if write_state < WRITE_NOT_ATTEMPTED or write_state > WRITE_UNKNOWN
-            return OUTCOME_INVALID if rollback_state < ROLLBACK_NOT_ATTEMPTED or rollback_state > ROLLBACK_UNKNOWN
-            if write_state == WRITE_NOT_ATTEMPTED:
-                return OUTCOME_RECEIPT_PENDING if rollback_state == ROLLBACK_NOT_ATTEMPTED
-                return OUTCOME_INVALID
-            if write_state == WRITE_UNKNOWN:
-                return OUTCOME_DURABILITY_UNKNOWN if rollback_state == ROLLBACK_NOT_ATTEMPTED
-                return OUTCOME_INVALID
-            if write_state == WRITE_SUCCEEDED:
-                return OUTCOME_RECORDED if rollback_state == ROLLBACK_NOT_ATTEMPTED
-                return OUTCOME_INVALID
+            ensure result >= Outcome.Invalid.i64()
+            ensure result <= Outcome.RollbackUnknownReceiptRetained.i64()
+            return Outcome.Invalid.i64() if write_state < WriteState.NotAttempted.i64() or write_state > WriteState.Unknown.i64()
+            return Outcome.Invalid.i64() if rollback_state < RollbackState.NotAttempted.i64() or rollback_state > RollbackState.Unknown.i64()
+            if write_state == WriteState.NotAttempted.i64():
+                return Outcome.ReceiptPending.i64() if rollback_state == RollbackState.NotAttempted.i64()
+                return Outcome.Invalid.i64()
+            if write_state == WriteState.Unknown.i64():
+                return Outcome.DurabilityUnknown.i64() if rollback_state == RollbackState.NotAttempted.i64()
+                return Outcome.Invalid.i64()
+            if write_state == WriteState.Succeeded.i64():
+                return Outcome.Recorded.i64() if rollback_state == RollbackState.NotAttempted.i64()
+                return Outcome.Invalid.i64()
             failed_write_outcome(rollback_state)
 
         # Inputs describe known operation facts. UNKNOWN remains separate from
         # NOT_ATTEMPTED: in particular, failed manifest persistence with no
         # rollback yet requires rollback; it does not imply either outcome.
         def outcome(move_state: i64, write_state: i64, rollback_state: i64) -> i64:
-            ensure result >= OUTCOME_INVALID
-            ensure result <= OUTCOME_ROLLBACK_UNKNOWN_RECEIPT_RETAINED
-            return OUTCOME_INVALID if move_state < MOVE_NOT_ATTEMPTED or move_state > MOVE_UNKNOWN_AFTER_FAILURE
-            return OUTCOME_INVALID if write_state < WRITE_NOT_ATTEMPTED or write_state > WRITE_UNKNOWN
-            return OUTCOME_INVALID if rollback_state < ROLLBACK_NOT_ATTEMPTED or rollback_state > ROLLBACK_UNKNOWN
-            if move_state != MOVE_VERIFIED:
-                return OUTCOME_INVALID if write_state != WRITE_NOT_ATTEMPTED or rollback_state != ROLLBACK_NOT_ATTEMPTED
+            ensure result >= Outcome.Invalid.i64()
+            ensure result <= Outcome.RollbackUnknownReceiptRetained.i64()
+            return Outcome.Invalid.i64() if move_state < MoveState.NotAttempted.i64() or move_state > MoveState.UnknownAfterFailure.i64()
+            return Outcome.Invalid.i64() if write_state < WriteState.NotAttempted.i64() or write_state > WriteState.Unknown.i64()
+            return Outcome.Invalid.i64() if rollback_state < RollbackState.NotAttempted.i64() or rollback_state > RollbackState.Unknown.i64()
+            if move_state != MoveState.Verified.i64():
+                return Outcome.Invalid.i64() if write_state != WriteState.NotAttempted.i64() or rollback_state != RollbackState.NotAttempted.i64()
                 return pre_move_outcome(move_state, write_state, rollback_state)
             verified_move_outcome(write_state, rollback_state)
