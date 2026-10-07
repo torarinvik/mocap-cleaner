@@ -42,6 +42,7 @@ install -m 0600 /dev/null "$pending_directory/.studio-generation.lease"
 pending_object="$pending_directory/main.o"
 pending_inputs="$pending_directory/inputs.json"
 build_trash_sources=(io current path inventory journal restore reconcile binding lifecycle candidate)
+build_candidate_sources=(candidate_provider creation_scan creation_json)
 build_trash_objects=()
 inventory_arguments=(
   --file main.o --file mocap_studio
@@ -54,6 +55,10 @@ inventory_arguments=(
 for source in "${build_trash_sources[@]}"; do
   build_trash_objects+=("$pending_directory/studio_build_trash_${source}.o")
   inventory_arguments+=(--file "studio_build_trash_${source}.o")
+done
+for source in "${build_candidate_sources[@]}"; do
+  build_trash_objects+=("$pending_directory/studio_build_generation_${source}.o")
+  inventory_arguments+=(--file "studio_build_generation_${source}.o")
 done
 # Record the generation's initial identity and declared plan before output.
 # Created records alone remain protected until durable outcome reconciliation.
@@ -94,6 +99,11 @@ for source in "${build_trash_sources[@]}"; do
   clang -fobjc-arc -Wall -Wextra -Werror -O2 -I "$ENGINE/native" \
     -c -o "$pending_directory/studio_build_trash_${source}.o" \
     "$ENGINE/native/studio_build_generation_trash_${source}_appkit.m"
+done
+for source in "${build_candidate_sources[@]}"; do
+  clang -fobjc-arc -Wall -Wextra -Werror -O2 -I "$ENGINE/native" \
+    -c -o "$pending_directory/studio_build_generation_${source}.o" \
+    "$ENGINE/native/studio_build_generation_${source}_appkit.m"
 done
 clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
 clang++ -c -std=c++17 -O2 -o "$pending_directory/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
