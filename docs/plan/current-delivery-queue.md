@@ -25,6 +25,16 @@ This does not qualify the entire roadmap or UI interaction journey.
 
 Remaining work:
 
+- Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
+  and runtime `a8de91a1`; source provenance passes. The focused FBX worker
+  runs successfully after the submitting frame ends and after a helper returns
+  its joined Result, including growth of returned arrays and Memo nodes.
+  The actual void polling/global-publication case still loses returned bytes
+  and crashes cleanup: it needs the caller's result allocation owner, rather
+  than assuming a function return-region slot. Preserve this failing case and
+  fix the compiler ownership path before accepting app publication. These
+  partial probes do not close Q01 or the visible FBX journey.
+
 - New fetched compiler tip `75568f8` includes the `50b16e68` borrow-exclusivity
   repairs and backend reference-field reads, followed by documentation changes.
   It is merged into the repair checkout at `3714380c`. Preserve project and task-region repairs while merging,
