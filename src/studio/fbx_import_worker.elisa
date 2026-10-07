@@ -1,4 +1,4 @@
-# Job paths own their NUL-terminated bytes across asynchronous conversion.
+# Job buffers are inline: copying the argument copies all request bytes.
 # Staging owns an exclusive input snapshot/output path under the build root.
 # The controller publishes only a current, uncancelled, fully loaded result.
 include "app/model.elisa"
@@ -24,6 +24,13 @@ module StudioFbxImportWorker:
                 return move out if bytes[index] == 0
             []
 
+        def animation_copy(bytes: u8[1024]&) -> darray[u8]:
+            mutable out: darray[u8] = []
+            for index in 0..<1024 |index, bytes, out|:
+                out.push(bytes[index])
+                return move out if bytes[index] == 0
+            []
+
     public:
         const enum Status of i64:
             InvalidJob = -100
@@ -31,11 +38,14 @@ module StudioFbxImportWorker:
             SourceChanged = -102
             DigestUnavailable = -103
 
+        struct RequestBuffers:
+            source: u8[4096]
+            build_root: u8[4096]
+            animation: u8[1024]
+
         affine struct Job:
             ticket: i64
-            source: darray[u8]
-            build_root: darray[u8]
-            animation: darray[u8]
+            buffers: RequestBuffers
             rate: i64
 
         affine struct Result:
@@ -50,12 +60,12 @@ module StudioFbxImportWorker:
         def load(job: Job) -> Result can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             ticket: i64 = job.ticket
             rate: i64 = job.rate
-            mutable source: darray[u8] = job.source
-            mutable build_root: darray[u8] = job.build_root
+            mutable source: darray[u8] = path_copy(&job.buffers.source)
+            mutable build_root: darray[u8] = path_copy(&job.buffers.build_root)
             mutable destination: darray[u8] = []
             mutable source_digest: darray[u8] = []
             mutable runtime_digest: darray[u8] = []
-            mutable animation: darray[u8] = move job.animation
+            mutable animation: darray[u8] = animation_copy(&job.buffers.animation)
             mutable status: i64 = Status.InvalidJob.i64()
             mutable memo: StudioModel::Memo? = null
             if ticket > 0 and StudioFbxImportPolicy::rate_valid(rate) and StudioFbxImportPolicy::terminated(&source, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&build_root, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&animation, StudioFbxImportPolicy::Limit::ANIMATION_BYTES):
