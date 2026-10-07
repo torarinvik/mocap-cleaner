@@ -20,6 +20,10 @@ coordinate limits, signed half-unit ties and a one-metre inverse. Compilation
 was refused before source processing because the compiler source changed during
 its repair batch; current product rebuild and proof qualification are pending.
 Physics callers remain on their old scale until the complete migration lands.
+The floor inverse is now centralized in `Physics::floor_metres`, used by balance,
+Studio drawing and the existing physics check. Three inverse obligations retain
+the current micrometre scale; change producer, inverse and laws together during
+migration. Compilation/replay awaits the repaired current compiler/prover.
 
 | Boundary | Current callers | Required dimension |
 | --- | --- | --- |
