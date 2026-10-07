@@ -36,6 +36,23 @@ and runtime evidence exist.
   once. A stack-local worker arena cannot back a retained result.
 - Raw callbacks and allocation-free callbacks retain valid, explicit ABI behavior.
 
+### Captured request buffers
+
+The selected runtime's `ctx_concurrency_box_new` allocates the outer argument
+box and shallowly assigns its value. That does not transfer ownership of nested
+darray backing storage. Studio constructs source, build-root and animation
+buffers inside `start_fbx_import`; moving the Job fields alone does not establish
+that those buffers survive the caller's allocation region. The standalone probe
+keeps its main arena alive throughout polling and therefore cannot qualify this
+part of the UI lifetime.
+
+The repair must consume an explicitly owned capture region, or use an argument
+representation whose complete storage is owned by the worker. Callback result
+region forwarding alone does not meet this obligation. Qualification must let
+the submitting frame end before the worker reads its request, then retain and
+grow returned arrays after join releases the worker state. These are separate
+checks of input and output ownership.
+
 Conservative rejection of unsupported callbacks may be an interim compiler
 safety measure; it does not deliver required background FBX import. Do not replace
 the asynchronous product path with a blocking call to obtain a passing probe.
