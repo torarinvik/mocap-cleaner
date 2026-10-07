@@ -109,6 +109,7 @@ done
 clang -std=c11 -Wall -Wextra -Werror -O2 -c -o "$pending_directory/studio_storage_manifest_lock.o" "$ENGINE/native/storage_manifest_lock.c"
 clang -std=c11 -O2 -Wall -Wextra -Werror -Wno-deprecated-declarations \
   -c -o "$pending_directory/studio_fbx_import_stage.o" "$ENGINE/native/studio_fbx_import_stage.c"
+python3 "$ROOT/tools/studio_verify_fbx_abi.py" "$ROOT" "$ENGINE"
 python3 "$ROOT/tools/studio_verify_ufbx.py" "$ENGINE"
 clang -std=c99 -O2 -Wall -Wextra -Werror -I "$ENGINE/dependencies/ufbx" \
   -c -o "$pending_directory/studio_fbx_to_glb.o" "$ENGINE/native/fbx_to_glb.c"
