@@ -1,0 +1,241 @@
+include "app_state.elisa"
+include "../../core/generation_policy.elisa"
+include "../fbx_import_policy.elisa"
+include "../take_source_ref_policy.elisa"
+
+extend Studio:
+    private:
+        const module FbxImportLimit:
+            PATH_BYTES: usize = 4096
+
+        global mutable fbx_import_task: Thread[StudioFbxImportWorker::Result, Joinable]? = null
+        global mutable fbx_import_ticket: i64 = 0
+        global mutable fbx_import_start_pending: bool = false
+        global mutable fbx_import_cancelled: bool = false
+        global mutable fbx_import_close_pending: bool = false
+        global mutable fbx_import_close_termination: bool = false
+        global mutable fbx_import_source_bytes: u8[4096] = zeroed
+        global mutable fbx_import_source_length: usize = 0
+        global mutable fbx_import_source_sha256: u8[64] = zeroed
+        global mutable fbx_import_source_sha256_valid: bool = false
+        global mutable fbx_import_runtime_sha256: u8[64] = zeroed
+        global mutable fbx_runtime_path_bytes: u8[4096] = zeroed
+        global mutable fbx_runtime_path_valid: bool = false
+        global mutable fbx_pending_runtime_path_bytes: u8[4096] = zeroed
+        global mutable fbx_pending_runtime_path_valid: bool = false
+        global mutable fbx_pending_source_sha256: u8[64] = zeroed
+        global mutable fbx_pending_runtime_sha256: u8[64] = zeroed
+        global mutable fbx_pending_memo: StudioModel::Memo? = null
+
+        def fbx_path(p: cstr) -> bool can Unsafe.PointerCast:
+            length: i64 = bounded_path_length(p)
+            return false if length < 4
+            StudioFbxImportPolicy::extension_is_fbx(
+                p[(length - 4).usize()], p[(length - 3).usize()],
+                p[(length - 2).usize()], p[(length - 1).usize()])
+
+        def schedule_fbx_import(p: cstr) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            return false if not workspace_ready or fbx_import_task != null or fbx_import_start_pending
+            mutable canonical: darray[u8] = []
+            if FilePanel::resolve_path(p) is resolved:
+                canonical <- cstr_path_bytes(resolved)
+                FilePanel::release_path(resolved)
+            return false if not StudioFbxImportPolicy::terminated(&canonical, StudioFbxImportPolicy::Limit::PATH_BYTES)
+            mutable index: usize = 0
+            while index < canonical.count:
+                fbx_import_source_bytes[index] <- canonical[index]
+                index <- index + 1
+            fbx_import_source_length <- canonical.count
+            fbx_import_cancelled <- false
+            fbx_import_start_pending <- true
+            status <- "Preparing FBX character import in the background. The current take remains available until conversion succeeds."
+            status_file <- null
+            touch()
+            true
+
+        def cstr_path_bytes(source: cstr) -> darray[u8] can[Unsafe.PointerCast, Memory.Allocate]:
+            mutable output: darray[u8] = []
+            mutable index: usize = 0
+            while index < FbxImportLimit::PATH_BYTES:
+                value: u8 = source[index]
+                output.push(value)
+                return move output if value == 0
+                index <- index + 1
+            return []
+
+        def copy_import_path(destination: mutable u8[4096]&, source: darray[u8]&) -> bool:
+            return false if not StudioFbxImportPolicy::terminated(source, StudioFbxImportPolicy::Limit::PATH_BYTES)
+            for index in 0..<source.count |index, source, destination|:
+                destination[index] <- source[index]
+            true
+
+        def copy_import_digest(destination: mutable u8[64]&, source: darray[u8]&) -> bool:
+            return false if not StudioTakeSourceRefPolicy::sha256_valid(source)
+            for index in 0..<64 |index, source, destination|:
+                destination[index] <- source[index]
+            true
+
+        def import_source_matches(source: darray[u8]&) -> bool:
+            return false if source.count != fbx_import_source_length
+            for index in 0..<source.count |index, source|:
+                return false if source[index] != fbx_import_source_bytes[index]
+            true
+
+        def start_fbx_import() -> void can[Threads, Unsafe.PointerCast, Memory.Allocate, Memory.Release]:
+            return if not fbx_import_start_pending or fbx_import_task != null
+            if not GenerationPolicy::can_advance(fbx_import_ticket):
+                fbx_import_start_pending <- false
+                status <- "FBX import could not start because its request sequence is exhausted. The current take is unchanged."
+                status_file <- null
+                touch()
+                return
+            mutable source: darray[u8] = []
+            return if fbx_import_source_length == 0 or fbx_import_source_length > FbxImportLimit::PATH_BYTES
+            for index in 0..<fbx_import_source_length |index, source|:
+                source.push(fbx_import_source_bytes[index])
+            mutable root: darray[u8] = cstr_path_bytes((&workspace_build_bytes[0]).cast[cstr])
+            mutable animation: darray[u8] = cstr_path_bytes(anim_name)
+            if not StudioFbxImportPolicy::terminated(&source, StudioFbxImportPolicy::Limit::PATH_BYTES) or not StudioFbxImportPolicy::terminated(&root, StudioFbxImportPolicy::Limit::PATH_BYTES) or not StudioFbxImportPolicy::terminated(&animation, StudioFbxImportPolicy::Limit::ANIMATION_BYTES):
+                fbx_import_start_pending <- false
+                status <- "FBX import request could not be retained within the path and animation limits. The current take is unchanged."
+                status_file <- null
+                touch()
+                return
+            fbx_import_ticket <- GenerationPolicy::advance(fbx_import_ticket)
+            job: StudioFbxImportWorker::Job = StudioFbxImportWorker::Job{
+                ticket: fbx_import_ticket,
+                source: move source,
+                build_root: move root,
+                animation: move animation,
+                rate: StudioFbxImportPolicy::Limit::DEFAULT_RATE}
+            fbx_import_start_pending <- false
+            fbx_import_cancelled <- false
+            fbx_import_task <- task(load_fbx_import_job, move job)
+            status <- "Converting FBX in the background. The current take remains active until the new animation is verified."
+            status_file <- null
+            touch()
+
+        def poll_fbx_import_worker() -> void can[Threads, Ui.Window, Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
+            if fbx_import_task is active_task:
+                fbx_import_task <- null
+                readiness: ThreadReadiness[StudioFbxImportWorker::Result] = poll_ready(move active_task)
+                if not readiness.complete:
+                    fbx_import_task <- move readiness.thread
+                    UiCore::request_frame_after(0.01)
+                    return
+                match join(move readiness.thread):
+                    StudioFbxImportWorker::Result{ticket: completed_ticket, status: completed_status, source: completed_source, destination: completed_destination, source_sha256: completed_digest, runtime_sha256: completed_runtime_digest, memo: completed_memo}:
+                        source_matches: bool = import_source_matches(completed_source)
+                        destination_valid: bool = StudioFbxImportPolicy::terminated(
+                            &completed_destination, StudioFbxImportPolicy::Limit::PATH_BYTES)
+                        digests_valid: bool = StudioTakeSourceRefPolicy::sha256_valid(&completed_digest) and StudioTakeSourceRefPolicy::sha256_valid(&completed_runtime_digest)
+                        mutable publish: bool = StudioFbxImportPolicy::may_commit(
+                            completed_ticket, fbx_import_ticket, fbx_import_cancelled,
+                            completed_status, completed_memo != null,
+                            source_matches, destination_valid, digests_valid)
+                        publish <- publish and not fbx_import_close_pending
+                        if publish and completed_memo is loaded_memo:
+                            installed_path: bool = copy_import_path(&fbx_pending_runtime_path_bytes, completed_destination)
+                            digest_saved: bool = copy_import_digest(&fbx_pending_source_sha256, completed_digest)
+                            runtime_digest_saved: bool = copy_import_digest(&fbx_pending_runtime_sha256, completed_runtime_digest)
+                            if installed_path and digest_saved and runtime_digest_saved:
+                                fbx_pending_runtime_path_valid <- true
+                                fbx_pending_memo <- move loaded_memo
+                                prior_take: i64 = take_serial
+                                load_take_now((&fbx_import_source_bytes[0]).cast[cstr])
+                                if prior_take == take_serial:
+                                    fbx_pending_memo <- null
+                                    fbx_pending_runtime_path_valid <- false
+                                    for index in 0..<64 |index|:
+                                        fbx_pending_source_sha256[index] <- 0
+                                        fbx_pending_runtime_sha256[index] <- 0
+                            else:
+                                fbx_pending_runtime_path_valid <- false
+                                status <- "FBX result could not be retained safely. The current take is unchanged."
+                                status_file <- null
+                        elif not fbx_import_close_pending:
+                            mutable failure: sview = "FBX conversion failed or contained no usable animation. The current take is unchanged. Choose another GLB or FBX."
+                            failure <- "The FBX source changed during conversion, so its result was discarded. The current take is unchanged." if completed_status == StudioFbxImportWorker::Status.SourceChanged.i64()
+                            failure <- "Studio could not verify the FBX source or derived file after conversion. The current take is unchanged." if completed_status == StudioFbxImportWorker::Status.DigestUnavailable.i64()
+                            failure <- "The converted FBX contains no usable animation. The current take is unchanged." if completed_status == StudioFbxImportWorker::Status.UnreadableAnimation.i64()
+                            status <- failure
+                            status_file <- (&fbx_import_source_bytes[0]).cast[cstr]
+                fbx_import_source_length <- 0
+                fbx_import_cancelled <- false
+                touch()
+                if fbx_import_close_pending:
+                    request_window_close()
+            elif fbx_import_close_pending and not fbx_import_start_pending:
+                request_window_close()
+
+        def commit_take_runtime_path(original_path: cstr, imported_fbx: bool) -> bool can Unsafe.PointerCast:
+            if imported_fbx:
+                return false if not fbx_pending_runtime_path_valid
+                for index in 0..<FbxImportLimit::PATH_BYTES |index|:
+                    fbx_runtime_path_bytes[index] <- fbx_pending_runtime_path_bytes[index]
+                    fbx_pending_runtime_path_bytes[index] <- 0
+                for index in 0..<64 |index|:
+                    fbx_import_source_sha256[index] <- fbx_pending_source_sha256[index]
+                    fbx_pending_source_sha256[index] <- 0
+                    fbx_import_runtime_sha256[index] <- fbx_pending_runtime_sha256[index]
+                    fbx_pending_runtime_sha256[index] <- 0
+                fbx_import_source_sha256_valid <- true
+                fbx_pending_runtime_path_valid <- false
+                fbx_runtime_path_valid <- true
+                return true
+            for index in 0..<64 |index|:
+                fbx_import_source_sha256[index] <- 0
+                fbx_import_runtime_sha256[index] <- 0
+            fbx_import_source_sha256_valid <- false
+            mutable index: usize = 0
+            while index < FbxImportLimit::PATH_BYTES:
+                value: u8 = original_path[index]
+                fbx_runtime_path_bytes[index] <- value
+                if value == 0:
+                    fbx_runtime_path_valid <- true
+                    return index > 0
+                index <- index + 1
+            false
+
+        def runtime_take_path(original_path: cstr) -> cstr can Unsafe.PointerCast:
+            return (&fbx_runtime_path_bytes[0]).cast[cstr] if fbx_runtime_path_valid
+            original_path
+
+    public:
+        def fbx_import_active() -> bool:
+            fbx_import_task != null or fbx_import_start_pending
+
+        # Reopening a memo after cache eviction must load the derived runtime
+        # GLB and restore the captured source reference before rebuilding.
+        def load_current_take_memo() -> StudioModel::Memo? can[Unsafe.PointerCast, Memory.Allocate, Memory.Release, Blocking.IO]:
+            mutable loaded: StudioModel::Memo? = StudioModel::load(runtime_take_path(path), anim_name)
+            if loaded is memo_value and fbx_import_source_sha256_valid:
+                mutable original: darray[u8] = cstr_path_bytes(path)
+                mutable runtime: darray[u8] = cstr_path_bytes(runtime_take_path(path))
+                mutable source_digest: darray[u8] = []
+                mutable runtime_digest: darray[u8] = []
+                for index in 0..<64 |index, source_digest, runtime_digest|:
+                    source_digest.push(fbx_import_source_sha256[index])
+                    runtime_digest.push(fbx_import_runtime_sha256[index])
+                reference_result: StudioFbxImportReference::Result = StudioFbxImportReference::make(&original, &runtime, &source_digest, &runtime_digest, StudioFbxImportPolicy::Limit::DEFAULT_RATE)
+                if reference_result.value is reference:
+                    mutable owned: StudioModel::Memo = move memo_value
+                    if StudioModel::attach_source_reference(&owned, reference):
+                        loaded <- move owned
+                    else:
+                        loaded <- null
+                else:
+                    loaded <- null
+            return move loaded
+
+        def copy_loaded_fbx_source_sha256(output: mutable u8[64]&) -> bool:
+            return false if not fbx_import_source_sha256_valid
+            for index in 0..<64 |index, output|:
+                output[index] <- fbx_import_source_sha256[index]
+            true
+
+        def copy_loaded_fbx_runtime_sha256(output: mutable u8[64]&) -> bool:
+            return false if not fbx_import_source_sha256_valid
+            for index in 0..<64 |index, output|:
+                output[index] <- fbx_import_runtime_sha256[index]
+            true

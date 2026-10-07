@@ -40,6 +40,11 @@ extend Studio:
                 request_export(chosen, true)
 
         def dispatch_file_action(action: i64) -> void:
+            if action == StudioFilePolicy::Command.WORKSPACE.i64() and fbx_import_active():
+                status <- "Wait for the FBX import to finish before changing its workspace. The current take remains available."
+                status_file <- null
+                touch()
+                return
             if not workspace_available() and ((action >= StudioFilePolicy::Command.OPEN_SESSION.i64() and action <= StudioFilePolicy::Command.EXPORT_AS.i64()) or action == StudioFilePolicy::Command.OPEN_STORAGE.i64()):
                 status <- "Choose a writable workspace before using Storage, session or export files."
                 status_file <- null
@@ -185,8 +190,15 @@ extend Studio:
             touch()
             if kind == Replacement.Take.i64():
                 pending_session_ready <- false
+                pending_located_memo <- null
                 clear_pending_session_annotations()
-                load_take_now(p)
+                if fbx_path(p):
+                    if not schedule_fbx_import(p):
+                        status <- "Choose a ready workspace before importing an FBX character. The current take is unchanged."
+                        status_file <- p
+                        touch()
+                else:
+                    load_take_now(p)
                 pending_take_path <- ""
             elif kind == Replacement.Session.i64():
                 if pending_located_memo != null:
@@ -210,6 +222,11 @@ extend Studio:
 
         def request_replacement(p: cstr, kind: i64, allow_legacy: bool) -> void can Unsafe.PointerCast:
             return if kind != Replacement.Take.i64() and kind != Replacement.Session.i64()
+            if fbx_import_active():
+                status <- "Wait for the current FBX import to finish before replacing the take. The current take remains available."
+                status_file <- null
+                touch()
+                return
             cancel_export_result() if export_result_open
             cancel_export_review() if export_review_open
             if replacement_prompt_open or legacy_prompt_open:
@@ -322,6 +339,15 @@ extend Studio:
             if close_authorized:
                 close_authorized <- false
                 return
+            if fbx_import_active():
+                fbx_import_cancelled <- true
+                fbx_import_close_pending <- true
+                fbx_import_close_termination <- UiAppKitCanvas::is_termination_request()
+                UiAppKitCanvas::veto_close()
+                status <- "FBX import is finishing before close. The result will be discarded and the close prompt will resume."
+                status_file <- null
+                touch()
+                return
             if session_locate_worker != null:
                 session_locate_worker_cancelled <- true
                 session_locate_close_pending <- true
@@ -351,9 +377,12 @@ extend Studio:
                 touch()
             resuming_worker_close: bool = contact_preview_close_pending
             resuming_locate_close: bool = session_locate_close_pending
-            requested_termination: bool = session_locate_close_termination if resuming_locate_close else (contact_preview_close_termination if resuming_worker_close else UiAppKitCanvas::is_termination_request())
+            resuming_fbx_close: bool = fbx_import_close_pending
+            requested_termination: bool = fbx_import_close_termination if resuming_fbx_close else (session_locate_close_termination if resuming_locate_close else (contact_preview_close_termination if resuming_worker_close else UiAppKitCanvas::is_termination_request()))
             contact_preview_close_pending <- false
             session_locate_close_pending <- false
+            fbx_import_close_pending <- false
+            fbx_import_close_termination <- false
             if legacy_prompt_open:
                 legacy_prompt_open <- false
                 pending_replacement <- 0
@@ -396,7 +425,7 @@ extend Studio:
                 help_open <- false
                 UiAppKitCanvas::veto_close()
                 touch()
-            elif resuming_worker_close or resuming_locate_close:
+            elif resuming_worker_close or resuming_locate_close or resuming_fbx_close:
                 replacement_is_termination <- requested_termination
                 finish_close()
 
@@ -417,7 +446,7 @@ extend Studio:
                 resolve_replacement(replacement_action_for_focus())
 
         def open_take() -> void:
-            if FilePanel::open("glb", "Open a motion-capture take") is chosen:
+            if FilePanel::open("glb;fbx", "Open a motion-capture take or FBX character") is chosen:
                 load_take(chosen)
 
         # Swap in another take. The file is read first; if it holds no
@@ -445,13 +474,21 @@ extend Studio:
                 return
             candidate_path: cstr = stored_path(candidate_slot)
             mutable fresh: StudioModel::Memo? = null
-            if pending_located_memo is located:
+            imported_fbx: bool = fbx_pending_memo != null
+            if fbx_pending_memo is fbx:
+                fresh <- move fbx
+                fbx_pending_memo <- null
+            elif pending_located_memo is located:
                 fresh <- move located
                 pending_located_memo <- null
             else:
                 fresh <- StudioModel::load(candidate_path, anim_name)
             if fresh == null:
                 say_file("no animation could be read from", candidate_path)
+                touch()
+                return
+            if not commit_take_runtime_path(candidate_path, imported_fbx):
+                say_file("the verified runtime take path could not be retained; current take remains available", candidate_path)
                 touch()
                 return
             path_slot <- candidate_slot
@@ -473,9 +510,10 @@ extend Studio:
             skinned_frame <- -1
             skinned_revision <- -1
             mesh <- null
+            fbx_runtime_path_valid <- true
             take_serial <- GenerationPolicy::advance(take_serial)
             if path_slot >= 0:
-                loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(path):
+                loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(runtime_take_path(path)):
                     value: value
                     error failure: GlbSkinMesh::empty()
                 if GlbSkinMesh::vertex_count(&loaded) > 0:
