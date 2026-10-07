@@ -9,14 +9,26 @@ module StudioFbxImportNative:
             PATH_BYTES: usize = 4096
             DIGEST_BYTES: usize = 65
 
-        @link_name("elisa_fbx_to_glb")
-        extern raw_convert(source: cstr, destination: cstr, rate: f64) -> i64 can Blocking.IO
-        @link_name("elisa_studio_fbx_stage")
-        extern raw_stage(root: cstr, source: cstr, snapshot: mutable u8&, destination: mutable u8&, digest: mutable u8&, capacity: u32) -> i64 can Blocking.IO
-        @link_name("elisa_studio_fbx_file_digest")
-        extern raw_digest(path: cstr, digest: mutable u8&, maximum: u64) -> i64 can Blocking.IO
-        @link_name("elisa_studio_fbx_cache_verify")
-        extern raw_verify_cache(root: cstr, runtime: cstr, source_digest: cstr, runtime_digest: cstr) -> i64 can Blocking.IO
+        @link_name("elisa_fbx_to_glb_bounded")
+        @callconv(c)
+        @bounds(source, source_length, destination, destination_length)
+        extern raw_convert(source: u8&, source_length: usize, destination: u8&, destination_length: usize, rate: f64) -> i64 requires source.len >= 2 and destination.len >= 2 and rate > 0.0 and rate <= 120.0 can Blocking.IO
+        @link_name("elisa_studio_fbx_stage_bounded")
+        @callconv(c)
+        @bounds(root, root_length, source, source_length, snapshot, snapshot_capacity, destination, destination_capacity, digest, digest_capacity)
+        extern raw_stage(root: u8&, root_length: usize, source: u8&, source_length: usize, snapshot: mutable u8&, snapshot_capacity: usize, destination: mutable u8&, destination_capacity: usize, digest: mutable u8&, digest_capacity: usize) -> i64 requires root.len >= 2 and source.len >= 2 and snapshot.len >= 4096 and destination.len >= 4096 and digest.len >= 65 can Blocking.IO
+        @link_name("elisa_studio_fbx_file_digest_bounded")
+        @callconv(c)
+        @bounds(path, path_length, digest, digest_capacity)
+        extern raw_digest(path: u8&, path_length: usize, digest: mutable u8&, digest_capacity: usize, maximum: u64) -> i64 requires path.len >= 2 and digest.len >= 65 and maximum >= 1 and maximum <= 536870912 can Blocking.IO
+        @link_name("elisa_studio_fbx_cache_verify_bounded")
+        @callconv(c)
+        @bounds(root, root_length, runtime, runtime_length, source_digest, source_digest_length, runtime_digest, runtime_digest_length)
+        extern raw_verify_cache(root: u8&, root_length: usize, runtime: u8&, runtime_length: usize, source_digest: u8&, source_digest_length: usize, runtime_digest: u8&, runtime_digest_length: usize) -> i64 requires root.len >= 2 and runtime.len >= 2 and source_digest.len == 65 and runtime_digest.len == 65 can Blocking.IO
+        @link_name("elisa_studio_fbx_options_digest_bounded")
+        @callconv(c)
+        @bounds(digest, digest_capacity)
+        extern raw_options(rate: i64, digest: mutable u8&, digest_capacity: usize) -> i64 requires rate >= 1 and rate <= 120 and digest.len >= 65
 
         def path_bytes[@r](bytes: u8[4096]&) -> darray[u8] @r:
             ensure result.count <= Limit::PATH_BYTES
@@ -46,7 +58,7 @@ module StudioFbxImportNative:
             status: i64
             bytes: darray[u8]
 
-        def stage[@r](root: darray[u8]&, source: darray[u8]&) -> StagingResult @r can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
+        def stage[@r](root: darray[u8]&, source: darray[u8]&) -> StagingResult @r can[Blocking.IO, Memory.Allocate, Unsafe.RawExtern]:
             mutable status: i64 = -100
             mutable snapshot: darray[u8] @r = []
             mutable destination: darray[u8] @r = []
@@ -55,8 +67,8 @@ module StudioFbxImportNative:
                 mutable snapshot_raw: u8[4096] = zeroed
                 mutable destination_raw: u8[4096] = zeroed
                 mutable digest_raw: u8[65] = zeroed
-                can Unsafe.PointerCast, Unsafe.RawExtern:
-                    status <- raw_stage((&root[0]).cast[cstr], (&source[0]).cast[cstr], &snapshot_raw[0], &destination_raw[0], &digest_raw[0], 4096.u32())
+                can Unsafe.RawExtern:
+                    status <- raw_stage(root[0:root.count], source[0:source.count], snapshot_raw[0:4096], destination_raw[0:4096], digest_raw[0:65])
                 if status == 0:
                     snapshot <- path_bytes(&snapshot_raw)
                     destination <- path_bytes(&destination_raw)
@@ -65,26 +77,26 @@ module StudioFbxImportNative:
             result: StagingResult = StagingResult{status: status, snapshot: move snapshot, destination: move destination, source_sha256: move digest}
             return move result
 
-        def convert(source: darray[u8]&, destination: darray[u8]&, rate: i64) -> i64 can[Blocking.IO, Unsafe.PointerCast, Unsafe.RawExtern]:
+        def convert(source: darray[u8]&, destination: darray[u8]&, rate: i64) -> i64 can[Blocking.IO, Unsafe.RawExtern]:
             return -100 if not StudioFbxImportPolicy::terminated(source, 4096) or not StudioFbxImportPolicy::terminated(destination, 4096)
             return -100 if not StudioFbxImportPolicy::rate_valid(rate) or StudioFbxImportPolicy::same_path(source, destination)
-            can Unsafe.PointerCast, Unsafe.RawExtern:
-                return raw_convert((&source[0]).cast[cstr], (&destination[0]).cast[cstr], rate.f64())
+            can Unsafe.RawExtern:
+                return raw_convert(source[0:source.count], destination[0:destination.count], rate.f64())
 
-        def digest[@r](path: darray[u8]&) -> DigestResult @r can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
+        def digest[@r](path: darray[u8]&) -> DigestResult @r can[Blocking.IO, Memory.Allocate, Unsafe.RawExtern]:
             mutable status: i64 = -100
             mutable bytes: darray[u8] @r = []
             if StudioFbxImportPolicy::terminated(path, 4096):
                 mutable raw: u8[65] = zeroed
-                can Unsafe.PointerCast, Unsafe.RawExtern:
-                    status <- raw_digest((&path[0]).cast[cstr], &raw[0], Limit::MAX_FILE_BYTES)
+                can Unsafe.RawExtern:
+                    status <- raw_digest(path[0:path.count], raw[0:65], Limit::MAX_FILE_BYTES)
                 if status == 0:
                     bytes <- digest_bytes(&raw)
                     status <- -100 if not StudioTakeSourceRefPolicy::sha256_valid(&bytes)
             result: DigestResult = DigestResult{status: status, bytes: move bytes}
             return move result
 
-        def verify_cache(root: darray[u8]&, runtime: darray[u8]&, source_digest: darray[u8]&, runtime_digest: darray[u8]&) -> i64 can[Blocking.IO, Unsafe.PointerCast, Unsafe.RawExtern]:
+        def verify_cache(root: darray[u8]&, runtime: darray[u8]&, source_digest: darray[u8]&, runtime_digest: darray[u8]&) -> i64 can[Blocking.IO, Unsafe.RawExtern]:
             return -100 if not StudioFbxImportPolicy::terminated(root, 4096) or not StudioFbxImportPolicy::terminated(runtime, 4096)
             return -100 if not StudioTakeSourceRefPolicy::sha256_valid(source_digest) or not StudioTakeSourceRefPolicy::sha256_valid(runtime_digest)
             mutable source_raw: u8[65] = zeroed
@@ -92,5 +104,18 @@ module StudioFbxImportNative:
             for index in 0..<64 |index, source_raw, runtime_raw, source_digest, runtime_digest|:
                 source_raw[index] <- source_digest[index]
                 runtime_raw[index] <- runtime_digest[index]
-            can Unsafe.PointerCast, Unsafe.RawExtern:
-                return raw_verify_cache((&root[0]).cast[cstr], (&runtime[0]).cast[cstr], (&source_raw[0]).cast[cstr], (&runtime_raw[0]).cast[cstr])
+            can Unsafe.RawExtern:
+                return raw_verify_cache(root[0:root.count], runtime[0:runtime.count], source_raw[0:65], runtime_raw[0:65])
+
+        def options[@r](rate: i64) -> DigestResult @r can[Memory.Allocate, Unsafe.RawExtern]:
+            mutable status: i64 = -100
+            mutable bytes: darray[u8] @r = []
+            if StudioFbxImportPolicy::rate_valid(rate):
+                mutable raw: u8[65] = zeroed
+                can Unsafe.RawExtern:
+                    status <- raw_options(rate, raw[0:65])
+                if status == 0:
+                    bytes <- digest_bytes(&raw)
+                    status <- -100 if not StudioTakeSourceRefPolicy::sha256_valid(&bytes)
+            result: DigestResult = DigestResult{status: status, bytes: move bytes}
+            return move result
