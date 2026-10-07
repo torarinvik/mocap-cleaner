@@ -2,32 +2,34 @@ include "../src/studio/export_batch_destination_path_line_model.elisa"
 
 module StudioExportBatchDestinationPathLineLaws:
     private:
-        def ascii_path(length: usize) -> darray[u8] can Memory.Allocate:
-            mutable path: darray[u8] = []
+        def fill_ascii[N: usize](path: mutable u8[N]&, length: usize) -> void:
             for index in 0..<length |index, path|:
-                path.push((65 + index % 26).u8())
-            path
+                path[index] <- (65 + index % 26).u8()
 
-        def byte_count_width(path: darray[u8]&, start: usize, count: usize) -> f32:
-            count.f32()
+        def byte_count_width[N: usize](path: u8[N]&, start: usize, count: usize) -> StudioExportBatchDestinationPathLineModel::WidthMeasurement:
+            StudioExportBatchDestinationPathLineModel::WidthMeasurement{available: true, width: count.f32()}
 
-        def negative_width(path: darray[u8]&, start: usize, count: usize) -> f32:
-            -1.0
+        def negative_width[N: usize](path: u8[N]&, start: usize, count: usize) -> StudioExportBatchDestinationPathLineModel::WidthMeasurement:
+            StudioExportBatchDestinationPathLineModel::WidthMeasurement{available: true, width: -1.0}
 
-        def nan_width(path: darray[u8]&, start: usize, count: usize) -> f32:
+        def nan_width[N: usize](path: u8[N]&, start: usize, count: usize) -> StudioExportBatchDestinationPathLineModel::WidthMeasurement:
             zero: f32 = 0.0
-            zero / zero
+            StudioExportBatchDestinationPathLineModel::WidthMeasurement{available: true, width: zero / zero}
 
-        def infinite_width(path: darray[u8]&, start: usize, count: usize) -> f32:
+        def infinite_width[N: usize](path: u8[N]&, start: usize, count: usize) -> StudioExportBatchDestinationPathLineModel::WidthMeasurement:
             zero: f32 = 0.0
-            1.0 / zero
+            StudioExportBatchDestinationPathLineModel::WidthMeasurement{available: true, width: 1.0 / zero}
 
     public:
         def packing_retains_original_extent(path: darray[u8]&, units: darray[StudioExportBatchDestinationPathLineModel::Unit]&, width: f32) -> bool can Memory.Allocate:
             requires path.count <= StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES
             ensure result
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, width, 0.0, 0.0, byte_count_width)
-            model.path_length == path.count
+            mutable fixed_path: u8[StudioExportBatchDestinationPathLineModel::Limit::MAX_PATH_BYTES] = zeroed
+            for index in 0..<path.count |index, path, fixed_path|:
+                fixed_path[index] <- path[index]
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(fixed_path, path.count, units, width, 0.0, 0.0, byte_count_width, model)
+            pack_status == model.status and model.path_length == path.count
 
         def ready_model_requires_display_width(model: StudioExportBatchDestinationPathLineModel::Model&) -> bool:
             requires model.status == StudioExportBatchDestinationPathLineModel::Status.Ready
@@ -54,90 +56,110 @@ module StudioExportBatchDestinationPathLineLaws:
 
         def exact_ranges_retain_every_byte() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(4)
+            mutable path: u8[4] = zeroed
+            fill_ascii(path, 4)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 2, split_grapheme: false})
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 2, byte_count: 2, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 8.0, 1.0, 1.0, byte_count_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 4, units, 8.0, 1.0, 1.0, byte_count_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.status == StudioExportBatchDestinationPathLineModel::Status.Ready and model.segments.count == 1 and model.segments[0].start == 0 and model.segments[0].byte_count == 4
 
         def measured_width_splits_before_exceeding_budget() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(3)
+            mutable path: u8[3] = zeroed
+            fill_ascii(path, 3)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             for index in 0..<3 |index, units|:
                 units.push(StudioExportBatchDestinationPathLineModel::Unit{start: index, byte_count: 1, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 4.0, 1.0, 0.0, byte_count_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 3, units, 4.0, 1.0, 0.0, byte_count_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 2 and model.segments[0].measured_width == 2.0 and model.segments[1].measured_width == 1.0
 
         def byte_cap_splits_only_between_supplied_units() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(130)
+            mutable path: u8[130] = zeroed
+            fill_ascii(path, 130)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 128, split_grapheme: false})
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 128, byte_count: 2, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 512.0, 0.0, 0.0, byte_count_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 130, units, 512.0, 0.0, 0.0, byte_count_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 2 and model.segments[0].byte_count == 128 and model.segments[1].byte_count == 2
 
         def overwide_unit_is_preserved_and_marked() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(1)
+            mutable path: u8[1] = zeroed
+            fill_ascii(path, 1)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 1, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 3.0, 1.0, 0.5, byte_count_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 1, units, 3.0, 1.0, 0.5, byte_count_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 1 and model.segments[0].byte_count == 1 and model.segments[0].overflowed
 
         def oversized_grapheme_fallback_is_explicit_and_complete() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(4)
+            mutable path: u8[4] = zeroed
+            fill_ascii(path, 4)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 2, split_grapheme: true})
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 2, byte_count: 2, split_grapheme: true})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 20.0, 1.0, 1.0, byte_count_width)
-            StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 1 and model.segments[0].byte_count == path.count and model.segments[0].split_grapheme
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 4, units, 20.0, 1.0, 1.0, byte_count_width, model)
+            StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 1 and model.segments[0].byte_count == 4 and model.segments[0].split_grapheme
 
         def unavailable_measurement_keeps_source_range() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(1)
+            mutable path: u8[1] = zeroed
+            fill_ascii(path, 1)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 1, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 20.0, 1.0, 1.0, negative_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 1, units, 20.0, 1.0, 1.0, negative_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 1 and model.segments[0].start == 0 and model.segments[0].byte_count == 1 and model.segments[0].overflowed and model.segments[0].measurement_unavailable
 
         def nan_measurement_keeps_source_range() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(1)
+            mutable path: u8[1] = zeroed
+            fill_ascii(path, 1)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 1, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 20.0, 1.0, 1.0, nan_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 1, units, 20.0, 1.0, 1.0, nan_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 1 and model.segments[0].byte_count == 1 and model.segments[0].measurement_unavailable
 
         def infinite_measurement_keeps_source_range() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(1)
+            mutable path: u8[1] = zeroed
+            fill_ascii(path, 1)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 1, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 20.0, 1.0, 1.0, infinite_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 1, units, 20.0, 1.0, 1.0, infinite_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.segments.count == 1 and model.segments[0].byte_count == 1 and model.segments[0].measurement_unavailable
 
         def infinite_geometry_refuses_with_valid_empty_model() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(1)
+            mutable path: u8[1] = zeroed
+            fill_ascii(path, 1)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 1, split_grapheme: false})
             zero: f32 = 0.0
             infinity: f32 = 1.0 / zero
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, infinity, 1.0, 1.0, byte_count_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 1, units, infinity, 1.0, 1.0, byte_count_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.status == StudioExportBatchDestinationPathLineModel::Status.InvalidInput and model.segments.count == 0
 
         def nan_geometry_refuses_with_valid_empty_model() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(1)
+            mutable path: u8[1] = zeroed
+            fill_ascii(path, 1)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 0, byte_count: 1, split_grapheme: false})
             zero: f32 = 0.0
             nan: f32 = zero / zero
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, nan, 1.0, 1.0, byte_count_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 1, units, nan, 1.0, 1.0, byte_count_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.status == StudioExportBatchDestinationPathLineModel::Status.InvalidInput and model.segments.count == 0
 
         def nan_width_is_rejected_by_model_invariant() -> bool:
@@ -149,8 +171,10 @@ module StudioExportBatchDestinationPathLineLaws:
 
         def invalid_unit_coverage_refuses_without_ranges() -> bool can Memory.Allocate:
             ensure result
-            path: darray[u8] = ascii_path(2)
+            mutable path: u8[2] = zeroed
+            fill_ascii(path, 2)
             mutable units: darray[StudioExportBatchDestinationPathLineModel::Unit] = []
             units.push(StudioExportBatchDestinationPathLineModel::Unit{start: 1, byte_count: 1, split_grapheme: false})
-            model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::pack(path, units, 20.0, 1.0, 1.0, byte_count_width)
+            mutable model: StudioExportBatchDestinationPathLineModel::Model = StudioExportBatchDestinationPathLineModel::Model{status: StudioExportBatchDestinationPathLineModel::Status.Empty, path_length: 0, available_width: 0.0, segments: []}
+            pack_status: StudioExportBatchDestinationPathLineModel::Status = StudioExportBatchDestinationPathLineModel::pack(path, 2, units, 20.0, 1.0, 1.0, byte_count_width, model)
             StudioExportBatchDestinationPathLineModel::valid(model) and model.status == StudioExportBatchDestinationPathLineModel::Status.InvalidInput and model.segments.count == 0
