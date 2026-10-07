@@ -26,3 +26,30 @@ gaps. The probe established a disequality for different tags in `Outer::Status` 
 same-valued aliases in sibling `Other::Status`. The false disequality for same-valued aliases
 remained unproved. This does not qualify the default proof binary: broader function contracts
 still have unsupported proposition cases, and the non-comparison return-goal refusal remains.
+
+## Reverse disequality orientation — 2026-10-07
+
+The existing publication durability law exposed a producer gap: source-derived const-enum facts
+contained `NotPublished != PublishedDurabilityUnknown`, while the contract asked for the reverse
+comparison. The replay validator already re-derived both member owners and literal tag values in
+either orientation; the producer had emitted only the declaration-order orientation. Commit
+`897798bfafaaab5a3b02fab30f24bddca8dc3fbf` now emits the reverse `!=` fact only when the exact
+const-enum literal tags differ. Equal-valued aliases still produce equality only, and implicit or
+expression-valued tags remain unsupported.
+
+The clean paired generation
+`../elisa-proof-mocap/build/elisa-proof-generations/8147b64172c74ca5b5f92ba3eb065033`
+passes `verify_product_pair.py check-current` and
+`scripts/check_prover_freshness.py`. Both products use proof source commit `897798bf`, clean
+source snapshot SHA-256 `2a049e295cf566eefd0ce1383c7293083f2b3e13a1f73956a3b59f7c8560fe71`,
+compiler source `bb1f4095e350aa8dcb232a0e56b53c684b44ce2f` (binary SHA-256
+`203009661b41a4aed677487848d300b7232d0801f76fa19a65222309ffe039a7`), and explicit runtime
+SHA-256 `02d868eb68739e517830684eb89bb820bec16f8d07f92ff7bbacee35ef188cb6`.
+
+On the unchanged `proof/studio_publication_durability_laws.elisa` source (SHA-256
+`2646cfd05483b9d8834a4aa3a2cb2308dfbd591a07a90c7a4463fa426f927afe`), the producer now reports
+17/17 obligations proven, zero findings and zero replay gaps. The independent replay binary
+replays all 17/17 packaged theorems. The report has one non-error semantic diagnostic. The
+package remains adapter-bound: `source_authenticated` is false, so this evidence qualifies
+producer and certificate replay for the law source but does not establish source authentication
+or source-to-obligation correspondence.
