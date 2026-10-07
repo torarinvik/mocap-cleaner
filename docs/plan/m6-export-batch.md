@@ -276,6 +276,22 @@ qualifies the integrated application or native workflow.
       selected-item path inspection and explicit abbreviated-preview markers.
       Keep queue identities and review authority private. Inspect all three exact
       destinations when publication is partial or durability is uncertain.
+- [ ] Integrate the retained destination inspector as the foremost modal:
+      capture the selected item's four owned paths once, retain the selection,
+      queue revision and attempt, and reject stale item context before showing
+      another item's locations. Inspection grants no publication or approval
+      authority. Route pointer, keyboard and native actions through the same
+      typed controls. Escape and Done restore the sheet's selected-row focus;
+      close the inspector when its sheet closes or its bound item disappears.
+      Clear borrowed views before replacing or releasing their owned paths.
+      Show source, GLB, JSON report and text report as named choices; distinguish
+      selected location and page position visibly and through accessibility.
+      Paginate complete valid UTF-8 paths without splitting scalars, dropping
+      bytes or silently clipping. Qualify exact reconstruction across pages for
+      maximum-length paths, multibyte boundaries and singleton pages. Preview
+      ellipses must never be presented as complete paths. Qualify node IDs
+      100–113 against the full native tree, text capacities and widget exhaustion;
+      source-level range checks alone do not establish native usability.
 - [ ] Inspect glyph widths, Unicode report paging, long paths/status messages and
       minimum window size. Make every report segment readable without silent
       clipping; preserve explicit refusal for invalid or oversized reports.
