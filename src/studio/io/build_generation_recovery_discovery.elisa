@@ -1,0 +1,62 @@
+include "../state/generation_operation_identity_policy.elisa"
+include "../state/generation_recovery_ledger_policy.elisa"
+
+module StudioBuildGenerationRecoveryDiscovery:
+    public:
+        const module Limit:
+            ROWS: i64 = 512
+            STRIDE: usize = 39
+            BUFFER_BYTES: usize = 19968
+
+        const enum Outcome of i64:
+            Complete = 0
+            Overflow = 1
+            Refused = 2
+
+        struct Snapshot:
+            outcome: Outcome
+            operations: darray[darray[u8]]
+
+        def header_valid(status: i32, count: i64) -> bool:
+            ensure result == ((status == Outcome.Complete.i32() and count >= 0 and count <= Limit::ROWS) or ((status == Outcome.Overflow.i32() or status == Outcome.Refused.i32()) and count == 0))
+            (status == Outcome.Complete.i32() and count >= 0 and count <= Limit::ROWS) or ((status == Outcome.Overflow.i32() or status == Outcome.Refused.i32()) and count == 0)
+
+        def decode(status: i32, count: i64, buffer: u8[Limit::BUFFER_BYTES]&) -> Snapshot can Memory.Allocate:
+            return Snapshot{outcome: Outcome.Refused, operations: []} if not header_valid(status, count)
+            return Snapshot{outcome: Outcome.Overflow, operations: []} if status == Outcome.Overflow.i32()
+            return Snapshot{outcome: Outcome.Refused, operations: []} if status == Outcome.Refused.i32()
+            mutable operations: darray[darray[u8]] = []
+            for row in 0..<count |row, operations, buffer|:
+                start: usize = row.usize() * Limit::STRIDE
+                return Snapshot{outcome: Outcome.Refused, operations: []} if buffer[start + Limit::STRIDE - 1] != 0
+                mutable operation: darray[u8] = []
+                for offset in 0..<(Limit::STRIDE - 1) |offset, start, operation, buffer|:
+                    operation.push(buffer[start + offset])
+                return Snapshot{outcome: Outcome.Refused, operations: []} if not StudioGenerationOperationIdentityPolicy::valid(operation)
+                for previous in operations |previous, operation|:
+                    return Snapshot{outcome: Outcome.Refused, operations: []} if equal(previous, operation)
+                operations.push(operation)
+            Snapshot{outcome: Outcome.Complete, operations: operations}
+
+        def scan(root: darray[u8]&) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            return Snapshot{outcome: Outcome.Refused, operations: []} if not StudioGenerationRecoveryLedgerPolicy::valid_bytes(root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES)
+            mutable path: darray[u8] = []
+            path.extend(root)
+            path.push(0)
+            mutable buffer: u8[Limit::BUFFER_BYTES] = zeroed
+            mutable count: i64 = 0
+            root_pointer: cstr = (&path[0]).cast[cstr]
+            buffer_pointer: mutable u8& = (&buffer[0]).cast[mutable u8&]
+            status: i32 = build_recovery_discover(root_pointer, buffer_pointer, Limit::BUFFER_BYTES.u32(), &count)
+            decode(status, count, buffer)
+
+    private:
+        def equal(left: darray[u8]&, right: darray[u8]&) -> bool:
+            return false if left.count != right.count
+            for index in 0..<left.count |index, left, right|:
+                return false if left[index] != right[index]
+            true
+
+@link_name("elisa_studio_build_recovery_discover")
+extern build_recovery_discover(root: cstr, buffer: mutable u8&, capacity: u32,
+    count: mutable i64&) -> i32 can Blocking.IO
