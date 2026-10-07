@@ -138,6 +138,11 @@ extend Studio:
         def pending_root() -> cstr can Unsafe.PointerCast:
             (&workspace_pending_bytes[0]).cast[cstr]
 
+        def workspace_blocked_message() -> sview:
+            return "Workspace changes are blocked because Storage lock release is uncertain. Restart Studio before changing workspace." if storage_release_uncertain
+            return "Finish the active Storage action before changing workspace." if storage_transaction_active or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
+            "Close the export review or result before changing workspace."
+
         def workspace_path_fits(path: cstr) -> bool can Unsafe.PointerCast:
             mutable length: usize = 0
             while length <= WorkspaceLimit::MAX_ROOT_BYTES and path[length] != 0:
@@ -197,12 +202,10 @@ extend Studio:
         # confirmation; this method never creates a directory implicitly.
         def locate_workspace_root() -> StudioWorkspaceRootPolicy::Decision can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             if workspace_operation_active():
-                status <- "Workspace change blocked by Storage or export state. Finish the active action; restart Studio if Storage lock release is uncertain."
+                status <- workspace_blocked_message()
                 status_file <- null
                 touch()
                 return StudioWorkspaceRootPolicy::Decision.UNWRITABLE
-            workspace_create_pending <- false
-            workspace_pending_bytes[0] <- 0
             mutable current: cstr? = null
             if workspace_ready:
                 current <- (&workspace_root_bytes[0]).cast[cstr]
@@ -222,9 +225,11 @@ extend Studio:
                     else:
                         status <- "Workspace could not be saved. The current document and workspace remain active."
                 elif decision == StudioWorkspaceRootPolicy::Decision.NEEDS_BUILD:
-                    workspace_create_pending <- workspace_path_fits(chosen) and copy_path_bytes(&workspace_pending_bytes, chosen)
-                    status <- "This workspace has no build folder. Choose Create build to continue." if workspace_create_pending
-                    status <- "Workspace path is too long. Choose another folder." if not workspace_create_pending
+                    if workspace_path_fits(chosen) and copy_path_bytes(&workspace_pending_bytes, chosen):
+                        workspace_create_pending <- true
+                        status <- "This workspace has no build folder. Choose Create build to continue."
+                    else:
+                        status <- "Workspace path is too long. Choose another folder. The previous workspace choice is retained."
                     status_file <- null
                 elif decision == StudioWorkspaceRootPolicy::Decision.UNWRITABLE:
                     status <- "Workspace build folder is not writable. Choose another workspace."
@@ -240,7 +245,7 @@ extend Studio:
         def create_workspace_build() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
             return false if not workspace_create_pending
             if workspace_operation_active():
-                status <- "Workspace setup blocked by Storage or export state. Finish the active action; restart Studio if Storage lock release is uncertain."
+                status <- workspace_blocked_message()
                 status_file <- null
                 touch()
                 return false

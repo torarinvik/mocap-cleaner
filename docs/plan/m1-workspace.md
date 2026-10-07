@@ -114,6 +114,10 @@ current detector before presenting an ignored finding as still applicable.
       uncertain lock release; three laws cover held, uncertain and idle states.
       Qualify lock-release failure followed by Locate workspace/Create build,
       verifying root preferences, lock paths and retained document are unchanged.
+      Locate cancellation and rejected replacement roots now retain an existing
+      Create build candidate. Qualify repeated chooser cancellation, oversized
+      replacement and later creation of the original pending root; inspect the
+      displayed path and ensure only the explicitly confirmed root is created.
 
 - [ ] Establish an explicit canonical workspace root with a writable `build/`
       directory. Persist its location separately from source/session contents;
