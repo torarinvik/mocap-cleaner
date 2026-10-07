@@ -90,6 +90,14 @@ depend on completion of the P1 queue UI.
   and match CLI/Studio results. Prove negative coordinates, sub-unit values,
   boundary values and round-trip error bounds. Requalify correction decisions
   around thresholds and document any intended precision change before rollout.
+  Split dimension-specific conversions before migrating callers: `Limb::micro`
+  currently converts both limb lengths for `Reach::limb_reach` and pole angles
+  for `Hinge::unwrap_step`. `RigPhysics` also uses it for heights, horizontal
+  coordinates, speeds, per-frame gravity, angular acceleration and quaternion
+  angle gaps. A global multiplier change would corrupt angular quantities.
+  Include Studio contact heights/speeds from `GlbTracks::to_fixed` in the caller
+  inventory. Assign each conversion its physical dimension and time basis;
+  preserve angular units while migrating lengths and length-derived quantities.
 - For metrics distinguish measured pass, measured failure, unknown and
   inapplicable. Include sample counts, intervals and exclusion reasons. A zero
   sample count, NaN, missing contact labels or unsupported metric is not zero
