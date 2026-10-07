@@ -112,6 +112,15 @@ Remaining work:
   semantics and ownership. O0 complete-graph LLVM generation succeeds for the
   earlier source-matched tuple; O2 remains unqualified. See
   [the isolated optimization evidence](../proof-gaps/studio-fixed-array-clone-cost.md).
+  The pending compiler return-snapshot repair is now `b0032613`; earlier
+  `756315f2`, `fa0aeb0e`, `84574b1e` and `972ac576` seed attempts failed
+  type/parser checks and supply no qualifying product. Capture large values at
+  their original evaluation point, keep contract `result` storage distinct,
+  and copy the captured bytes after cleanup. Qualify deferred mutation and
+  failing contracts at O0/O2 before full Studio optimization. The implementation
+  currently excludes error-function success out-parameters; audit that path
+  explicitly and preserve its return-value timing rather than inferring coverage
+  from non-error sret controls.
 - Finish the authorized diagnostic check without restarting on observation or
   per-file timeouts. Its drifting inputs cannot qualify current source; retain
   individual failures and obtain a fixed-snapshot current regression result.
