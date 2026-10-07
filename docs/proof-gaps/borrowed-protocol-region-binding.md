@@ -211,3 +211,15 @@ the record source `record.elisa` has SHA-256
 `424797792e20c4cc870b0a5386c519954d0723cdc625467c33e551e5e1d54f54`.
 Logs are `result.log` and `record.log`; no executable was run. This narrows the
 next repair, but does not qualify current products or the integrated compiler.
+
+An explicit-owner alternative, `shared-lifetime/explicit-owner.elisa`, declares
+the caller `inspect[@r](outer: Table& @r)` and allocates
+`local: darray[sview] @r = ["local"]`. The same b25 product accepts this call
+and emits an object with `-emit obj -o explicit-owner.o`; no executable was run.
+This allocates storage in the shared owner region instead of retagging a local
+borrow. Review allocator authority and retention costs before applying it to
+compiler metadata arrays: repeated analysis must not retain unbounded temporary
+storage. The compiler worker owns that decision and current-product checks.
+The first object attempt used unsupported `-c`; the next exposed implicit return
+handling. The retained source uses explicit returns and the final object command
+exits 0. These diagnostic corrections do not establish integrated acceptance.
