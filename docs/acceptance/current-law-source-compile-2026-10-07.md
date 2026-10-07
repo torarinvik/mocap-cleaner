@@ -88,3 +88,29 @@ These are compile-only records, without executable tests, authenticated proof
 or a copied transitive closure. Native creation journals and cleanup controller
 integration remain open. All earlier compiler batches above are comparison
 evidence relative to this compiler revision.
+
+## Latest performance compiler: 0fb79267
+
+Fetched upstream `96761822e6469efb929c5d50a804bb765f6bc3f7` contains the
+new performance work. Merge `0fb7926798d867f456ef15675611ed35476547b8`
+preserves project repairs in `../Elisa-compiler-m5-numeric-call-lowering`.
+Fresh optimized Stage1 and runtime builds completed successfully; provenance
+checks passed before and after the project compile below. Stage1 SHA-256 is
+`0e49ff4092572c8e9f81ee68d0443d0ac3d7e8209d709663e92ee4d578061fb0`;
+runtime SHA-256 remains
+`51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`.
+The first seed hit its 6 GiB RSS guard; the successful retry used a 10 GiB
+limit on the 24 GiB host, retaining O3 optimization. Logs are in the compiler's
+`build/latest-seed-20261007*.log`.
+
+The 21 creation-journal laws compiled at O0 after correcting their precondition
+keyword and multiline parentheses in `9dd3c12`: exit 0, 73,472-byte object,
+0.17 seconds wall time. This is not a comparative speed benchmark, executable
+test or authenticated proof. Source/product/object hashes and the platform
+recipe hash are in `build/latest-compiler-qualification/evidence.json`.
+
+Select this compiler with `ELISA_STAGE1=../Elisa-compiler-m5-numeric-call-lowering`.
+Both CLI build and check entry points now derive their default compiler wrapper
+from that selection (`fc593fd`); Studio already honors it. Earlier compiler
+results are comparison evidence. The current full app and paired prover must
+be rebuilt/qualified against this compiler before accepting those deliverables.
