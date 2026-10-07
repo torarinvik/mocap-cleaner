@@ -86,6 +86,8 @@ module SessionState:
             Source = 4
             Annotations = 5
             Impact = 6
+            TooLarge = 7
+            Close = 8
 
         struct SourceIdentity:
             first: i64
@@ -452,8 +454,12 @@ module SessionState:
             session_source_comparison <- null
             session_impact_invalid <- false
             mutable text: darray[u8] = []
-            if not OpsFile::read_bytes(path, &text):
-                session_load_error <- LoadError.Read.i64()
+            read_status: BoundedReadPolicy::Status = OpsFile::read_bytes_bounded(path, &text, BoundedReadPolicy::Capacity::DEFAULT_BYTES)
+            if read_status != BoundedReadPolicy::Status.Ok:
+                session_load_error <- LoadError.TooLarge.i64() if read_status == BoundedReadPolicy::Status.TooLarge
+                session_load_error <- LoadError.Close.i64() if read_status == BoundedReadPolicy::Status.CloseFailed
+                session_load_error <- LoadError.Read.i64() if read_status == BoundedReadPolicy::Status.OpenFailed or read_status == BoundedReadPolicy::Status.ReadFailed
+                session_load_error <- LoadError.Format.i64() if read_status == BoundedReadPolicy::Status.InvalidLimit
                 return null
             version: i64 = header_version(&text)
             if version == 0:

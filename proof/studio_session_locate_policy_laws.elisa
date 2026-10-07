@@ -2,10 +2,15 @@ include "../src/studio/session_locate_policy.elisa"
 
 module StudioSessionLocatePolicyLaws:
     public:
-        def exact_relocated_source_is_the_only_restore_route() -> bool:
+        def matching_metadata_requires_explicit_restore_choice() -> bool:
             ensure result
             identity: StudioSessionSourcePolicy::Comparison = StudioSessionSourcePolicy::Comparison.Matching
-            StudioSessionLocatePolicy::restore_admitted(true, true, identity) and not StudioSessionLocatePolicy::restore_admitted(true, false, identity)
+            StudioSessionLocatePolicy::restore_admitted(true, true, identity) and StudioSessionLocatePolicy::action_enabled(true, true, identity, StudioSessionLocatePolicy::Choice.RestoreSession) and StudioSessionLocatePolicy::resolve(true, true, true, identity, StudioSessionLocatePolicy::Choice.RestoreSession) == StudioSessionLocatePolicy::Resolution.RestoreReviewedSession and StudioSessionLocatePolicy::resolve(true, true, true, identity, StudioSessionLocatePolicy::Choice.Locate) == StudioSessionLocatePolicy::Resolution.LocateSource
+
+        def changed_source_never_enables_restore_review(comparison: StudioSessionSourcePolicy::Comparison) -> bool:
+            requires comparison == StudioSessionSourcePolicy::Comparison.ChangedBytes or comparison == StudioSessionSourcePolicy::Comparison.ChangedAnimation or comparison == StudioSessionSourcePolicy::Comparison.ChangedShape
+            ensure result
+            not StudioSessionLocatePolicy::restore_admitted(true, true, comparison) and not StudioSessionLocatePolicy::action_enabled(true, true, comparison, StudioSessionLocatePolicy::Choice.RestoreSession)
 
         def changed_bytes_never_restore_v4_edits() -> bool:
             ensure result
@@ -43,7 +48,7 @@ module StudioSessionLocatePolicyLaws:
             not StudioSessionLocatePolicy::action_enabled(true, false, comparison, StudioSessionLocatePolicy::Choice.OpenAsNewTake) and StudioSessionLocatePolicy::resolve(true, true, false, comparison, StudioSessionLocatePolicy::Choice.OpenAsNewTake) == StudioSessionLocatePolicy::Resolution.NoAction
 
         def closed_review_has_no_resolution(choice: StudioSessionLocatePolicy::Choice) -> bool:
-            requires choice == StudioSessionLocatePolicy::Choice.None or choice == StudioSessionLocatePolicy::Choice.Locate or choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake or choice == StudioSessionLocatePolicy::Choice.Cancel
+            requires choice == StudioSessionLocatePolicy::Choice.None or choice == StudioSessionLocatePolicy::Choice.Locate or choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake or choice == StudioSessionLocatePolicy::Choice.RestoreSession or choice == StudioSessionLocatePolicy::Choice.Cancel
             ensure result
             comparison: StudioSessionSourcePolicy::Comparison = StudioSessionSourcePolicy::Comparison.ChangedBytes
             StudioSessionLocatePolicy::resolve(false, true, true, comparison, choice) == StudioSessionLocatePolicy::Resolution.NoAction
@@ -52,3 +57,17 @@ module StudioSessionLocatePolicyLaws:
             ensure result
             comparison: StudioSessionSourcePolicy::Comparison = StudioSessionSourcePolicy::Comparison.ChangedBytes
             StudioSessionLocatePolicy::resolve(true, true, true, comparison, StudioSessionLocatePolicy::Choice.Cancel) == StudioSessionLocatePolicy::Resolution.Cancelled
+
+        def valid_saved_identity_admitted() -> bool:
+            ensure result
+            StudioSessionLocatePolicy::identity_valid(1, 7, 0, 1, 1)
+
+        def invalid_residues_rejected(first: i64, second: i64) -> bool:
+            requires first < 0 or first >= StudioSourceFingerprint::Residue::FIRST_MODULUS or second < 0 or second >= StudioSourceFingerprint::Residue::SECOND_MODULUS
+            ensure result
+            not StudioSessionLocatePolicy::identity_valid(first, second, 0, 1, 1)
+
+        def invalid_animation_or_shape_rejected(animation: i64, frames: i64, nodes: i64) -> bool:
+            requires animation < 0 or frames < 1 or frames > StudioChrome::Frame::MAX_FRAMES or nodes < 1 or nodes > StudioChrome::Correction::MAX_NODES
+            ensure result
+            not StudioSessionLocatePolicy::identity_valid(1, 7, animation, frames, nodes)

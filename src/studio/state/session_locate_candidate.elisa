@@ -1,0 +1,107 @@
+include "session_state.elisa"
+include "../session_locate_policy.elisa"
+
+extend SessionState:
+    public:
+        # Decode a v4 session against its own saved identity into a private
+        # pending candidate. This API never returns the stack; callers must
+        # present the located take's identity to take_located_candidate.
+        def inspect_locate_candidate(path: cstr) -> bool can[Blocking.IO, Memory.Allocate]:
+            SessionState::discard_locate_candidate()
+            session_load_error <- SessionState::LoadError.None.i64()
+            mutable text: darray[u8] = []
+            read_status: BoundedReadPolicy::Status = OpsFile::read_bytes_bounded(path, &text, BoundedReadPolicy::Capacity::DEFAULT_BYTES)
+            if read_status != BoundedReadPolicy::Status.Ok:
+                session_load_error <- SessionState::LoadError.TooLarge.i64() if read_status == BoundedReadPolicy::Status.TooLarge
+                session_load_error <- SessionState::LoadError.Close.i64() if read_status == BoundedReadPolicy::Status.CloseFailed
+                session_load_error <- SessionState::LoadError.Read.i64() if read_status == BoundedReadPolicy::Status.OpenFailed or read_status == BoundedReadPolicy::Status.ReadFailed
+                session_load_error <- SessionState::LoadError.Format.i64() if read_status == BoundedReadPolicy::Status.InvalidLimit
+                return false
+            if SessionState::header_version(&text) != StudioChrome::Session::VERSION:
+                session_load_error <- SessionState::LoadError.Format.i64()
+                return false
+            if SessionState::locate_identity_in_text(&text) is saved:
+                mutable annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
+                mutable impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                mutable impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = []
+                if SessionState::decode_session_with_reviews(&text, saved.frames, saved.nodes, saved, false, &annotations, &impact_state, &impact_annotations) is decoded:
+                    locate_candidate_stack <- decoded
+                    locate_candidate_identity_value <- saved
+                    locate_candidate_annotations <- move annotations
+                    locate_candidate_impact_state <- impact_state
+                    locate_candidate_impact_annotations <- move impact_annotations
+                    locate_candidate_open <- true
+                    return true
+            session_load_error <- SessionState::LoadError.Source.i64()
+            false
+
+        def locate_candidate_identity() -> SourceIdentity?:
+            return null if not locate_candidate_open
+            locate_candidate_identity_value
+
+        # Consumes the pending candidate only after complete v4 source identity
+        # metadata equality. Changed fingerprint residues, animation or shape
+        # leave it unavailable and never expose its indexed corrections.
+        def take_located_candidate(current: SourceIdentity,
+                annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&,
+                impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
+            if not SessionState::locate_candidate_source_matches(current):
+                return null
+            restored: StackState::Stack = locate_candidate_stack
+            annotations <- move locate_candidate_annotations
+            impact_state <- locate_candidate_impact_state
+            impact_annotations <- move locate_candidate_impact_annotations
+            SessionState::discard_locate_candidate()
+            restored
+
+        def discard_locate_candidate() -> void:
+            locate_candidate_open <- false
+            locate_candidate_identity_value <- null
+            locate_candidate_stack <- StackState::empty()
+            locate_candidate_annotations <- zeroed
+            locate_candidate_impact_state <- SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+            locate_candidate_impact_annotations <- zeroed
+
+    private:
+        global mutable locate_candidate_open: bool = false
+        global mutable locate_candidate_identity_value: SourceIdentity? = null
+        global mutable locate_candidate_stack: StackState::Stack = zeroed
+        global mutable locate_candidate_annotations: darray[SessionIssueAnnotationPolicy::Stored] = zeroed
+        global mutable locate_candidate_impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+        global mutable locate_candidate_impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = zeroed
+
+        def locate_candidate_source_matches(current: SourceIdentity) -> bool:
+            if locate_candidate_identity_value is saved:
+                StudioSessionSourcePolicy::compare(saved.first, saved.second, saved.animation, saved.frames, saved.nodes, current.first, current.second, current.animation, current.frames, current.nodes) == StudioSessionSourcePolicy::Comparison.Matching
+            else:
+                false
+
+        def locate_identity_in_text(text: darray[u8]&) -> SourceIdentity? can Memory.Allocate:
+            return null if SessionState::header_version(text) != StudioChrome::Session::VERSION
+            mutable line: darray[u8] = []
+            mutable fields: darray[i64] = []
+            mutable first_line: bool = true
+            mutable identity_count: i64 = 0
+            mutable malformed: bool = false
+            mutable identity: SourceIdentity? = null
+            mutable at: usize = 0
+            while at <= text.count:
+                if at < text.count and text[at] != 10:
+                    line.push(text[at])
+                    at <- at + 1
+                    continue
+                at <- at + 1
+                if first_line or line.count == 0 or line[0] == 35:
+                    first_line <- false
+                    line.clear()
+                    continue
+                if OpsFile::parse_fields(&line, &fields) and fields.count > 0 and fields[0] == SessionState::WireTag::IDENTITY:
+                    identity_count <- identity_count + 1
+                    if fields.count == 6 and StudioSessionLocatePolicy::identity_valid(fields[1], fields[2], fields[3], fields[4], fields[5]):
+                        identity <- SourceIdentity{first: fields[1], second: fields[2], animation: fields[3], frames: fields[4], nodes: fields[5]}
+                    else:
+                        malformed <- true
+                line.clear()
+            return null if malformed or identity_count != 1
+            identity

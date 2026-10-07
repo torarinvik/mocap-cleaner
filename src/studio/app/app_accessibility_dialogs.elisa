@@ -3,6 +3,51 @@ include "export_recovery_accessibility_text.elisa"
 
 extend Studio:
     private:
+        def publish_session_locate_accessibility(w: f32, h: f32) -> void:
+            return if not session_locate_open or not accessibility_session_locate_ready
+            none: usize = StudioAccessibility::SemanticId::NO_NODE
+            dialog: StudioPanels::Box = StudioPanels::session_locate_dialog_box(w, h)
+            candidate_valid: bool = SessionState::locate_candidate_identity() != null
+            mutable summary: sview = "Locate the original take before restoring this session."
+            if session_locate_source_valid:
+                summary <- "Saved fingerprint residues, animation and shape metadata match. Review Restore session before applying indexed edits." if session_locate_comparison == StudioSessionSourcePolicy::Comparison.Matching
+                summary <- "Saved fingerprint residues differ. Version 4 has no semantic bone map, so saved joint-index edits cannot be rebound." if session_locate_comparison == StudioSessionSourcePolicy::Comparison.ChangedBytes
+                summary <- "Selected animation differs from the saved session." if session_locate_comparison == StudioSessionSourcePolicy::Comparison.ChangedAnimation
+                summary <- "Selected frame or node count differs from the saved session." if session_locate_comparison == StudioSessionSourcePolicy::Comparison.ChangedShape
+            UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Dialog,
+                "Locate session source",
+                "Choose a GLB. Studio compares saved fingerprint residues, animation, frame count and node count. A metadata match requires explicit review before applying indexed edits. Escape cancels without changing the current cleanup.",
+                UiCore::Rect(dialog.x, dialog.y, dialog.w, dialog.h),
+                StudioSessionLocateAccessibilityPolicy::Node::DIALOG, none,
+                true, false, false, 0.0, summary, "", revision.usize(), 0, 0,
+                none, StudioSessionLocateAccessibilityPolicy::first_child_id(), none, 0.0, 1.0, false)
+            for choice in [StudioSessionLocatePolicy::Choice.Locate,
+                           StudioSessionLocatePolicy::Choice.RestoreSession,
+                           StudioSessionLocatePolicy::Choice.OpenAsNewTake,
+                           StudioSessionLocatePolicy::Choice.Cancel] |choice, w, h, candidate_valid, none|:
+                enabled: bool = StudioSessionLocatePolicy::action_enabled(candidate_valid,
+                    session_locate_source_valid, session_locate_comparison, choice)
+                widget: usize = accessibility_session_locate_widgets[(choice.i64() - 1).usize()]
+                UiFlat::set_enabled(widget, enabled)
+                b: StudioPanels::Box = StudioPanels::session_locate_button_box(w, h, choice)
+                mutable label: sview = "Locate another source" if choice == StudioSessionLocatePolicy::Choice.Locate
+                label <- "Restore reviewed session" if choice == StudioSessionLocatePolicy::Choice.RestoreSession
+                label <- "Open as new take" if choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake
+                label <- "Cancel" if choice == StudioSessionLocatePolicy::Choice.Cancel
+                mutable help_text: sview = "Choose a GLB and check its saved identity." if choice == StudioSessionLocatePolicy::Choice.Locate
+                help_text <- "Apply saved indexed edits after reviewing matching metadata. This comparison does not prove byte identity." if choice == StudioSessionLocatePolicy::Choice.RestoreSession
+                help_text <- "Open the selected source with a clean operation stack. Saved corrections will not be applied." if choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake
+                help_text <- "Close this review without changing the current take or session." if choice == StudioSessionLocatePolicy::Choice.Cancel
+                id: usize = StudioSessionLocateAccessibilityPolicy::choice_id(choice)
+                next: usize = StudioSessionLocateAccessibilityPolicy::next_sibling_id(id)
+                UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Button,
+                    label, help_text,
+                    UiCore::Rect(b.x, b.y, b.w, b.h), id, widget, enabled,
+                    (choice == StudioSessionLocatePolicy::Choice.Locate and session_locate_focus == StudioSessionLocatePolicy::Focus.Locate) or (choice == StudioSessionLocatePolicy::Choice.RestoreSession and session_locate_focus == StudioSessionLocatePolicy::Focus.RestoreSession) or (choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake and session_locate_focus == StudioSessionLocatePolicy::Focus.OpenAsNewTake) or (choice == StudioSessionLocatePolicy::Choice.Cancel and session_locate_focus == StudioSessionLocatePolicy::Focus.Cancel), false, 0.0,
+                    "Enabled" if enabled else "Unavailable for this source state", "",
+                    revision.usize(), 0, 0, StudioSessionLocateAccessibilityPolicy::Node::DIALOG,
+                    none, next, 0.0, 1.0, false)
+
         def publish_goto_accessibility(w: f32, h: f32) -> void:
             return if not goto_open or not accessibility_goto_ready
             none: usize = StudioAccessibility::SemanticId::NO_NODE

@@ -1,6 +1,8 @@
 include "session_source_policy.elisa"
+include "source_fingerprint.elisa"
+include "chrome.elisa"
 
-# Admission and choice rules for locating a v4 session's exact source take.
+# Admission and choice rules for locating a v4 session's source metadata.
 # V4 has no semantic rig mapping, so changed identities may only be opened as
 # a new take after explicit choice; saved indexed corrections are never used.
 module StudioSessionLocatePolicy:
@@ -8,19 +10,22 @@ module StudioSessionLocatePolicy:
         const enum Choice of i64:
             None = 0
             Locate = 1
-            OpenAsNewTake = 2
-            Cancel = 3
+            RestoreSession = 2
+            OpenAsNewTake = 3
+            Cancel = 4
 
         const enum Focus of i64:
             Locate = 0
-            OpenAsNewTake = 1
-            Cancel = 2
+            RestoreSession = 1
+            OpenAsNewTake = 2
+            Cancel = 3
 
         const enum Resolution of i64:
             NoAction = 0
             LocateSource = 1
             OpenTakeWithoutSession = 2
-            Cancelled = 3
+            RestoreReviewedSession = 3
+            Cancelled = 4
 
         def initial_focus() -> Focus:
             ensure result == Focus.Locate
@@ -31,13 +36,17 @@ module StudioSessionLocatePolicy:
             ensure result == (candidate_valid and source_valid and comparison == StudioSessionSourcePolicy::Comparison.Matching)
             candidate_valid and source_valid and comparison == StudioSessionSourcePolicy::Comparison.Matching
 
+        def identity_valid(first: i64, second: i64, animation: i64, frames: i64, nodes: i64) -> bool:
+            ensure result == (first >= 0 and first < StudioSourceFingerprint::Residue::FIRST_MODULUS and second >= 0 and second < StudioSourceFingerprint::Residue::SECOND_MODULUS and animation >= 0 and frames >= 1 and frames <= StudioChrome::Frame::MAX_FRAMES and nodes >= 1 and nodes <= StudioChrome::Correction::MAX_NODES)
+            first >= 0 and first < StudioSourceFingerprint::Residue::FIRST_MODULUS and second >= 0 and second < StudioSourceFingerprint::Residue::SECOND_MODULUS and animation >= 0 and frames >= 1 and frames <= StudioChrome::Frame::MAX_FRAMES and nodes >= 1 and nodes <= StudioChrome::Correction::MAX_NODES
+
         def action_enabled(candidate_valid: bool, source_valid: bool,
                 comparison: StudioSessionSourcePolicy::Comparison, choice: Choice) -> bool:
             return true if choice == Choice.Cancel
             return false if not candidate_valid
-            if not source_valid or comparison == StudioSessionSourcePolicy::Comparison.Matching:
-                return choice == Choice.Locate
-            choice == Choice.Locate or choice == Choice.OpenAsNewTake
+            return true if choice == Choice.Locate
+            return choice == Choice.OpenAsNewTake and source_valid
+            choice == Choice.RestoreSession and source_valid and comparison == StudioSessionSourcePolicy::Comparison.Matching
 
         def move_focus(focus: Focus, direction: i64, candidate_valid: bool,
                 source_valid: bool, comparison: StudioSessionSourcePolicy::Comparison) -> Focus:
@@ -48,24 +57,27 @@ module StudioSessionLocatePolicy:
             first: i64 = wrap_focus(current + direction)
             second: i64 = wrap_focus(first + direction)
             return Focus.Locate if first == Focus.Locate.i64() and action_enabled(candidate_valid, source_valid, comparison, Choice.Locate)
+            return Focus.RestoreSession if first == Focus.RestoreSession.i64() and action_enabled(candidate_valid, source_valid, comparison, Choice.RestoreSession)
             return Focus.OpenAsNewTake if first == Focus.OpenAsNewTake.i64() and action_enabled(candidate_valid, source_valid, comparison, Choice.OpenAsNewTake)
             return Focus.Cancel if first == Focus.Cancel.i64()
             return Focus.Locate if second == Focus.Locate.i64() and action_enabled(candidate_valid, source_valid, comparison, Choice.Locate)
+            return Focus.RestoreSession if second == Focus.RestoreSession.i64() and action_enabled(candidate_valid, source_valid, comparison, Choice.RestoreSession)
             return Focus.OpenAsNewTake if second == Focus.OpenAsNewTake.i64() and action_enabled(candidate_valid, source_valid, comparison, Choice.OpenAsNewTake)
             Focus.Cancel
 
         def wrap_focus(value: i64) -> i64:
             return Focus.Cancel.i64() if value < 0
-            Focus.Locate.i64() if value >= 3 else value
+            Focus.Locate.i64() if value >= 4 else value
 
         def resolve(opened: bool, candidate_valid: bool, source_valid: bool,
                 comparison: StudioSessionSourcePolicy::Comparison, choice: Choice) -> Resolution:
-            requires choice == Choice.None or choice == Choice.Locate or choice == Choice.OpenAsNewTake or choice == Choice.Cancel
+            requires choice == Choice.None or choice == Choice.Locate or choice == Choice.OpenAsNewTake or choice == Choice.RestoreSession or choice == Choice.Cancel
             ensure opened or result == Resolution.NoAction
-            ensure result != Resolution.OpenTakeWithoutSession or comparison != StudioSessionSourcePolicy::Comparison.Matching
+            ensure result != Resolution.RestoreReviewedSession or (source_valid and comparison == StudioSessionSourcePolicy::Comparison.Matching)
             ensure result != Resolution.LocateSource or candidate_valid
             ensure result == Resolution.NoAction or opened
             return Resolution.NoAction if not opened or not action_enabled(candidate_valid, source_valid, comparison, choice)
             return Resolution.LocateSource if choice == Choice.Locate
             return Resolution.OpenTakeWithoutSession if choice == Choice.OpenAsNewTake
+            return Resolution.RestoreReviewedSession if choice == Choice.RestoreSession
             Resolution.Cancelled

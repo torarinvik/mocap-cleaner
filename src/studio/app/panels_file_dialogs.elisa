@@ -1,5 +1,6 @@
 include "panels_geometry.elisa"
 include "../workspace_path_display_policy.elisa"
+include "../session_locate_policy.elisa"
 
 extend StudioPanels:
     public:
@@ -169,6 +170,66 @@ extend StudioPanels:
                 StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
                 label: sview = "Load legacy session" if index == StudioLegacyPrompt::Focus.Load.i64() else "Cancel"
                 StudioDraw::bold(b.x + 11.0, b.y + 11.0, 12.0, label, StudioDraw::ink())
+                StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
+
+    public:
+        def session_locate_dialog_box(w: f32, h: f32) -> Box:
+            box((w - 600.0) / 2.0, (h - 320.0) / 2.0, 600.0, 320.0)
+
+        def session_locate_button_box(w: f32, h: f32, choice: StudioSessionLocatePolicy::Choice) -> Box:
+            d: Box = session_locate_dialog_box(w, h)
+            slot: i64 = choice.i64() - 1
+            column: i64 = slot % 2
+            row: i64 = slot / 2
+            box(d.x + 20.0 + column.f32() * 284.0, d.y + 220.0 + row.f32() * 44.0, 268.0, 36.0)
+
+    public:
+        def session_locate_button_hit(w: f32, h: f32, px: f32, py: f32,
+                candidate_valid: bool, source_valid: bool,
+                comparison: StudioSessionSourcePolicy::Comparison) -> StudioSessionLocatePolicy::Choice:
+            for choice in [StudioSessionLocatePolicy::Choice.Locate,
+                           StudioSessionLocatePolicy::Choice.RestoreSession,
+                           StudioSessionLocatePolicy::Choice.OpenAsNewTake,
+                           StudioSessionLocatePolicy::Choice.Cancel] |choice, w, h, px, py, candidate_valid, source_valid, comparison|:
+                if StudioSessionLocatePolicy::action_enabled(candidate_valid, source_valid, comparison, choice) and inside(session_locate_button_box(w, h, choice), px, py):
+                    return choice
+            StudioSessionLocatePolicy::Choice.None
+
+        def session_locate_panel(w: f32, h: f32, opened: bool,
+                candidate_valid: bool, source_valid: bool,
+                comparison: StudioSessionSourcePolicy::Comparison,
+                focus: StudioSessionLocatePolicy::Focus) -> void:
+            return if not opened
+            d: Box = session_locate_dialog_box(w, h)
+            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+            StudioDraw::segment(d.x, d.y, d.x + d.w, d.y, 1.2, StudioDraw::color(245, 170, 92))
+            StudioDraw::segment(d.x + d.w, d.y, d.x + d.w, d.y + d.h, 1.2, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x + d.w, d.y + d.h, d.x, d.y + d.h, 1.2, StudioDraw::color(104, 115, 134))
+            StudioDraw::segment(d.x, d.y + d.h, d.x, d.y, 1.2, StudioDraw::color(104, 115, 134))
+            StudioDraw::bold(d.x + 24.0, d.y + 22.0, 18.0, "Locate the source for this session", StudioDraw::ink())
+            StudioDraw::text(d.x + 24.0, d.y + 62.0, 13.0, "Choose a GLB. Studio compares saved fingerprint residues, animation, frame count and node count.", StudioDraw::ink())
+            mutable detail: sview = "The source is not loaded. Locate the original take to restore this session."
+            detail <- "Saved metadata matches. Review Restore session to apply the saved indexed edits." if source_valid and comparison == StudioSessionSourcePolicy::Comparison.Matching
+            detail <- "Saved fingerprint residues differ. Version 4 stores indexed corrections without a semantic bone map." if source_valid and comparison == StudioSessionSourcePolicy::Comparison.ChangedBytes
+            detail <- "The selected animation differs from the saved session." if source_valid and comparison == StudioSessionSourcePolicy::Comparison.ChangedAnimation
+            detail <- "The selected source shape differs from the saved session." if source_valid and comparison == StudioSessionSourcePolicy::Comparison.ChangedShape
+            StudioDraw::text(d.x + 24.0, d.y + 92.0, 12.0, detail, StudioDraw::color(245, 170, 92) if source_valid and comparison != StudioSessionSourcePolicy::Comparison.Matching else StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 119.0, 12.0, "Metadata match does not prove byte identity. Changed sources cannot reuse saved joint indices.", StudioDraw::muted())
+            StudioDraw::text(d.x + 24.0, d.y + 158.0, 11.0, "L locate another   R restore reviewed match   N open as new take   Esc cancel", StudioDraw::muted())
+            for choice in [StudioSessionLocatePolicy::Choice.Locate,
+                           StudioSessionLocatePolicy::Choice.RestoreSession,
+                           StudioSessionLocatePolicy::Choice.OpenAsNewTake,
+                           StudioSessionLocatePolicy::Choice.Cancel] |choice, w, h, candidate_valid, source_valid, comparison, focus|:
+                enabled: bool = StudioSessionLocatePolicy::action_enabled(candidate_valid, source_valid, comparison, choice)
+                b: Box = session_locate_button_box(w, h, choice)
+                selected: bool = (choice == StudioSessionLocatePolicy::Choice.Locate and focus == StudioSessionLocatePolicy::Focus.Locate) or (choice == StudioSessionLocatePolicy::Choice.RestoreSession and focus == StudioSessionLocatePolicy::Focus.RestoreSession) or (choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake and focus == StudioSessionLocatePolicy::Focus.OpenAsNewTake) or (choice == StudioSessionLocatePolicy::Choice.Cancel and focus == StudioSessionLocatePolicy::Focus.Cancel)
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
+                mutable label: sview = "Locate another source..." if choice == StudioSessionLocatePolicy::Choice.Locate
+                label <- "Restore reviewed session" if choice == StudioSessionLocatePolicy::Choice.RestoreSession
+                label <- "Open as new take" if choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake
+                label <- "Cancel" if choice == StudioSessionLocatePolicy::Choice.Cancel
+                color: UiCore::Color = StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117)
+                StudioDraw::bold(b.x + 10.0, b.y + 11.0, 12.0, label, color)
                 StudioDraw::rect(b.x + 4.0, b.y + 5.0, 2.0, b.h - 10.0, StudioDraw::accent()) if selected
 
         def export_review_dialog_box(w: f32, h: f32) -> Box:

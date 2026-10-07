@@ -24,13 +24,11 @@ extend Studio:
                         touch()
 
         def open_session() -> void:
-            if clip == null:
-                status <- "open a take before loading a session"
-                status_file <- null
-                touch()
-                return
             if FilePanel::open("txt", "Open a saved session for this take") is chosen:
-                request_replacement(chosen, Replacement.Session.i64(), false)
+                if clip == null:
+                    begin_session_locate(chosen)
+                else:
+                    request_replacement(chosen, Replacement.Session.i64(), false)
 
         def export_as() -> void:
             return if clip == null
@@ -142,6 +140,8 @@ extend Studio:
             pending_replacement <- 0
             pending_replacement_allows_legacy <- false
             pending_session_ready <- false
+            pending_located_memo <- null
+            pending_take_path <- ""
             clear_pending_session_annotations()
             touch()
             if replacement_is_termination:
@@ -167,7 +167,18 @@ extend Studio:
                 pending_session_ready <- false
                 clear_pending_session_annotations()
                 load_take_now(p)
+                pending_take_path <- ""
             elif kind == Replacement.Session.i64():
+                if pending_located_memo != null:
+                    prior_take: i64 = take_serial
+                    load_take_now(pending_take_path)
+                    if prior_take == take_serial:
+                        pending_session_ready <- false
+                        clear_pending_session_annotations()
+                        status <- "Located source could not be installed; current cleanup remains available."
+                        status_file <- pending_take_path
+                        touch()
+                        return
                 if pending_session_ready:
                     loaded: StackState::Stack = pending_session_stack
                     pending_session_ready <- false
@@ -211,9 +222,13 @@ extend Studio:
                             help_open <- false
                             touch()
                             return
+                        if SessionState::load_error() == SessionState::LoadError.Source.i64():
+                            begin_session_locate(p)
+                            return
                         mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
-                        failure <- SessionState::source_failure_message() if SessionState::load_error() == SessionState::LoadError.Source.i64()
                         failure <- "session file could not be read" if SessionState::load_error() == SessionState::LoadError.Read.i64()
+                        failure <- "session exceeds the 8 MiB safe-read limit" if SessionState::load_error() == SessionState::LoadError.TooLarge.i64()
+                        failure <- "session could not be closed after reading" if SessionState::load_error() == SessionState::LoadError.Close.i64()
                         failure <- "session contains too many finding annotations" if SessionState::load_error() == SessionState::LoadError.Annotations.i64()
                         failure <- "session impact review is malformed or bound to a different source, animation or frame range" if SessionState::load_error() == SessionState::LoadError.Impact.i64()
                         say_file(failure, p)
@@ -254,6 +269,8 @@ extend Studio:
                 pending_replacement <- 0
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                pending_located_memo <- null
+                pending_take_path <- ""
                 clear_pending_session_annotations()
                 say_file(cancelled, path)
                 touch()
@@ -294,6 +311,11 @@ extend Studio:
                 return
             cancel_export_result() if export_result_open
             cancel_export_review() if export_review_open
+            if session_locate_open:
+                clear_session_locate()
+                status <- "Session locate cancelled; the current cleanup is unchanged."
+                status_file <- null
+                touch()
             resuming_worker_close: bool = contact_preview_close_pending
             requested_termination: bool = contact_preview_close_termination if resuming_worker_close else UiAppKitCanvas::is_termination_request()
             contact_preview_close_pending <- false
@@ -302,6 +324,8 @@ extend Studio:
                 pending_replacement <- 0
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                pending_located_memo <- null
+                pending_take_path <- ""
                 clear_pending_session_annotations()
                 UiAppKitCanvas::veto_close()
                 say_file("legacy session cancelled; current cleanup unchanged", pending_path())
@@ -311,6 +335,8 @@ extend Studio:
                 pending_replacement <- Replacement.Close.i64()
                 pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
+                pending_located_memo <- null
+                pending_take_path <- ""
                 clear_pending_session_annotations()
                 replacement_is_close <- true
                 replacement_is_termination <- requested_termination
@@ -375,7 +401,12 @@ extend Studio:
                 touch()
                 return
             candidate_path: cstr = stored_path(candidate_slot)
-            fresh: StudioModel::Memo? = StudioModel::load(candidate_path, anim_name)
+            mutable fresh: StudioModel::Memo? = null
+            if pending_located_memo is located:
+                fresh <- move located
+                pending_located_memo <- null
+            else:
+                fresh <- StudioModel::load(candidate_path, anim_name)
             if fresh == null:
                 say_file("no animation could be read from", candidate_path)
                 touch()
