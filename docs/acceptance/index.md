@@ -66,3 +66,4 @@ before reusing an earlier compile, runtime, proof or UI observation.
 | [Worker wait action representation](worker-wait-action-2026-10-06.md) | Exact snapshot and limitations stated in the record. |
 | [Workspace-bound artifact destination protection](workspace-artifact-destination-2026-10-06.md) | Exact snapshot and limitations stated in the record. |
 | [Workspace and enum diagnostic check — 2026-10-06](workspace-enum-check-2026-10-06.md) | Exact snapshot and limitations stated in the record. |
+| [Suggestion measurement admission compilation](suggestion-metric-compile-2026-10-07.md) | Current policy/law object compiled; proof replay and native qualification remain open. |
