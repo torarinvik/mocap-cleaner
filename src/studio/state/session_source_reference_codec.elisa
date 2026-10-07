@@ -8,6 +8,7 @@ module SessionSourceReferenceCodec:
         const module Limit:
             LINE_BYTES: usize = 20000
             ANIMATION_BYTES: usize = 1024
+            TOKEN_COUNT: usize = 9
 
         affine struct Record:
             reference: StudioTakeSourceRefPolicy::TakeSourceRef
@@ -19,9 +20,16 @@ module SessionSourceReferenceCodec:
                 end: usize
 
             def token_count(token: Token) -> usize:
+                ensure result <= Limit::LINE_BYTES
+                ensure token.start <= token.end
                 token.end - token.start
 
+            def token_valid(line: darray[u8]&, token: Token) -> bool:
+                ensure result implies token.start <= token.end and token.end <= line.count
+                token.start <= token.end and token.end <= line.count
+
             def token_byte(line: darray[u8]&, token: Token, index: usize) -> u8:
+                ensure token_valid(line, token) and index < token_count(token)
                 line[token.start + index]
 
             const module Hex:
@@ -48,7 +56,7 @@ module SessionSourceReferenceCodec:
             def name_valid(value: darray[u8]&) -> bool:
                 return false if value.count == 0 or value.count > Limit::ANIMATION_BYTES
                 for byte in value:
-                    return false if byte == 0 or byte < 32
+                    return false if byte == 0 or byte < 32 or byte == 127
                 utf8_valid(value)
 
             def continuation(byte: u8) -> bool:
@@ -110,10 +118,11 @@ module SessionSourceReferenceCodec:
                 for index in 0..<line.count |index, line, values, start|:
                     byte: u8 = line[index]
                     if byte == 32:
-                        return null if start == index
+                        return null if start == index or values.count >= Limit::TOKEN_COUNT - 1
                         values.push(Token{start: start, end: index})
                         start <- index + 1
                 return null if start == line.count
+                return null if values.count >= Limit::TOKEN_COUNT
                 values.push(Token{start: start, end: line.count})
                 values
 
