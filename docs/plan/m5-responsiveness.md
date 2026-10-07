@@ -153,6 +153,12 @@ acceptance. Qualification of parallel progress and failure reporting is pending.
       failures. Retain complete graph diagnostics and exact input snapshots.
 ## Deferred edit completion feedback
 
+Worker-drain close approval now captures the pending draft as well as committed
+history metadata. Adding, removing or changing the draft invalidates that
+approval, requiring the normal close flow to review the current unsaved state.
+Four obligations cover optional-draft identity; compilation/replay awaits the
+repaired current compiler and native close ordering remains unqualified.
+
 The immutable 9a952f8 full Studio source compile failed with five frontend
 diagnostics, with its 552-input snapshot check still passing afterward. Two
 incomplete Locate accessibility initializers now have explicit fallback values;
