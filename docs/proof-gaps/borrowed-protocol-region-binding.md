@@ -143,3 +143,14 @@ comparisons only once the bootstrap source is patched. Rerun the positive and
 all three negatives against the repaired, source-matched product; accepting
 the copy must not turn any negative into an emitted object. No executable was
 run and these reductions do not qualify the integrated compiler.
+
+The Go repair was committed as `f4f5fda0` in the active Elisa-core checkout.
+Its first product `/tmp/elisac-stage0-region-copy` has SHA-256
+`b800a50c309c533b2b2ba86c47364398543939302f71b07e40a59791440ad0ef`,
+but independent `go version -m` inspection found embedded revision
+`4a68f508b90634b548f5e0728da4147853560248` and `vcs.modified=true`.
+It was built before the commit. Its reported positive-copy and negative-case
+outcomes are diagnostic only; this product cannot qualify the fix or seed an
+accepted current compiler. Rebuild from a clean committed checkout, require
+the exact embedded fix revision and `vcs.modified=false`, then rerun the cases
+before qualification. The worker acknowledged this boundary and is rebuilding.
