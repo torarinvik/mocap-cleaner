@@ -202,6 +202,11 @@ first draft, and rejects stale existing drafts before composition. Four new
 admission obligations compile with d2754a8e (twelve transaction policy laws in
 total). Authenticated replay and actual discard/publication frame conditions
 remain pending.
+Transaction ownership, pending intents, evaluation and publication now live in
+`src/studio/app/app_edit_transactions.elisa` (242 lines); correction controls
+remain in `app_corrections.elisa` (253 lines). All helpers stay private within
+Studio. The repository size gate passes for 830 maintained text files; complete
+current compilation and behavioral qualification remain pending.
 
 Both contact-worker drain paths now finish queued rebuilds through one helper.
 A successful new result replaces waiting feedback with a current-result message;
