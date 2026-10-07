@@ -36,6 +36,13 @@ Remaining work:
   fast gate. Failure lists must match main. Push only after these gates; the
   external merge train owns landing after its 60-minute quiet period. A seed
   of the broad repair remains diagnostic evidence only.
+  Inspect isolated callers for scalar specialization, a scalar result borrowing
+  region-backed input, and a same-named function in another module; unrelated
+  allocations must not mask their carrier counts. Cover inferred, qualified and
+  explicit generic calls returning owned storage. The running lifetime fixture
+  must exercise optional task binding, void publication and growth of both the
+  outer container and nested buffers after publication. Retain commands, hashes,
+  sanitizer output and terminal exits rather than deleting the fixture artifacts.
 
 - Committed compiler repair `d5a9b58a` is rebuilt with product `b4e9a69d`
   and runtime `a8de91a1`; source provenance passes. The focused FBX worker
