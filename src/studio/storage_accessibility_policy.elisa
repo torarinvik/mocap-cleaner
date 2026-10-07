@@ -24,9 +24,12 @@ module StudioStorageAccessibilityPolicy:
             CLEAR_SELECTION: usize = 188
             EXEMPTION: usize = 189
             FILTER: usize = 192
+            FILE_CREATE_BUILD: usize = 193
+            FILE_CANCEL_SETUP: usize = 194
+            PENDING_WORKSPACE_PATH: usize = 195
 
         const module FileCommand:
-            FILE_COMMAND_COUNT: i64 = 8
+            FILE_COMMAND_COUNT: i64 = 10
             FILE_OPEN_TAKE: i64 = 1
             FILE_OPEN_SESSION: i64 = 2
             FILE_SAVE: i64 = 3
@@ -35,6 +38,8 @@ module StudioStorageAccessibilityPolicy:
             FILE_EXPORT_AS: i64 = 6
             FILE_OPEN_STORAGE: i64 = 7
             FILE_WORKSPACE: i64 = 8
+            FILE_CREATE_BUILD: i64 = 9
+            FILE_CANCEL_SETUP: i64 = 10
 
         # These action numbers match StudioPanels storage actions.
         const module Action:
@@ -93,13 +98,15 @@ module StudioStorageAccessibilityPolicy:
             id == Node::DIALOG or id == Node::INVENTORY or is_row(id) or id == Node::PROTECTED or id == Node::REFRESH or id == Node::DONE or id == Node::RESTORE or id == Node::TRASH or id == Node::RETENTION or id == Node::SELECT_ELIGIBLE or id == Node::CLEAR_SELECTION or id == Node::EXEMPTION or id == Node::INSPECT_PATH or id == Node::ANNOUNCEMENT or id == Node::FILTER or is_file_node(id)
 
         def is_file_command(id: usize) -> bool:
-            id >= Node::FILE_COMMAND_FIRST and id < Node::FILE_COMMAND_FIRST + FileCommand::FILE_COMMAND_COUNT.usize()
+            file_command_index(id) >= 0
 
         def is_file_node(id: usize) -> bool:
-            id == Node::FILE_TRIGGER or id == Node::FILE_MENU or is_file_command(id)
+            id == Node::FILE_TRIGGER or id == Node::FILE_MENU or id == Node::PENDING_WORKSPACE_PATH or is_file_command(id)
 
         def file_command_id(index: usize) -> usize:
             requires index < FileCommand::FILE_COMMAND_COUNT.usize()
+            return Node::FILE_CREATE_BUILD if index == 8
+            return Node::FILE_CANCEL_SETUP if index == 9
             Node::FILE_COMMAND_FIRST + index
 
         def file_command_index(id: usize) -> i64:
@@ -113,29 +120,35 @@ module StudioStorageAccessibilityPolicy:
             return 5 if id == Node::FILE_COMMAND_FIRST + 5
             return 6 if id == Node::FILE_COMMAND_FIRST + 6
             return 7 if id == Node::FILE_COMMAND_FIRST + 7
+            return 8 if id == Node::FILE_CREATE_BUILD
+            return 9 if id == Node::FILE_CANCEL_SETUP
             -1
 
-        def file_first_child(id: usize) -> usize:
+        def file_first_child(id: usize, create_pending: bool) -> usize:
             return Node::FILE_MENU if id == Node::FILE_TRIGGER
+            return Node::PENDING_WORKSPACE_PATH if id == Node::FILE_MENU and create_pending
             return Node::FILE_COMMAND_FIRST if id == Node::FILE_MENU
             Node::NO_NODE
 
-        def file_next_sibling(id: usize) -> usize:
-            return id + 1 if is_file_command(id) and id + 1 < Node::FILE_COMMAND_FIRST + FileCommand::FILE_COMMAND_COUNT.usize()
+        def file_next_sibling(id: usize, create_pending: bool) -> usize:
+            return Node::FILE_COMMAND_FIRST if id == Node::PENDING_WORKSPACE_PATH and create_pending
+            index: i64 = file_command_index(id)
+            visible: i64 = 8 if not create_pending else FileCommand::FILE_COMMAND_COUNT
+            return file_command_id((index + 1).usize()) if index >= 0 and index + 1 < visible
             Node::NO_NODE
 
         # IDs follow the File menu's displayed row order. StudioFilePolicy is
         # tested as the authority for matching these scalar command codes.
         def file_command(id: usize) -> i64:
             ensure result >= -1
-            ensure result <= FileCommand::FILE_WORKSPACE
+            ensure result <= FileCommand::FILE_CANCEL_SETUP
             row: i64 = file_command_index(id)
             return -1 if row < 0
             row + 1
 
         def file_command_enabled(id: usize, has_take: bool) -> bool:
             command: i64 = file_command(id)
-            return true if command == FileCommand::FILE_OPEN_TAKE or command == FileCommand::FILE_OPEN_STORAGE or command == FileCommand::FILE_WORKSPACE
+            return true if command == FileCommand::FILE_OPEN_TAKE or command == FileCommand::FILE_OPEN_STORAGE or command == FileCommand::FILE_WORKSPACE or command == FileCommand::FILE_CREATE_BUILD or command == FileCommand::FILE_CANCEL_SETUP
             return false if command < FileCommand::FILE_OPEN_SESSION or command > FileCommand::FILE_EXPORT_AS
             has_take
 
@@ -151,6 +164,7 @@ module StudioStorageAccessibilityPolicy:
             return Node::INVENTORY if is_row(id)
             return Node::WORKSPACE if id == Node::FILE_TRIGGER
             return Node::FILE_TRIGGER if id == Node::FILE_MENU
+            return Node::FILE_MENU if id == Node::PENDING_WORKSPACE_PATH
             return Node::FILE_MENU if is_file_command(id)
             Node::NO_NODE
 

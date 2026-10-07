@@ -11,13 +11,32 @@ module StudioFilePolicy:
             EXPORT_AS = 6
             OPEN_STORAGE = 7
             WORKSPACE = 8
+            CREATE_BUILD = 9
+            CANCEL_WORKSPACE_SETUP = 10
 
         const module Count:
-            ROWS: i64 = 8
+            BASE_ROWS: i64 = 8
+            MAX_ROWS: i64 = 10
+            HEADER_HEIGHT: i64 = 28
+
+        def row_count(create_pending: bool) -> i64:
+            ensure result == Count::MAX_ROWS if create_pending
+            ensure result == Count::BASE_ROWS if not create_pending
+            Count::MAX_ROWS if create_pending else Count::BASE_ROWS
+
+        def row_at_offset(offset: i64, row_height: i64, create_pending: bool) -> i64:
+            requires row_height > 0
+            ensure offset < Count::HEADER_HEIGHT implies result == -1
+            ensure offset >= Count::HEADER_HEIGHT and (offset - Count::HEADER_HEIGHT) / row_height < row_count(create_pending) implies result == (offset - Count::HEADER_HEIGHT) / row_height
+            ensure offset >= Count::HEADER_HEIGHT and (offset - Count::HEADER_HEIGHT) / row_height >= row_count(create_pending) implies result == -1
+            return -1 if offset < Count::HEADER_HEIGHT
+            candidate: i64 = (offset - Count::HEADER_HEIGHT) / row_height
+            return candidate if candidate < row_count(create_pending)
+            -1
 
         def action(row: i64) -> i64:
             requires row >= 0
-            requires row < Count::ROWS
+            requires row < Count::BASE_ROWS
             ensure result >= Command.OPEN_TAKE.i64()
             ensure result <= Command.WORKSPACE.i64()
             ensure row != 0 or result == Command.OPEN_TAKE.i64()
@@ -39,26 +58,26 @@ module StudioFilePolicy:
 
         def enabled(command: i64, has_take: bool) -> bool:
             requires command >= Command.NONE.i64()
-            requires command <= Command.WORKSPACE.i64()
+            requires command <= Command.CANCEL_WORKSPACE_SETUP.i64()
             ensure command != Command.OPEN_TAKE.i64() or result
             ensure command != Command.OPEN_STORAGE.i64() or result
             ensure command != Command.WORKSPACE.i64() or result
-            ensure command == Command.OPEN_TAKE.i64() or command == Command.OPEN_STORAGE.i64() or command == Command.WORKSPACE.i64() or command == Command.NONE.i64() or result == has_take
+            ensure command == Command.CREATE_BUILD.i64() or command == Command.CANCEL_WORKSPACE_SETUP.i64() or command == Command.OPEN_TAKE.i64() or command == Command.OPEN_STORAGE.i64() or command == Command.WORKSPACE.i64() or command == Command.NONE.i64() or result == has_take
             return false if command == Command.NONE.i64()
             return true if command == Command.OPEN_TAKE.i64()
             return true if command == Command.OPEN_STORAGE.i64()
-            return true if command == Command.WORKSPACE.i64()
+            return true if command == Command.WORKSPACE.i64() or command == Command.CREATE_BUILD.i64() or command == Command.CANCEL_WORKSPACE_SETUP.i64()
             return false if command == Command.NONE.i64()
             has_take
 
         def activate(row: i64, has_take: bool) -> i64:
             requires row >= -1
-            requires row < Count::ROWS
+            requires row < Count::BASE_ROWS
             ensure result == Command.NONE.i64() or result >= Command.OPEN_TAKE.i64()
-            ensure result <= Command.WORKSPACE.i64()
-            ensure has_take or row <= 0 or row == 6 or row == Count::ROWS - 1 or result == Command.NONE.i64()
-            ensure row == 6 or row == Count::ROWS - 1 or result != Command.OPEN_STORAGE.i64()
-            ensure row != Count::ROWS - 1 or result == Command.WORKSPACE.i64()
+            ensure result <= Command.CANCEL_WORKSPACE_SETUP.i64()
+            ensure has_take or row <= 0 or row == 6 or row == Count::BASE_ROWS - 1 or result == Command.NONE.i64()
+            ensure row == 6 or row == Count::BASE_ROWS - 1 or result != Command.OPEN_STORAGE.i64()
+            ensure row != Count::BASE_ROWS - 1 or result == Command.WORKSPACE.i64()
             return Command.NONE.i64() if row < 0
             return Command.NONE.i64() if not has_take and row > 0 and row < 6
             return Command.OPEN_TAKE.i64() if row == 0
@@ -70,14 +89,39 @@ module StudioFilePolicy:
             return Command.OPEN_STORAGE.i64() if row == 6
             Command.WORKSPACE.i64()
 
-        def next_enabled(row: i64, direction: i64, has_take: bool) -> i64:
+        def action_for(row: i64, create_pending: bool) -> i64:
             requires row >= 0
-            requires row < Count::ROWS
+            requires row < row_count(create_pending)
+            ensure result >= Command.OPEN_TAKE.i64()
+            ensure result <= Command.CANCEL_WORKSPACE_SETUP.i64()
+            return action(row) if row < Count::BASE_ROWS
+            return Command.CREATE_BUILD.i64() if row == Count::BASE_ROWS
+            Command.CANCEL_WORKSPACE_SETUP.i64()
+
+        def available(command: i64, has_take: bool, workspace_ready: bool) -> bool:
+            requires command >= Command.NONE.i64()
+            requires command <= Command.CANCEL_WORKSPACE_SETUP.i64()
+            return false if not enabled(command, has_take)
+            return false if command >= Command.OPEN_SESSION.i64() and command <= Command.OPEN_STORAGE.i64() and not workspace_ready
+            true
+
+        def activate_for(row: i64, has_take: bool, workspace_ready: bool, create_pending: bool) -> i64:
+            requires row >= -1
+            requires row < row_count(create_pending)
+            ensure result >= Command.NONE.i64()
+            ensure result <= Command.CANCEL_WORKSPACE_SETUP.i64()
+            command: i64 = action_for(row, create_pending) if row >= 0 else Command.NONE.i64()
+            return Command.NONE.i64() if row < 0 or not available(command, has_take, workspace_ready)
+            command
+
+        def next_enabled(row: i64, direction: i64, has_take: bool, workspace_ready: bool, create_pending: bool) -> i64:
+            requires row >= 0
+            requires row < row_count(create_pending)
             requires direction == -1 or direction == 1
             ensure result >= 0
-            ensure result < Count::ROWS
-            mutable candidate: i64 = (row + direction + Count::ROWS) % Count::ROWS
-            for attempt in 0..<Count::ROWS |attempt, candidate|:
-                return candidate if has_take or candidate == 0 or candidate >= 6
-                candidate <- (candidate + direction + Count::ROWS) % Count::ROWS
+            ensure result < row_count(create_pending)
+            mutable candidate: i64 = (row + direction + row_count(create_pending)) % row_count(create_pending)
+            for attempt in 0..<row_count(create_pending) |attempt, candidate, has_take, workspace_ready, create_pending|:
+                return candidate if available(action_for(candidate, create_pending), has_take, workspace_ready)
+                candidate <- (candidate + direction + row_count(create_pending)) % row_count(create_pending)
             row

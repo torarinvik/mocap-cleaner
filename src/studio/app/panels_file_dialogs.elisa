@@ -7,27 +7,31 @@ extend StudioPanels:
         def file_button_box(sb: Box) -> Box:
             box(sb.x + sb.w - 76.0, sb.y + 8.0, 64.0, 28.0)
 
-        def file_popup_box(sb: Box) -> Box:
-            box(sb.x + sb.w - Menu::FILE_WIDTH - 8.0, sb.y + 38.0, Menu::FILE_WIDTH, Menu::FILE_ROW * StudioFilePolicy::Count::ROWS.f32() + 32.0)
+        def file_popup_box(sb: Box, create_pending: bool) -> Box:
+            box(sb.x + sb.w - Menu::FILE_WIDTH - 8.0, sb.y + 38.0, Menu::FILE_WIDTH, Menu::FILE_ROW * StudioFilePolicy::row_count(create_pending).f32() + 32.0)
 
-        def file_popup_contains(sb: Box, px: f32, py: f32) -> bool:
-            inside(file_popup_box(sb), px, py)
+        def file_popup_contains(sb: Box, px: f32, py: f32, create_pending: bool) -> bool:
+            inside(file_popup_box(sb, create_pending), px, py)
 
-        def file_popup_row(sb: Box, px: f32, py: f32) -> i64:
-            p: Box = file_popup_box(sb)
+        def file_popup_row(sb: Box, px: f32, py: f32, create_pending: bool) -> i64:
+            p: Box = file_popup_box(sb, create_pending)
             return -1 if not inside(p, px, py)
-            row: i64 = ((py - p.y - 28.0) / Menu::FILE_ROW).i64()
-            return row if row >= 0 and row < StudioFilePolicy::Count::ROWS else -1
+            offset: i64 = (py - p.y).i64()
+            StudioFilePolicy::row_at_offset(offset, Menu::FILE_ROW.i64(), create_pending)
 
-        def file_menu_row_box(sb: Box, row: i64) -> Box:
+        def file_menu_row_box(sb: Box, row: i64, create_pending: bool) -> Box:
             requires row >= 0
-            requires row < StudioFilePolicy::Count::ROWS
-            p: Box = file_popup_box(sb)
-            box(p.x + 4.0, p.y + 28.0 + row.f32() * Menu::FILE_ROW,
+            requires row < StudioFilePolicy::row_count(create_pending)
+            p: Box = file_popup_box(sb, create_pending)
+            box(p.x + 4.0, p.y + StudioFilePolicy::Count::HEADER_HEIGHT.f32() + row.f32() * Menu::FILE_ROW,
                 p.w - 8.0, Menu::FILE_ROW)
 
+        def file_menu_header_box(sb: Box, create_pending: bool) -> Box:
+            p: Box = file_popup_box(sb, create_pending)
+            box(p.x + 4.0, p.y + 2.0, p.w - 8.0, StudioFilePolicy::Count::HEADER_HEIGHT.f32() - 4.0)
+
     private:
-        def file_menu_label(row: i64, create_pending: bool) -> sview:
+        def file_menu_label(row: i64) -> sview:
             return "Open Take..." if row == 0
             return "Open Session..." if row == 1
             return "Save Session" if row == 2
@@ -35,8 +39,9 @@ extend StudioPanels:
             return "Export Cleaned GLB" if row == 4
             return "Export As..." if row == 5
             return "Storage & Recovery" if row == 6
-            "Create build folder" if create_pending
-            "Locate workspace..."
+            return "Locate workspace..." if row == StudioFilePolicy::Count::BASE_ROWS - 1
+            return "Create build/ here" if row == StudioFilePolicy::Count::BASE_ROWS
+            "Cancel workspace setup"
 
     public:
         def file_menu_shortcut(row: i64) -> sview:
@@ -54,7 +59,7 @@ extend StudioPanels:
             StudioDraw::bold(button.x + 10.0, button.y + 6.0, 13.0, "File", StudioDraw::ink())
             StudioDraw::tri(button.x + button.w - 17.0, button.y + 11.0, button.x + button.w - 7.0, button.y + 11.0, button.x + button.w - 12.0, button.y + 17.0, StudioDraw::muted())
             return if not opened
-            popup: Box = file_popup_box(sb)
+            popup: Box = file_popup_box(sb, create_pending)
             StudioDraw::rect(popup.x, popup.y, popup.w, popup.h, StudioDraw::color(21, 24, 31))
             StudioText::begin()
             StudioText::put("Workspace: ")
@@ -76,13 +81,11 @@ extend StudioPanels:
             StudioDraw::segment(popup.x + popup.w, popup.y, popup.x + popup.w, popup.y + popup.h, 1.0, StudioDraw::color(82, 91, 108))
             StudioDraw::segment(popup.x + popup.w, popup.y + popup.h, popup.x, popup.y + popup.h, 1.0, StudioDraw::color(82, 91, 108))
             StudioDraw::segment(popup.x, popup.y + popup.h, popup.x, popup.y, 1.0, StudioDraw::color(82, 91, 108))
-            for row in 0..<StudioFilePolicy::Count::ROWS |row, popup, focus, hover, has_take|:
-                y: f32 = popup.y + 28.0 + row.f32() * Menu::FILE_ROW
-                command: i64 = StudioFilePolicy::action(row)
-                mutable enabled: bool = StudioFilePolicy::enabled(command, has_take)
-                enabled <- false if command >= StudioFilePolicy::Command.OPEN_SESSION.i64() and command <= StudioFilePolicy::Command.EXPORT_AS.i64() and not workspace_ready
-                enabled <- false if command == StudioFilePolicy::Command.OPEN_STORAGE.i64() and not workspace_ready
-                label: sview = file_menu_label(row, create_pending)
+            for row in 0..<StudioFilePolicy::row_count(create_pending) |row, popup, focus, hover, has_take, workspace_ready, create_pending|:
+                y: f32 = popup.y + StudioFilePolicy::Count::HEADER_HEIGHT.f32() + row.f32() * Menu::FILE_ROW
+                command: i64 = StudioFilePolicy::action_for(row, create_pending)
+                enabled: bool = StudioFilePolicy::available(command, has_take, workspace_ready)
+                label: sview = file_menu_label(row)
                 col: UiCore::Color = StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117)
                 if row == focus or row == hover:
                     StudioDraw::rect(popup.x + 4.0, y, popup.w - 8.0, Menu::FILE_ROW, StudioDraw::color(47, 55, 70))
