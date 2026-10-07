@@ -45,6 +45,24 @@ python3 "$ROOT/tools/studio_generation_creation.py" --project "$ROOT" \
 python3 "$ROOT/tools/studio_generation_creation_start.py" --project "$ROOT" \
   --artifact "$(basename "$pending_package")/MocapStudio.app" \
   --artifact-id "$(basename "$pending_package")"
+# Record only failures of the original unsealed package tree. Later publication
+# failures retain a sealed package for reconciliation instead.
+creation_failure_enabled=1
+record_package_failure() {
+  local package_status=$?
+  trap - EXIT
+  if [[ "$package_status" != 0 && "$creation_failure_enabled" == 1 ]]; then
+    if ! python3 "$ROOT/tools/studio_generation_creation_failure.py" --project "$ROOT" \
+      --artifact "$(basename "$pending_package")/MocapStudio.app" \
+      --artifact-id "$(basename "$pending_package")" --failure-status "$package_status"; then
+      echo "package failure record is unverified; retain $pending_package for inspection" >&2
+    fi
+  fi
+  exit "$package_status"
+}
+trap record_package_failure EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cp -p "$EXECUTABLE" "$APP/Contents/MacOS/MocapStudio"
 cat >"$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -235,6 +253,8 @@ seal_control(output.parent / "PACKAGE-GENERATION.json",
 seal_control(lease_path, json.dumps(lease_record, sort_keys=True) + "\n", readonly=True)
 
 PY
+
+creation_failure_enabled=0
 
 sync_package_publication() {
   python3 "$ROOT/tools/studio_generation_controls.py" --project "$ROOT" \

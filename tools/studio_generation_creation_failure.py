@@ -1,4 +1,4 @@
-"""Append a durable failure event for an owned, unsealed build generation.
+"""Append a durable failure event for an owned, unsealed build or package generation.
 
 This records builder failure and exact observed descendants, not cleanup
 eligibility. Unknown entries, a nonempty lease or uncertain identities refuse.
@@ -33,7 +33,7 @@ def record_failure(project, artifact, artifact_id, exit_status):
     require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", artifact_id), "invalid artifact ID")
     _, locked_build, _ = verified_lock(project, os.environ)
     build = os.open(project / "build", DIRECTORY_FLAGS)
-    parent = root = lease = -1
+    parent = root = lease_parent = lease = -1
     try:
         require(identity(os.fstat(build)) == identity(locked_build), "build directory replaced")
         parent = os.open(Journal.directory, DIRECTORY_FLAGS, dir_fd=build)
@@ -41,15 +41,21 @@ def record_failure(project, artifact, artifact_id, exit_status):
         owned(parent_facts, directory=True)
         require(not parent_facts.st_mode & 0o077, "creation directory is not private")
         initial, initial_payload, initial_facts, started_payload, started_facts = read_started(parent, artifact_id)
-        require(initial["artifact_kind"] == "studio-build" and
-                initial["original_relative_path"] == artifact, "not the original build artifact")
+        require(initial["artifact_kind"] in ("studio-build", "studio-package") and
+                initial["original_relative_path"] == artifact, "not the original artifact")
         root = open_artifact(build, artifact)
         root_facts = os.fstat(root)
         for prefix, facts in (("build_root", locked_build), ("root", root_facts)):
             require(type(initial[prefix + "_device"]) is int and type(initial[prefix + "_inode"]) is int and
                     (initial[prefix + "_device"], initial[prefix + "_inode"]) == identity(facts),
                     "failure artifact root identity differs")
-        lease = os.open(".studio-generation.lease", FILE_FLAGS, dir_fd=root)
+        lease_path = (".studio-generation.lease" if initial["artifact_kind"] == "studio-build" else
+                      "Contents/Resources/.studio-generation.lease")
+        lease_parent_path, _, lease_name = lease_path.rpartition("/")
+        lease_parent = open_artifact(root, lease_parent_path) if lease_parent_path else os.dup(root)
+        lease_parent_facts = os.fstat(lease_parent)
+        owned(lease_parent_facts, directory=True)
+        lease = os.open(lease_name, FILE_FLAGS, dir_fd=lease_parent)
         lease_facts = os.fstat(lease)
         owned(lease_facts)
         require(lease_facts.st_size == 0 and not lease_facts.st_mode & 0o077 and
@@ -77,9 +83,13 @@ def record_failure(project, artifact, artifact_id, exit_status):
             rebound = open_artifact(build, artifact)
             try:
                 require(identity(os.fstat(rebound)) == identity(root_facts), "failure artifact replaced")
-                require(version(os.stat(".studio-generation.lease", dir_fd=rebound,
-                                        follow_symlinks=False)) == version(lease_facts),
-                        "failure lease binding changed")
+                current_parent = open_artifact(rebound, lease_parent_path) if lease_parent_path else os.dup(rebound)
+                try:
+                    require(identity(os.fstat(current_parent)) == identity(lease_parent_facts) and
+                            version(os.stat(lease_name, dir_fd=current_parent, follow_symlinks=False)) ==
+                            version(lease_facts), "failure lease binding changed")
+                finally:
+                    os.close(current_parent)
             finally:
                 os.close(rebound)
             require(version(os.fstat(lease)) == version(lease_facts) and
@@ -93,7 +103,7 @@ def record_failure(project, artifact, artifact_id, exit_status):
         require(len(payload) <= Limits.json_bytes, "failure event size exceeded")
         publish_initial(build, payload, artifact_id + Failure.suffix, revalidate)
     finally:
-        for fd in (lease, root, parent, build):
+        for fd in (lease, lease_parent, root, parent, build):
             if fd >= 0:
                 os.close(fd)
 
