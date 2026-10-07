@@ -118,6 +118,9 @@ current detector before presenting an ignored finding as still applicable.
       Create build candidate. Qualify repeated chooser cancellation, oversized
       replacement and later creation of the original pending root; inspect the
       displayed path and ensure only the explicitly confirmed root is created.
+      Create build refusal now explains a changed, invalid or unwritable root,
+      including a build folder created externally while confirmation was pending.
+      Qualify these transitions without changing the active root or preferences.
 
 - [ ] Establish an explicit canonical workspace root with a writable `build/`
       directory. Persist its location separately from source/session contents;
