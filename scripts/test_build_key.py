@@ -51,14 +51,15 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: test_build_key.py ELISAC")
     selected_compiler = Path(shutil.which(sys.argv[1]) or sys.argv[1]).resolve()
-    if os.environ.get("ELISA_STAGE1"):
-        compiler_root = Path(os.environ["ELISA_STAGE1"]).resolve()
-    elif selected_compiler.name == "elisac_stage1.sh" and selected_compiler.parent.name == "scripts":
+    configured_root = Path(os.environ["ELISA_STAGE1"]).resolve() if os.environ.get("ELISA_STAGE1") else None
+    if selected_compiler.name == "elisac_stage1.sh" and selected_compiler.parent.name == "scripts":
         compiler_root = selected_compiler.parent.parent
     elif selected_compiler.name == "elisac-stage1" and selected_compiler.parent.name == "bin":
         compiler_root = selected_compiler.parent.parent
     else:
-        compiler_root = ROOT.parent / "Elisa-compiler"
+        compiler_root = configured_root or ROOT.parent / "Elisa-compiler"
+    if configured_root is not None and compiler_root != configured_root:
+        raise SystemExit("test build key: selected compiler differs from ELISA_STAGE1 checkout")
     digest = hashlib.sha256(b"mocap-cleaner-test-build-v4\0")
     digest.update(f"{platform.system()}:{platform.machine()}:{sys.version}\0".encode())
     digest.update((sys.argv[1] + "\0-emit exe").encode())
