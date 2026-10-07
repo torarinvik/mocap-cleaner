@@ -1,0 +1,85 @@
+include "generation_review_list_policy.elisa"
+include "../build_generation_candidate_provider_retention.elisa"
+
+module StudioGenerationMoveConfirmationPolicy:
+    public:
+        struct ReviewKey:
+            scan_ticket: i64
+            row_index: i64
+            retention_days: i64
+
+        enum State:
+            Inspecting
+            Reviewing(key: ReviewKey)
+            Confirmed(key: ReviewKey)
+            Running(key: ReviewKey, job_ticket: i64)
+            Draining(key: ReviewKey, job_ticket: i64)
+            RecoveryPending(job_ticket: i64)
+            Resolved(job_ticket: i64)
+
+        def key_valid(key: ReviewKey) -> bool:
+            ensure result == (key.scan_ticket > 0 and key.row_index >= 0 and key.row_index < StudioGenerationReviewListPolicy::Limit::ROWS and key.retention_days >= 0 and key.retention_days <= StudioBuildGenerationCandidateProviderRetention::MAX_RETENTION_DAYS)
+            key.scan_ticket > 0 and key.row_index >= 0 and key.row_index < StudioGenerationReviewListPolicy::Limit::ROWS and key.retention_days >= 0 and key.retention_days <= StudioBuildGenerationCandidateProviderRetention::MAX_RETENTION_DAYS
+
+        def same_key(reviewed: ReviewKey, current: ReviewKey) -> bool:
+            ensure result == (key_valid(reviewed) and key_valid(current) and reviewed.scan_ticket == current.scan_ticket and reviewed.row_index == current.row_index and reviewed.retention_days == current.retention_days)
+            key_valid(reviewed) and key_valid(current) and reviewed.scan_ticket == current.scan_ticket and reviewed.row_index == current.row_index and reviewed.retention_days == current.retention_days
+
+        def may_confirm(state: State, current: ReviewKey,
+                        eligible: bool, source_current: bool, busy: bool) -> bool:
+            return false if not eligible or not source_current or busy
+            match state:
+                State.Reviewing(key): same_key(key, current)
+                State.Inspecting: false
+                State.Confirmed(key): false
+                State.Running(key, job_ticket): false
+                State.Draining(key, job_ticket): false
+                State.RecoveryPending(job_ticket): false
+                State.Resolved(job_ticket): false
+
+        def may_start(state: State, current: ReviewKey,
+                      eligible: bool, source_current: bool, busy: bool) -> bool:
+            return false if not eligible or not source_current or busy
+            match state:
+                State.Confirmed(key): same_key(key, current)
+                State.Inspecting: false
+                State.Reviewing(key): false
+                State.Running(key, job_ticket): false
+                State.Draining(key, job_ticket): false
+                State.RecoveryPending(job_ticket): false
+                State.Resolved(job_ticket): false
+
+        # Cancellation before dispatch drops approval. After dispatch it drains
+        # the owned job and preserves its ticket for recovery evidence.
+        def cancel(state: State) -> State:
+            match state:
+                State.Reviewing(key): State.Inspecting
+                State.Confirmed(key): State.Inspecting
+                State.Running(key, job_ticket): State.Draining(key: key, job_ticket: job_ticket)
+                State.Draining(key, job_ticket): state
+                State.RecoveryPending(job_ticket): state
+                State.Resolved(job_ticket): state
+                State.Inspecting: state
+
+        def active_ticket(state: State) -> i64:
+            match state:
+                State.Running(key, job_ticket): job_ticket
+                State.Draining(key, job_ticket): job_ticket
+                State.RecoveryPending(job_ticket): job_ticket
+                State.Resolved(job_ticket): job_ticket
+                State.Inspecting: 0
+                State.Reviewing(key): 0
+                State.Confirmed(key): 0
+
+        def may_publish_success(state: State, ticket: i64,
+                                recoverable: bool, recovery_recorded: bool,
+                                remaining_handle: i64) -> bool:
+            return false if ticket <= 0 or not recoverable or not recovery_recorded or remaining_handle != 0
+            match state:
+                State.Running(key, job_ticket): key_valid(key) and ticket == job_ticket
+                State.Inspecting: false
+                State.Reviewing(key): false
+                State.Confirmed(key): false
+                State.Draining(key, job_ticket): false
+                State.RecoveryPending(job_ticket): false
+                State.Resolved(job_ticket): false
