@@ -46,3 +46,15 @@ Exercise restarting after each journal phase and reconcile discovered IDs
 before enabling Restore; capture keyboard and VoiceOver journeys through
 unresolved, busy, conflicting and recoverable records. Preserve all receipts
 and source takes during qualification.
+
+## Interrupted receipt publication remains unresolved
+
+The receipt updater stages `.pending-<operation>-<random>` and uses
+`RENAME_SWAP` before unlinking the previous receipt. A crash can retain that
+pending file even when the canonical receipt is valid. Discovery currently
+refuses any unknown name, so this case blocks listing all receipts. This is
+protected behavior, not complete restart recovery. Add bounded inspection of
+pending records that preserves both files and distinguishes discoverable
+canonical receipts from unresolved metadata. Do not silently delete or promote
+the pending file. Qualify crashes before swap, after swap and before/after
+directory fsync and unlink before closing restart recovery.
