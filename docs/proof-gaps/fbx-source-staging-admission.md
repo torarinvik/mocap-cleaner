@@ -99,6 +99,51 @@ qualification. Current primary policy/law SHA-256 values:
 
 ## First remaining blockers
 
+## Latest matched-pair qualification
+
+The previous section's pair predates the helper-purity repair. The latest
+focused reports were generated from proof-tool commit
+`fed9a108262d592607bc2131120f9d0a8f6727de` with matched generation
+`655657441d704884a881f28382b46321`. The producer SHA-256 is
+`839dd2e1e5f7f690d2da6dc371d8db3926869e091e790890d76f61090aba9f1e`; replay
+SHA-256 is `94b2c658fa5cd2e8acdfce00abec351df3204984d919e857e6e56bcf25ef8180`.
+Pair-integrity validation and the current-source freshness check passed. The
+proof source tree SHA-256 is
+`967d44a43449fee4f1f5e4eb4a2d02c513544d066dc6a26776c14750cb570804`, clean.
+The selected compiler is revision
+`48dc78e2ce51873a459a689b4d8bb63a1c76bd4f`, Stage1 SHA-256
+`461d377b3e61307ac4a4cb46e56729d84a21c509e38ddd57f39935002abe959f`, recipe
+SHA-256 `105bd840e8e6ce839d87eb77f5155a4600e33b44d102db614d9402e15d433073`,
+and runtime SHA-256
+`51365ba4a06e13e0af344b5e21790795e15f1b7fbba23c0b5b94b5a52b00ccee`.
+
+The focused reports are retained under
+`../elisa-proof-mocap-owner-aware/build/current-owner-summary-repair-final/`.
+Every package is source-admissible and every emitted certificate replayed, but
+none authenticates source correspondence:
+
+| Policy and laws | Obligations | Proven | Unproven | Replayed | Correspondence |
+| --- | ---: | ---: | ---: | ---: | --- |
+| TakeSourceRef | 59 | 34 | 25 | 34/34 | 0 checked, 30 unsupported |
+| FBX staging | 117 | 21 | 96 | 21/21 | 0 checked, 38 unsupported |
+| FBX refusal mapping | 43 | 26 | 17 | 26/26 | 0 checked, 4 unsupported, 1 unmatched |
+
+The repair now recognizes the bounded immutable-array loops and their captured
+loop wrapper in the purity scan. As a result, `path_valid`, `bytes_equal`,
+`path_bound`, `paths_bound` and `copy_digest_bound` are pure and verified, and
+`stage_admitted` no longer has unsupported contract calls for the latter
+helpers. This change does not authenticate the native staging implementation.
+The staging `good` fixture still has two `region-call-opaque` findings at line
+25: the zero-argument generic call `digest[@r]()` has no argument carrying its
+caller region in the compiler AST. The remaining `stage_admitted` ensures are
+unproved, and the source correspondence reports remain unauthenticated.
+
+The current primary policy/law source hashes are listed in the preceding
+qualification section; they match this capture. The exact report summaries
+and replay records are available in the retained JSON files above.
+
+## Historical blocker notes
+
 `StudioTakeSourceRefPolicy::valid` at source line 55 has a resource-safety
 certificate rejected by replay (`kernel-replay-gap`, goal 8, kernel goal 467).
 The producer's later laws consequently cannot rely on a checked summary for
