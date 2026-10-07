@@ -258,9 +258,11 @@ negative controls, meaningful history entries and session/export parity.
   reply even after cancellation. These remain source implementation evidence:
   later Restore integration captures still refuse backend emission (task-result
   readers and ledger initialization); no full-app runtime acceptance exists.
-  Complete result/recovery presentation, Restore wiring and long-path inspection. See the
+  Qualify result/recovery presentation and connected Restore flow; complete
+  long-path inspection. See the
   [integration diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
-- Connect the compiled owning Restore job to the controller. Cancellation or a
+- Qualify the connected owning Restore job and recovery browser (`51c3cbc`,
+  `1157dab`, `d1e4d35`). Cancellation or a
   stale ticket suppresses UI publication but must drain the reply and retain any
   unclosed native handle. Restore success requires committed restore, confirmed
   lock release and exact durable reconciliation; compilation of the worker and
@@ -279,13 +281,18 @@ negative controls, meaningful history entries and session/export parity.
   bounded in-memory identity retention are implemented (`5882dbe`, `021a276`,
   `80eb81c`, `5e2af2e`, `d644106`, `13f1245`). Recording uses owned root and
   operation bytes, detects exact duplicates and refuses capacity overflow;
-  completion retains its reply if recording fails. Complete ledger browsing,
-  selection of earlier operations, native reconciliation state, safe reply
-  resolution and remaining-handle draining before enabling another move.
+  completion retains its reply if recording fails. Ledger browsing, earlier
+  operation selection and background reconciliation are now connected.
+  Qualify exact root/operation binding, stale replies, cancellation, capacity
+  overflow and repeated moves. Complete safe resolution of retained uncertain
+  replies and remaining-handle draining. Generation job starts now serialize
+  inventory, discovery, reconciliation, move and Restore (`330e1c8`); qualify
+  deferred requests and responsiveness under every overlapping user action.
   Qualify constructor/private-field handling in the compiler without exposing
-  ledger internals. Enumerate durable receipts on
-  restart and reconcile them before enabling retry or Restore; retaining one
-  in-memory reply does not satisfy restart recovery or repeated cleanup.
+  ledger internals. Restart receipt discovery is implemented as candidate
+  enumeration with explicit unresolved pending metadata; qualify its native
+  crash/lock/descriptor matrix and UI loading before closing restart recovery.
+  See [discovery evidence and open acceptance](../acceptance/generation-recovery-discovery-2026-10-07.md).
 - Qualify the corrected native reconciliation parent comparison before runtime acceptance:
   a transaction begun at quarantine has the managed items directory as its
   source parent, while the receipt records the original parent. Compare each
