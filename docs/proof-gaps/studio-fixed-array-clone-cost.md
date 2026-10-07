@@ -215,3 +215,19 @@ returns 42 at O0 and O2, as does the direct control; the false ensure aborts wit
 hashes against `build/generic-await-error-defer-e24c29e6/evidence.log` (SHA-256
 `c6fbaf8235ca356252970bd70f2aac838e2e4cbd0fd04f8e594a9857af1dde62`).
 This qualifies the focused cleanup behavior, not all return paths or Studio.
+
+## Stable complete Studio O2 object
+
+The complete Studio entry point at application `0f8a9df5`, with compiler
+`e24c29e6`, engine `3c51102b` and UI `f33e439b`, now emits an O2 object under a
+4 GiB process RSS guard. Compile and pre/post snapshot checks all exit 0.
+Root independently verified the 3,219,664-byte object SHA-256
+`1794e026e59db11bf7580a9ee8b058cb6f0198eee6f031905350a9ff2fbe5cf4`.
+The input snapshot JSON files are byte-identical, raw SHA-256
+`50fad046b3ef79cee4a3f6bcd31856fbceebe9bfbc4e62fa38425490d97a8708`.
+Artifacts: `build/studio-build.diag-e24-o2-stable0f8a9df/`.
+
+This establishes object compilation for that captured dependency tuple. It does
+not establish link, package, runtime behavior or performance relative to main.
+The earlier source-drift run and the unsupported nested float min/max expression
+remain separate diagnostics. Qualification after dependency updates stays open.
