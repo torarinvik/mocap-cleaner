@@ -154,3 +154,21 @@ outcomes are diagnostic only; this product cannot qualify the fix or seed an
 accepted current compiler. Rebuild from a clean committed checkout, require
 the exact embedded fix revision and `vcs.modified=false`, then rerun the cases
 before qualification. The worker acknowledged this boundary and is rebuilding.
+
+The rebuilt product independently embeds exact revision
+`f4f5fda02a2a661ff6954f6ec63ac95df0f63bb2` with `vcs.modified=false`.
+Product SHA-256 is
+`fbd600e578cebd87a3c86f4c373f8ca8a9d50a976ab2daa557fd5e2bacdf4a2d`.
+Root reran all four cases from a retained copy: the positive emits a 624-byte
+object; reassigned/expired owners refuse region inference; local escape refuses
+a dangling reference. Source and product hashes remain stable before/after.
+The record is `build/region-inference-reduction/current-f4f5fda0/evidence.json`.
+This establishes the narrow compile-only copy result, not integrated acceptance.
+
+Seed attempt 4 still fails. A further reduction, `same-owner-reassignment.elisa`,
+adds only `local <- seed` to the admitted positive before borrowing. The clean
+product refuses it at region inference. Source SHA-256:
+`a92efe39bbd8ab874d9303087dc7e9e13932ed89068f332b07a21c2bb44a64a0`.
+The driver similarly reassigns `compile_file` during static generation before
+its later calls. Investigate exact known-owner propagation through assignment
+and branch merging while retaining all shorter-lived/unknown-owner refusals.
