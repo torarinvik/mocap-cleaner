@@ -60,6 +60,7 @@ def relative_path(value):
 
 def owned(facts, directory=False):
     require(facts.st_uid == os.getuid(), "foreign owner")
+    require(not facts.st_mode & 0o022, "entry writable by group or others")
     require(stat.S_ISDIR(facts.st_mode) if directory else stat.S_ISREG(facts.st_mode),
             "unsupported filesystem entry")
     if not directory:
@@ -204,10 +205,13 @@ def verify_record(project, artifact, artifact_id, kind):
         root_fd = open_artifact(build_fd, artifact)
         root = os.fstat(root_fd)
         parent = os.open(".studio-generation-inventory", DIRECTORY_FLAGS, dir_fd=build_fd)
-        owned(os.fstat(parent), directory=True)
+        parent_facts = os.fstat(parent)
+        owned(parent_facts, directory=True)
+        require(not parent_facts.st_mode & 0o077, "inventory directory permissions are not private")
         fd = os.open(artifact_id + ".json", FILE_FLAGS, dir_fd=parent)
         facts = os.fstat(fd)
         owned(facts)
+        require(not facts.st_mode & 0o077, "inventory record permissions are not private")
         require(facts.st_size <= Limits.json_bytes, "inventory JSON limit exceeded")
         payload = bytearray()
         while len(payload) <= Limits.json_bytes:
@@ -226,6 +230,9 @@ def verify_record(project, artifact, artifact_id, kind):
             "entries": scan(root_fd, CONTROLS[kind]),
         }
         require(record == expected, "inventory differs from current artifact")
+        require(identity(os.stat(".studio-generation-inventory", dir_fd=build_fd,
+                                 follow_symlinks=False)) == identity(parent_facts),
+                "inventory directory replaced")
         require(version(os.stat(artifact_id + ".json", dir_fd=parent,
                                 follow_symlinks=False)) == version(facts), "inventory replaced")
         rebound = open_artifact(build_fd, artifact)
