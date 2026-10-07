@@ -16,8 +16,12 @@ def runs(content):
     previous = None
     first = 0
     count = 0
-    for number, line in enumerate(content.splitlines() + [""], 1):
-        match = PUSH.match(line)
+    lines = content.splitlines()
+    for number, line in enumerate(lines + [""], 1):
+        # Blank lines and comments do not interrupt a fixed push sequence.
+        if number <= len(lines) and (not line.strip() or line.lstrip().startswith("#")):
+            continue
+        match = PUSH.match(line.split("#", 1)[0].rstrip())
         key = (match[1], match[2]) if match else None
         if key != previous:
             if count > 1:
