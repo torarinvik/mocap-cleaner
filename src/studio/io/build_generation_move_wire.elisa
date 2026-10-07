@@ -1,0 +1,97 @@
+include "build_generation_candidate_provider.elisa"
+include "build_generation_trash_native.elisa"
+
+# Inline owning buffers keep native pointers inside the worker's lifetime.
+module StudioBuildGenerationMoveWire:
+    public:
+        struct Controls:
+            product: u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()]
+            manifest: u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()]
+            input_record: u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()]
+            inventory: u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()]
+            lease: u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()]
+            valid: mutable bool
+
+        struct Wire:
+            root: u8[StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()]
+            path: u8[StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()]
+            artifact_id: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]
+            device: mutable u64
+            inode: mutable u64
+            artifact_kind: mutable i32
+            controls: mutable Controls
+            valid: mutable bool
+
+        def capture(row: StudioBuildGenerationCandidateProvider::Row,
+                    root: darray[u8]&) -> Wire:
+            ensure not result.valid or StudioBuildGenerationCandidateProvider::row_valid(row)
+            ensure not result.valid or row.protection == StudioBuildGenerationCandidateProvider::Protection.Eligible
+            ensure not result.valid or age_admitted(row.age, row.retention_days)
+            ensure not result.valid or (root.count > 0 and root.count < StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize())
+            mutable wire: Wire = zeroed
+            return wire if not StudioBuildGenerationCandidateProvider::row_valid(row)
+            return wire if row.protection != StudioBuildGenerationCandidateProvider::Protection.Eligible
+            return wire if not age_admitted(row.age, row.retention_days)
+            wire.device <- row.device.u64()
+            wire.inode <- row.inode.u64()
+            wire.artifact_kind <- row.artifact.i32()
+            wire.controls <- capture_controls(row.product_identity)
+            wire.valid <- copy_path(root, &wire.root) and copy_path(row.relative_path, &wire.path) and copy_id(row.artifact_id, &wire.artifact_id) and wire.controls.valid
+            wire
+
+        def age_admitted(age: StudioBuildGenerationCandidateProvider::AgeEvidence,
+                         retention: i64) -> bool:
+            ensure retention >= 0 or not result
+            return false if retention < 0
+            match age:
+                StudioBuildGenerationCandidateProvider::AgeEvidence.Unknown: false
+                StudioBuildGenerationCandidateProvider::AgeEvidence.Verified(days, origin): days >= retention and origin == StudioBuildGenerationCandidateProvider::AgeOrigin.FilesystemBirthtime
+
+    private:
+        def copy_path(bytes: darray[u8]&, target: mutable u8[StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()]&) -> bool:
+            return false if bytes.count == 0 or bytes.count >= StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()
+            for byte in bytes:
+                return false if byte == 0
+            for index in 0..<bytes.count |bytes, target, index|:
+                target[index] <- bytes[index]
+            target[bytes.count] <- 0
+            true
+
+        def copy_id(bytes: darray[u8]&, target: mutable u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()]&) -> bool:
+            return false if bytes.count == 0 or bytes.count >= StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()
+            for byte in bytes:
+                return false if byte == 0
+            for index in 0..<bytes.count |bytes, target, index|:
+                target[index] <- bytes[index]
+            target[bytes.count] <- 0
+            true
+
+        def copy_digest(bytes: darray[u8]&, target: mutable u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()]&) -> bool:
+            return false if not StudioBuildGenerationCandidateProvider::digest_valid(bytes)
+            for index in 0..<bytes.count |bytes, target, index|:
+                target[index] <- bytes[index]
+            target[bytes.count] <- 0
+            true
+
+        def capture_controls(identity: StudioBuildGenerationCandidateProvider::ProductIdentity) -> Controls:
+            mutable controls: mutable Controls = zeroed
+            match identity:
+                StudioBuildGenerationCandidateProvider::ProductIdentity.Absent:
+                    return controls
+                StudioBuildGenerationCandidateProvider::ProductIdentity.Present(digests):
+                    controls.valid <- copy_digest(digests.product, &controls.product) and copy_digest(digests.inventory, &controls.inventory) and copy_digest(digests.lease_receipt, &controls.lease)
+                    match digests.manifest:
+                        StudioBuildGenerationCandidateProvider::DigestEvidence.Verified(value):
+                            controls.valid <- controls.valid and copy_digest(value, &controls.manifest)
+                        StudioBuildGenerationCandidateProvider::DigestEvidence.Unknown:
+                            controls.valid <- false
+                        StudioBuildGenerationCandidateProvider::DigestEvidence.NotApplicable:
+                            controls.valid <- false
+                    match digests.input_record:
+                        StudioBuildGenerationCandidateProvider::DigestEvidence.Verified(value):
+                            controls.valid <- controls.valid and copy_digest(value, &controls.input_record)
+                        StudioBuildGenerationCandidateProvider::DigestEvidence.NotApplicable:
+                            pass
+                        StudioBuildGenerationCandidateProvider::DigestEvidence.Unknown:
+                            controls.valid <- false
+            controls
