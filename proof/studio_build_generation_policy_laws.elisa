@@ -1,0 +1,92 @@
+include "../src/studio/build_generation_policy.elisa"
+
+module StudioBuildGenerationPolicyLaws:
+    private:
+        def old_sealed_build(current: bool, active: bool, recovery: bool) -> StudioBuildGenerationPolicy::Facts:
+            StudioBuildGenerationPolicy::Facts{
+                artifact: StudioBuildGenerationPolicy::Artifact.Build,
+                state: StudioBuildGenerationPolicy::State.Sealed,
+                identity: StudioBuildGenerationPolicy::Identity.Matches,
+                canonical_under_build: true,
+                symlink: false,
+                manifest_verified: true,
+                product_verified: true,
+                protection_facts_verified: true,
+                current_product: current,
+                active: active,
+                recovery_required: recovery,
+                age_days: 30,
+                retention_days: 7,
+                size_bytes: 1
+            }
+
+    public:
+        def old_verified_build_can_become_candidate() -> bool:
+            ensure result
+            item: StudioBuildGenerationPolicy::Facts = old_sealed_build(false, false, false)
+            StudioBuildGenerationPolicy::eligible(item)
+
+        def current_product_is_protected() -> bool:
+            ensure result
+            item: StudioBuildGenerationPolicy::Facts = old_sealed_build(true, false, false)
+            not StudioBuildGenerationPolicy::eligible(item)
+
+        def active_generation_is_protected() -> bool:
+            ensure result
+            item: StudioBuildGenerationPolicy::Facts = old_sealed_build(false, true, false)
+            not StudioBuildGenerationPolicy::eligible(item)
+
+        def recovery_generation_is_protected() -> bool:
+            ensure result
+            item: StudioBuildGenerationPolicy::Facts = old_sealed_build(false, false, true)
+            not StudioBuildGenerationPolicy::eligible(item)
+
+        def identity_and_product_must_be_verified() -> bool:
+            ensure result
+            mutable item: StudioBuildGenerationPolicy::Facts = old_sealed_build(false, false, false)
+            item.product_verified <- false
+            product_refused: bool = not StudioBuildGenerationPolicy::eligible(item)
+            item.product_verified <- true
+            item.identity <- StudioBuildGenerationPolicy::Identity.Unverified
+            product_refused and not StudioBuildGenerationPolicy::eligible(item)
+
+        def building_generation_is_protected() -> bool:
+            ensure result
+            mutable item: StudioBuildGenerationPolicy::Facts = old_sealed_build(false, false, false)
+            item.state <- StudioBuildGenerationPolicy::State.Building
+            not StudioBuildGenerationPolicy::eligible(item)
+
+        def unknown_active_current_or_recovery_facts_fail_closed() -> bool:
+            ensure result
+            mutable item: StudioBuildGenerationPolicy::Facts = old_sealed_build(false, false, false)
+            item.protection_facts_verified <- false
+            not StudioBuildGenerationPolicy::eligible(item)
+
+        def cleanup_requires_selection_review_and_confirmation() -> bool:
+            ensure result
+            item: StudioBuildGenerationPolicy::Facts = old_sealed_build(false, false, false)
+            accepted: bool = StudioBuildGenerationPolicy::may_cleanup(item, true, true, true)
+            unselected: bool = not StudioBuildGenerationPolicy::may_cleanup(item, false, true, true)
+            unreviewed: bool = not StudioBuildGenerationPolicy::may_cleanup(item, true, false, true)
+            unconfirmed: bool = not StudioBuildGenerationPolicy::may_cleanup(item, true, true, false)
+            accepted and unselected and unreviewed and unconfirmed
+
+        def package_backup_remains_recovery_protected() -> bool:
+            ensure result
+            item: StudioBuildGenerationPolicy::Facts = StudioBuildGenerationPolicy::Facts{
+                artifact: StudioBuildGenerationPolicy::Artifact.Package,
+                state: StudioBuildGenerationPolicy::State.Recovery,
+                identity: StudioBuildGenerationPolicy::Identity.Matches,
+                canonical_under_build: true,
+                symlink: false,
+                manifest_verified: true,
+                product_verified: true,
+                protection_facts_verified: true,
+                current_product: false,
+                active: false,
+                recovery_required: true,
+                age_days: 365,
+                retention_days: 7,
+                size_bytes: 1
+            }
+            not StudioBuildGenerationPolicy::eligible(item)

@@ -1,0 +1,100 @@
+# Read-only classification for generated Studio build and package directories.
+# Filesystem identity and active leases are supplied by the caller.
+module StudioBuildGenerationPolicy:
+    public:
+        const enum Artifact of i64:
+            Build = 0
+            Package = 1
+
+        const enum State of i64:
+            Building = 0
+            Sealed = 1
+            Published = 2
+            Recovery = 3
+
+        const enum Identity of i64:
+            Unverified = 0
+            Matches = 1
+            Changed = 2
+
+        const enum Protection of i64:
+            None = 0
+            InvalidFacts = 1
+            OutsideBuild = 2
+            Symlink = 3
+            Unsealed = 4
+            ProductUnverified = 5
+            IdentityUnverified = 6
+            IdentityChanged = 7
+            ProtectionFactsUnverified = 8
+            CurrentProduct = 9
+            ActiveGeneration = 10
+            RecoveryRequired = 11
+            Retention = 12
+            NotSelected = 13
+            NotReviewed = 14
+            NotConfirmed = 15
+
+        const module Limit:
+            MAX_AGE_DAYS: i64 = 365000
+            MAX_RETENTION_DAYS: i64 = 3650
+            MAX_GENERATION_BYTES: i64 = 1000000000000000
+
+        struct Facts:
+            artifact: Artifact
+            state: State
+            identity: Identity
+            canonical_under_build: bool
+            symlink: bool
+            manifest_verified: bool
+            product_verified: bool
+            protection_facts_verified: bool
+            current_product: bool
+            active: bool
+            recovery_required: bool
+            age_days: i64
+            retention_days: i64
+            size_bytes: i64
+
+        def facts_valid(item: Facts) -> bool:
+            (item.artifact == Artifact.Build or item.artifact == Artifact.Package) and (item.state == State.Building or item.state == State.Sealed or item.state == State.Published or item.state == State.Recovery) and (item.identity == Identity.Unverified or item.identity == Identity.Matches or item.identity == Identity.Changed) and item.age_days >= 0 and item.age_days <= Limit::MAX_AGE_DAYS and item.retention_days >= 0 and item.retention_days <= Limit::MAX_RETENTION_DAYS and item.size_bytes >= 0 and item.size_bytes <= Limit::MAX_GENERATION_BYTES
+
+        def protection_reason(item: Facts) -> Protection:
+            return Protection.InvalidFacts if not facts_valid(item)
+            return Protection.OutsideBuild if not item.canonical_under_build
+            return Protection.Symlink if item.symlink
+            return Protection.Unsealed if not item.manifest_verified or item.state == State.Building
+            return Protection.ProductUnverified if not item.product_verified
+            return Protection.IdentityUnverified if item.identity == Identity.Unverified
+            return Protection.IdentityChanged if item.identity == Identity.Changed
+            return Protection.ProtectionFactsUnverified if not item.protection_facts_verified
+            return Protection.CurrentProduct if item.current_product
+            return Protection.ActiveGeneration if item.active
+            return Protection.RecoveryRequired if item.recovery_required or item.state == State.Recovery
+            return Protection.Retention if item.age_days < item.retention_days
+            Protection.None
+
+        def eligible(item: Facts) -> bool:
+            ensure not result or facts_valid(item)
+            ensure not result or item.canonical_under_build
+            ensure not result or not item.symlink
+            ensure not result or item.manifest_verified
+            ensure not result or item.state != State.Building
+            ensure not result or item.product_verified
+            ensure not result or item.protection_facts_verified
+            ensure not result or item.identity == Identity.Matches
+            ensure not result or not item.current_product
+            ensure not result or not item.active
+            ensure not result or not item.recovery_required
+            ensure not result or item.state != State.Recovery
+            ensure not result or item.age_days >= item.retention_days
+            protection_reason(item) == Protection.None
+
+        def may_cleanup(item: Facts, selected: bool, reviewed: bool, confirmed: bool) -> bool:
+            ensure not result or eligible(item)
+            ensure not result or selected
+            ensure not result or reviewed
+            ensure not result or confirmed
+            return false if not eligible(item)
+            return false if not selected or not reviewed or not confirmed
+            true
