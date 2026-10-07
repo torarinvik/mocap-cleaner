@@ -135,6 +135,9 @@ The producer uses exclusive record publication, file/parent/build directory
 synchronization and repeated descriptor/path checks. It preserves uncertain
 published records and replaced temporary entries for inspection. The helper
 itself is a captured build input. Bash syntax and Python AST parsing passed;
-no helper execution or crash/race acceptance is claimed. Package registration,
-later phase updates, native record consumption and failed-generation cleanup
-remain open. A Created record never establishes failed/abandoned eligibility.
+no helper execution or crash/race acceptance is claimed. Package registration
+is now wired before copying any product files (`c3ec81d`), with its complete
+control/file/directory plan captured. The producer also verifies exact published
+record bytes and stable bindings before and after parent synchronization
+(`739248b`). Later phase updates, native record consumption and failed-generation
+cleanup remain open. A Created record never establishes failed/abandoned eligibility.

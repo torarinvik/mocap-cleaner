@@ -25,10 +25,11 @@ compilation/linking and the current full check remain open.
 The current normal CLI compile finished successfully, without execution. The
 Studio compile refused nine binary expressions and produced no object/link;
 the earlier ListItem field refusal is resolved. Its captured input postcheck
-passed. A current proof-pair build then refused a build-recipe digest mismatch
-between the selected Stage1 provenance and the pinned compiler recipe. Resolve
-that discrepancy and repeat strict provenance/pair checks before accepting the
-toolchain; a passing narrower standalone provenance check cannot override it.
+passed. A proof-pair build refused a recipe-digest mismatch. Investigation found that
+Stage1 hashes seven recipe inputs while the proof verifier hashed four; proof
+commit `1a0259bf` aligns its input set with Stage1. The fresh pair build is in
+progress. Require its terminal success and strict integrity/freshness checks
+before accepting the toolchain; diagnosis alone does not qualify the pair.
 
 - Qualify borrow-region propagation through compiler/std callers, including
   explicit short-lived allocation refusal, distinct owners and retained scratch
