@@ -206,3 +206,26 @@ object SHA256 is
 This replaces the prior decoder compile blocker. Native link, background
 controller dispatch, directory move/restore, accessibility and fault-case
 qualification remain open.
+
+## Session source-reference resolution kernel
+
+Primary commit `aa430f6` adds the resolution kernel and companion laws.
+The root compiled the law file with the absolute current selected compiler
+checkout at `48dc78e2`, Stage1 SHA-256
+`461d377b3e61307ac4a4cb46e56729d84a21c509e38ddd57f39935002abe959f`.
+Object compilation exited 0. This supersedes the worker's historical `bb274b14`
+compile observation for current-source compilation evidence.
+
+Policy source SHA-256:
+`7f0028080a9283f887f0689292a43d84db75cd95980b1263832c9e1ff0514221`.
+Law source SHA-256:
+`617eac10187643d2c4072b314d19ab6ab3314349ca3513610c2fd9303fa4ae34`.
+Object `build/current-session-source-resolution-laws.o` SHA-256:
+`e41a4818a2acb1f8abc87292abd27685b0346b58354e1d4069437dc76fb90837`.
+
+Cache regeneration planning admits a verified original with current
+importer/options, a valid saved runtime digest and a ready workspace before
+runtime animation/tag-6 checks can be made. Applying saved edits still requires
+the regenerated runtime digest, animation and tag-6 binding to verify.
+The kernel is not yet wired into session reopening. This is source compilation,
+not authenticated proof, runtime restoration or completion of the FBX journey.
