@@ -199,3 +199,27 @@ independently replays 10/10 theorems. All six correspondence checks still exit 1
 check zero functions and report coverage `not-established`. Remaining failure
 policy findings include cast expressions in actual arguments, unverified helper
 summaries and CFG fact-snapshot limits. No FBX source authentication is accepted.
+
+## Current e24 / 89925919 comparison, 8 October
+
+The fresh pair generation `084b640a8e334e84845ea6332a7faf15` uses compiler
+`e24c29e6` and proof `89925919`. Its frozen seven-law application closure is
+`aeb57c5`; artifacts are in the proof checkout under
+`build/q02-fbx-qualification-e24-r2-aeb57c5-20261007/`.
+
+Failure policy replays 35/35 exported theorems, with 77 of 112 source obligations
+still unproven. Feedback policy proves and replays 7/7. The other five packages
+remain source-inadmissible and replay rejects them. All seven correspondence
+reports check zero functions and exit 1; all replay trust records explicitly
+retain `source_authenticated: false`. The collector only visits top-level
+functions, whereas these laws are module-scoped. Exporting their declarations
+does not repair that traversal. Owner-aware collection and qualified-call
+matching need independent positive and refusal controls.
+
+Root read all seven report, replay and correspondence summaries and hashed their
+JSON artifacts in `build/q02-e24-r2-root-audit.json`, SHA-256
+`020c7a97f2abd1304c9edf06e8e9578ef2b2b5c06b2f8d8fb78bd39435c0a86a`.
+This audit does not authenticate source or prove include-closure correspondence.
+The classifier now reaches connective ensure reasoning after redundant enum
+exclusions were removed. Other policies still fail contract proposition formation;
+numeric enum member provenance remains open. Earlier runs above are historical.
