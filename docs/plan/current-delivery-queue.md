@@ -15,17 +15,22 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
 The current compiler repair is not qualified for promotion. Clean source
-`b35b5bc3` is rebased onto fetched main `9bdfec53`; the rebase preserves all
+`60f5a3b2` is rebased onto fetched main `9bdfec53`; the rebase preserves all
 26 preceding project patches unchanged. Region forwarding now retains the
 exact selected fact row and validates vector/span shape. Unresolved callees
-conservatively mark growable caller parameters. Review remains open for malformed
-global tables: an invalid caller row must refuse compilation, rather than let
-the fallback return without recording its arena requirement. The fresh seed
+conservatively mark growable caller parameters. Invalid caller rows use a
+conservative signature fallback for growable reference parameters, preserving
+caller/callee ABI agreement. Direct malformed-table execution remains open:
+the backend harness encounters source lifetime diagnostics before its assertions.
+Baseline comparison identifies three inherited diagnostics and one new candidate
+diagnostic in `query_head_for`; repair its returned view's owner before qualification.
+The fresh seed
 exits 0; product SHA-256 is
-`12e463a02e80b1fd6cf3fd0028d3feb0ec6f6fd19a859c57e11b0304fd9fdc8c`
+`04487c330fbbac27ce93660e15e6775686e32a9e1bfc29dd335788e1b750674d`
 and independent provenance checking passes for its clean source snapshot.
-This product is diagnostic: the invalid-caller-row repair and a corrected
-owner fixture require another commit, seed and regression qualification.
+Module-owner forwarding and nested void publication controls pass at O0/O2;
+LLVM-instrumented ASan controls also pass. These focused outcomes do not close
+the malformed-table harness, complete-graph, gate or speed requirements.
 Mixed-owner callee lookups carry scalar table selectors,
 and error-family consumers project views locally. Diagnostic compile
 `build/descriptor-current-projection.log` exits 0 and emits an object with
@@ -37,7 +42,8 @@ Stage1 SHA-256 is `76687087d31873332811e73508596ec5eb007e4dfa2bb963713ff4237eaa8
 and independent provenance validation passes. The `341f72ba` comparison baseline
 products also pass freshness checks; their wrapper exit code was not captured.
 The latest main additionally changes global darray indexing and module hierarchy
-resolution; a separate current-main baseline is required. Required
+resolution. A fresh `9bdfec53` baseline seed exits 0 with provenance checks
+passing; its complete 37-check gate is in progress. Required
 gates, speed comparison and application acceptance remain open. Earlier
 product/build observations remain comparison evidence in the linked records.
 
