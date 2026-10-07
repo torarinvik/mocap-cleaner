@@ -129,9 +129,19 @@ def publish_package(project, artifact, artifact_id):
             for key in Publication.facts:
                 require(version(current[key]) == version(sealed[key]), "package controls changed")
             require(version(os.fstat(lease)) == version(lease_facts), "held package lease changed")
-            if old_root >= 0 and namespace_changed:
-                require(identity(os.stat(Publication.backup, dir_fd=pending, follow_symlinks=False)) ==
-                        identity(os.fstat(old_root)), "previous package backup replaced")
+            if old_root >= 0:
+                old_parent = pending if namespace_changed else build
+                old_name = Publication.backup if namespace_changed else Publication.destination
+                require(identity(os.stat(old_name, dir_fd=old_parent, follow_symlinks=False)) ==
+                        identity(os.fstat(old_root)), "previous package binding replaced")
+                rebound_old_resources = open_artifact(old_root, "Contents/Resources")
+                try:
+                    require(identity(os.fstat(rebound_old_resources)) == identity(old_resources_facts) and
+                            version(os.stat(".studio-generation.lease", dir_fd=rebound_old_resources,
+                            follow_symlinks=False)) == version(old_facts) and
+                            version(os.fstat(old_lease)) == version(old_facts), "previous package lease replaced")
+                finally:
+                    os.close(rebound_old_resources)
 
         revalidate()
         try:
@@ -144,6 +154,7 @@ def publish_package(project, artifact, artifact_id):
             old_root = open_artifact(build, Publication.destination)
             require(identity(os.fstat(old_root)) == identity(previous), "previous package replaced")
             old_resources = open_artifact(old_root, "Contents/Resources")
+            old_resources_facts = os.fstat(old_resources)
             old_lease = os.open(".studio-generation.lease", FILE_FLAGS, dir_fd=old_resources)
             old_facts = os.fstat(old_lease)
             owned(old_facts)
