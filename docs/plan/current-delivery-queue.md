@@ -241,6 +241,13 @@ negative controls, meaningful history entries and session/export parity.
   unclosed native handle. Restore success requires committed restore, confirmed
   lock release and exact durable reconciliation; compilation of the worker and
   task instantiation does not qualify its runtime behavior.
+- Correct the native reconciliation parent comparison before runtime acceptance:
+  a transaction begun at quarantine has the managed items directory as its
+  source parent, while the receipt records the original parent. Compare each
+  descriptor with its corresponding identity, then bind and verify the original
+  parent separately. The current unconditional comparison rejects an otherwise
+  valid quarantined artifact before that rebinding. Cover both original and
+  quarantine recovery locations, changed parents and reused names.
 - Qualify generation recovery through this outcome matrix before exposing it:
 
   | Observed state | Required UI and action |
