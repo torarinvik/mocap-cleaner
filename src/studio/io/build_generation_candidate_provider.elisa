@@ -281,10 +281,10 @@ module StudioBuildGenerationCandidateProvider:
                 index < capacity
 
         public:
-            def scan_default(build_root: cstr) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            def scan_default(build_root: cstr) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
                 scan(build_root, StudioBuildGenerationCandidateProviderRetention::DEFAULT_RETENTION_DAYS)
 
-            def scan(build_root: cstr, retention_days: i64) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast]:
+            def scan(build_root: cstr, retention_days: i64) -> Snapshot can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
                 mutable result: Snapshot = Snapshot{outcome: Outcome.Refused, rows: [], refusal_code: 1, retention_days: -1}
                 return result if retention_days < 0 or retention_days > StudioBuildGenerationCandidateProviderNative::Limit::MAX_RETENTION_DAYS
                 result.retention_days <- retention_days
@@ -294,13 +294,17 @@ module StudioBuildGenerationCandidateProvider:
                 mutable refusal: i64 = -1
                 mutable error_buffer: u8[StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.usize()] = zeroed
                 error_pointer: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
-                mutable status: i32 = build_candidates_open(
-                    build_root, retention_days, &token, &raw_outcome, &count, &refusal,
-                    error_pointer,
-                    StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
+                mutable status: i32 = -1
+                can Unsafe.RawExtern:
+                    status <- build_candidates_open(
+                        build_root, retention_days, &token, &raw_outcome, &count, &refusal,
+                        error_pointer,
+                        StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
                 mutable decoded_outcome: StudioBuildGenerationCandidateProviderBindingPolicy::DecodedInteger = StudioBuildGenerationCandidateProviderBindingPolicy::decode_outcome(raw_outcome)
                 if status != 0 or decoded_outcome.kind != StudioBuildGenerationCandidateProviderBindingPolicy::DecodeKind.Valid or count < 0 or count > Limit::MAX_ROWS or (token == 0 and count != 0):
-                    if token != 0: build_candidates_close(token)
+                    if token != 0:
+                        can Unsafe.RawExtern:
+                            _ = build_candidates_close(token)
                     return result
                 result.outcome <- outcome_value(raw_outcome)
                 result.refusal_code <- refusal
@@ -352,21 +356,22 @@ module StudioBuildGenerationCandidateProvider:
                     mutable lease_inode: i64 = -1
                     mutable builder_inactive: i32 = -1
                     mutable observed_tree_verified: i32 = -1
-                    status <- build_candidates_row(token, index,
-                        &artifact_raw, &phase_raw, &protection_raw, &device, &inode, &build_device,
-                        &build_inode, &revision, &creation_kind, &age, &age_known, &row_retention, &size_bytes,
-                        &size_known, &product_kind, id_pointer,
-                        StudioBuildGenerationCandidateProviderNative::Limit::ID_CAPACITY.u32(),
-                        path_pointer,
-                        StudioBuildGenerationCandidateProviderNative::Limit::PATH_CAPACITY.u32(),
-                        creation_pointer, latest_pointer, observed_pointer, manifest_pointer,
-                        input_pointer, product_pointer, inventory_pointer, lease_pointer,
-                        row_error_pointer,
-                        StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
-                    if status == 0:
-                        status <- build_candidates_incomplete(token, index, &incomplete_kind,
-                            &failure_status, &lease_device, &lease_inode, &builder_inactive,
-                            &observed_tree_verified)
+                    can Unsafe.RawExtern:
+                        status <- build_candidates_row(token, index,
+                            &artifact_raw, &phase_raw, &protection_raw, &device, &inode, &build_device,
+                            &build_inode, &revision, &creation_kind, &age, &age_known, &row_retention, &size_bytes,
+                            &size_known, &product_kind, id_pointer,
+                            StudioBuildGenerationCandidateProviderNative::Limit::ID_CAPACITY.u32(),
+                            path_pointer,
+                            StudioBuildGenerationCandidateProviderNative::Limit::PATH_CAPACITY.u32(),
+                            creation_pointer, latest_pointer, observed_pointer, manifest_pointer,
+                            input_pointer, product_pointer, inventory_pointer, lease_pointer,
+                            row_error_pointer,
+                            StudioBuildGenerationCandidateProviderNative::Limit::ERROR_CAPACITY.u32())
+                        if status == 0:
+                            status <- build_candidates_incomplete(token, index, &incomplete_kind,
+                                &failure_status, &lease_device, &lease_inode, &builder_inactive,
+                                &observed_tree_verified)
                     mutable id: darray[u8] = []
                     mutable path: darray[u8] = []
                     mutable creation: darray[u8] = []
@@ -437,7 +442,9 @@ module StudioBuildGenerationCandidateProvider:
                         valid <- valid and StudioBuildGenerationCandidateProviderBindingPolicy::row_output_admitted(status, artifact_raw, phase_raw, protection_raw, product_kind, device, inode, age, age_known, row_retention, size_bytes, size_known, path.count.i64(), id.count.i64()) and row_valid(row)
                         if valid: result.rows.push(row)
                     index <- index + 1
-                mutable close_status: i32 = build_candidates_close(token)
+                mutable close_status: i32 = -1
+                can Unsafe.RawExtern:
+                    close_status <- build_candidates_close(token)
                 if not valid or close_status != 0:
                     result.rows.clear()
                     result.outcome <- Outcome.Refused
