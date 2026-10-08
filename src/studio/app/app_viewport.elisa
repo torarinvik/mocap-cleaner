@@ -2,87 +2,93 @@ include "app_state.elisa"
 
 extend Studio:
     private:
-        def viewport_pose_description() -> sview:
-            return "Perspective, front, and side views show the cleanup suggestion. Motion curves and timeline metrics describe the committed result." if suggestion_candidate_visible()
-            return "Perspective, front, and side views show the proposed contact pose. Release applies the range; Escape cancels. Motion curves and timeline metrics describe the committed result." if contact_preview_candidate_current()
-            return "Perspective, front, and side views show the committed result while the proposed contact pose is pending or unavailable. Motion curves and timeline metrics describe the committed result." if contact_preview_active
-            "Perspective, front, and side views of the committed result."
+        def viewport_pose_description() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Perspective, front, and side views show the cleanup suggestion. Motion curves and timeline metrics describe the committed result." if suggestion_candidate_visible()
+                return "Perspective, front, and side views show the proposed contact pose. Release applies the range; Escape cancels. Motion curves and timeline metrics describe the committed result." if contact_preview_candidate_current()
+                return "Perspective, front, and side views show the committed result while the proposed contact pose is pending or unavailable. Motion curves and timeline metrics describe the committed result." if contact_preview_active
+                return "Perspective, front, and side views of the committed result."
 
-        def frame_all() -> void:
-            if clip is c:
-                pts: darray[Geometry::Vec3] = StudioScene::points(c, frame_now())
-                for i in 0..<3 |i, pts|:
-                    if Studio::view(i) is opened:
-                        mutable vp: Viewport::Viewport = opened
-                        _ = ViewportCamera::frame_points(&vp.camera, &pts, 1.15)
-                        Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
-                        put_view(i, vp)
-                touch()
+        def frame_all() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if clip is c:
+                    pts: darray[Geometry::Vec3] = StudioScene::points(c, frame_now())
+                    for i in 0..<3 |i, pts|:
+                        if Studio::view(i) is opened:
+                            mutable vp: Viewport::Viewport = opened
+                            _ = ViewportCamera::frame_points(&vp.camera, &pts, 1.15)
+                            Viewport::invalidate(&vp, ViewportPolicy::DIRTY_CAMERA)
+                            put_view(i, vp)
+                    touch()
 
-        def view_at(x: f32, y: f32) -> i64:
-            for i in 0..<3 |i, x, y|:
-                return i if StudioPanels::inside(view_box(i), x, y)
-            -1
+        def view_at(x: f32, y: f32) -> i64 can[Global.Read]:
+            can Global.Read:
+                for i in 0..<3 |i, x, y|:
+                    return i if StudioPanels::inside(view_box(i), x, y)
+                return -1
 
-        def modal_overlay_active() -> bool:
-            StudioModalPolicy::hides_viewports(help_open, replacement_prompt_open,
-                legacy_prompt_open, export_review_open, export_warning_detail_open,
-                export_path_inspector_open, export_result_open) or storage_screen_open or goto_open or session_locate_open
+        def modal_overlay_active() -> bool can[Global.Read]:
+            can Global.Read:
+                return StudioModalPolicy::hides_viewports(help_open, replacement_prompt_open,
+                    legacy_prompt_open, export_review_open, export_warning_detail_open,
+                    export_path_inspector_open, export_result_open) or storage_screen_open or goto_open or session_locate_open
 
-        def sync_view(i: i64, scale: f32) -> void:
-            if modal_overlay_active():
-                # Native hosted surfaces render above canvas overlays. Remove
-                # them while a blocking sheet is drawn; the next normal sync
-                # presents them again after the sheet closes.
-                if i == 0 and shown0.surface != 0:
-                    UiAppKitCanvas::remove_hosted(&shown0, 0)
-                elif i == 1 and shown1.surface != 0:
-                    UiAppKitCanvas::remove_hosted(&shown1, 1)
-                elif i == 2 and shown2.surface != 0:
-                    UiAppKitCanvas::remove_hosted(&shown2, 2)
-                return
-            if Studio::view(i) is opened:
-                mutable vp: Viewport::Viewport = opened
-                rect: UiHostedSurface::Rect = rect_of(view_box(i))
-                _ = catch Viewport::resize(&vp, UiHostedSurface::pixel_extent(rect.width, scale), UiHostedSurface::pixel_extent(rect.height, scale)):
+        def sync_view(i: i64, scale: f32) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if modal_overlay_active():
+                    # Native hosted surfaces render above canvas overlays. Remove
+                    # them while a blocking sheet is drawn; the next normal sync
+                    # presents them again after the sheet closes.
+                    if i == 0 and shown0.surface != 0:
+                        UiAppKitCanvas::remove_hosted(&shown0, 0)
+                    elif i == 1 and shown1.surface != 0:
+                        UiAppKitCanvas::remove_hosted(&shown1, 1)
+                    elif i == 2 and shown2.surface != 0:
+                        UiAppKitCanvas::remove_hosted(&shown2, 2)
+                    return
+                if Studio::view(i) is opened:
+                    mutable vp: Viewport::Viewport = opened
+                    rect: UiHostedSurface::Rect = rect_of(view_box(i))
+                    _ = catch Viewport::resize(&vp, UiHostedSurface::pixel_extent(rect.width, scale), UiHostedSurface::pixel_extent(rect.height, scale)):
+                        value: value
+                        error failure: false
+                    if seen(i) != revision:
+                        Viewport::invalidate(&vp, ViewportPolicy::DIRTY_SCENE)
+                        put_seen(i, revision)
+                    if clip is c:
+                        if suggestion_candidate_visible():
+                            if suggestion_candidate is candidate:
+                                render_clip(&vp, candidate)
+                            else:
+                                render_clip(&vp, c)
+                        elif contact_preview_candidate_current():
+                            if contact_preview_candidate is contact_candidate:
+                                render_clip(&vp, contact_candidate)
+                            else:
+                                render_clip(&vp, c)
+                        else:
+                            render_clip(&vp, c)
+                    action: i32 = present(i, vp, rect)
+                    if action == UiHostedSurface::APPLY:
+                        _ = Viewport::acknowledge(&vp, vp.published_frame)
+                    if vp.dirty != 0:
+                        UiCore::request_frame_after(0.016)
+                    put_view(i, vp)
+
+        def render_clip(vp: Viewport::Viewport&, c: StudioModel::Clip&) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                refresh_skin(c)
+                empty_mesh: GlbSkinMesh::Mesh = GlbSkinMesh::empty()
+                no_points: darray[Geometry::Vec3] = []
+                mutable list: ViewportDraw::List = draw_list(&vp.camera, c, &empty_mesh, &no_points)
+                if gizmo_mode >= 0 and bone >= 0:
+                    g: ViewportGizmo::Gizmo = StudioScene::gizmo_for(c, frame_now(), bone, gizmo_mode)
+                    _ = catch ViewportGizmo::draw(&list, &vp.camera, &g, GizmoPolicy::NONE, active_handle()):
+                        value: value
+                        error failure: 0
+                _ = catch Viewport::tick(vp, &list):
                     value: value
                     error failure: false
-                if seen(i) != revision:
-                    Viewport::invalidate(&vp, ViewportPolicy::DIRTY_SCENE)
-                    put_seen(i, revision)
-                if clip is c:
-                    if suggestion_candidate_visible():
-                        if suggestion_candidate is candidate:
-                            render_clip(&vp, candidate)
-                        else:
-                            render_clip(&vp, c)
-                    elif contact_preview_candidate_current():
-                        if contact_preview_candidate is contact_candidate:
-                            render_clip(&vp, contact_candidate)
-                        else:
-                            render_clip(&vp, c)
-                    else:
-                        render_clip(&vp, c)
-                action: i32 = present(i, vp, rect)
-                if action == UiHostedSurface::APPLY:
-                    _ = Viewport::acknowledge(&vp, vp.published_frame)
-                if vp.dirty != 0:
-                    UiCore::request_frame_after(0.016)
-                put_view(i, vp)
-
-        def render_clip(vp: Viewport::Viewport&, c: StudioModel::Clip&) -> void:
-            refresh_skin(c)
-            empty_mesh: GlbSkinMesh::Mesh = GlbSkinMesh::empty()
-            no_points: darray[Geometry::Vec3] = []
-            mutable list: ViewportDraw::List = draw_list(&vp.camera, c, &empty_mesh, &no_points)
-            if gizmo_mode >= 0 and bone >= 0:
-                g: ViewportGizmo::Gizmo = StudioScene::gizmo_for(c, frame_now(), bone, gizmo_mode)
-                _ = catch ViewportGizmo::draw(&list, &vp.camera, &g, GizmoPolicy::NONE, active_handle()):
-                    value: value
-                    error failure: 0
-            _ = catch Viewport::tick(vp, &list):
-                value: value
-                error failure: false
 
         # Re-skin the mesh when the frame or the clip changed (MESH on only).
         # A drawable character model wins over the take's own mesh.
@@ -136,13 +142,14 @@ extend Studio:
                         return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
                 return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
 
-        def present(i: i64, vp: Viewport::Viewport&, rect: UiHostedSurface::Rect) -> i32:
-            w: f32 = UiCore::viewport_width()
-            h: f32 = UiCore::viewport_height()
-            if i == 0:
-                return UiAppKitCanvas::present_hosted(&shown0, 0, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
-            if i == 1:
-                return UiAppKitCanvas::present_hosted(&shown1, 1, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
-            UiAppKitCanvas::present_hosted(&shown2, 2, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+        def present(i: i64, vp: Viewport::Viewport&, rect: UiHostedSurface::Rect) -> i32 can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                w: f32 = UiCore::viewport_width()
+                h: f32 = UiCore::viewport_height()
+                if i == 0:
+                    return UiAppKitCanvas::present_hosted(&shown0, 0, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+                if i == 1:
+                    return UiAppKitCanvas::present_hosted(&shown1, 1, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
+                return UiAppKitCanvas::present_hosted(&shown2, 2, Viewport::published_surface(vp), vp.generation, vp.published_frame, rect, w, h)
 
         # ---- lifecycle -------------------------------------------------
