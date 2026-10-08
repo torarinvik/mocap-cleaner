@@ -26,6 +26,15 @@ record. Recheck them on the final source/product/runtime closure. Measure
 cache-hit rehome allocation cost; unresolved-call static lifetime fallback does
 not qualify cleanup.
 
+Direct body comparison confirms generic `pool_await` returns skip deferred
+actions before region unwind in current source. Port `a69638c1` on
+`codex/current-generic-await-defer` restores the deferred-action check and carries
+direct/generic/failed-postcondition runtime controls. Integrate after the frozen
+`1371ef63` capture; rebuild and run these controls on the combined tuple before
+acceptance. The port alone is unqualified. Specialized generic-result arena
+demand and aggregate return snapshots also have confirmed source differences;
+other historical repair groups require behavior comparison before porting.
+
 The `1482a808` historical baseline is terminal: the 32-check fast profile has
 24 passes and eight failures; the five separately run oracle lanes have one
 pass and four failures. All 37 checks are accounted for. Retain its manifest
