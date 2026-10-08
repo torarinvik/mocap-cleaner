@@ -6,68 +6,71 @@ extend Studio:
     private:
         global mutable session_locate_source_resolution: StudioSessionLocateSourceAdmissionPolicy::Method = StudioSessionLocateSourceAdmissionPolicy::Method.LegacyGlb
 
-        def session_locate_failure() -> sview:
-            return "Session finding annotations are invalid, unsupported or exceed capacity. Saved edits have not been applied." if SessionState::load_error() == SessionState::LoadError.Annotations.i64()
-            return "Session contains invalid edits or exceeds an edit capacity. Saved edits have not been applied." if SessionState::load_error() == SessionState::LoadError.Edits.i64()
-            return "Session exceeds the 8 MiB safe-read limit; the file was not changed." if SessionState::load_error() == SessionState::LoadError.TooLarge.i64()
-            return "Session could not be read or closed; the file was not changed." if SessionState::load_error() == SessionState::LoadError.Close.i64()
-            return "Session file could not be read." if SessionState::load_error() == SessionState::LoadError.Read.i64()
-            return "Session is damaged, unsupported or has no valid source identity."
+        def session_locate_failure() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Session finding annotations are invalid, unsupported or exceed capacity. Saved edits have not been applied." if SessionState::load_error() == SessionState::LoadError.Annotations.i64()
+                return "Session contains invalid edits or exceeds an edit capacity. Saved edits have not been applied." if SessionState::load_error() == SessionState::LoadError.Edits.i64()
+                return "Session exceeds the 8 MiB safe-read limit; the file was not changed." if SessionState::load_error() == SessionState::LoadError.TooLarge.i64()
+                return "Session could not be read or closed; the file was not changed." if SessionState::load_error() == SessionState::LoadError.Close.i64()
+                return "Session file could not be read." if SessionState::load_error() == SessionState::LoadError.Read.i64()
+                return "Session is damaged, unsupported or has no valid source identity."
 
-        def clear_session_locate() -> void:
-            session_locate_open <- false
-            session_locate_source_valid <- false
-            session_locate_comparison <- StudioSessionSourcePolicy::Comparison.ChangedBytes
-            session_locate_memo <- null
-            pending_take_path <- ""
-            SessionState::discard_locate_candidate()
+        def clear_session_locate() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                session_locate_open <- false
+                session_locate_source_valid <- false
+                session_locate_comparison <- StudioSessionSourcePolicy::Comparison.ChangedBytes
+                session_locate_memo <- null
+                pending_take_path <- ""
+                SessionState::discard_locate_candidate()
 
-        def begin_session_locate(p: cstr) -> void can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
-            if session_locate_worker != null:
-                say_file("the previous source check is still finishing; try again shortly", pending_path())
+        def begin_session_locate(p: cstr) -> void can Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}:
+            can Global{Read, Write}:
+                if session_locate_worker != null:
+                    say_file("the previous source check is still finishing; try again shortly", pending_path())
+                    touch()
+                    return
+                length: i64 = bounded_path_length(p)
+                if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64()):
+                    say_file("session path exceeds 4095 bytes", p)
+                    touch()
+                    return
+                # Inspect owned bytes before replacing any retained candidate path.
+                # File chooser storage must not become the pending path's owner.
+                mutable candidate_bytes: u8[4096] = zeroed
+                mutable index: usize = 0
+                while index <= length.usize():
+                    candidate_bytes[index] <- p[index]
+                    index <- index + 1
+                candidate_path: cstr = (&candidate_bytes[0]).cast[cstr]
+                if not SessionState::inspect_locate_candidate(candidate_path):
+                    say_file(session_locate_failure(), p)
+                    touch()
+                    return
+                if not stage_pending_path(candidate_path):
+                    say_file("Session path could not be retained; the current document is unchanged.", p)
+                    touch()
+                    return
+                gizmo_cancel() if gizmo_view >= 0
+                session_locate_open <- true
+                session_locate_focus <- StudioSessionLocatePolicy::initial_focus()
+                session_locate_source_valid <- false
+                session_locate_memo <- null
+                if clip is c:
+                    saved: SessionState::SourceIdentity? = SessionState::locate_candidate_identity()
+                    if saved is identity:
+                        current: SessionState::SourceIdentity = session_identity(c)
+                        session_locate_comparison <- StudioSessionSourcePolicy::compare(
+                            identity.first, identity.second, identity.animation, identity.frames, identity.nodes,
+                            current.first, current.second, current.animation, current.frames, current.nodes)
+                        session_locate_source_valid <- true
+                        session_locate_focus <- StudioSessionLocatePolicy::Focus.OpenAsNewTake if session_locate_comparison != StudioSessionSourcePolicy::Comparison.Matching
+                        if SessionState::copy_locate_candidate_source_reference() is expected_reference:
+                            if StudioTakeSourceRefPolicy::bytes_equal(expected_reference.reference.original_path, path_bytes(path)):
+                                _ = start_session_locate_worker_for_path(path)
+                file_menu_open <- false
+                help_open <- false
                 touch()
-                return
-            length: i64 = bounded_path_length(p)
-            if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64()):
-                say_file("session path exceeds 4095 bytes", p)
-                touch()
-                return
-            # Inspect owned bytes before replacing any retained candidate path.
-            # File chooser storage must not become the pending path's owner.
-            mutable candidate_bytes: u8[4096] = zeroed
-            mutable index: usize = 0
-            while index <= length.usize():
-                candidate_bytes[index] <- p[index]
-                index <- index + 1
-            candidate_path: cstr = (&candidate_bytes[0]).cast[cstr]
-            if not SessionState::inspect_locate_candidate(candidate_path):
-                say_file(session_locate_failure(), p)
-                touch()
-                return
-            if not stage_pending_path(candidate_path):
-                say_file("Session path could not be retained; the current document is unchanged.", p)
-                touch()
-                return
-            gizmo_cancel() if gizmo_view >= 0
-            session_locate_open <- true
-            session_locate_focus <- StudioSessionLocatePolicy::initial_focus()
-            session_locate_source_valid <- false
-            session_locate_memo <- null
-            if clip is c:
-                saved: SessionState::SourceIdentity? = SessionState::locate_candidate_identity()
-                if saved is identity:
-                    current: SessionState::SourceIdentity = session_identity(c)
-                    session_locate_comparison <- StudioSessionSourcePolicy::compare(
-                        identity.first, identity.second, identity.animation, identity.frames, identity.nodes,
-                        current.first, current.second, current.animation, current.frames, current.nodes)
-                    session_locate_source_valid <- true
-                    session_locate_focus <- StudioSessionLocatePolicy::Focus.OpenAsNewTake if session_locate_comparison != StudioSessionSourcePolicy::Comparison.Matching
-                    if SessionState::copy_locate_candidate_source_reference() is expected_reference:
-                        if StudioTakeSourceRefPolicy::bytes_equal(expected_reference.reference.original_path, path_bytes(path)):
-                            _ = start_session_locate_worker_for_path(path)
-            file_menu_open <- false
-            help_open <- false
-            touch()
 
         def located_source_identity(candidate: StudioModel::Memo) -> SessionState::SourceIdentity:
             SessionState::SourceIdentity{
@@ -84,284 +87,297 @@ extend Studio:
 
         def session_locate_source_admitted(candidate: StudioModel::Memo&,
                                            method: StudioSessionLocateSourceAdmissionPolicy::Method,
-                                           source_path: cstr) -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            mutable expected: SessionSourceReferenceCodec::Record? = SessionState::copy_locate_candidate_source_reference()
-            selected_path: darray[u8] = path_bytes(source_path)
-            take_matches: bool = session_locate_comparison == StudioSessionSourcePolicy::Comparison.Matching
-            if expected is saved:
-                if candidate.source_reference is loaded:
-                    processing_matches: bool = method == StudioSessionLocateSourceAdmissionPolicy::Method.FbxCache or method == StudioSessionLocateSourceAdmissionPolicy::Method.FbxRegenerated
-                    StudioSessionLocateSourceAdmissionPolicy::source_admit(method, saved, loaded, selected_path,
-                        take_matches, processing_matches, true, true)
+                                           source_path: cstr) -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                mutable expected: SessionSourceReferenceCodec::Record? = SessionState::copy_locate_candidate_source_reference()
+                selected_path: darray[u8] = path_bytes(source_path)
+                take_matches: bool = session_locate_comparison == StudioSessionSourcePolicy::Comparison.Matching
+                if expected is saved:
+                    if candidate.source_reference is loaded:
+                        processing_matches: bool = method == StudioSessionLocateSourceAdmissionPolicy::Method.FbxCache or method == StudioSessionLocateSourceAdmissionPolicy::Method.FbxRegenerated
+                        return StudioSessionLocateSourceAdmissionPolicy::source_admit(method, saved, loaded, selected_path,
+                            take_matches, processing_matches, true, true)
+                    else:
+                        return false
                 else:
-                    false
-            else:
-                has_loaded: bool = candidate.source_reference != null
-                StudioSessionLocateSourceAdmissionPolicy::legacy_admit(method, false, has_loaded, take_matches)
+                    has_loaded: bool = candidate.source_reference != null
+                    return StudioSessionLocateSourceAdmissionPolicy::legacy_admit(method, false, has_loaded, take_matches)
 
-        def start_session_locate_worker_for_path(candidate_path: cstr) -> bool can[Unsafe.PointerCast, Memory.Allocate, Threads]:
-            return false if session_locate_worker != null
-            if SessionState::locate_candidate_identity() is saved:
-                mutable owned_path: darray[u8] = session_locate_terminated_path(candidate_path)
-                mutable build_root: darray[u8] = session_locate_terminated_path(workspace_build_directory())
-                mutable job: StudioSessionLocateWorker::Job = zeroed
-                session_locate_worker_ticket <- StudioSessionLocatePolicy::next_ticket(session_locate_worker_ticket)
-                job.ticket <- session_locate_worker_ticket
-                job.animation_index <- saved.animation
-                mutable copied: bool = owned_path.count >= 2 and owned_path.count <= PathCapacity::BYTES and build_root.count >= 1 and build_root.count <= PathCapacity::BYTES
-                if copied:
-                    for index in 0..<owned_path.count |index, owned_path, job|:
-                        job.source_path[index] <- owned_path[index]
-                    for index in 0..<build_root.count |index, build_root, job|:
-                        job.build_root[index] <- build_root[index]
-                if SessionState::copy_locate_candidate_source_reference() is reference:
-                    mutable encoded_reference: darray[u8] = []
-                    copied <- copied and SessionSourceReferenceCodec::encode(reference, &encoded_reference) and encoded_reference.count <= SessionSourceReferenceCodec::Limit::LINE_BYTES
+        def start_session_locate_worker_for_path(candidate_path: cstr) -> bool can[Unsafe.PointerCast, Memory.Allocate, Threads, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return false if session_locate_worker != null
+                if SessionState::locate_candidate_identity() is saved:
+                    mutable owned_path: darray[u8] = session_locate_terminated_path(candidate_path)
+                    mutable build_root: darray[u8] = session_locate_terminated_path(workspace_build_directory())
+                    mutable job: StudioSessionLocateWorker::Job = zeroed
+                    session_locate_worker_ticket <- StudioSessionLocatePolicy::next_ticket(session_locate_worker_ticket)
+                    job.ticket <- session_locate_worker_ticket
+                    job.animation_index <- saved.animation
+                    mutable copied: bool = owned_path.count >= 2 and owned_path.count <= PathCapacity::BYTES and build_root.count >= 1 and build_root.count <= PathCapacity::BYTES
                     if copied:
-                        job.has_source_reference <- true
-                        job.source_reference_count <- encoded_reference.count.i64()
-                        for index in 0..<encoded_reference.count |index, encoded_reference, job|:
-                            job.source_reference_line[index] <- encoded_reference[index]
-                if not copied:
-                    return false
-                session_locate_memo <- null
-                session_locate_source_valid <- false
-                session_locate_worker_path <- candidate_path
-                session_locate_worker_cancelled <- false
-                session_locate_worker <- task(load_session_locate_job, move job)
-                session_locate_focus <- StudioSessionLocatePolicy::Focus.Cancel
-                status <- "Checking source bytes, processing identity and selected animation in the background. The current cleanup remains active."
-                status_file <- null
-                touch()
-                return true
-            false
+                        for index in 0..<owned_path.count |index, owned_path, job|:
+                            job.source_path[index] <- owned_path[index]
+                        for index in 0..<build_root.count |index, build_root, job|:
+                            job.build_root[index] <- build_root[index]
+                    if SessionState::copy_locate_candidate_source_reference() is reference:
+                        mutable encoded_reference: darray[u8] = []
+                        copied <- copied and SessionSourceReferenceCodec::encode(reference, &encoded_reference) and encoded_reference.count <= SessionSourceReferenceCodec::Limit::LINE_BYTES
+                        if copied:
+                            job.has_source_reference <- true
+                            job.source_reference_count <- encoded_reference.count.i64()
+                            for index in 0..<encoded_reference.count |index, encoded_reference, job|:
+                                job.source_reference_line[index] <- encoded_reference[index]
+                    if not copied:
+                        return false
+                    session_locate_memo <- null
+                    session_locate_source_valid <- false
+                    session_locate_worker_path <- candidate_path
+                    session_locate_worker_cancelled <- false
+                    session_locate_worker <- task(load_session_locate_job, move job)
+                    session_locate_focus <- StudioSessionLocatePolicy::Focus.Cancel
+                    status <- "Checking source bytes, processing identity and selected animation in the background. The current cleanup remains active."
+                    status_file <- null
+                    touch()
+                    return true
+                return false
 
-        def request_prepared_replacement(kind: i64, p: cstr) -> void can Unsafe.PointerCast:
-            cancel_export_result() if export_result_open
-            cancel_export_review() if export_review_open
-            if not stage_pending_path(p):
-                say_file("file path exceeds 4095 bytes", p)
-                touch()
-                return
-            pending_replacement <- kind
-            pending_replacement_allows_legacy <- false
-            replacement_is_close <- false
-            replacement_is_termination <- false
-            mutable dirty: bool = false
-            if history_ready:
-                dirty <- HistoryState::dirty(&history)
-            dirty <- dirty or pending_edit_active()
-            if StudioReplacement::needs_prompt(clip != null, dirty):
-                replacement_prompt_open <- true
-                replacement_focus <- StudioReplacement::initial_focus()
-                replacement_save_failed <- false
-                file_menu_open <- false
-                help_open <- false
-                touch()
-                return
-            perform_replacement(kind, pending_path(), false)
+        def request_prepared_replacement(kind: i64, p: cstr) -> void can Unsafe.PointerCast, Global{Read, Write}:
+            can Global{Read, Write}:
+                cancel_export_result() if export_result_open
+                cancel_export_review() if export_review_open
+                if not stage_pending_path(p):
+                    say_file("file path exceeds 4095 bytes", p)
+                    touch()
+                    return
+                pending_replacement <- kind
+                pending_replacement_allows_legacy <- false
+                replacement_is_close <- false
+                replacement_is_termination <- false
+                mutable dirty: bool = false
+                if history_ready:
+                    dirty <- HistoryState::dirty(&history)
+                dirty <- dirty or pending_edit_active()
+                if StudioReplacement::needs_prompt(clip != null, dirty):
+                    replacement_prompt_open <- true
+                    replacement_focus <- StudioReplacement::initial_focus()
+                    replacement_save_failed <- false
+                    file_menu_open <- false
+                    help_open <- false
+                    touch()
+                    return
+                perform_replacement(kind, pending_path(), false)
 
         def accept_located_source(candidate: StudioModel::Memo, source_path: cstr,
-                                  method: StudioSessionLocateSourceAdmissionPolicy::Method) -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            saved: SessionState::SourceIdentity? = SessionState::locate_candidate_identity()
-            if saved is identity:
-                current: SessionState::SourceIdentity = located_source_identity(candidate)
-                comparison: StudioSessionSourcePolicy::Comparison = StudioSessionSourcePolicy::compare(
-                    identity.first, identity.second, identity.animation, identity.frames, identity.nodes,
-                    current.first, current.second, current.animation, current.frames, current.nodes)
-                session_locate_comparison <- comparison
-                session_locate_source_valid <- true
-                source_admitted: bool = session_locate_source_admitted(candidate, method, source_path)
-                session_locate_source_valid <- false if comparison == StudioSessionSourcePolicy::Comparison.Matching and not source_admitted
-                pending_take_path <- source_path
-                session_locate_memo <- move candidate
-                session_locate_source_resolution <- method
-                session_locate_focus <- StudioSessionLocatePolicy::Focus.RestoreSession if comparison == StudioSessionSourcePolicy::Comparison.Matching and source_admitted else StudioSessionLocatePolicy::Focus.OpenAsNewTake
-                status <- "Saved source and processing evidence match; review Restore session to apply saved indexed edits." if comparison == StudioSessionSourcePolicy::Comparison.Matching and source_admitted
-                status <- "Take metadata matches, but saved source verification failed. Session edits remain protected." if comparison == StudioSessionSourcePolicy::Comparison.Matching and not source_admitted
-                status <- "Source differs from saved metadata. Saved joint-index edits remain unapplied." if comparison != StudioSessionSourcePolicy::Comparison.Matching
-                status_file <- source_path
-                touch()
-
-        def choose_located_source() -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
-            return if session_locate_worker != null
-            mutable extensions: cstr = "glb"
-            if SessionState::copy_locate_candidate_source_reference() is expected:
-                extensions <- "fbx" if expected.reference.format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived else "glb"
-            if FilePanel::open(extensions, "Locate the original motion-capture take") is chosen:
-                slot: i64 = spare_path_slot()
-                if not copy_path(chosen, slot):
-                    status <- "take path exceeds 4095 bytes"
-                    status_file <- null
+                                  method: StudioSessionLocateSourceAdmissionPolicy::Method) -> void can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                saved: SessionState::SourceIdentity? = SessionState::locate_candidate_identity()
+                if saved is identity:
+                    current: SessionState::SourceIdentity = located_source_identity(candidate)
+                    comparison: StudioSessionSourcePolicy::Comparison = StudioSessionSourcePolicy::compare(
+                        identity.first, identity.second, identity.animation, identity.frames, identity.nodes,
+                        current.first, current.second, current.animation, current.frames, current.nodes)
+                    session_locate_comparison <- comparison
+                    session_locate_source_valid <- true
+                    source_admitted: bool = session_locate_source_admitted(candidate, method, source_path)
+                    session_locate_source_valid <- false if comparison == StudioSessionSourcePolicy::Comparison.Matching and not source_admitted
+                    pending_take_path <- source_path
+                    session_locate_memo <- move candidate
+                    session_locate_source_resolution <- method
+                    session_locate_focus <- StudioSessionLocatePolicy::Focus.RestoreSession if comparison == StudioSessionSourcePolicy::Comparison.Matching and source_admitted else StudioSessionLocatePolicy::Focus.OpenAsNewTake
+                    status <- "Saved source and processing evidence match; review Restore session to apply saved indexed edits." if comparison == StudioSessionSourcePolicy::Comparison.Matching and source_admitted
+                    status <- "Take metadata matches, but saved source verification failed. Session edits remain protected." if comparison == StudioSessionSourcePolicy::Comparison.Matching and not source_admitted
+                    status <- "Source differs from saved metadata. Saved joint-index edits remain unapplied." if comparison != StudioSessionSourcePolicy::Comparison.Matching
+                    status_file <- source_path
                     touch()
-                    return
-                candidate_path: cstr = stored_path(slot)
-                if not start_session_locate_worker_for_path(candidate_path):
+
+        def choose_located_source() -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Threads, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if session_locate_worker != null
+                mutable extensions: cstr = "glb"
+                if SessionState::copy_locate_candidate_source_reference() is expected:
+                    extensions <- "fbx" if expected.reference.format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived else "glb"
+                if FilePanel::open(extensions, "Locate the original motion-capture take") is chosen:
+                    slot: i64 = spare_path_slot()
+                    if not copy_path(chosen, slot):
+                        status <- "take path exceeds 4095 bytes"
+                        status_file <- null
+                        touch()
+                        return
+                    candidate_path: cstr = stored_path(slot)
+                    if not start_session_locate_worker_for_path(candidate_path):
+                        session_locate_worker_path <- ""
+                        session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate
+                        status <- "Source reference or path exceeds the bounded Locate request capacity."
+                        status_file <- null
+                        touch()
+
+        def poll_session_locate_worker() -> void can[Threads, Ui.Window, Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if session_locate_worker is active_task:
+                    session_locate_worker <- null
+                    readiness: ThreadReadiness[StudioSessionLocateWorker::Result] = poll_ready(move active_task)
+                    if not readiness.complete:
+                        session_locate_worker <- move readiness.thread
+                        return
+                    match join(move readiness.thread):
+                        StudioSessionLocateWorker::Result{ticket: completed_ticket, status: completed_status, memo: completed_memo}:
+                            if completed_ticket == session_locate_worker_ticket and not session_locate_worker_cancelled and session_locate_open:
+                                resolution: StudioSessionLocateSourceAdmissionPolicy::WorkerResolution = StudioSessionLocateSourceAdmissionPolicy::classify_worker_status(completed_status)
+                                if resolution.ready and completed_memo is loaded:
+                                    accept_located_source(move loaded, session_locate_worker_path, resolution.method)
+                                else:
+                                    session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate
+                                    status <- "The selected source could not be verified for this session. Choose the original take again."
+                                    status_file <- session_locate_worker_path
+                            elif session_locate_open and not session_locate_close_pending:
+                                clear_session_locate()
+                                if accessibility_file_ready:
+                                    _ = UiFlat::request_focus(accessibility_file_trigger_widget)
+                                status <- "Session locate cancelled; the current cleanup is unchanged."
+                                status_file <- pending_path()
+                    session_locate_worker_cancelled <- false
                     session_locate_worker_path <- ""
-                    session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate
-                    status <- "Source reference or path exceeds the bounded Locate request capacity."
-                    status_file <- null
                     touch()
+                    if session_locate_close_pending:
+                        session_locate_open <- false
+                        session_locate_source_valid <- false
+                        session_locate_memo <- null
+                        SessionState::discard_locate_candidate()
+                        request_window_close()
 
-        def poll_session_locate_worker() -> void can[Threads, Ui.Window, Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            if session_locate_worker is active_task:
-                session_locate_worker <- null
-                readiness: ThreadReadiness[StudioSessionLocateWorker::Result] = poll_ready(move active_task)
-                if not readiness.complete:
-                    session_locate_worker <- move readiness.thread
+        def resolve_session_locate(choice: StudioSessionLocatePolicy::Choice) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Threads, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if session_locate_worker != null:
+                    if choice == StudioSessionLocatePolicy::Choice.Cancel:
+                        session_locate_worker_cancelled <- true
+                        clear_session_locate()
+                        if accessibility_file_ready:
+                            _ = UiFlat::request_focus(accessibility_file_trigger_widget)
+                        status <- "Source check canceled. Its background read will be discarded when it finishes."
+                        status_file <- null
+                        touch()
                     return
-                match join(move readiness.thread):
-                    StudioSessionLocateWorker::Result{ticket: completed_ticket, status: completed_status, memo: completed_memo}:
-                        if completed_ticket == session_locate_worker_ticket and not session_locate_worker_cancelled and session_locate_open:
-                            resolution: StudioSessionLocateSourceAdmissionPolicy::WorkerResolution = StudioSessionLocateSourceAdmissionPolicy::classify_worker_status(completed_status)
-                            if resolution.ready and completed_memo is loaded:
-                                accept_located_source(move loaded, session_locate_worker_path, resolution.method)
-                            else:
-                                session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate
-                                status <- "The selected source could not be verified for this session. Choose the original take again."
-                                status_file <- session_locate_worker_path
-                        elif session_locate_open and not session_locate_close_pending:
-                            clear_session_locate()
-                            if accessibility_file_ready:
-                                _ = UiFlat::request_focus(accessibility_file_trigger_widget)
-                            status <- "Session locate cancelled; the current cleanup is unchanged."
-                            status_file <- pending_path()
-                session_locate_worker_cancelled <- false
-                session_locate_worker_path <- ""
-                touch()
-                if session_locate_close_pending:
-                    session_locate_open <- false
-                    session_locate_source_valid <- false
-                    session_locate_memo <- null
-                    SessionState::discard_locate_candidate()
-                    request_window_close()
-
-        def resolve_session_locate(choice: StudioSessionLocatePolicy::Choice) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
-            if session_locate_worker != null:
-                if choice == StudioSessionLocatePolicy::Choice.Cancel:
-                    session_locate_worker_cancelled <- true
+                action: StudioSessionLocatePolicy::Resolution = StudioSessionLocatePolicy::resolve(
+                    session_locate_open, SessionState::locate_candidate_identity() != null,
+                    session_locate_source_valid, session_locate_comparison, choice)
+                return if action == StudioSessionLocatePolicy::Resolution.NoAction
+                if action == StudioSessionLocatePolicy::Resolution.Cancelled:
                     clear_session_locate()
                     if accessibility_file_ready:
                         _ = UiFlat::request_focus(accessibility_file_trigger_widget)
-                    status <- "Source check canceled. Its background read will be discarded when it finishes."
+                    status <- "Session locate cancelled; the current cleanup is unchanged."
+                    status_file <- pending_path()
+                    touch()
+                    return
+                if action == StudioSessionLocatePolicy::Resolution.LocateSource:
+                    choose_located_source()
+                    return
+                if action == StudioSessionLocatePolicy::Resolution.RestoreReviewedSession:
+                    if session_locate_memo is located:
+                        saved: SessionState::SourceIdentity? = SessionState::locate_candidate_identity()
+                        current: SessionState::SourceIdentity = located_source_identity(located)
+                        mutable annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
+                        mutable impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                        mutable impacts: darray[SessionImpactAnnotationPolicy::Stored] = []
+                        if saved is identity:
+                            source_admitted: bool = session_locate_source_admitted(located, session_locate_source_resolution, pending_take_path)
+                            if source_admitted:
+                                mutable expected_reference: SessionSourceReferenceCodec::Record? = SessionState::copy_locate_candidate_source_reference()
+                                mutable source_outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
+                                if SessionState::take_located_candidate_with_source_reference(current, &annotations, &impact_state, &impacts, &source_outcome) is restored:
+                                    if not source_outcome.invalid and (expected_reference != null) == (source_outcome.reference != null):
+                                        pending_session_stack <- restored
+                                        pending_session_annotations <- move annotations
+                                        pending_session_impact_state <- impact_state
+                                        pending_session_impact_annotations <- move impacts
+                                        pending_session_ready <- true
+                                        pending_located_memo <- move located
+                                        session_locate_memo <- null
+                                        session_locate_open <- false
+                                        request_prepared_replacement(Replacement.Session.i64(), pending_path())
+                                        return
+                    status <- "The selected source review became stale. Locate it again before restoring the session."
                     status_file <- null
                     touch()
-                return
-            action: StudioSessionLocatePolicy::Resolution = StudioSessionLocatePolicy::resolve(
-                session_locate_open, SessionState::locate_candidate_identity() != null,
-                session_locate_source_valid, session_locate_comparison, choice)
-            return if action == StudioSessionLocatePolicy::Resolution.NoAction
-            if action == StudioSessionLocatePolicy::Resolution.Cancelled:
-                clear_session_locate()
-                if accessibility_file_ready:
-                    _ = UiFlat::request_focus(accessibility_file_trigger_widget)
-                status <- "Session locate cancelled; the current cleanup is unchanged."
-                status_file <- pending_path()
-                touch()
-                return
-            if action == StudioSessionLocatePolicy::Resolution.LocateSource:
-                choose_located_source()
-                return
-            if action == StudioSessionLocatePolicy::Resolution.RestoreReviewedSession:
+                    return
+                session_locate_open <- false
+                SessionState::discard_locate_candidate()
                 if session_locate_memo is located:
-                    saved: SessionState::SourceIdentity? = SessionState::locate_candidate_identity()
-                    current: SessionState::SourceIdentity = located_source_identity(located)
-                    mutable annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
-                    mutable impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
-                    mutable impacts: darray[SessionImpactAnnotationPolicy::Stored] = []
-                    if saved is identity:
-                        source_admitted: bool = session_locate_source_admitted(located, session_locate_source_resolution, pending_take_path)
-                        if source_admitted:
-                            mutable expected_reference: SessionSourceReferenceCodec::Record? = SessionState::copy_locate_candidate_source_reference()
-                            mutable source_outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
-                            if SessionState::take_located_candidate_with_source_reference(current, &annotations, &impact_state, &impacts, &source_outcome) is restored:
-                                if not source_outcome.invalid and (expected_reference != null) == (source_outcome.reference != null):
-                                    pending_session_stack <- restored
-                                    pending_session_annotations <- move annotations
-                                    pending_session_impact_state <- impact_state
-                                    pending_session_impact_annotations <- move impacts
-                                    pending_session_ready <- true
-                                    pending_located_memo <- move located
-                                    session_locate_memo <- null
-                                    session_locate_open <- false
-                                    request_prepared_replacement(Replacement.Session.i64(), pending_path())
-                                    return
-                status <- "The selected source review became stale. Locate it again before restoring the session."
-                status_file <- null
-                touch()
-                return
-            session_locate_open <- false
-            SessionState::discard_locate_candidate()
-            if session_locate_memo is located:
-                pending_located_memo <- move located
-                pending_take_path <- stored_path(spare_path_slot())
-                session_locate_memo <- null
-                request_prepared_replacement(Replacement.Take.i64(), pending_take_path)
-            elif clip is c:
-                session_locate_memo <- null
-                request_replacement(path, Replacement.Take.i64(), false)
-            else:
-                clear_session_locate()
-                status <- "Locate a source take before opening it without the saved session."
-                touch()
+                    pending_located_memo <- move located
+                    pending_take_path <- stored_path(spare_path_slot())
+                    session_locate_memo <- null
+                    request_prepared_replacement(Replacement.Take.i64(), pending_take_path)
+                elif clip is c:
+                    session_locate_memo <- null
+                    request_replacement(path, Replacement.Take.i64(), false)
+                else:
+                    clear_session_locate()
+                    status <- "Locate a source take before opening it without the saved session."
+                    touch()
 
     public:
-        def session_locate_modal_open() -> bool:
-            session_locate_open
+        def session_locate_modal_open() -> bool can[Global.Read]:
+            can Global.Read:
+                return session_locate_open
 
-        def session_locate_loading() -> bool:
-            session_locate_worker != null
+        def session_locate_loading() -> bool can[Global.Read]:
+            can Global.Read:
+                return session_locate_worker != null
 
-        def poll_locate_worker() -> void can[Threads, Ui.Window, Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release]:
-            poll_session_locate_worker()
+        def poll_locate_worker() -> void can[Threads, Ui.Window, Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                poll_session_locate_worker()
 
-        def session_locate_accessibility_action(widget: usize, event: i32) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
-            for choice in [StudioSessionLocatePolicy::Choice.Locate,
-                           StudioSessionLocatePolicy::Choice.RestoreSession,
-                           StudioSessionLocatePolicy::Choice.OpenAsNewTake,
-                           StudioSessionLocatePolicy::Choice.Cancel] |choice, widget, event|:
-                if widget == accessibility_session_locate_widgets[(choice.i64() - 1).usize()]:
-                    if event == UiConst::WidgetEvent.Click.i32() and session_locate_open and StudioSessionLocatePolicy::action_enabled(
-                        SessionState::locate_candidate_identity() != null and not session_locate_loading(),
-                        session_locate_source_valid, session_locate_comparison, choice):
-                        resolve_session_locate(choice)
-                    return true
-            false
+        def session_locate_accessibility_action(widget: usize, event: i32) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Threads, Global{Read, Write}]:
+            can Global{Read, Write}:
+                for choice in [StudioSessionLocatePolicy::Choice.Locate,
+                               StudioSessionLocatePolicy::Choice.RestoreSession,
+                               StudioSessionLocatePolicy::Choice.OpenAsNewTake,
+                               StudioSessionLocatePolicy::Choice.Cancel] |choice, widget, event|:
+                    if widget == accessibility_session_locate_widgets[(choice.i64() - 1).usize()]:
+                        if event == UiConst::WidgetEvent.Click.i32() and session_locate_open and StudioSessionLocatePolicy::action_enabled(
+                            SessionState::locate_candidate_identity() != null and not session_locate_loading(),
+                            session_locate_source_valid, session_locate_comparison, choice):
+                            resolve_session_locate(choice)
+                        return true
+                return false
 
-        def session_locate_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
-            if session_locate_loading():
-                resolve_session_locate(StudioSessionLocatePolicy::Choice.Cancel) if code == UiCore::Key.Escape
-                return
-            if code == UiCore::Key.Escape:
-                resolve_session_locate(StudioSessionLocatePolicy::Choice.Cancel)
-            elif code == UiCore::Key.L and not StudioShortcuts::command(modifiers):
-                resolve_session_locate(StudioSessionLocatePolicy::Choice.Locate)
-            elif code == UiCore::Key.N and not StudioShortcuts::command(modifiers):
-                resolve_session_locate(StudioSessionLocatePolicy::Choice.OpenAsNewTake)
-            elif code == UiCore::Key.R and not StudioShortcuts::command(modifiers):
-                resolve_session_locate(StudioSessionLocatePolicy::Choice.RestoreSession)
-            elif code == UiCore::Key.Tab:
-                session_locate_focus <- StudioSessionLocatePolicy::move_focus(session_locate_focus,
-                    -1 if StudioShortcuts::shift(modifiers) else 1,
-                    SessionState::locate_candidate_identity() != null, session_locate_source_valid, session_locate_comparison)
-                touch()
-            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
-                session_locate_focus <- StudioSessionLocatePolicy::move_focus(session_locate_focus, -1,
-                    SessionState::locate_candidate_identity() != null, session_locate_source_valid, session_locate_comparison)
-                touch()
-            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
-                session_locate_focus <- StudioSessionLocatePolicy::move_focus(session_locate_focus, 1,
-                    SessionState::locate_candidate_identity() != null, session_locate_source_valid, session_locate_comparison)
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                choice: StudioSessionLocatePolicy::Choice = StudioSessionLocatePolicy::Choice.Locate if session_locate_focus == StudioSessionLocatePolicy::Focus.Locate else StudioSessionLocatePolicy::Choice.RestoreSession if session_locate_focus == StudioSessionLocatePolicy::Focus.RestoreSession else StudioSessionLocatePolicy::Choice.OpenAsNewTake if session_locate_focus == StudioSessionLocatePolicy::Focus.OpenAsNewTake else StudioSessionLocatePolicy::Choice.Cancel
-                resolve_session_locate(choice)
+        def session_locate_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Threads, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if session_locate_loading():
+                    resolve_session_locate(StudioSessionLocatePolicy::Choice.Cancel) if code == UiCore::Key.Escape
+                    return
+                if code == UiCore::Key.Escape:
+                    resolve_session_locate(StudioSessionLocatePolicy::Choice.Cancel)
+                elif code == UiCore::Key.L and not StudioShortcuts::command(modifiers):
+                    resolve_session_locate(StudioSessionLocatePolicy::Choice.Locate)
+                elif code == UiCore::Key.N and not StudioShortcuts::command(modifiers):
+                    resolve_session_locate(StudioSessionLocatePolicy::Choice.OpenAsNewTake)
+                elif code == UiCore::Key.R and not StudioShortcuts::command(modifiers):
+                    resolve_session_locate(StudioSessionLocatePolicy::Choice.RestoreSession)
+                elif code == UiCore::Key.Tab:
+                    session_locate_focus <- StudioSessionLocatePolicy::move_focus(session_locate_focus,
+                        -1 if StudioShortcuts::shift(modifiers) else 1,
+                        SessionState::locate_candidate_identity() != null, session_locate_source_valid, session_locate_comparison)
+                    touch()
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    session_locate_focus <- StudioSessionLocatePolicy::move_focus(session_locate_focus, -1,
+                        SessionState::locate_candidate_identity() != null, session_locate_source_valid, session_locate_comparison)
+                    touch()
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    session_locate_focus <- StudioSessionLocatePolicy::move_focus(session_locate_focus, 1,
+                        SessionState::locate_candidate_identity() != null, session_locate_source_valid, session_locate_comparison)
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    choice: StudioSessionLocatePolicy::Choice = StudioSessionLocatePolicy::Choice.Locate if session_locate_focus == StudioSessionLocatePolicy::Focus.Locate else StudioSessionLocatePolicy::Choice.RestoreSession if session_locate_focus == StudioSessionLocatePolicy::Focus.RestoreSession else StudioSessionLocatePolicy::Choice.OpenAsNewTake if session_locate_focus == StudioSessionLocatePolicy::Focus.OpenAsNewTake else StudioSessionLocatePolicy::Choice.Cancel
+                    resolve_session_locate(choice)
 
-        def session_locate_pointer(w: f32, h: f32, x: f32, y: f32, button: i32) -> void can[Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release, Threads]:
-            return if button != 0
-            choice: StudioSessionLocatePolicy::Choice = StudioPanels::session_locate_button_hit(
-                w, h, x, y, SessionState::locate_candidate_identity() != null and not session_locate_loading(),
-                session_locate_source_valid, session_locate_comparison)
-            if choice != StudioSessionLocatePolicy::Choice.None:
-                session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate if choice == StudioSessionLocatePolicy::Choice.Locate else StudioSessionLocatePolicy::Focus.RestoreSession if choice == StudioSessionLocatePolicy::Choice.RestoreSession else StudioSessionLocatePolicy::Focus.OpenAsNewTake if choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake else StudioSessionLocatePolicy::Focus.Cancel
-                resolve_session_locate(choice)
+        def session_locate_pointer(w: f32, h: f32, x: f32, y: f32, button: i32) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Threads, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if button != 0
+                choice: StudioSessionLocatePolicy::Choice = StudioPanels::session_locate_button_hit(
+                    w, h, x, y, SessionState::locate_candidate_identity() != null and not session_locate_loading(),
+                    session_locate_source_valid, session_locate_comparison)
+                if choice != StudioSessionLocatePolicy::Choice.None:
+                    session_locate_focus <- StudioSessionLocatePolicy::Focus.Locate if choice == StudioSessionLocatePolicy::Choice.Locate else StudioSessionLocatePolicy::Focus.RestoreSession if choice == StudioSessionLocatePolicy::Choice.RestoreSession else StudioSessionLocatePolicy::Focus.OpenAsNewTake if choice == StudioSessionLocatePolicy::Choice.OpenAsNewTake else StudioSessionLocatePolicy::Focus.Cancel
+                    resolve_session_locate(choice)
