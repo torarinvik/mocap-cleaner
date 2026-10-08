@@ -36,6 +36,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Atomic callee owner and parameter identity](proof-gaps/atomic-callee-owner-resolution.md)
 - [Studio fixed-array clone compilation cost](proof-gaps/studio-fixed-array-clone-cost.md)
 - [Tracked FBX foreign adapter and strict extern bounds](proof-gaps/fbx-foreign-adapter.md)
+- [FBX feedback and implicit-void source correspondence](proof-gaps/fbx-feedback-implicit-void-calls.md)
 
 - [Lexical owner identity in proposition typing](proof-gaps/lexical-owner-typing.md)
 - [Replay resource-state lifetime validation](proof-gaps/replay-resource-state-lifetime.md)
