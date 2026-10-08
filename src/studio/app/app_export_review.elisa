@@ -3,17 +3,18 @@ include "../export_snapshot_policy.elisa"
 
 extend Studio:
     private:
-        def current_export_warnings() -> i64:
-            if clip is c:
-                return StudioExportPolicy::warning_count(
-                    c.source_balance_availability, c.balance_availability,
-                    c.impossible_frames,
-                    not c.retimed and c.source_frames == c.frames,
-                    c.spikes_before, c.spikes_after,
-                    c.slide_before, c.slide_after,
-                    c.sink_before, c.sink_after,
-                    c.hand_slide_before, c.hand_slide_after)
-            0
+        def current_export_warnings() -> i64 can[Global.Read]:
+            can Global.Read:
+                if clip is c:
+                    return StudioExportPolicy::warning_count(
+                        c.source_balance_availability, c.balance_availability,
+                        c.impossible_frames,
+                        not c.retimed and c.source_frames == c.frames,
+                        c.spikes_before, c.spikes_after,
+                        c.slide_before, c.slide_after,
+                        c.sink_before, c.sink_after,
+                        c.hand_slide_before, c.hand_slide_after)
+                return 0
 
         # Warning rows are ordered exactly as their presentation: balance,
         # spikes, foot slide, foot sink, then hand slide. Only present rows
@@ -37,257 +38,273 @@ extend Studio:
                 return StudioExportReview::Warning.HAND_SLIDE_WARNING.i64() if row == index
             StudioExportReview::Warning.NO_WARNING.i64()
 
-        def current_export_warning_kind(index: i64) -> i64:
-            if clip is c and index >= 0 and index < current_export_warnings():
-                return export_warning_kind(index, c)
-            StudioExportReview::Warning.NO_WARNING.i64()
+        def current_export_warning_kind(index: i64) -> i64 can[Global.Read]:
+            can Global.Read:
+                if clip is c and index >= 0 and index < current_export_warnings():
+                    return export_warning_kind(index, c)
+                return StudioExportReview::Warning.NO_WARNING.i64()
 
-        def request_export(destination: cstr, overwrite_confirmed: bool) -> void:
-            if not export_result_current():
-                say_file("Export blocked: current edits have not produced a ready result. Wait for rebuilding, or use Undo after a failed edit, then review again.", destination)
-                touch()
-                return
-            if not artifact_destination_allowed(destination):
-                say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
-                touch()
-                return
-            if clip is c:
-                reason: i64 = export_reason(destination, overwrite_confirmed)
-                if reason != StudioExportPolicy::Reason.ALLOW.i64() and reason != StudioExportPolicy::Reason.OVERWRITE_UNCONFIRMED.i64():
-                    say_file(export_error(reason), destination)
+        def request_export(destination: cstr, overwrite_confirmed: bool) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if not export_result_current():
+                    say_file("Export blocked: current edits have not produced a ready result. Wait for rebuilding, or use Undo after a failed edit, then review again.", destination)
                     touch()
                     return
-                export_review_generation <- built
-                export_review_open <- true
-                export_review_path <- destination
-                export_review_overwrite <- overwrite_confirmed
-                export_review_acknowledged <- false
-                export_review_focus <- StudioExportReview::initial_focus(current_export_warnings())
-                export_review_warning_selected <- 0
+                if not artifact_destination_allowed(destination):
+                    say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
+                    touch()
+                    return
+                if clip is c:
+                    reason: i64 = export_reason(destination, overwrite_confirmed)
+                    if reason != StudioExportPolicy::Reason.ALLOW.i64() and reason != StudioExportPolicy::Reason.OVERWRITE_UNCONFIRMED.i64():
+                        say_file(export_error(reason), destination)
+                        touch()
+                        return
+                    export_review_generation <- built
+                    export_review_open <- true
+                    export_review_path <- destination
+                    export_review_overwrite <- overwrite_confirmed
+                    export_review_acknowledged <- false
+                    export_review_focus <- StudioExportReview::initial_focus(current_export_warnings())
+                    export_review_warning_selected <- 0
+                    export_warning_detail_open <- false
+                    export_warning_detail_index <- 0
+                    export_warning_detail_focus <- StudioExportPathReview::Control.Done.i64()
+                    help_open <- false
+                    file_menu_open <- false
+                    touch()
+
+        def cancel_export_review() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_review_open
+                destination: cstr = export_review_path
+                export_path_inspector_open <- false
                 export_warning_detail_open <- false
                 export_warning_detail_index <- 0
                 export_warning_detail_focus <- StudioExportPathReview::Control.Done.i64()
-                help_open <- false
-                file_menu_open <- false
-                touch()
-
-        def cancel_export_review() -> void:
-            return if not export_review_open
-            destination: cstr = export_review_path
-            export_path_inspector_open <- false
-            export_warning_detail_open <- false
-            export_warning_detail_index <- 0
-            export_warning_detail_focus <- StudioExportPathReview::Control.Done.i64()
-            export_review_open <- false
-            export_review_path <- ""
-            export_review_acknowledged <- false
-            say_file("Export cancelled; no file was written", destination)
-            touch()
-
-        def open_export_path_inspector() -> void:
-            return if not export_review_open
-            storage_path_inspector <- false
-            pages: i64 = StudioPanels::export_path_pages(export_review_path)
-            return if pages < 1 or pages > StudioExportPathReview::Limit::MAX_PAGES
-            export_path_inspector_page <- 0
-            export_path_inspector_focus <- StudioExportPathReview::initial_focus(0, pages)
-            export_path_inspector_open <- true
-            touch()
-
-        def close_export_path_inspector() -> void:
-            return if not export_path_inspector_open
-            export_path_inspector_open <- false
-            storage_path_inspector <- false
-            touch()
-
-        def close_export_warning_detail() -> void:
-            return if not export_warning_detail_open
-            export_warning_detail_open <- false
-            export_review_warning_selected <- export_warning_detail_index
-            touch()
-
-        def open_export_warning_detail(index: i64) -> void:
-            warnings: i64 = current_export_warnings()
-            return if not export_review_open or index < 0 or index >= warnings
-            export_review_warning_selected <- index
-            export_review_focus <- StudioExportReview::Control.INSPECT_WARNINGS.i64()
-            export_warning_detail_index <- index
-            export_warning_detail_focus <- StudioExportPathReview::initial_focus(index, warnings)
-            export_warning_detail_open <- true
-            touch()
-
-        def activate_export_warning_detail(action: i64) -> void:
-            return if not export_warning_detail_open
-            warnings: i64 = current_export_warnings()
-            return if warnings < 1 or warnings > StudioExportReview::Limit::MAX_WARNINGS
-            if action == StudioExportPathReview::Control.Done.i64():
-                close_export_warning_detail()
-                return
-            return if not StudioExportPathReview::enabled(action, export_warning_detail_index, warnings)
-            direction: i64 = -1 if action == StudioExportPathReview::Control.Previous.i64() else 1
-            export_warning_detail_index <- StudioExportPathReview::move_page(
-                export_warning_detail_index, direction, warnings)
-            export_review_warning_selected <- export_warning_detail_index
-            export_warning_detail_focus <- action if StudioExportPathReview::enabled(
-                action, export_warning_detail_index, warnings)
-            export_warning_detail_focus <- StudioExportPathReview::initial_focus(
-                export_warning_detail_index, warnings) if not StudioExportPathReview::enabled(
-                action, export_warning_detail_index, warnings)
-            touch()
-
-        def export_warning_detail_key(code: UiCore::Key) -> void:
-            warnings: i64 = current_export_warnings()
-            if code == UiCore::Key.Escape:
-                close_export_warning_detail()
-            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
-                activate_export_warning_detail(StudioExportPathReview::Control.Previous.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Previous.i64(), export_warning_detail_index, warnings)
-            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
-                activate_export_warning_detail(StudioExportPathReview::Control.Next.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Next.i64(), export_warning_detail_index, warnings)
-            elif code == UiCore::Key.Tab:
-                export_warning_detail_focus <- StudioExportPathReview::move_focus(
-                    export_warning_detail_focus,
-                    -1 if StudioShortcuts::shift(modifiers) else 1,
-                    export_warning_detail_index, warnings)
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                activate_export_warning_detail(export_warning_detail_focus)
-
-        def activate_export_path_inspector(action: i64) -> void:
-            return if not export_path_inspector_open
-            pages: i64 = StudioPanels::export_path_pages(path_inspector_path())
-            return if pages < 1 or pages > StudioExportPathReview::Limit::MAX_PAGES
-            if action == StudioExportPathReview::Control.Done.i64():
-                close_export_path_inspector()
-                return
-            return if not StudioExportPathReview::enabled(action, export_path_inspector_page, pages)
-            direction: i64 = -1 if action == StudioExportPathReview::Control.Previous.i64() else 1
-            export_path_inspector_page <- StudioExportPathReview::move_page(
-                export_path_inspector_page, direction, pages)
-            export_path_inspector_focus <- action if StudioExportPathReview::enabled(
-                action, export_path_inspector_page, pages)
-            export_path_inspector_focus <- StudioExportPathReview::initial_focus(
-                export_path_inspector_page, pages) if not StudioExportPathReview::enabled(
-                action, export_path_inspector_page, pages)
-            touch()
-
-        def export_path_inspector_key(code: UiCore::Key) -> void:
-            pages: i64 = StudioPanels::export_path_pages(path_inspector_path())
-            if code == UiCore::Key.Escape:
-                close_export_path_inspector()
-            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
-                activate_export_path_inspector(StudioExportPathReview::Control.Previous.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Previous.i64(), export_path_inspector_page, pages)
-            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
-                activate_export_path_inspector(StudioExportPathReview::Control.Next.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Next.i64(), export_path_inspector_page, pages)
-            elif code == UiCore::Key.Tab:
-                export_path_inspector_focus <- StudioExportPathReview::move_focus(
-                    export_path_inspector_focus,
-                    -1 if StudioShortcuts::shift(modifiers) else 1,
-                    export_path_inspector_page, pages)
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                activate_export_path_inspector(export_path_inspector_focus)
-
-        def activate_export_review(focus: i64) -> void:
-            return if not export_review_open
-            if focus == StudioExportReview::Control.ACKNOWLEDGE.i64():
-                if current_export_warnings() > 0:
-                    export_review_acknowledged <- not export_review_acknowledged
-                    touch()
-                return
-            if focus == StudioExportReview::Control.DESTINATION.i64():
-                open_export_path_inspector()
-                return
-            if focus == StudioExportReview::Control.INSPECT_WARNINGS.i64():
-                open_export_warning_detail(export_review_warning_selected)
-                return
-            if focus == StudioExportReview::Control.CANCEL.i64():
-                cancel_export_review()
-                return
-            if focus == StudioExportReview::Control.QUEUE.i64():
-                if enqueue_reviewed_export():
-                    open_prepared_sheet()
-                return
-            return if not StudioExportReview::publication_requested(focus)
-            if not StudioExportSnapshotPolicy::current(export_review_generation, built):
-                export_review_generation <- built
+                export_review_open <- false
+                export_review_path <- ""
                 export_review_acknowledged <- false
-                export_review_warning_selected <- 0
+                say_file("Export cancelled; no file was written", destination)
+                touch()
+
+        def open_export_path_inspector() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_review_open
+                storage_path_inspector <- false
+                pages: i64 = StudioPanels::export_path_pages(export_review_path)
+                return if pages < 1 or pages > StudioExportPathReview::Limit::MAX_PAGES
+                export_path_inspector_page <- 0
+                export_path_inspector_focus <- StudioExportPathReview::initial_focus(0, pages)
+                export_path_inspector_open <- true
+                touch()
+
+        def close_export_path_inspector() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_path_inspector_open
+                export_path_inspector_open <- false
+                storage_path_inspector <- false
+                touch()
+
+        def close_export_warning_detail() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_warning_detail_open
                 export_warning_detail_open <- false
-                export_review_focus <- StudioExportReview::initial_focus(current_export_warnings())
-                say_file("Result changed; review the updated export notes before confirming again.", export_review_path)
+                export_review_warning_selected <- export_warning_detail_index
                 touch()
-                return
-            warnings: i64 = current_export_warnings()
-            if not StudioExportReview::export_enabled(warnings, export_review_acknowledged):
-                export_review_focus <- StudioExportReview::Control.ACKNOWLEDGE.i64()
-                say_file("Review the quality notes before exporting", export_review_path)
-                touch()
-                return
-            destination: cstr = export_review_path
-            overwrite_confirmed: bool = export_review_overwrite
-            export_path_inspector_open <- false
-            export_warning_detail_open <- false
-            export_warning_detail_index <- 0
-            export_warning_detail_focus <- StudioExportPathReview::Control.Done.i64()
-            export_review_open <- false
-            export_review_path <- ""
-            export_review_acknowledged <- false
-            _ = perform_export(destination, overwrite_confirmed)
 
-        def export_review_key(code: UiCore::Key) -> void:
-            if code == UiCore::Key.Escape:
-                cancel_export_review()
-            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
-                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1, current_export_warnings())
+        def open_export_warning_detail(index: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                warnings: i64 = current_export_warnings()
+                return if not export_review_open or index < 0 or index >= warnings
+                export_review_warning_selected <- index
+                export_review_focus <- StudioExportReview::Control.INSPECT_WARNINGS.i64()
+                export_warning_detail_index <- index
+                export_warning_detail_focus <- StudioExportPathReview::initial_focus(index, warnings)
+                export_warning_detail_open <- true
                 touch()
-            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
-                export_review_focus <- StudioExportReview::move_focus(export_review_focus, 1, current_export_warnings())
-                touch()
-            elif code == UiCore::Key.Tab:
-                export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1 if StudioShortcuts::shift(modifiers) else 1, current_export_warnings())
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                activate_export_review(export_review_focus)
 
-        def cancel_export_result() -> void:
-            return if not export_result_open
-            export_result_open <- false
-            export_result_path <- ""
-            touch()
+        def activate_export_warning_detail(action: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_warning_detail_open
+                warnings: i64 = current_export_warnings()
+                return if warnings < 1 or warnings > StudioExportReview::Limit::MAX_WARNINGS
+                if action == StudioExportPathReview::Control.Done.i64():
+                    close_export_warning_detail()
+                    return
+                return if not StudioExportPathReview::enabled(action, export_warning_detail_index, warnings)
+                direction: i64 = -1 if action == StudioExportPathReview::Control.Previous.i64() else 1
+                export_warning_detail_index <- StudioExportPathReview::move_page(
+                    export_warning_detail_index, direction, warnings)
+                export_review_warning_selected <- export_warning_detail_index
+                export_warning_detail_focus <- action if StudioExportPathReview::enabled(
+                    action, export_warning_detail_index, warnings)
+                export_warning_detail_focus <- StudioExportPathReview::initial_focus(
+                    export_warning_detail_index, warnings) if not StudioExportPathReview::enabled(
+                    action, export_warning_detail_index, warnings)
+                touch()
 
-        def activate_export_result(action: i64) -> void:
-            return if not export_result_open
-            destination: cstr = export_result_path
-            if action == StudioExportResult::Action::DONE:
-                cancel_export_result()
-                return
-            if action == StudioExportResult::Action::OPEN:
-                if FilePanel::open_file(destination):
-                    cancel_export_result()
-                    say_file("opened exported result", destination)
-                else:
-                    say_file("could not open the result in its default application", destination)
+        def export_warning_detail_key(code: UiCore::Key) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                warnings: i64 = current_export_warnings()
+                if code == UiCore::Key.Escape:
+                    close_export_warning_detail()
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    activate_export_warning_detail(StudioExportPathReview::Control.Previous.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Previous.i64(), export_warning_detail_index, warnings)
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    activate_export_warning_detail(StudioExportPathReview::Control.Next.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Next.i64(), export_warning_detail_index, warnings)
+                elif code == UiCore::Key.Tab:
+                    export_warning_detail_focus <- StudioExportPathReview::move_focus(
+                        export_warning_detail_focus,
+                        -1 if StudioShortcuts::shift(modifiers) else 1,
+                        export_warning_detail_index, warnings)
                     touch()
-                return
-            if action == StudioExportResult::Action::SHOW_IN_FOLDER:
-                if FilePanel::show_in_folder(destination):
-                    cancel_export_result()
-                    say_file("showing exported result in Finder", destination)
-                else:
-                    say_file("could not show the result in Finder", destination)
-                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    activate_export_warning_detail(export_warning_detail_focus)
 
-        def export_result_key(code: UiCore::Key) -> void:
-            if code == UiCore::Key.Escape:
-                cancel_export_result()
-            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
-                export_result_focus <- StudioExportResult::move_focus(export_result_focus, -1)
+        def activate_export_path_inspector(action: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_path_inspector_open
+                pages: i64 = StudioPanels::export_path_pages(path_inspector_path())
+                return if pages < 1 or pages > StudioExportPathReview::Limit::MAX_PAGES
+                if action == StudioExportPathReview::Control.Done.i64():
+                    close_export_path_inspector()
+                    return
+                return if not StudioExportPathReview::enabled(action, export_path_inspector_page, pages)
+                direction: i64 = -1 if action == StudioExportPathReview::Control.Previous.i64() else 1
+                export_path_inspector_page <- StudioExportPathReview::move_page(
+                    export_path_inspector_page, direction, pages)
+                export_path_inspector_focus <- action if StudioExportPathReview::enabled(
+                    action, export_path_inspector_page, pages)
+                export_path_inspector_focus <- StudioExportPathReview::initial_focus(
+                    export_path_inspector_page, pages) if not StudioExportPathReview::enabled(
+                    action, export_path_inspector_page, pages)
                 touch()
-            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
-                export_result_focus <- StudioExportResult::move_focus(export_result_focus, 1)
+
+        def export_path_inspector_key(code: UiCore::Key) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                pages: i64 = StudioPanels::export_path_pages(path_inspector_path())
+                if code == UiCore::Key.Escape:
+                    close_export_path_inspector()
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    activate_export_path_inspector(StudioExportPathReview::Control.Previous.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Previous.i64(), export_path_inspector_page, pages)
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    activate_export_path_inspector(StudioExportPathReview::Control.Next.i64()) if StudioExportPathReview::enabled(StudioExportPathReview::Control.Next.i64(), export_path_inspector_page, pages)
+                elif code == UiCore::Key.Tab:
+                    export_path_inspector_focus <- StudioExportPathReview::move_focus(
+                        export_path_inspector_focus,
+                        -1 if StudioShortcuts::shift(modifiers) else 1,
+                        export_path_inspector_page, pages)
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    activate_export_path_inspector(export_path_inspector_focus)
+
+        def activate_export_review(focus: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_review_open
+                if focus == StudioExportReview::Control.ACKNOWLEDGE.i64():
+                    if current_export_warnings() > 0:
+                        export_review_acknowledged <- not export_review_acknowledged
+                        touch()
+                    return
+                if focus == StudioExportReview::Control.DESTINATION.i64():
+                    open_export_path_inspector()
+                    return
+                if focus == StudioExportReview::Control.INSPECT_WARNINGS.i64():
+                    open_export_warning_detail(export_review_warning_selected)
+                    return
+                if focus == StudioExportReview::Control.CANCEL.i64():
+                    cancel_export_review()
+                    return
+                if focus == StudioExportReview::Control.QUEUE.i64():
+                    if enqueue_reviewed_export():
+                        open_prepared_sheet()
+                    return
+                return if not StudioExportReview::publication_requested(focus)
+                if not StudioExportSnapshotPolicy::current(export_review_generation, built):
+                    export_review_generation <- built
+                    export_review_acknowledged <- false
+                    export_review_warning_selected <- 0
+                    export_warning_detail_open <- false
+                    export_review_focus <- StudioExportReview::initial_focus(current_export_warnings())
+                    say_file("Result changed; review the updated export notes before confirming again.", export_review_path)
+                    touch()
+                    return
+                warnings: i64 = current_export_warnings()
+                if not StudioExportReview::export_enabled(warnings, export_review_acknowledged):
+                    export_review_focus <- StudioExportReview::Control.ACKNOWLEDGE.i64()
+                    say_file("Review the quality notes before exporting", export_review_path)
+                    touch()
+                    return
+                destination: cstr = export_review_path
+                overwrite_confirmed: bool = export_review_overwrite
+                export_path_inspector_open <- false
+                export_warning_detail_open <- false
+                export_warning_detail_index <- 0
+                export_warning_detail_focus <- StudioExportPathReview::Control.Done.i64()
+                export_review_open <- false
+                export_review_path <- ""
+                export_review_acknowledged <- false
+                _ = perform_export(destination, overwrite_confirmed)
+
+        def export_review_key(code: UiCore::Key) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if code == UiCore::Key.Escape:
+                    cancel_export_review()
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1, current_export_warnings())
+                    touch()
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    export_review_focus <- StudioExportReview::move_focus(export_review_focus, 1, current_export_warnings())
+                    touch()
+                elif code == UiCore::Key.Tab:
+                    export_review_focus <- StudioExportReview::move_focus(export_review_focus, -1 if StudioShortcuts::shift(modifiers) else 1, current_export_warnings())
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    activate_export_review(export_review_focus)
+
+        def cancel_export_result() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_result_open
+                export_result_open <- false
+                export_result_path <- ""
                 touch()
-            elif code == UiCore::Key.Tab:
-                export_result_focus <- StudioExportResult::move_focus(export_result_focus, -1 if StudioShortcuts::shift(modifiers) else 1)
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                activate_export_result(export_result_focus)
+
+        def activate_export_result(action: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not export_result_open
+                destination: cstr = export_result_path
+                if action == StudioExportResult::Action::DONE:
+                    cancel_export_result()
+                    return
+                if action == StudioExportResult::Action::OPEN:
+                    if FilePanel::open_file(destination):
+                        cancel_export_result()
+                        say_file("opened exported result", destination)
+                    else:
+                        say_file("could not open the result in its default application", destination)
+                        touch()
+                    return
+                if action == StudioExportResult::Action::SHOW_IN_FOLDER:
+                    if FilePanel::show_in_folder(destination):
+                        cancel_export_result()
+                        say_file("showing exported result in Finder", destination)
+                    else:
+                        say_file("could not show the result in Finder", destination)
+                        touch()
+
+        def export_result_key(code: UiCore::Key) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if code == UiCore::Key.Escape:
+                    cancel_export_result()
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    export_result_focus <- StudioExportResult::move_focus(export_result_focus, -1)
+                    touch()
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    export_result_focus <- StudioExportResult::move_focus(export_result_focus, 1)
+                    touch()
+                elif code == UiCore::Key.Tab:
+                    export_result_focus <- StudioExportResult::move_focus(export_result_focus, -1 if StudioShortcuts::shift(modifiers) else 1)
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    activate_export_result(export_result_focus)
