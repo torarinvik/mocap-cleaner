@@ -1,465 +1,205 @@
-# Current delivery queue
+# Current delivery queue: highest return first
 
 [Roadmap](../../IMPLEMENTATION_PLAN.md) · [Shared acceptance](acceptance-and-dependencies.md)
 
-This is the execution order for the remaining roadmap, not a replacement for
-M0–M8. Source changes already in Git need qualification rather than another
-implementation. An open acceptance item stays open until its evidence exists.
-Reassess this queue after an integrated build, a discovered regression or a
-completed user journey. Update outcomes from evidence, not elapsed effort.
+Updated 2026-10-08. This is the execution order for the entire remaining M0–M8
+roadmap. Priority changes do not remove requirements. Detailed milestone and
+acceptance documents remain authoritative for each slice. Completed source
+needs qualification, not another implementation. Historical binaries and proof
+reports remain comparison evidence.
 
-## 1. Restore a usable, current qualification path
+## Selection rule
 
-### Q01 — Current compiler and paired prover
+Choose work that removes a demonstrated blocker, protects user data, or completes
+a usable end-to-end workflow. Prefer a small integrated fix over a new feature
+that cannot yet run. Rank by user impact, dependency unlocks, recurrence and
+implementation/qualification cost. Reassess after an integrated build or a
+completed journey; do not invent numeric ROI scores without measured inputs.
 
-**Priority:** P0; prerequisite for accepting subsequent source slices.
+Keep one primary product blocker active. Dependency owners can repair their
+existing compiler, prover and native slices alongside it. Each handoff identifies
+an exact source/product tuple, failing fixture, next action and finish evidence.
+Serialize heavy compiler jobs and monitor aggregate descendant memory. Avoid
+unrelated style sweeps, duplicate policy implementations and new algorithms
+until the first usable journey passes.
 
-Follow the [compiler and paired-prover qualification plan](compiler-qualification.md)
-for current dependency revisions, ownership and generic-specialization repairs,
-source/product correspondence, retained comparisons, full gates and performance
-acceptance. A successful seed or focused kernel check does not qualify Studio.
+## 1. Q01 + J01: produce a current build and fix the reported redraw crash
 
-### Q02 — Source authentication and critical laws
+**Priority:** P0. **Return:** restores the user's ability to use the product and
+unlocks every native UI acceptance check.
 
-**Depends on:** Q01. Package/source correspondence work may proceed beforehand.
+1. Repair grouped family grants in the compiler. Preserve exact members in
+   declaration validation, direct global access, unsafe checks and transitive
+   calls. Require positive grouped/expanded equivalence and partial-member
+   refusal controls; a family name must not accidentally grant every member.
+2. Finish mandatory global permission migration across Studio and included UI
+   dependencies. Read-only owners use `Global.Read`; mutation propagates write
+   authority. Use grouped syntax where appropriate. Preserve unsafe tracking
+   with `can`; no blanket `trusted`, permissive mode or disabled checker.
+3. Fetch current dependencies while preserving project repairs. Build and verify
+   source/product/runtime/link correspondence. Freeze the actual input closure
+   for qualification; changed inputs invalidate the attempt.
+4. On that tuple, reduce and repair any remaining native emission failures,
+   including private-ledger initialization and generic worker-result reads.
+   Preserve privacy, affine ownership and caller-owned allocation lifetimes.
+5. Build/package Studio, identify the exact executable, then reproduce the
+   reported FBX/redraw failure. The historical `14bdc130` binary crashed after
+   importing 337 frames; it cannot qualify current source. Inspect the allocation
+   and ownership boundary before choosing a fix.
+6. Qualify FBX open, Character/Skeleton switching, framing/orbit/zoom, playback,
+   repeated redraws, edits, replacement, cancellation, close and restart on the
+   reported asset and bounded controls. Preserve the original file bytes.
 
-The latest retained seven-law run uses proof `89925919`, compiler `e24c29e6`
-and pair `084b640a8e334e84845ea6332a7faf15`, against frozen application closure
-from `aeb57c5`. Five packages fail source admission. Failure policy replays
-35 theorems but has 77/112 unproven obligations; feedback proves and replays 7/7.
-Every correspondence check covers zero functions and remains unauthenticated.
-Root inspected all seven report/replay summaries in
-`build/q02-e24-r2-root-audit.json`. The correspondence collector visits only
-top-level functions; repair owner-aware module traversal and qualified calls,
-with sibling-name collision and owner-tampering refusal controls.
+**Finish evidence:** current sealed build; exact crash reproduction and repair
+record; actual native interaction on the repaired binary; focused lifetime
+controls; source hash unchanged; no stale candidate publication. A seed, clean
+single-file diagnostic, screenshot or live process is insufficient.
 
-Cast typing, qualified receiver spellings, return substitution and verified
-helper arguments/preconditions pass focused controls. The redundant enum-member
-exclusion repair reduced the classifier's fact-budget problem; its remaining
-ensures now fail connective reasoning. Contract proposition formation still
-blocks the other policies. Checked numeric member provenance remains open.
-Earlier six-package results are historical source snapshots. See
-[the exact proof record](../acceptance/fbx-request-proof-2026-10-07.md).
+**Current status:** individual global-owner migrations have reduced diagnostics,
+but the complete closure still fails. Grouped syntax is prepared in source but
+compiler repair/qualification is pending. The user-visible crash remains open.
+See [compiler qualification](compiler-qualification.md),
+[responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 
-- Connect the staging-evidence laws to the production foreign handoff. The
-  adapter currently validates returned path/digest shape but does not consume
-  the composed evidence predicate. Qualify the exact native success contract
-  and refusal behavior for identity, stable copy, sync and source preservation;
-  bind observed facts or the reviewed contract to the Elisa admission conditions.
-  Do not create apparently independent evidence by copying `status == 0` into
-  booleans. See [the production binding gap](../proof-gaps/fbx-source-staging-admission.md#production-binding-still-required).
+## 2. J01: make open/import failure and workspace setup self-explanatory
 
-- Finish exact lexical owner propagation for nested constants and function
-  signatures in producer and independent replay. Preserve ordered module paths,
-  validate complete owner-record shape and reject ambiguous, duplicate,
-  inconsistent and out-of-range records. Reopened identical paths may coalesce;
-  different paths sharing an identity must refuse. See
-  [owner typing gap](../proof-gaps/lexical-owner-typing.md).
-- Run the new qualified/bare-call, repeated leaf-name, wrong-sort and malformed
-  owner controls on a fresh source-matched compiler. The current repair source
-  is unqualified; planned controls are not passing evidence. Flat named-type
-  lookup still refuses repeated module-local user types. Track that conservative
-  coverage gap separately, including parameter and result types.
-- Rebuild a matched producer/replay pair after every proof repair. Verify exact
-  product input closures and linked runtime before reuse. An unchanged-product
-  cache notice, generation id or whole-tree manifest alone does not establish
-  that changed implementation was compiled. Retain original failed attempts.
-- Qualify exact expanded bytes, ordered imports and lexical declaration owners.
-  Changed bytes, order, paths, duplicate names and unsupported scopes refuse
-  authentication. Portable replay must remain labelled unauthenticated.
-- Prioritize document preservation, candidate publication, history, source
-  identity, export admission and storage mutation contracts before secondary
-  convenience policies. Rerun the six FBX policies and report declaration
-  verification, certificate replay and authenticated correspondence separately.
-- For each law retain its exact declaration, preconditions, checked predicate,
-  source identity and independent replay result. Test contradictory assertions
-  as negative controls; never replace unknown results with compile counts.
-- Retain shared reborrow, mutation exclusion and owner-qualified constraints.
-  Zero-argument generic calls need checked call-site region substitutions;
-  matching an ambient region by spelling cannot establish a valid binding.
-- Qualify generation and creation-journal laws again with the repaired pair.
-  Historical reports remain unauthenticated and cannot close Q02. Exact gaps
-  are tracked in [proof gaps](../proof-gaps.md).
-- Continue reducing connective/source admission gaps and fact growth. Extra
-  enum disequality facts cannot substitute for the checked relation between a
-  helper result and its inputs. Preserve fail-closed authentication and keep
-  unresolved laws open. New repairs require fresh matched products and reports;
-  historical pairs remain comparison evidence until then. See [the exact
-  qualification record](../proof-gaps/build-generation-policy-proof-20261007.md).
+**Priority:** P0. **Depends on:** a runnable current build.
+**Return:** removes the confusion demonstrated in the user's screenshots.
 
-**Finish evidence:** authenticated intended predicates, negative controls and
-unchanged regression expectations. Unresolved laws retain their gap records.
+- Open FBX directly through the ordinary Open action. If a workspace is needed,
+  offer a visible chooser and explain the derived-file location; continue the
+  retained request automatically when ready. Cancel preserves the current take.
+- Present a persistent, readable failure summary with Details and a relevant
+  Retry/Choose another file action. Expose complete text to accessibility.
+- Keep filenames, status and primary controls usable at minimum window size;
+  cover long paths, enlarged text, scale changes and repeated failures.
+- Disclose when Character view is unavailable and how to obtain a usable mesh.
+  Toggle state and the rendered view must agree through pointer, keyboard and
+  accessibility actions.
+- Qualify existing source changes before adding more status policies or wrappers.
 
-## 2. Finish one reliable import–repair–export journey
+**Finish evidence:** recorded first-use open/import journey, unavailable workspace
+and malformed-input recovery, loaded-take refusal, focus restoration, matching
+visible/accessible feedback, and unchanged document/source on failure.
+See [M1](m1-workspace.md) and [shared interaction acceptance](acceptance-and-dependencies.md).
 
-### J01 — Transactional editing and failure recovery
+## 3. Q02: close safety-critical proof gaps alongside the production paths
 
-**Priority:** P0. **Depends on:** Q01 for qualification, existing worker protocol.
+**Priority:** P0 for publication, ownership and data-preservation contracts.
+**Return:** gives credible guarantees for the transitions most costly to get wrong.
 
-Current runtime blocker: the sealed `14bdc130` app (compiler `e24c29e6`, engine
-`6df3212e`) imports the reported FBX and displays 337 frames, then crashes during
-redraw with `EXC_BAD_ACCESS`. The crash UUID matches the built app. Preserve the
-take and diagnose the exact draw/ownership boundary before runtime acceptance;
-Character/Skeleton switching remains unqualified. Full crash and source-hash
-evidence is retained in `build/studio-runtime-e24-20261008/`. Successful O2
-compilation, linking and package sealing do not close this item.
+- Prioritize source identity, worker ownership, cancellation/stale publication,
+  transactional history, FFI admission, export publication and storage mutation.
+- Qualify the actual production handoff: native status alone must not be copied
+  into several booleans and presented as independent staging evidence.
+- Repair exact lexical owner/type/constant provenance and real functional theorem
+  production. Resource-safety replay cannot stand in for an ensure theorem.
+- Model short-circuit helper contracts under their actual branch guard. Retain
+  branch-specific precondition obligations; never introduce an unguarded helper
+  equality from a call that may not execute.
+- Authenticate exact source/expanded import closure, then independently replay.
+  Retain wrong-owner, reordered-argument, changed-source, false-assertion,
+  malformed-owner and missing-precondition refusal controls.
+- Rebuild matched products after relevant repairs; qualify cache reuse by each
+  product's actual input identity. Report compile, declaration proof, replay and
+  source correspondence separately.
 
-Qualify synchronous edits, queued/coalesced edits, Undo/Redo, no-op drafts,
-cancellation, take replacement and close approval as one state machine:
+**Finish evidence:** intended critical predicates authenticated and replayed on
+current source, with meaningful negatives and production/native binding evidence.
+Unresolved obligations remain explicit gaps. Do not weaken contracts to obtain
+passing counts. Secondary convenience-law gaps follow the critical path rather
+than monopolizing the first usable-build repair.
 
-The FBX completion handler now gates failure status replacement on a positive,
-current request ticket with no cancellation or pending close. Obsolete and
-cancelled completions leave existing feedback intact, including with a loaded
-take. Companion laws and exhaustive small-domain controls cover this predicate;
-execution, independent proof replay and whole-handler runtime qualification
-remain open on the repaired current compiler.
+## 4. J02 + J03: finish one inspect–preview–apply–undo–export journey
 
-Empty-view failure explanations are now retained separately from transient
-status messages. Current FBX refusals and rebuild failures capture their literal
-policy feedback; a newly accepted FBX request or successful candidate publication
-clears it. The guide selects retained text through a contracted predicate with
-companion laws. The guide, ordinary status bar and workspace accessibility status
-node now select the same feedback, so transient actions cannot leave the visible
-failure explanation different from its accessible text. Focused clean Stage0
-semantic checking passes for the predicate; full UI lifetime,
-layout, accessibility and paired-proof qualification remain open. Loaded-take failures now retain the same status/accessibility explanation when
-a replacement is refused; successful publication or the next accepted import
-clears it. The new selector and companion laws pass clean Stage0 semantic
-checking. Full runtime and proof qualification, detailed presentation and
-explicit acknowledgement/retry controls still require work.
+**Priority:** P0. **Depends on:** steps 1–3 for affected paths.
+**Return:** demonstrates useful cleanup rather than a collection of controls.
 
-Finish the status-message presentation. Commit `061ec40` replaces the fixed
-560-pixel message offset with bounded, responsive summary/message regions and
-viewport clips. Its focused layout runtime check passes on installed `b26659e2`;
-whole-app and proof qualification remain open. The layout now also explicitly
-contracts each region's width and zero text extent
-for tiny bars, with the `text_regions_are_bounded` companion law. Qualify these
-new obligations with the current source-authenticated prover/replay pair.
-The supplied FBX failure
-screenshots show why clipping alone is insufficient. Provide a compact status
-summary plus a discoverable, persistent full explanation and retry action. Keep the failure visible until acknowledged
-or superseded by a relevant operation; expose the complete text to VoiceOver.
-Use available window width for layout, wrap at word boundaries without splitting
-UTF-8, and keep keyboard focus and timeline controls usable. Qualify minimum
-window size, long filenames, translated text, enlarged text and failures while
-an existing take remains loaded. Companion layout bounds/refusal laws must prove
-that invalid dimensions cannot produce overlapping or negative content regions.
+Use one labelled noise fixture and one contact fixture. Select a finding without
+editing, jump to its frame/joint, explain scope and trade-offs, preview adjacent
+motion/source/result, apply once or cancel, undo/redo, save/reopen, export/reopen.
 
-Retained formatted feedback now snapshots StudioText scratch into dedicated
-fixed storage, so the per-frame slot ring cannot overwrite the message. A
-300-redraw lifetime regression and extent contracts/laws accompany this source
-change. Semantic checking passes on installed `b26659e2`, but native emission
-declines the fixed-array generic UI view helper (also used by existing
-StudioText); runtime and final paired-proof qualification remain open. Preserve
-this regression through compiler repair integration. The formatter now exposes
-only complete UTF-8 scalar prefixes, with two-/four-byte boundary tests and
-non-vacuous helper proof obligations. The three actual UI helper obligations
-execute successfully with literal array specializations on installed
-`b26659e2`; the standalone status-extent policy also compiles and executes
-successfully. Retained records are in `build/dialog-result-reduction/`.
-These narrow results leave the full formatter/snapshot native regression and
-source/replay qualification open: named constant specializations still decline.
-This does not replace the full-details
-view, grapheme/translation review or complete error persistence policy.
+- Keep pending drafts distinct from committed history and last-valid results.
+  Failure/stale work cannot change history or claim a draft was saved/exported.
+- Keep units, sample domains, time/frame indexing and source/settings identity
+  consistent across Studio, CLI and reports. Unknown/overflow/zero-sample metrics
+  remain unavailable rather than apparently successful zeros.
+- Finish range, anchor and parameter inspection and keyboard/accessibility
+  alternatives for exposed tools before adding another cleanup algorithm.
+- Use preservation thresholds fixed before candidate comparison. Intentional
+  fast movement needs labels/evidence rather than being assumed to be noise.
 
-Toolbar tooltips now use the platform font metric authority rather than UTF-8
-byte count. `StudioTooltipLayoutPolicy` contracts bound their extent and origin
-to the viewport; three companion laws pass semantic checking on source-matched
-compiler `8b2c25dd`. Replay and native UI qualification remain open. Review the
-first and last toolbar buttons at minimum window size, long translated labels,
-font/scale changes and unavailable metrics. Confirm clipped text has a complete
-accessible description and that hovering never obscures or traps keyboard focus.
-These checks accompany the complete empty-view guide clip and persistent retry
-instruction; they do not qualify the pending full-details view.
+**Finish evidence:** complete native journeys; current/candidate identity parity;
+quality/preservation gates; refusal/cancellation; meaningful history; session and
+export round-trip parity. See [M2–M3](m2-m3-diagnosis-review.md),
+[M4](m4-contact-repair.md) and [physics migration](physics-unit-migration.md).
 
-Partial implementation: empty-document import failures now select the failure
-guide through a contracted ticket/loaded/cancelled/closing policy. The guide uses
-the UI metric planner for grapheme-safe wrapping, with six visible rows and a
-viewport clip. Full Studio semantic checks and the focused 200-combination O2
-feedback test pass on compiler `e24c29e6`; evidence is retained in
-`build/failure-guide-e24/record.json`. Layout proofs, a discoverable full-details
-view, failures with a loaded take, and runtime/visual qualification remain open.
+## 5. J04: reliable single export and recoverable cleanup
 
+**Priority:** P0. **Return:** protects user work and makes generated storage manageable.
 
-| Event | Required result |
-| --- | --- |
-| Candidate evaluation fails | Committed history, result and saved marker remain unchanged; actionable failure stays visible. |
-| Several edits arrive while busy | A visible draft is distinct from the committed result; only the accepted evaluated result enters history. |
-| Undo cancels a draft | Draft disappears without also undoing a committed edit unintentionally. |
-| Source/history changes during work | Stale candidate is rejected; retained preview is identified accurately. |
-| Save/export while draft is pending | The handler refuses or explicitly waits under the documented policy; it cannot claim the draft was saved/exported. |
-| Close approval followed by a changed draft | Approval is invalidated and current work is reviewed again. |
-| Counter reaches its limit | Document identities never wrap; redraw rollover invalidates all dependent caches. |
+- Complete captured-result GLB/report staging, partial outcomes and retry.
+  Preserve occupied outputs and sources; restart cannot silently publish a
+  different revision. Distinguish integrity, reviewed motion and durability.
+- Finish Storage review/move/receipt/restore and generated-build cleanup with
+  exact retained identity, active-product leases, durable journals and conflict
+  refresh. Quarantine moves are recoverable storage, not claimed freed space.
+- Integrate typed reconciliation identity and the read-only recovery-location
+  observer. Observe under descriptor locks/rechecks, return no reveal path on
+  uncertainty, and reobserve exact binding before reveal. Observation alone
+  never grants Restore or mutation authority.
+- Cover source-path/identity substitution, stale reviews, active builds/apps,
+  uncertain lock release, torn receipts, interruption and restart at every
+  relevant publication/move stage. Preserve required diagnostic evidence.
+- Show selected scope, destinations and consequences before mutation; provide
+  understandable Restore/Retry/reveal choices and retain recoverable failures.
 
-Include pointer, keyboard and accessibility dispatch. Record status, selection,
-focus, dirty state and undo count after each event. Measure busy feedback and
-last-valid-preview retention on a long take; a policy-only check is insufficient.
+**Finish evidence:** one native export/reopen/recovery journey and one native
+cleanup/restore/restart journey, including injected failures, exact ABI and
+identity controls, proofs and source preservation. Existing pure policies or
+native helper tests do not qualify the complete controller/UI.
+See [generated cleanup slices](generated-build-cleanup.md) and [M6](m6-export-batch.md).
 
-### J02 — Consistent units and honest diagnosis
+## 6. P01: qualify responsiveness and professional interaction
 
-**Priority:** P0. **Depends on:** [complete physics migration](physics-unit-migration.md).
+**Priority:** P1; regressions affecting steps 1–5 remain P0.
 
-- Finish producers, kernel bounds, inverse conversions, thresholds and report
-  conversions together. Preserve angular units and explicit time bases.
-- Reject or disclose missing feet, invalid timestamps, nonfinite positions,
-  unsupported coordinates, collapsed thresholds and unavailable mass/environment
-  information. An unavailable detector cannot supply a passing quality score.
-- Keep CLI and Studio availability, contacts, floor and balance decisions
-  consistent on the same source and settings. Revalidate after preceding fixes.
-- Compare signed rounding boundaries and intended precision changes with the
-  frozen corpus. Audit residual accumulation and conversion overflow.
+Measure long takes and supported dense/max-capacity layouts on fixed reference
+hardware. Keep cancellation, progress, draft visibility and last-valid preview
+responsive. Qualify focus, semantic IDs/actions, minimum windows, text density,
+capacity refusals, process lifetime and aggregate memory. Keep the intermittent
+renderer memory gate open until the original threshold passes repeatably; stable
+sampled heap/GPU counters alone do not explain retained process growth.
 
-**Finish evidence:** authenticated boundary laws; per-frame CLI/Studio parity;
-before/after metrics in declared units; preservation checks; unavailable-state
-text and overlay review. New refusal counters alone do not close this item.
+**Finish evidence:** repeatable timing/memory records and actual pointer,
+keyboard/accessibility completion at supported limits. See [M5](m5-responsiveness.md).
 
-### J03 — Diagnosis, controlled preview and precise repair
+## 7. P02 + P03: repeat work, packaging and release
 
-**Priority:** P0. **Depends on:** J01–J02; quality thresholds fixed before comparison.
+**Priority:** P1 after the single-take journey.
 
-Use one labelled noise case and one contact case as the first complete vertical
-slices. Select an issue without editing; jump to its exact frame/joint; explain
-the proposed scope and trade-off; preview source/result and adjacent motion;
-accept once or cancel; undo; save/restore; export/reopen the same result.
+Finish compatible recipes, reviewed batch production, partial/cancelled outcomes
+and honest availability summaries. Qualify installation/Finder/copied-bundle
+launch, signing/distribution, clear first-use documentation and real user trials.
+External distribution/participant decisions remain explicit dependencies.
 
-Then cover every existing exposed tool with its own preservation fixture.
-Complete parameter inspection, range/anchor controls and accessible alternatives
-before adding another algorithm. Do not infer impact labels from improvement
-metrics or call an intentional fast movement noise without evidence.
+**Finish evidence:** native repeat-work journeys, source/report identity parity,
+release package and complete M7 acceptance. See [M6](m6-export-batch.md) and
+[M7](m7-release.md). A single-take release is not completion of the entire plan.
 
-Computed boundary/velocity distances now pass finite, nonnegative and bounded
-admission before integer conversion (`0d1f557`), with contracts and companion
-laws. Contact, boundary, joint and velocity comparisons also require the shared
-current/candidate sampling-domain check. Qualify these implemented paths with
-overflow, equal-length different-time and ordinary aligned cases, preserving
-the existing tolerances. Confirm that unavailable measurements retain the
-candidate and explain the missing preservation evidence in the UI. Source
-implementation alone does not close these runtime and proof requirements.
+## 8. R01: remaining M8 decisions
 
-**Finish evidence:** complete interactions, local and aggregate quality gates,
-negative controls, meaningful history entries and session/export parity.
+**Priority:** P2; preserve all requested research candidates.
 
-### J04 — Reviewed publication and recoverable storage
+Evaluate against labelled baselines, preservation gates and measured runtime.
+Record an evidence-backed adopt/reject decision for every candidate; adopted
+work receives implementation, proof, UX and qualification criteria before it
+changes defaults. See [M8](m8-research-and-order.md).
 
-**Priority:** P0. **Depends on:** J01 and exact captured result identity.
+## Evidence and handoff discipline
 
-- Complete GLB/report staging, partial outcomes and retry from the same immutable
-  snapshot. Distinguish file integrity, motion review and durable publication.
-- Exercise occupied paths, source aliases, failed reports, interrupted writes,
-  unavailable destinations and changed review state. Preserve prior outputs.
-- Finish the Storage review/move/receipt/restore journey, including long paths,
-  stale reviews, conflict refresh and unknown recovery locations. Do not claim
-  freed space from a successful namespace move alone.
-- Supply a recoverable generated-build cleanup flow as well as animation-output
-  cleanup. Preserve current products, active generations and required receipts;
-  explain what can be removed and why before mutation.
-- Bind activity protection to the running artifact with a process-lifetime
-  shared lease. Cleanup must acquire its exclusive lease and retain it through
-  revalidation, the directory move and durable receipt publication. Unknown or
-  legacy lease metadata stays protected. A failed lease acquisition must explain
-  the refusal before a Studio window opens.
-- Qualify direct launches, symlink launches, Finder launches, copied/renamed
-  bundles and simultaneous launch/cleanup. Distributed bundles must acquire
-  their own artifact-local lease without accessing the developer checkout.
-  Precreate lease files during build/package creation; launching an installed
-  bundle must not modify its signed contents.
-- Qualify the implemented explicit build/package contents inventories against
-  native cleanup validation. Evidence and schema are recorded in
-  [the inventory acceptance record](../acceptance/build-generation-cleanup-policy-2026-10-07.md).
-  Reject unknown descendants, linked entries, changed file contents, group/other-
-  writable entries or modes inconsistent with the evidence, replaced ancestors
-  and mismatched artifact/build identities. Repeat
-  enumeration on retained descriptors must start at the beginning and distinguish
-  read errors from end of directory. Revalidate immediately before mutation.
-- Cover failed and partial generations with an independent durable creation
-  journal and declared ownership; do not invent a sealed executable identity
-  for a build that never linked. Refuse an active builder, preserve diagnostic
-  evidence required by recovery, and reconcile crashes at every creation stage.
-- Present managed quarantine as recoverable storage. Report moved bytes
-  separately from freed disk space; retain external inventory and transaction
-  records until their recovery dependencies are resolved. Provide restore from
-  the journal identity even after the original generation name is reused.
-- Qualify the connected native generation move/Restore/reconciliation
-  adapter, Elisa controller and review UI. Raw status/phase/location
-  decoders must reject unsupported values; native integer flags accept only
-  exact 0/1. Never publish a recoverable success from a parsed receipt alone:
-  verify identity, location, locks and durable journal/parent synchronization.
-- Before persisting a move intent, match the complete reviewed identity under
-  retained global and artifact locks: artifact/path/device/inode plus product,
-  manifest, contents-inventory and lease-record digests. The native
-  `validate_reviewed` operation and Elisa adapter now compare those controls
-  under the begin transaction's retained locks, with repeat validation before
-  intent and mutation. Wire the controller to require that admission, rather
-  than treating a successful begin as complete review validation. Build manifest
-  evidence hashes exact `inputs.json` bytes; packages hash exact
-  `PACKAGE-GENERATION.json` and separately `BUILD-INPUTS.json` bytes. The contents
-  inventory excludes these controls. Refuse changed controls even when the
-  executable bytes are unchanged. Engine `0d6fa26c` adds v2 durable receipts
-  retaining these reviewed control digests and revalidating them during Restore
-  and reconciliation. Qualify restart and changed-control refusal against exact
-  saved digests. V1 receipts remain legacy product/inventory/lease evidence;
-  expose that weaker scope explicitly before enabling UI recovery. Strict native
-  compilation and companion law object compilation do not establish runtime
-  durability, native/source correspondence or authenticated proofs.
-- Integrate the bounded candidate façade with background dispatch, explicit
-  overflow/refusal states and a paged accessible review list. Unknown age stays
-  protected; only verified filesystem birthtime supplies retention evidence.
-  A verified Published4 resolves its matching publication intent, while an
-  unmatched intent stays protected. Failed/partial generations still need
-  cleanup admission based on their creation evidence, without a fabricated
-  product identity. Execute G02–G06 in the [targeted cleanup slices](generated-build-cleanup.md);
-  producer verification, retained-lock admission and variant-aware receipts must
-  land together before incomplete rows become movable.
-  The owning scan worker and controller are now implemented (`ddf349a`,
-  `0ae9584`): refresh queues a scan, frame polling drains it without waiting,
-  and publication checks ticket, cancellation, workspace path and captured
-  retention. Progress/refusal/overflow text is connected to Storage's status
-  bar. The concrete consuming graph now compiles and links at the captured
-  snapshot. Qualify its native publication and failure paths. The generation
-  inspection screen has 16 rows per page, protection explanations, pointer/
-  keyboard selection and paging/refresh/back controls; runtime acceptance remains
-  open despite successful source and paging-law compilation.
-  Native accessibility and explicit source-bound move confirmation are wired
-  (`863be07`, `692360c`, `5e1b130`, `5cda1dd`). The controller rechecks the
-  scan, selection, retention and workspace at confirmation and retains the owning
-  reply even after cancellation. Complete native compile/link/package evidence
-  now exists for the captured snapshot; later UI drift requires rebuilding before
-  current runtime acceptance.
-  Qualify result/recovery presentation and connected Restore flow, including
-  implemented Unicode path inspection and eight-target focus traversal. See the
-  [integration diagnostics](../acceptance/generation-controller-diagnostics-2026-10-07.md).
-- Qualify the connected owning Restore job and recovery browser (`51c3cbc`,
-  `1157dab`, `d1e4d35`). Cancellation or a
-  stale ticket suppresses UI publication but must drain the reply and retain any
-  unclosed native handle. Restore success requires committed restore, confirmed
-  lock release and exact durable reconciliation; compilation of the worker and
-  task instantiation does not qualify its runtime behavior.
-- Qualify progress/result UI for the connected owning reviewed move job
-  (`8492253`, `aa19a87`, `5cda1dd`). It captures inline native buffers,
-  independently admits age against the captured retention, matches reviewed
-  controls under retained locks, requires durable v2 intent evidence, closes
-  ownership and reconciles before recoverable success. Worker, law and concrete
-  result-consumer objects compile; no native execution or authenticated proof
-  qualification is established. A stale/cancelled reply must retain any new
-  operation identity and recovery evidence before it is discarded, as well as
-  draining any remaining native handle. An uncertain move can become recoverable
-  only after exact durable quarantine reconciliation and confirmed lock release.
-  An unresolved retained reply blocks subsequent moves until exact recovery
-  acknowledgment. Outcome-specific copy and
-  bounded in-memory identity retention are implemented (`5882dbe`, `021a276`,
-  `80eb81c`, `5e2af2e`, `d644106`, `13f1245`). Recording uses owned root and
-  operation bytes, detects exact duplicates and refuses capacity overflow;
-  completion retains its reply if recording fails.
-  Admission now explicitly contracts valid identities and available capacity for
-  new records, with two companion laws; current proof/replay qualification remains open.
-  Ledger browsing, earlier operation selection and background reconciliation are now connected.
-  Qualify exact root/operation binding, stale replies, cancellation, capacity
-  overflow and repeated moves. Qualify implemented exact resolution of retained
-  replies; uncertain release continues to refuse acknowledgment. Exact Move/Restore Resolve Review source is connected to current
-  reconciliation and retained ledger identity; qualify it before accepting
-  repeated cleanup. Restore captures artifact/path before dispatch (`d274c70`)
-  and requires a new review/confirmation after acknowledgment. Explicit
-  remaining-handle Retry Release controls are implemented
-  (`f06a8b7`), with whole-reply ownership transfer and admission laws. Qualify
-  Busy/stale/uncertain native results, retained metadata, retry progress and
-  cancellation; establish exact reconciliation before disposing of the reply or
-  permitting another mutation. Generation job starts now serialize
-  inventory, discovery, reconciliation, move and Restore (`330e1c8`); qualify
-  deferred requests and responsiveness under every overlapping user action.
-  Keep ledger internals private; current compiler constructor/result repairs
-  preserve that API and require current regression qualification. Restart receipt discovery is implemented as candidate
-  enumeration with explicit unresolved pending metadata; qualify its native
-  crash/lock/descriptor matrix and UI loading before closing restart recovery.
-  See [discovery evidence and open acceptance](../acceptance/generation-recovery-discovery-2026-10-07.md).
-- Qualify the corrected native reconciliation parent comparison before runtime acceptance:
-  a transaction begun at quarantine has the managed items directory as its
-  source parent, while the receipt records the original parent. Compare each
-  descriptor with its corresponding identity, then bind and verify the original
-  parent separately. Engine `453eda39` removes the unconditional comparison
-  that rejected valid quarantine recovery and verifies its source parent against
-  the retained items descriptor. Strict native compilation passes; the companion
-  Elisa policy and five law declarations compile as an object. Native execution
-  and proof authentication remain open. Cover both original and quarantine
-  recovery locations, changed parents and reused names.
-- Qualify generation recovery through this outcome matrix before exposing it:
-
-  | Observed state | Required UI and action |
-  | --- | --- |
-  | Original present, quarantine absent | Report not moved only after exact identity checks; allow fresh review. |
-  | Original absent, exact quarantine present | Show recoverable moved state after durable reconciliation; offer Restore. |
-  | Original name reused | Keep recorded item identifiable; refuse overwriting the new occupant. |
-  | Both locations present, neither present or identity changed | Show unresolved/conflict with inspectable locations; protect both. |
-  | Intent exists after restart | Reconcile descriptors and journal before enabling retry or Restore. |
-  | Move succeeded but journal/parent flush failed | Show uncertain recovery; retain evidence and stop the batch. |
-  | Lease/global lock release uncertain | Refuse further mutation until admission is safely recovered. |
-
-- Complete a keyboard and VoiceOver journey through generation selection,
-  review, confirmation, progress, partial result, restart reconciliation and
-  Restore. Return focus to the triggering control or retained row. Disable
-  repeated activation while a transaction is active, announce updated totals,
-  and provide containing-folder access for unresolved recovery. Existing
-  regular-file Trash acceptance does not qualify directory cleanup.
-
-**Finish evidence:** source hashes unchanged, output reopens as reviewed, reports
-bind to that output, interrupted states reconcile, and restore cannot overwrite
-work. Follow the detailed M1/M6 durability and native failure criteria.
-
-## 3. Qualify scale, professional repeat work and release
-
-### P01 — Density, responsiveness and capacity
-
-**Depends on:** usable current app and the reference hardware/corpus decision.
-
-Measure cold and warm paths separately: input handling, evaluation, drawing,
-publication, memory and cancellation. Report p95/p99 and worst cases; averages
-cannot hide stalls. Exercise maximum stack/contact/history sizes, dense issues,
-long paths and large semantic trees at supported window sizes/scales.
-Capacity refusal must precede mutation and explain recovery. Keep the 600-line,
-constant-representation and literal-push gates running throughout implementation.
-
-### P02 — Recipes and reviewed batch production
-
-**Priority:** P1; remains part of full-plan completion. **Depends on:** J04.
-
-Wire captured preflight facts to native validators and the queue UI. Qualify
-compatible rig/recipe reuse, duplicate destinations, individual failure,
-draining cancellation, resume/retry and approval of the exact staged result.
-Empty or partially failed queues cannot publish a complete production manifest.
-Preserve valid completed outputs and approvals across other item failures.
-
-### P03 — Packaging, documentation and user trials
-
-**Depends on:** all applicable P0 evidence. Implementation may proceed earlier.
-
-Verify Finder launch and file opening outside a developer shell, package identity,
-licenses and provenance. Choose the distribution route explicitly. Update guides
-from observed controls and failure paths. Run all four journeys with at least
-five real intended users without coaching, recording uncertainty and recovery.
-Fix lost-work and blocked-task failures first, then misleading results and friction.
-Do not invent participants or count internal scripts as usability trials.
-
-### R01 — Remaining M8 decisions
-
-Retain every research candidate in M8. For each, name an observed corpus failure,
-hypothesis, baseline, experiment cost and adopt/reject criterion before prototyping.
-An adoption adds implementation, proofs and quality acceptance; a rejection needs
-recorded evidence. A P0 release does not complete P1 workflows or these decisions.
-
-## Work coordination and handoff
-
-Keep source ownership explicit while agents work in shared checkouts. Parallelize
-independent compiler, prover, product and evidence work; serialize edits to shared
-interfaces. Commit small coherent changes and announce source freezes before
-immutable generations are copied. Record active process handles and terminal
-results; a stale lock or previous status is not evidence of a running build.
-After a failed integrated run, prioritize its concrete diagnostic before opening
-another unrelated source batch. External reviewer gates do not prevent independent
-implementation, but remain visible until the required person supplies evidence.
-
-For each active qualification record the owning task, source generation, command,
-PID or session, log location and last observed state. Replace a running state with
-its terminal exit and diagnostic when it ends. A compiler failure identifies the
-failed declaration or lowering step and a reproducible input; an external blocker
-identifies the missing decision and dependent work. Keep these distinct from
-unqualified implementation. Resume independent work while a build runs, and state
-the next concrete action after failure instead of reporting a generic stall.
+Commit small source/proof improvements; combine documentation changes with a
+source commit. Keep failed attempts and unresolved acceptance visible. Every
+slice needs its actual compiler/prover/native/UI evidence at the appropriate
+scope. Reassess this order when a blocker is removed or evidence changes; keep
+all detailed requirements until proven complete.

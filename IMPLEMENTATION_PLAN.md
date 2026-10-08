@@ -30,6 +30,15 @@ coverage and the 600-line maximum. Update all consumers and validate explicit
 conversions at serialization/native boundaries; preserve required wire values.
 See the [representation migration inventory](docs/plan/constant-modules.md).
 
+## Highest-return execution focus
+
+Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
+current runnable build and redraw crash; clear FBX/workspace recovery;
+safety-critical proofs; one complete cleanup journey; single export and
+recoverable storage; responsiveness; repeat work and release; M8 decisions.
+Finish and qualify existing production paths before adding another algorithm.
+All M0–M8 requirements remain in scope; priority changes do not waive acceptance.
+
 ## Detailed roadmap
 
 - [Current delivery queue and finish criteria](docs/plan/current-delivery-queue.md)
@@ -55,6 +64,10 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
   tracking boundary. Enable the current compiler's global permission checking
   during qualification and refuse ungranted access. Migration is incomplete until
   the full application and dependency call graph pass that check.
+- Use grouped family grants when a row names multiple members of the same
+  family, for example `can[Memory{Allocate, Release}, Global{Read, Write}]`.
+  Preserve the exact member set and unsafe tracking; qualify compiler expansion
+  and member-specific refusals before treating the syntax as supported.
 - Commit each small improvement.
 - Extend arrays for fixed sequences of literals. The lexical
   `scripts/check_literal_push_runs.py` gate rejects consecutive integer-literal
