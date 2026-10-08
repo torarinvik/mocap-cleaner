@@ -21,11 +21,14 @@ module StudioPlaybackCache:
 
         def refresh_character(model: StudioCharacter::Model&, binding: StudioCharacter::Binding&, clip: StudioModel::Clip&, frame: i64) -> bool can[Global{Read, Write}]:
             return true if character_frame == frame
-            if character_points is cached and cached.count == model.mesh.positions.count:
+            if character_points is cached:
                 StudioCharacter::pose_into(model, binding, clip, frame, cached)
+                character_points <- move cached
             else:
-                posed: darray[Geometry::Vec3] = StudioCharacter::pose(model, binding, clip, frame)
-                character_points <- posed
+                character_points <- []
+                if character_points is cached:
+                    StudioCharacter::pose_into(model, binding, clip, frame, cached)
+                    character_points <- move cached
             if character_points is vertices:
                 return false if vertices.count != model.mesh.positions.count
                 character_frame <- frame
@@ -34,11 +37,14 @@ module StudioPlaybackCache:
 
         def refresh_take(mesh: GlbSkinMesh::Mesh&, clip: StudioModel::Clip&, frame: i64) -> bool can[Global{Read, Write}]:
             return true if take_frame == frame
-            if take_points is cached and cached.count == mesh.positions.count:
+            if take_points is cached:
                 StudioScene::pose_mesh_into(clip, mesh, frame, cached)
+                take_points <- move cached
             else:
-                posed: darray[Geometry::Vec3] = StudioScene::pose_mesh(clip, mesh, frame)
-                take_points <- posed
+                take_points <- []
+                if take_points is cached:
+                    StudioScene::pose_mesh_into(clip, mesh, frame, cached)
+                    take_points <- move cached
             if take_points is vertices:
                 return false if vertices.count != mesh.positions.count
                 take_frame <- frame
@@ -59,15 +65,15 @@ module StudioPlaybackCache:
                 return ViewportDraw::vertex_count(&list) > 0
             return false
 
-        def exercise(model: StudioCharacter::Model&, binding: StudioCharacter::Binding&, clip: StudioModel::Clip&, mesh: GlbSkinMesh::Mesh&) -> bool can[Global{Read, Write}]:
-            return false if clip.frames <= 0
+        def exercise(model: StudioCharacter::Model&, binding: StudioCharacter::Binding&, clip: StudioModel::Clip&, mesh: GlbSkinMesh::Mesh&) -> i64 can[Global{Read, Write}]:
+            return 1 if clip.frames <= 0
             for frame in 0..<clip.frames |frame, model, binding, clip, mesh|:
                 for view in 0..<3 |view, frame, model, binding, clip, mesh|:
-                    return false if not refresh_character(model, binding, clip, frame.i64())
-                    return false if not draw_character(model, clip, frame.i64(), view.i64())
-                    return false if not refresh_take(mesh, clip, frame.i64())
-                    return false if not draw_take(mesh, clip, frame.i64(), view.i64())
-            return true
+                    return 2 if not refresh_character(model, binding, clip, frame.i64())
+                    return 3 if not draw_character(model, clip, frame.i64(), view.i64())
+                    return 4 if not refresh_take(mesh, clip, frame.i64())
+                    return 5 if not draw_take(mesh, clip, frame.i64(), view.i64())
+            return 0
 
 def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32 can[Global{Read, Write}]:
     b: StudioCharacter::Binding = StudioCharacter::bind(m, c)
@@ -104,7 +110,8 @@ def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32 can[Global{Rea
     capacity: usize = reused.capacity
     StudioCharacter::pose_into(m, &b, c, next_frame, &reused)
     return 42 if reused.capacity != capacity or reused.count != got.count
-    return 47 if not StudioPlaybackCache::exercise(m, &b, c, &mesh)
+    playback_status: i64 = StudioPlaybackCache::exercise(m, &b, c, &mesh)
+    return 47 + playback_status if playback_status != 0
     return 0
 
 def main() -> i32 can[Global{Read, Write}]:
