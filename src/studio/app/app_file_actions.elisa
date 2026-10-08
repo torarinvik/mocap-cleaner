@@ -1,0 +1,127 @@
+include "app_state.elisa"
+
+extend Studio:
+    private:
+        def save_session_as() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if pending_edit_active():
+                    say_file("Session Save As is unavailable while an edit result is pending. Wait for it to finish or discard the pending edit.", session_path)
+                    touch()
+                    return
+                if FilePanel::save("txt", session_path, "Save the operation stack and contacts as a session") is chosen:
+                    mutable reason: i64 = StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
+                    can Unsafe.PointerCast:
+                        reason <- export_reason(chosen, true)
+                    if reason != StudioExportPolicy::Reason.ALLOW.i64():
+                        say_file("Session Save As must target a verified file inside the selected workspace build folder.", chosen)
+                        touch()
+                    else:
+                        mutable allowed: bool = false
+                        can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
+                            allowed <- artifact_destination_allowed(chosen)
+                        if not allowed:
+                            say_file("Session Save As cannot use reserved Storage metadata or an unverified file.", chosen)
+                            touch()
+                        else:
+                            _ = save_session_to_path(chosen, true)
+
+        def open_session() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if FilePanel::open("txt", "Open a saved session for this take") is chosen:
+                    if clip == null:
+                        begin_session_locate(chosen)
+                    else:
+                        request_replacement(chosen, Replacement.Session.i64(), false)
+
+        def export_as() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return if clip == null
+                if FilePanel::save("glb", export_path, "Export the cleaned take") is chosen:
+                    request_export(chosen, true)
+
+        def dispatch_file_action(action: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if (action == StudioFilePolicy::Command.WORKSPACE.i64() or action == StudioFilePolicy::Command.CREATE_BUILD.i64() or action == StudioFilePolicy::Command.CANCEL_WORKSPACE_SETUP.i64()) and fbx_import_worker_active():
+                    status <- "Wait for the FBX import to finish before changing its workspace. The current take remains available."
+                    status_file <- null
+                    touch()
+                    return
+                if not workspace_available() and ((action >= StudioFilePolicy::Command.OPEN_SESSION.i64() and action <= StudioFilePolicy::Command.EXPORT_AS.i64()) or action == StudioFilePolicy::Command.OPEN_STORAGE.i64()):
+                    status <- "Choose a writable workspace before using Storage, session or export files."
+                    status_file <- null
+                    touch()
+                    return
+                if action == StudioFilePolicy::Command.OPEN_TAKE.i64():
+                    open_take()
+                elif action == StudioFilePolicy::Command.OPEN_SESSION.i64():
+                    open_session()
+                elif action == StudioFilePolicy::Command.SAVE.i64():
+                    save_session()
+                elif action == StudioFilePolicy::Command.SAVE_AS.i64():
+                    save_session_as()
+                elif action == StudioFilePolicy::Command.EXPORT_CURRENT.i64():
+                    request_export(export_path, false)
+                elif action == StudioFilePolicy::Command.EXPORT_AS.i64():
+                    export_as()
+                elif action == StudioFilePolicy::Command.OPEN_STORAGE.i64():
+                    open_storage_screen()
+                elif action == StudioFilePolicy::Command.LOAD_CHARACTER.i64():
+                    open_character()
+                elif action == StudioFilePolicy::Command.WORKSPACE.i64():
+                    decision: StudioWorkspaceRootPolicy::Decision = locate_workspace_root()
+                    pending_import: bool = fbx_setup_pending
+                    apply_fbx_workspace_choice(decision)
+                    if decision == StudioWorkspaceRootPolicy::Decision.CANCELLED and not pending_import:
+                        status <- "Workspace selection cancelled."
+                        status_file <- null
+                        touch()
+                elif action == StudioFilePolicy::Command.CREATE_BUILD.i64():
+                    created: bool = create_workspace_build()
+                    if StudioFbxWorkspaceSetupPolicy::after_build(fbx_setup_pending, true, created, workspace_ready):
+                        _ = resume_pending_fbx_import()
+                elif action == StudioFilePolicy::Command.CANCEL_WORKSPACE_SETUP.i64():
+                    cancel_workspace_setup()
+                    was_pending: bool = fbx_setup_pending
+                    cancel_pending_fbx_import_setup()
+                    if was_pending:
+                        status <- "Workspace setup and pending FBX import cancelled. The current take stays open."
+                        status_file <- null
+                        touch()
+
+        def activate_file_menu(row: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return if row < 0 or row >= StudioFilePolicy::row_count(workspace_needs_build_confirmation())
+                action: i64 = StudioFilePolicy::activate_for(row, clip != null, workspace_available(), workspace_needs_build_confirmation())
+                return if action == StudioFilePolicy::Command.NONE.i64()
+                close_file_menu()
+                dispatch_file_action(action)
+
+        def close_file_menu() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                file_menu_open <- false
+                file_menu_hover <- -1
+                if accessibility_toolbar_ready and accessibility_file_trigger_widget != UiFlat::NONE:
+                    _ = UiFlat::request_focus(accessibility_file_trigger_widget)
+                touch()
+
+        def file_menu_key(code: UiCore::Key) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if code == UiCore::Key.Escape:
+                    close_file_menu()
+                elif code == UiCore::Key.M and StudioShortcuts::shift(modifiers):
+                    activate_file_menu(7)
+                elif code == UiCore::Key.Up:
+                    file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, -1, clip != null, workspace_available(), workspace_needs_build_confirmation())
+                    touch()
+                elif code == UiCore::Key.Down:
+                    file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, 1, clip != null, workspace_available(), workspace_needs_build_confirmation())
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    activate_file_menu(file_menu_focus)
+
+        def replacement_action_for_focus() -> i64 can[Global.Read]:
+            can Global.Read:
+                return StudioReplacement::Choice.Save.i64() if replacement_focus == StudioReplacement::Focus.Save.i64()
+                return StudioReplacement::Choice.Discard.i64() if replacement_focus == StudioReplacement::Focus.Discard.i64()
+                return StudioReplacement::Choice.Cancel.i64()
+

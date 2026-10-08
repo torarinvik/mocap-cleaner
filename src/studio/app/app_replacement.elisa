@@ -1,600 +1,498 @@
 include "app_state.elisa"
+include "app_file_actions.elisa"
 include "../pending_edit_policy.elisa"
 include "../../core/generation_policy.elisa"
 
 extend Studio:
     private:
         global mutable worker_close_approved_draft: StackState::Stack? = null
-        def save_session_as() -> void:
-            if pending_edit_active():
-                say_file("Session Save As is unavailable while an edit result is pending. Wait for it to finish or discard the pending edit.", session_path)
-                touch()
-                return
-            if FilePanel::save("txt", session_path, "Save the operation stack and contacts as a session") is chosen:
-                mutable reason: i64 = StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
-                can Unsafe.PointerCast:
-                    reason <- export_reason(chosen, true)
-                if reason != StudioExportPolicy::Reason.ALLOW.i64():
-                    say_file("Session Save As must target a verified file inside the selected workspace build folder.", chosen)
-                    touch()
-                else:
-                    mutable allowed: bool = false
-                    can Unsafe.PointerCast, Blocking.IO, Memory.Allocate, Memory.Release:
-                        allowed <- artifact_destination_allowed(chosen)
-                    if not allowed:
-                        say_file("Session Save As cannot use reserved Storage metadata or an unverified file.", chosen)
-                        touch()
-                    else:
-                        _ = save_session_to_path(chosen, true)
+        def capture_worker_close_approval() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                worker_close_approved_draft <- pending_edit_stack
+                contact_preview_close_approved <- true
+                contact_preview_close_approved_take <- take_serial
+                contact_preview_close_approved_document <- built
+                contact_preview_close_approved_stack <- stack_generation
+                contact_preview_close_approved_cursor <- history.cursor if history_ready else -1
+                contact_preview_close_approved_saved_cursor <- history.saved_cursor if history_ready else -1
+                contact_preview_close_approved_saved_valid <- history.saved_valid if history_ready else false
 
-        def open_session() -> void:
-            if FilePanel::open("txt", "Open a saved session for this take") is chosen:
-                if clip == null:
-                    begin_session_locate(chosen)
-                else:
-                    request_replacement(chosen, Replacement.Session.i64(), false)
+        def worker_close_approval_current() -> bool can[Global.Read]:
+            can Global.Read:
+                return history_ready and StudioPendingEditPolicy::same(worker_close_approved_draft, pending_edit_stack) and StudioJobPolicy::close_approval_matches(
+                    contact_preview_close_approved_take, take_serial,
+                    contact_preview_close_approved_document, built,
+                    contact_preview_close_approved_stack, stack_generation,
+                    contact_preview_close_approved_cursor, history.cursor,
+                    contact_preview_close_approved_saved_cursor, history.saved_cursor,
+                    contact_preview_close_approved_saved_valid, history.saved_valid)
 
-        def export_as() -> void:
-            return if clip == null
-            if FilePanel::save("glb", export_path, "Export the cleaned take") is chosen:
-                request_export(chosen, true)
-
-        def dispatch_file_action(action: i64) -> void:
-            if (action == StudioFilePolicy::Command.WORKSPACE.i64() or action == StudioFilePolicy::Command.CREATE_BUILD.i64() or action == StudioFilePolicy::Command.CANCEL_WORKSPACE_SETUP.i64()) and fbx_import_worker_active():
-                status <- "Wait for the FBX import to finish before changing its workspace. The current take remains available."
+        def cancel_pending_worker_close() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                worker_close_approved_draft <- null
+                if contact_preview_close_approved:
+                    replacement_prompt_open <- false
+                    replacement_is_close <- false
+                    replacement_is_termination <- false
+                    pending_replacement <- 0
+                contact_preview_close_pending <- false
+                contact_preview_close_approved <- false
+                contact_preview_close_termination <- false
+                status <- "Close cancelled; the background contact preview will finish and the current result remains visible."
                 status_file <- null
                 touch()
-                return
-            if not workspace_available() and ((action >= StudioFilePolicy::Command.OPEN_SESSION.i64() and action <= StudioFilePolicy::Command.EXPORT_AS.i64()) or action == StudioFilePolicy::Command.OPEN_STORAGE.i64()):
-                status <- "Choose a writable workspace before using Storage, session or export files."
-                status_file <- null
-                touch()
-                return
-            if action == StudioFilePolicy::Command.OPEN_TAKE.i64():
-                open_take()
-            elif action == StudioFilePolicy::Command.OPEN_SESSION.i64():
-                open_session()
-            elif action == StudioFilePolicy::Command.SAVE.i64():
-                save_session()
-            elif action == StudioFilePolicy::Command.SAVE_AS.i64():
-                save_session_as()
-            elif action == StudioFilePolicy::Command.EXPORT_CURRENT.i64():
-                request_export(export_path, false)
-            elif action == StudioFilePolicy::Command.EXPORT_AS.i64():
-                export_as()
-            elif action == StudioFilePolicy::Command.OPEN_STORAGE.i64():
-                open_storage_screen()
-            elif action == StudioFilePolicy::Command.LOAD_CHARACTER.i64():
-                open_character()
-            elif action == StudioFilePolicy::Command.WORKSPACE.i64():
-                decision: StudioWorkspaceRootPolicy::Decision = locate_workspace_root()
-                pending_import: bool = fbx_setup_pending
-                apply_fbx_workspace_choice(decision)
-                if decision == StudioWorkspaceRootPolicy::Decision.CANCELLED and not pending_import:
-                    status <- "Workspace selection cancelled."
+
+        def finish_close() -> void can[Ui.Window, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if session_source_save_task != null:
+                    session_source_save_close_pending <- true
+                    UiAppKitCanvas::veto_close()
+                    status <- "Finishing source verification for the session save before closing. The current take remains open."
                     status_file <- null
                     touch()
-            elif action == StudioFilePolicy::Command.CREATE_BUILD.i64():
-                created: bool = create_workspace_build()
-                if StudioFbxWorkspaceSetupPolicy::after_build(fbx_setup_pending, true, created, workspace_ready):
-                    _ = resume_pending_fbx_import()
-            elif action == StudioFilePolicy::Command.CANCEL_WORKSPACE_SETUP.i64():
-                cancel_workspace_setup()
-                was_pending: bool = fbx_setup_pending
-                cancel_pending_fbx_import_setup()
-                if was_pending:
-                    status <- "Workspace setup and pending FBX import cancelled. The current take stays open."
+                    return
+                if contact_preview_task != null:
+                    contact_preview_close_pending <- true
+                    contact_preview_close_termination <- replacement_is_termination
+                    contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, true)
+                    UiAppKitCanvas::veto_close()
+                    status <- "Finishing the background contact preview before closing. Press Escape to cancel close. Current result remains visible."
                     status_file <- null
                     touch()
-
-        def activate_file_menu(row: i64) -> void:
-            return if row < 0 or row >= StudioFilePolicy::row_count(workspace_needs_build_confirmation())
-            action: i64 = StudioFilePolicy::activate_for(row, clip != null, workspace_available(), workspace_needs_build_confirmation())
-            return if action == StudioFilePolicy::Command.NONE.i64()
-            close_file_menu()
-            dispatch_file_action(action)
-
-        def close_file_menu() -> void:
-            file_menu_open <- false
-            file_menu_hover <- -1
-            if accessibility_toolbar_ready and accessibility_file_trigger_widget != UiFlat::NONE:
-                _ = UiFlat::request_focus(accessibility_file_trigger_widget)
-            touch()
-
-        def file_menu_key(code: UiCore::Key) -> void:
-            if code == UiCore::Key.Escape:
-                close_file_menu()
-            elif code == UiCore::Key.M and StudioShortcuts::shift(modifiers):
-                activate_file_menu(7)
-            elif code == UiCore::Key.Up:
-                file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, -1, clip != null, workspace_available(), workspace_needs_build_confirmation())
-                touch()
-            elif code == UiCore::Key.Down:
-                file_menu_focus <- StudioFilePolicy::next_enabled(file_menu_focus, 1, clip != null, workspace_available(), workspace_needs_build_confirmation())
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                activate_file_menu(file_menu_focus)
-
-        def replacement_action_for_focus() -> i64:
-            return StudioReplacement::Choice.Save.i64() if replacement_focus == StudioReplacement::Focus.Save.i64()
-            return StudioReplacement::Choice.Discard.i64() if replacement_focus == StudioReplacement::Focus.Discard.i64()
-            StudioReplacement::Choice.Cancel.i64()
-
-        def capture_worker_close_approval() -> void:
-            worker_close_approved_draft <- pending_edit_stack
-            contact_preview_close_approved <- true
-            contact_preview_close_approved_take <- take_serial
-            contact_preview_close_approved_document <- built
-            contact_preview_close_approved_stack <- stack_generation
-            contact_preview_close_approved_cursor <- history.cursor if history_ready else -1
-            contact_preview_close_approved_saved_cursor <- history.saved_cursor if history_ready else -1
-            contact_preview_close_approved_saved_valid <- history.saved_valid if history_ready else false
-
-        def worker_close_approval_current() -> bool:
-            history_ready and StudioPendingEditPolicy::same(worker_close_approved_draft, pending_edit_stack) and StudioJobPolicy::close_approval_matches(
-                contact_preview_close_approved_take, take_serial,
-                contact_preview_close_approved_document, built,
-                contact_preview_close_approved_stack, stack_generation,
-                contact_preview_close_approved_cursor, history.cursor,
-                contact_preview_close_approved_saved_cursor, history.saved_cursor,
-                contact_preview_close_approved_saved_valid, history.saved_valid)
-
-        def cancel_pending_worker_close() -> void:
-            worker_close_approved_draft <- null
-            if contact_preview_close_approved:
+                    return
                 replacement_prompt_open <- false
                 replacement_is_close <- false
-                replacement_is_termination <- false
+                replacement_save_failed <- false
                 pending_replacement <- 0
-            contact_preview_close_pending <- false
-            contact_preview_close_approved <- false
-            contact_preview_close_termination <- false
-            status <- "Close cancelled; the background contact preview will finish and the current result remains visible."
-            status_file <- null
-            touch()
-
-        def finish_close() -> void can[Ui.Window]:
-            if session_source_save_task != null:
-                session_source_save_close_pending <- true
-                UiAppKitCanvas::veto_close()
-                status <- "Finishing source verification for the session save before closing. The current take remains open."
-                status_file <- null
-                touch()
-                return
-            if contact_preview_task != null:
-                contact_preview_close_pending <- true
-                contact_preview_close_termination <- replacement_is_termination
-                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, true)
-                UiAppKitCanvas::veto_close()
-                status <- "Finishing the background contact preview before closing. Press Escape to cancel close. Current result remains visible."
-                status_file <- null
-                touch()
-                return
-            replacement_prompt_open <- false
-            replacement_is_close <- false
-            replacement_save_failed <- false
-            pending_replacement <- 0
-            pending_replacement_allows_legacy <- false
-            pending_session_ready <- false
-            pending_located_memo <- null
-            pending_take_path <- ""
-            clear_pending_session_annotations()
-            touch()
-            if replacement_is_termination:
-                termination_authorized <- true
-                UiAppKitCanvas::terminate()
-            else:
-                close_authorized <- true
-                UiAppKitCanvas::close()
-
-        def perform_replacement(kind: i64, p: cstr, allow_legacy: bool) -> void can Unsafe.PointerCast:
-            if kind == Replacement.Session.i64() and (contact_preview_task != null or pending_edit_active()):
-                status <- "Session load is waiting for the current edit evaluation. The loaded session is retained; choose Replace again after the preview finishes."
-                status_file <- null
-                touch()
-                return
-            discard_pending_edit()
-            contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, contact_preview_task != null)
-            contact_preview_rebuild_pending <- false
-            replacement_prompt_open <- false
-            legacy_prompt_open <- false
-            replacement_is_close <- false
-            replacement_is_termination <- false
-            replacement_save_failed <- false
-            file_menu_open <- false
-            pending_replacement <- 0
-            pending_replacement_allows_legacy <- false
-            touch()
-            if kind == Replacement.Take.i64():
+                pending_replacement_allows_legacy <- false
                 pending_session_ready <- false
                 pending_located_memo <- null
-                clear_pending_session_annotations()
-                if fbx_path(p):
-                    if not request_fbx_import(p):
-                        status <- "Could not retain the FBX request safely. The current take stays open; choose the file again."
-                        status_file <- p
-                        touch()
-                else:
-                    load_take_now(p)
                 pending_take_path <- ""
-            elif kind == Replacement.Session.i64():
-                if pending_located_memo != null:
-                    prior_take: i64 = take_serial
-                    load_take_now(pending_take_path)
-                    if prior_take == take_serial:
-                        pending_session_ready <- false
-                        clear_pending_session_annotations()
-                        status <- "Located source could not be installed; current cleanup remains available."
-                        status_file <- pending_take_path
-                        touch()
-                        return
-                    pending_take_path <- ""
-                if pending_session_ready:
-                    loaded: StackState::Stack = pending_session_stack
-                    if install_session(p, loaded, allow_legacy):
-                        pending_session_ready <- false
+                clear_pending_session_annotations()
+                touch()
+                if replacement_is_termination:
+                    termination_authorized <- true
+                    UiAppKitCanvas::terminate()
                 else:
-                    say_file("session validation expired; open it again", p)
-                    touch()
+                    close_authorized <- true
+                    UiAppKitCanvas::close()
 
-        def request_replacement(p: cstr, kind: i64, allow_legacy: bool) -> void can Unsafe.PointerCast:
-            return if kind != Replacement.Take.i64() and kind != Replacement.Session.i64()
-            if fbx_import_active():
-                status <- "Wait for the current FBX import to finish before replacing the take. The current take remains available."
-                status_file <- null
+        def perform_replacement(kind: i64, p: cstr, allow_legacy: bool) -> void can[Unsafe.PointerCast, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if kind == Replacement.Session.i64() and (contact_preview_task != null or pending_edit_active()):
+                    status <- "Session load is waiting for the current edit evaluation. The loaded session is retained; choose Replace again after the preview finishes."
+                    status_file <- null
+                    touch()
+                    return
+                discard_pending_edit()
+                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, contact_preview_task != null)
+                contact_preview_rebuild_pending <- false
+                replacement_prompt_open <- false
+                legacy_prompt_open <- false
+                replacement_is_close <- false
+                replacement_is_termination <- false
+                replacement_save_failed <- false
+                file_menu_open <- false
+                pending_replacement <- 0
+                pending_replacement_allows_legacy <- false
                 touch()
-                return
-            cancel_export_result() if export_result_open
-            cancel_export_review() if export_review_open
-            if replacement_prompt_open or legacy_prompt_open:
-                status <- "finish or cancel the pending replacement first"
-                status_file <- null
-                touch()
-                return
-            if not stage_pending_path(p):
-                status <- "file path exceeds 4095 bytes"
-                status_file <- null
-                touch()
-                return
-            pending_session_ready <- false
-            clear_pending_session_annotations()
-            if kind == Replacement.Session.i64():
-                if clip is c:
-                    if SessionState::inspect_locate_candidate(p) and SessionState::locate_candidate_has_source_reference():
-                        SessionState::discard_locate_candidate()
-                        begin_session_locate(p)
-                        return
-                    mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
-                    mutable decoded_impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
-                    mutable decoded_impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = []
-                    if SessionState::load_session_with_reviews(p, frames(), node_total(), session_identity(c), allow_legacy, &decoded_annotations, &decoded_impact_state, &decoded_impact_annotations) is prepared:
-                        pending_session_stack <- prepared
-                        pending_session_annotations <- move decoded_annotations
-                        pending_session_impact_state <- decoded_impact_state
-                        pending_session_impact_annotations <- move decoded_impact_annotations
-                        pending_session_ready <- true
+                if kind == Replacement.Take.i64():
+                    pending_session_ready <- false
+                    pending_located_memo <- null
+                    clear_pending_session_annotations()
+                    if fbx_path(p):
+                        if not request_fbx_import(p):
+                            status <- "Could not retain the FBX request safely. The current take stays open; choose the file again."
+                            status_file <- p
+                            touch()
                     else:
-                        if not allow_legacy and SessionState::load_error() == SessionState::LoadError.Legacy.i64():
-                            legacy_prompt_open <- true
-                            legacy_prompt_focus <- StudioLegacyPrompt::initial_focus()
-                            file_menu_open <- false
-                            help_open <- false
+                        load_take_now(p)
+                    pending_take_path <- ""
+                elif kind == Replacement.Session.i64():
+                    if pending_located_memo != null:
+                        prior_take: i64 = take_serial
+                        load_take_now(pending_take_path)
+                        if prior_take == take_serial:
+                            pending_session_ready <- false
+                            clear_pending_session_annotations()
+                            status <- "Located source could not be installed; current cleanup remains available."
+                            status_file <- pending_take_path
                             touch()
                             return
-                        if SessionState::load_error() == SessionState::LoadError.Source.i64():
+                        pending_take_path <- ""
+                    if pending_session_ready:
+                        loaded: StackState::Stack = pending_session_stack
+                        if install_session(p, loaded, allow_legacy):
+                            pending_session_ready <- false
+                    else:
+                        say_file("session validation expired; open it again", p)
+                        touch()
+
+        def request_replacement(p: cstr, kind: i64, allow_legacy: bool) -> void can[Unsafe.PointerCast, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return if kind != Replacement.Take.i64() and kind != Replacement.Session.i64()
+                if fbx_import_active():
+                    status <- "Wait for the current FBX import to finish before replacing the take. The current take remains available."
+                    status_file <- null
+                    touch()
+                    return
+                cancel_export_result() if export_result_open
+                cancel_export_review() if export_review_open
+                if replacement_prompt_open or legacy_prompt_open:
+                    status <- "finish or cancel the pending replacement first"
+                    status_file <- null
+                    touch()
+                    return
+                if not stage_pending_path(p):
+                    status <- "file path exceeds 4095 bytes"
+                    status_file <- null
+                    touch()
+                    return
+                pending_session_ready <- false
+                clear_pending_session_annotations()
+                if kind == Replacement.Session.i64():
+                    if clip is c:
+                        if SessionState::inspect_locate_candidate(p) and SessionState::locate_candidate_has_source_reference():
+                            SessionState::discard_locate_candidate()
                             begin_session_locate(p)
                             return
-                        mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
-                        failure <- "session file could not be read" if SessionState::load_error() == SessionState::LoadError.Read.i64()
-                        failure <- "session exceeds the 8 MiB safe-read limit" if SessionState::load_error() == SessionState::LoadError.TooLarge.i64()
-                        failure <- "session could not be closed after reading" if SessionState::load_error() == SessionState::LoadError.Close.i64()
-                        failure <- "session contains invalid edits or exceeds an edit capacity; saved edits have not been applied" if SessionState::load_error() == SessionState::LoadError.Edits.i64()
-                        failure <- "session finding annotations are invalid, unsupported or exceed capacity" if SessionState::load_error() == SessionState::LoadError.Annotations.i64()
-                        failure <- "session impact review is malformed or bound to a different source, animation or frame range" if SessionState::load_error() == SessionState::LoadError.Impact.i64()
-                        say_file(failure, p)
+                        mutable decoded_annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
+                        mutable decoded_impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                        mutable decoded_impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = []
+                        if SessionState::load_session_with_reviews(p, frames(), node_total(), session_identity(c), allow_legacy, &decoded_annotations, &decoded_impact_state, &decoded_impact_annotations) is prepared:
+                            pending_session_stack <- prepared
+                            pending_session_annotations <- move decoded_annotations
+                            pending_session_impact_state <- decoded_impact_state
+                            pending_session_impact_annotations <- move decoded_impact_annotations
+                            pending_session_ready <- true
+                        else:
+                            if not allow_legacy and SessionState::load_error() == SessionState::LoadError.Legacy.i64():
+                                legacy_prompt_open <- true
+                                legacy_prompt_focus <- StudioLegacyPrompt::initial_focus()
+                                file_menu_open <- false
+                                help_open <- false
+                                touch()
+                                return
+                            if SessionState::load_error() == SessionState::LoadError.Source.i64():
+                                begin_session_locate(p)
+                                return
+                            mutable failure: sview = "session cannot be read; it may be damaged or unsupported"
+                            failure <- "session file could not be read" if SessionState::load_error() == SessionState::LoadError.Read.i64()
+                            failure <- "session exceeds the 8 MiB safe-read limit" if SessionState::load_error() == SessionState::LoadError.TooLarge.i64()
+                            failure <- "session could not be closed after reading" if SessionState::load_error() == SessionState::LoadError.Close.i64()
+                            failure <- "session contains invalid edits or exceeds an edit capacity; saved edits have not been applied" if SessionState::load_error() == SessionState::LoadError.Edits.i64()
+                            failure <- "session finding annotations are invalid, unsupported or exceed capacity" if SessionState::load_error() == SessionState::LoadError.Annotations.i64()
+                            failure <- "session impact review is malformed or bound to a different source, animation or frame range" if SessionState::load_error() == SessionState::LoadError.Impact.i64()
+                            say_file(failure, p)
+                            touch()
+                            return
+                    else:
+                        say_file("open a take before loading a session", p)
                         touch()
                         return
-                else:
-                    say_file("open a take before loading a session", p)
-                    touch()
-                    return
-            pending_replacement <- kind
-            pending_replacement_allows_legacy <- allow_legacy
-            replacement_is_close <- false
-            replacement_is_termination <- false
-            mutable dirty: bool = false
-            if history_ready:
-                dirty <- HistoryState::dirty(&history)
-            dirty <- dirty or pending_edit_active()
-            if StudioReplacement::needs_prompt(clip != null, dirty):
-                replacement_prompt_open <- true
-                replacement_focus <- StudioReplacement::initial_focus()
-                replacement_save_failed <- false
-                file_menu_open <- false
-                help_open <- false
-                touch()
-                return
-            perform_replacement(kind, pending_path(), allow_legacy)
-
-        def resolve_replacement(choice: i64) -> void:
-            action: i64 = StudioReplacement::resolve(replacement_prompt_open, choice)
-            return if action == StudioReplacement::Choice.None.i64()
-            if action == StudioReplacement::Choice.Cancel.i64():
-                mutable cancelled: sview = "replacement cancelled; session unchanged"
-                cancelled <- "close cancelled; session unchanged" if replacement_is_close
-                cancelled <- "quit cancelled; session unchanged" if replacement_is_termination
-                replacement_prompt_open <- false
+                pending_replacement <- kind
+                pending_replacement_allows_legacy <- allow_legacy
                 replacement_is_close <- false
                 replacement_is_termination <- false
-                replacement_save_failed <- false
-                pending_replacement <- 0
-                pending_replacement_allows_legacy <- false
-                pending_session_ready <- false
-                pending_located_memo <- null
-                pending_take_path <- ""
-                clear_pending_session_annotations()
-                say_file(cancelled, path)
-                touch()
-                return
-            pending: cstr = pending_path()
-            kind: i64 = pending_replacement
-            allow_legacy: bool = pending_replacement_allows_legacy
-            if action == StudioReplacement::Choice.Discard.i64() and session_source_save_task != null:
-                session_source_save_cancelled <- true
-                if kind != Replacement.Close.i64():
-                    session_source_save_replacement_pending <- false
-                    session_source_save_discard_pending <- true
-                    status <- "Stopping the background source check before replacing the take. The current cleanup remains open until it drains."
+                mutable dirty: bool = false
+                if history_ready:
+                    dirty <- HistoryState::dirty(&history)
+                dirty <- dirty or pending_edit_active()
+                if StudioReplacement::needs_prompt(clip != null, dirty):
+                    replacement_prompt_open <- true
+                    replacement_focus <- StudioReplacement::initial_focus()
+                    replacement_save_failed <- false
+                    file_menu_open <- false
+                    help_open <- false
+                    touch()
+                    return
+                perform_replacement(kind, pending_path(), allow_legacy)
+
+        def resolve_replacement(choice: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                action: i64 = StudioReplacement::resolve(replacement_prompt_open, choice)
+                return if action == StudioReplacement::Choice.None.i64()
+                if action == StudioReplacement::Choice.Cancel.i64():
+                    mutable cancelled: sview = "replacement cancelled; session unchanged"
+                    cancelled <- "close cancelled; session unchanged" if replacement_is_close
+                    cancelled <- "quit cancelled; session unchanged" if replacement_is_termination
+                    replacement_prompt_open <- false
+                    replacement_is_close <- false
+                    replacement_is_termination <- false
+                    replacement_save_failed <- false
+                    pending_replacement <- 0
+                    pending_replacement_allows_legacy <- false
+                    pending_session_ready <- false
+                    pending_located_memo <- null
+                    pending_take_path <- ""
+                    clear_pending_session_annotations()
+                    say_file(cancelled, path)
+                    touch()
+                    return
+                pending: cstr = pending_path()
+                kind: i64 = pending_replacement
+                allow_legacy: bool = pending_replacement_allows_legacy
+                if action == StudioReplacement::Choice.Discard.i64() and session_source_save_task != null:
+                    session_source_save_cancelled <- true
+                    if kind != Replacement.Close.i64():
+                        session_source_save_replacement_pending <- false
+                        session_source_save_discard_pending <- true
+                        status <- "Stopping the background source check before replacing the take. The current cleanup remains open until it drains."
+                        status_file <- null
+                        touch()
+                        return
+                if action == StudioReplacement::Choice.Save.i64():
+                    if session_source_save_task != null:
+                        status <- "Session source verification is still running. The replacement prompt remains open."
+                        status_file <- null
+                        touch()
+                        return
+                    if not save_session_to_current_path():
+                        replacement_save_failed <- true
+                        touch()
+                        return
+                    session_source_save_replacement_pending <- true
+                    status <- "Verifying the session source before replacement. The current take remains open."
                     status_file <- null
                     touch()
                     return
-            if action == StudioReplacement::Choice.Save.i64():
+                if kind == Replacement.Close.i64():
+                    capture_worker_close_approval() if contact_preview_task != null
+                    finish_close()
+                    return
+                perform_replacement(kind, pending, allow_legacy)
+
+        def request_window_close() -> void can[Ui.Window, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                # AppKit may ask once for application termination and again for the
+                # owned window close. Keep this authorization live through both.
+                if termination_authorized:
+                    return
+                # This bit is set only for the second, programmatic close request
+                # made after the user chooses Save or Discard in the prompt.
+                if close_authorized:
+                    close_authorized <- false
+                    return
                 if session_source_save_task != null:
-                    status <- "Session source verification is still running. The replacement prompt remains open."
+                    session_source_save_reopen_close_prompt <- true
+                    UiAppKitCanvas::veto_close()
+                    status <- "The source check for the session save is finishing before close. The current cleanup remains open."
                     status_file <- null
                     touch()
                     return
-                if not save_session_to_current_path():
-                    replacement_save_failed <- true
+                if fbx_import_active():
+                    worker_running: bool = fbx_import_worker_active()
+                    setup_pending: bool = fbx_setup_pending
+                    fbx_import_cancelled <- true
+                    cancel_workspace_setup() if setup_pending
+                    cancel_pending_fbx_import_setup()
+                    fbx_import_close_pending <- true
+                    fbx_import_close_termination <- UiAppKitCanvas::is_termination_request()
+                    UiAppKitCanvas::veto_close()
+                    status <- "FBX import is finishing before close. The result will be discarded and the close prompt will resume." if worker_running else "Pending FBX workspace setup cancelled. The current take stays open while the close prompt resumes."
+                    status_file <- null
                     touch()
                     return
-                session_source_save_replacement_pending <- true
-                status <- "Verifying the session source before replacement. The current take remains open."
-                status_file <- null
-                touch()
-                return
-            if kind == Replacement.Close.i64():
-                capture_worker_close_approval() if contact_preview_task != null
-                finish_close()
-                return
-            perform_replacement(kind, pending, allow_legacy)
+                if session_locate_worker != null:
+                    session_locate_worker_cancelled <- true
+                    session_locate_close_pending <- true
+                    session_locate_close_termination <- UiAppKitCanvas::is_termination_request()
+                    clear_session_locate()
+                    UiAppKitCanvas::veto_close()
+                    status <- "The source check is finishing before close. The current cleanup remains available."
+                    status_file <- null
+                    touch()
+                    return
+                if contact_preview_task != null:
+                    contact_preview_close_pending <- true
+                    contact_preview_close_approved <- false
+                    contact_preview_close_termination <- UiAppKitCanvas::is_termination_request()
+                    contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, true)
+                    UiAppKitCanvas::veto_close()
+                    status <- "Background contact preview is finishing; the normal close prompt will resume when it completes. Press Escape to cancel close. Current result remains visible."
+                    status_file <- null
+                    touch()
+                    return
+                cancel_export_result() if export_result_open
+                cancel_export_review() if export_review_open
+                if session_locate_open:
+                    clear_session_locate()
+                    status <- "Session locate cancelled; the current cleanup is unchanged."
+                    status_file <- null
+                    touch()
+                resuming_worker_close: bool = contact_preview_close_pending
+                resuming_locate_close: bool = session_locate_close_pending
+                resuming_fbx_close: bool = fbx_import_close_pending
+                requested_termination: bool = fbx_import_close_termination if resuming_fbx_close else (session_locate_close_termination if resuming_locate_close else (contact_preview_close_termination if resuming_worker_close else UiAppKitCanvas::is_termination_request()))
+                contact_preview_close_pending <- false
+                session_locate_close_pending <- false
+                fbx_import_close_pending <- false
+                fbx_import_close_termination <- false
+                if legacy_prompt_open:
+                    legacy_prompt_open <- false
+                    pending_replacement <- 0
+                    pending_replacement_allows_legacy <- false
+                    pending_session_ready <- false
+                    pending_located_memo <- null
+                    pending_take_path <- ""
+                    clear_pending_session_annotations()
+                    UiAppKitCanvas::veto_close()
+                    say_file("legacy session cancelled; current cleanup unchanged", pending_path())
+                    touch()
+                    return
+                if replacement_prompt_open:
+                    pending_replacement <- Replacement.Close.i64()
+                    pending_replacement_allows_legacy <- false
+                    pending_session_ready <- false
+                    pending_located_memo <- null
+                    pending_take_path <- ""
+                    clear_pending_session_annotations()
+                    replacement_is_close <- true
+                    replacement_is_termination <- requested_termination
+                    UiAppKitCanvas::veto_close()
+                    touch()
+                    return
+                mutable dirty: bool = false
+                if history_ready:
+                    dirty <- HistoryState::dirty(&history)
+                dirty <- dirty or pending_edit_active()
+                if StudioReplacement::needs_prompt(clip != null, dirty):
+                    pending_replacement <- Replacement.Close.i64()
+                    pending_replacement_allows_legacy <- false
+                    pending_session_ready <- false
+                    clear_pending_session_annotations()
+                    replacement_prompt_open <- true
+                    replacement_is_close <- true
+                    replacement_is_termination <- requested_termination
+                    replacement_focus <- StudioReplacement::initial_focus()
+                    replacement_save_failed <- false
+                    file_menu_open <- false
+                    help_open <- false
+                    UiAppKitCanvas::veto_close()
+                    touch()
+                elif resuming_worker_close or resuming_locate_close or resuming_fbx_close:
+                    replacement_is_termination <- requested_termination
+                    finish_close()
 
-        def request_window_close() -> void can[Ui.Window]:
-            # AppKit may ask once for application termination and again for the
-            # owned window close. Keep this authorization live through both.
-            if termination_authorized:
-                return
-            # This bit is set only for the second, programmatic close request
-            # made after the user chooses Save or Discard in the prompt.
-            if close_authorized:
-                close_authorized <- false
-                return
-            if session_source_save_task != null:
-                session_source_save_reopen_close_prompt <- true
-                UiAppKitCanvas::veto_close()
-                status <- "The source check for the session save is finishing before close. The current cleanup remains open."
-                status_file <- null
-                touch()
-                return
-            if fbx_import_active():
-                worker_running: bool = fbx_import_worker_active()
-                setup_pending: bool = fbx_setup_pending
-                fbx_import_cancelled <- true
-                cancel_workspace_setup() if setup_pending
-                cancel_pending_fbx_import_setup()
-                fbx_import_close_pending <- true
-                fbx_import_close_termination <- UiAppKitCanvas::is_termination_request()
-                UiAppKitCanvas::veto_close()
-                status <- "FBX import is finishing before close. The result will be discarded and the close prompt will resume." if worker_running else "Pending FBX workspace setup cancelled. The current take stays open while the close prompt resumes."
-                status_file <- null
-                touch()
-                return
-            if session_locate_worker != null:
-                session_locate_worker_cancelled <- true
-                session_locate_close_pending <- true
-                session_locate_close_termination <- UiAppKitCanvas::is_termination_request()
-                clear_session_locate()
-                UiAppKitCanvas::veto_close()
-                status <- "The source check is finishing before close. The current cleanup remains available."
-                status_file <- null
-                touch()
-                return
-            if contact_preview_task != null:
-                contact_preview_close_pending <- true
-                contact_preview_close_approved <- false
-                contact_preview_close_termination <- UiAppKitCanvas::is_termination_request()
-                contact_preview_worker_cancelled <- StudioJobPolicy::sticky_cancel(contact_preview_worker_cancelled, true)
-                UiAppKitCanvas::veto_close()
-                status <- "Background contact preview is finishing; the normal close prompt will resume when it completes. Press Escape to cancel close. Current result remains visible."
-                status_file <- null
-                touch()
-                return
-            cancel_export_result() if export_result_open
-            cancel_export_review() if export_review_open
-            if session_locate_open:
-                clear_session_locate()
-                status <- "Session locate cancelled; the current cleanup is unchanged."
-                status_file <- null
-                touch()
-            resuming_worker_close: bool = contact_preview_close_pending
-            resuming_locate_close: bool = session_locate_close_pending
-            resuming_fbx_close: bool = fbx_import_close_pending
-            requested_termination: bool = fbx_import_close_termination if resuming_fbx_close else (session_locate_close_termination if resuming_locate_close else (contact_preview_close_termination if resuming_worker_close else UiAppKitCanvas::is_termination_request()))
-            contact_preview_close_pending <- false
-            session_locate_close_pending <- false
-            fbx_import_close_pending <- false
-            fbx_import_close_termination <- false
-            if legacy_prompt_open:
-                legacy_prompt_open <- false
-                pending_replacement <- 0
-                pending_replacement_allows_legacy <- false
-                pending_session_ready <- false
-                pending_located_memo <- null
-                pending_take_path <- ""
-                clear_pending_session_annotations()
-                UiAppKitCanvas::veto_close()
-                say_file("legacy session cancelled; current cleanup unchanged", pending_path())
-                touch()
-                return
-            if replacement_prompt_open:
-                pending_replacement <- Replacement.Close.i64()
-                pending_replacement_allows_legacy <- false
-                pending_session_ready <- false
-                pending_located_memo <- null
-                pending_take_path <- ""
-                clear_pending_session_annotations()
-                replacement_is_close <- true
-                replacement_is_termination <- requested_termination
-                UiAppKitCanvas::veto_close()
-                touch()
-                return
-            mutable dirty: bool = false
-            if history_ready:
-                dirty <- HistoryState::dirty(&history)
-            dirty <- dirty or pending_edit_active()
-            if StudioReplacement::needs_prompt(clip != null, dirty):
-                pending_replacement <- Replacement.Close.i64()
-                pending_replacement_allows_legacy <- false
-                pending_session_ready <- false
-                clear_pending_session_annotations()
-                replacement_prompt_open <- true
-                replacement_is_close <- true
-                replacement_is_termination <- requested_termination
-                replacement_focus <- StudioReplacement::initial_focus()
-                replacement_save_failed <- false
-                file_menu_open <- false
-                help_open <- false
-                UiAppKitCanvas::veto_close()
-                touch()
-            elif resuming_worker_close or resuming_locate_close or resuming_fbx_close:
-                replacement_is_termination <- requested_termination
-                finish_close()
+        def replacement_prompt_key(code: UiCore::Key) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if code == UiCore::Key.Escape:
+                    resolve_replacement(StudioReplacement::Choice.Cancel.i64())
+                elif code == UiCore::Key.S:
+                    resolve_replacement(StudioReplacement::Choice.Save.i64())
+                elif code == UiCore::Key.D:
+                    resolve_replacement(StudioReplacement::Choice.Discard.i64())
+                elif code == UiCore::Key.Left or code == UiCore::Key.Up:
+                    replacement_focus <- StudioReplacement::move_focus(replacement_focus, -1)
+                    touch()
+                elif code == UiCore::Key.Right or code == UiCore::Key.Down:
+                    replacement_focus <- StudioReplacement::move_focus(replacement_focus, 1)
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    resolve_replacement(replacement_action_for_focus())
 
-        def replacement_prompt_key(code: UiCore::Key) -> void:
-            if code == UiCore::Key.Escape:
-                resolve_replacement(StudioReplacement::Choice.Cancel.i64())
-            elif code == UiCore::Key.S:
-                resolve_replacement(StudioReplacement::Choice.Save.i64())
-            elif code == UiCore::Key.D:
-                resolve_replacement(StudioReplacement::Choice.Discard.i64())
-            elif code == UiCore::Key.Left or code == UiCore::Key.Up:
-                replacement_focus <- StudioReplacement::move_focus(replacement_focus, -1)
-                touch()
-            elif code == UiCore::Key.Right or code == UiCore::Key.Down:
-                replacement_focus <- StudioReplacement::move_focus(replacement_focus, 1)
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                resolve_replacement(replacement_action_for_focus())
-
-        def open_take() -> void:
-            if FilePanel::open("glb;fbx", "Open a motion-capture take or FBX character") is chosen:
-                load_take(chosen)
+        def open_take() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if FilePanel::open("glb;fbx", "Open a motion-capture take or FBX character") is chosen:
+                    load_take(chosen)
 
         # Swap in another take. The file is read first; if it holds no
         # usable animation the current take stays untouched. Otherwise every
         # per-take cache, the playhead, the gizmo and the undo history start
         # fresh (undo never reaches back into a different take).
     public:
-        def load_take(p: cstr) -> void can Unsafe.PointerCast:
-            request_replacement(p, Replacement.Take.i64(), false)
+        def load_take(p: cstr) -> void can[Unsafe.PointerCast, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                request_replacement(p, Replacement.Take.i64(), false)
 
     private:
-        def load_take_now(p: cstr) -> void can Unsafe.PointerCast:
-            # Replacement invalidates the old result and rebuild publishes the
-            # next one. Reserve both generations before consuming any draft.
-            if not GenerationPolicy::can_advance_twice(built) or not GenerationPolicy::can_advance(take_serial) or not GenerationPolicy::can_advance(stack_generation) or not GenerationPolicy::can_advance(rig_source_revision):
-                status <- "Take replacement unavailable: document generations are exhausted. Open a new workspace."
-                status_file <- null
+        def load_take_now(p: cstr) -> void can[Unsafe.PointerCast, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                # Replacement invalidates the old result and rebuild publishes the
+                # next one. Reserve both generations before consuming any draft.
+                if not GenerationPolicy::can_advance_twice(built) or not GenerationPolicy::can_advance(take_serial) or not GenerationPolicy::can_advance(stack_generation) or not GenerationPolicy::can_advance(rig_source_revision):
+                    status <- "Take replacement unavailable: document generations are exhausted. Open a new workspace."
+                    status_file <- null
+                    touch()
+                    return
+                candidate_slot: i64 = spare_path_slot()
+                if not copy_path(p, candidate_slot):
+                    status <- "take path exceeds 4095 bytes"
+                    status_file <- null
+                    touch()
+                    return
+                candidate_path: cstr = stored_path(candidate_slot)
+                mutable fresh: StudioModel::Memo? = null
+                imported_fbx: bool = fbx_pending_memo != null
+                if fbx_pending_memo is fbx:
+                    fresh <- move fbx
+                    fbx_pending_memo <- null
+                elif pending_located_memo is located:
+                    fresh <- move located
+                    pending_located_memo <- null
+                else:
+                    fresh <- StudioModel::load(candidate_path, anim_name)
+                if fresh == null:
+                    say_file("no animation could be read from", candidate_path)
+                    touch()
+                    return
+                if not commit_take_runtime_path(candidate_path, imported_fbx):
+                    say_file("the verified runtime take path could not be retained; current take remains available", candidate_path)
+                    touch()
+                    return
+                path_slot <- candidate_slot
+                path <- candidate_path
+                memo <- move fresh
+                contact_cancel_frame_draft() if contact_draft_target >= 0
+                clip <- null
+                contact_selected_side <- StudioContactEditor::Selection::NO_SIDE
+                contact_selected_frame <- -1
+                built_stack <- null
+                shown_slide <- 0
+                shown_sink <- 0
+                shown_hand_slide <- 0
+                built <- GenerationPolicy::advance(built)
+                curve_memo <- zeroed
+                base_frame <- -1
+                base_built <- -1
+                skinned <- null
+                skinned_frame <- -1
+                skinned_revision <- -1
+                mesh <- null
+                fbx_runtime_path_valid <- true
+                take_serial <- GenerationPolicy::advance(take_serial)
+                if path_slot >= 0:
+                    loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(runtime_take_path(path)):
+                        value: value
+                        error failure: GlbSkinMesh::empty()
+                    if GlbSkinMesh::vertex_count(&loaded) > 0:
+                        mesh <- loaded
+                gizmo_drag <- null
+                gizmo_goal <- null
+                gizmo_view <- -1
+                readout_angle <- -1
+                readout_mm <- -1
+                gain_slide <- -1
+                gain_spikes <- -1
+                drag_view <- -1
+                drag_button <- -1
+                scrubbing <- false
+                foot_press <- FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
+                contact_preview_active <- false
+                hover_row <- -1
+                drawn_frame <- -1
+                HistoryState::reset(&history, StudioModel::initial_stack())
+                stack_generation <- GenerationPolicy::advance(stack_generation)
+                history_ready <- true
+                rebuild()
+                if clip is c:
+                    timeline <- TimelineState::attach_clock(TimelineState::create(c.frames), c.sample_clock)
+                    bone <- StudioModel::default_bone(c)
+                    framed <- false
+                    say_file("opened (undo history starts fresh)", path)
+                    FilePanel::note_recent(path)
+                else:
+                    timeline <- TimelineState::create(1)
                 touch()
-                return
-            candidate_slot: i64 = spare_path_slot()
-            if not copy_path(p, candidate_slot):
-                status <- "take path exceeds 4095 bytes"
-                status_file <- null
-                touch()
-                return
-            candidate_path: cstr = stored_path(candidate_slot)
-            mutable fresh: StudioModel::Memo? = null
-            imported_fbx: bool = fbx_pending_memo != null
-            if fbx_pending_memo is fbx:
-                fresh <- move fbx
-                fbx_pending_memo <- null
-            elif pending_located_memo is located:
-                fresh <- move located
-                pending_located_memo <- null
-            else:
-                fresh <- StudioModel::load(candidate_path, anim_name)
-            if fresh == null:
-                say_file("no animation could be read from", candidate_path)
-                touch()
-                return
-            if not commit_take_runtime_path(candidate_path, imported_fbx):
-                say_file("the verified runtime take path could not be retained; current take remains available", candidate_path)
-                touch()
-                return
-            path_slot <- candidate_slot
-            path <- candidate_path
-            memo <- move fresh
-            contact_cancel_frame_draft() if contact_draft_target >= 0
-            clip <- null
-            contact_selected_side <- StudioContactEditor::Selection::NO_SIDE
-            contact_selected_frame <- -1
-            built_stack <- null
-            shown_slide <- 0
-            shown_sink <- 0
-            shown_hand_slide <- 0
-            built <- GenerationPolicy::advance(built)
-            curve_memo <- zeroed
-            base_frame <- -1
-            base_built <- -1
-            skinned <- null
-            skinned_frame <- -1
-            skinned_revision <- -1
-            mesh <- null
-            fbx_runtime_path_valid <- true
-            take_serial <- GenerationPolicy::advance(take_serial)
-            if path_slot >= 0:
-                loaded: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(runtime_take_path(path)):
-                    value: value
-                    error failure: GlbSkinMesh::empty()
-                if GlbSkinMesh::vertex_count(&loaded) > 0:
-                    mesh <- loaded
-            gizmo_drag <- null
-            gizmo_goal <- null
-            gizmo_view <- -1
-            readout_angle <- -1
-            readout_mm <- -1
-            gain_slide <- -1
-            gain_spikes <- -1
-            drag_view <- -1
-            drag_button <- -1
-            scrubbing <- false
-            foot_press <- FootState::Press{side: -1, part: 0, first: -1, last: -1, frame: -1}
-            contact_preview_active <- false
-            hover_row <- -1
-            drawn_frame <- -1
-            HistoryState::reset(&history, StudioModel::initial_stack())
-            stack_generation <- GenerationPolicy::advance(stack_generation)
-            history_ready <- true
-            rebuild()
-            if clip is c:
-                timeline <- TimelineState::attach_clock(TimelineState::create(c.frames), c.sample_clock)
-                bone <- StudioModel::default_bone(c)
-                framed <- false
-                say_file("opened (undo history starts fresh)", path)
-                FilePanel::note_recent(path)
-            else:
-                timeline <- TimelineState::create(1)
-            touch()
 
         # ---- views -----------------------------------------------------
