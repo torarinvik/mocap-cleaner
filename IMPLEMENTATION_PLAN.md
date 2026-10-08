@@ -39,14 +39,17 @@ that reopens correctly before expanding the toolset.
 
 Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
 
-1. Qualify and integrate the compiler effect-resolution and allocation repairs;
-   capture the full app graph, build and package current dependencies.
-2. Reproduce and fix the reported import/toggle crash. Make workspace selection,
-   failure details, cancellation and retry obvious in the same workflow.
-3. Complete the first useful cleanup/export journey with its required contracts,
-   source correspondence and independent proof replay.
-4. Protect the working journey against interruption and stale publication, then
-   fix measured interaction bottlenecks. Finish broader storage, repeat work and
+1. Launch the sealed Studio package and reproduce FBX opening on the user's
+   asset; resolve workspace setup, failure details, cancellation and retry in
+   that same journey.
+2. Verify Character/Skeleton switching, mesh deformation, camera controls and
+   playback on the imported character, then fix any crash or asset-specific
+   display failure.
+3. Refresh proof/replay evidence against current sources, then complete one
+   cleanup/export journey with contracts, source correspondence and independent
+   proof replay.
+4. Protect that journey against interruption and stale publication, then fix
+   measured interaction bottlenecks. Finish broader storage, batch work and
    release; activate research after the earlier acceptance gates pass.
 
 Keep one integrated product slice active, with only the compiler/prover/native

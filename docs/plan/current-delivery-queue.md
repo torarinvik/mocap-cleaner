@@ -27,30 +27,30 @@ until the first usable journey passes.
 
 ### Active blocker and exit gates
 
-The current app is still unqualified. Prioritize these steps in order:
+The current package is sealed, but runtime acceptance is still open. Prioritize
+these steps in order:
 
-1. **Finish qualification of the compiler repair, then integrate immediately.**
-   The `40f19f47` official seed, freshness and provenance checks now pass;
-   focused protocol and Global-grant controls are pending. Verify grouped/split
-   equivalence, exact member refusals, protocol ownership/inheritance, namesake
-   isolation, callbacks and no-header enforcement on that exact product/runtime.
-   Integrate the allocation/ownership repair into the same current tuple.
-   Exit: targeted controls and the integrated seed pass; capture Studio's full
-   graph immediately. Another passing reducer is not the next deliverable.
-2. **Advance directly to the full app.** Capture Studio's complete graph using
-   that compiler; fix the first remaining semantic or emission blocker, then
-   package and launch. Passing focused controls must trigger integration rather
-   than another equivalent fixture. Exit: a current packaged app that can run
-   the reported asset and toggle sequence.
-3. **Fix the observed user failure.** Reproduce FBX open and Character/Skeleton
-   switching on the user's asset, including repeated redraw and playback.
-   Preserve the source and retain crash/ownership evidence. Make workspace setup
-   and failure recovery visible in the same journey. The empty-state control now
-   names the next workspace action and pending setup step. Exit: import, display,
-   cancel and retry work without a crash or ambiguous status.
-4. **Complete one useful result.** Use an existing cleanup to inspect, preview,
-   apply/cancel, undo and export; reopen the GLB and compare reviewed motion.
-   Exit: the complete native journey and its required contracts/proofs pass.
+1. **Launch the sealed package and run the reported FBX journey.** The compiler
+branch is source-matched at `2a3dce665ff462096de961d340a50cc1ef83369d`; its clean
+Stage0 seed is `778c8281f97c81adbb3bc764b634f263c9f36f52`. The exact Stage1 product
+hash is `bcdb4a4103662e77c9ac8c58d0e870584328761246585cdad24ce31b88f10119`, with
+runtime object `17a5e88040dbe3f13c0ec70b31c7a0bfab57ad89b5e633760d654260f2dde414`.
+Focused effect, protocol, export-alias and optional-reference controls pass on
+that product. Studio's semantic and native ABI preflights pass; LLVM verification,
+linking, inventory sealing and packaging also pass. The bundle is
+`build/MocapStudio.app`, generation `studio-build.s8mrtQ`. Open it and proceed
+directly to the user's asset.
+2. **Verify import and character display.** Open the user's FBX, switch Character
+and Skeleton views, frame/orbit/zoom, play and redraw repeatedly. Preserve the
+original file bytes. Check workspace setup, refusal details, cancellation and
+retry in the same flow. Exit: import and display work without a crash or
+ambiguous status.
+3. **Refresh proofs, then complete one useful result.** No current proof/replay
+pair is qualified against current proof sources; the latest recorded pair used
+a dirty source tree and a later build reported missing Global effects in
+included compiler files. Recheck with the current compiler and repair only
+remaining blockers. Then inspect, preview, apply/cancel, undo, export and
+reopen one cleaned GLB with source correspondence and independent replay.
 
 Keep proof repairs limited to obligations blocking these transitions. The prover
 allocation regression warrants a root-cause repair because it blocks required
@@ -197,17 +197,24 @@ record; actual native interaction on the repaired binary; focused lifetime
 controls; source hash unchanged; no stale candidate publication. A seed, clean
 single-file diagnostic, screenshot or live process is insufficient.
 
-**Current status:** no current replacement app or redraw repair is accepted.
-Compiler `40f19f47` has passed the official seed and source/product/runtime
-freshness checks. Its focused effect controls and integration with the backend
-allocation repair remain open. Treat those as a bounded dependency gate, then
-move to the full Studio build and the reported FBX interaction.
+**Current status:** current Studio is sealed and packaged, with runtime acceptance
+pending. The compiler Stage1 matches source revision
+`2a3dce665ff462096de961d340a50cc1ef83369d` and passes its freshness check. The
+prepared-report helpers now receive explicit borrows of the global optional
+container, and Studio compiles cleanly. `semantic.log` and `compiler.log` are
+declared in the generation inventory; the complete app sealed and packaged as
+`build/MocapStudio.app`. Open this exact bundle and diagnose the first runtime
+failure on the original FBX before taking on lower-priority work.
 
 The selected engine mocap branch incorporates current upstream through merge
-`e0980789`; native integration remains unqualified. Existing mesh bounds and
-worker-emission controls do not establish that the reported crash is repaired.
-Preserve exact effect members, ownership and source identity in the integrated
-build; diagnose its first actual failure rather than restarting completed fixes.
+`e0980789`; the six narrow FFI Global-effect contracts passed integrated
+semantic and native ABI checks and are committed as `4b0a9af7`. The UI effect
+migration covers 150 functions across 20 files, with no tracking drops, but cannot
+be committed safely because eight files overlap unrelated changes in the shared
+dirty UI checkout. The build identity must capture the exact UI snapshot. Existing
+mesh bounds and worker-emission controls do not establish that the reported crash
+is repaired. Preserve exact effects, ownership and source identity; diagnose the
+first actual runtime failure.
 See [compiler qualification](compiler-qualification.md),
 [responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 
