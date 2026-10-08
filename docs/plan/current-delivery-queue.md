@@ -14,56 +14,23 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-The current compiler repair is not qualified for promotion. The latest fetch
-resolves compiler main to `528b24bd` (new value-threading support) and proof main
-to `6ddde32b` (resource range-binder and inventory fixes). Preserve repairs and
-rebase/rebuild both before current qualification. The in-progress `9bdfec53`
-baseline gate supplies captured comparison evidence only.
+Current fetched compiler main is `b26659e2`; installed Stage0 source is
+`778c8281`. Candidate `a6d52dc2` is rebased onto this main and seeded with that
+Stage0. Its 8 GiB capped build exits 0 and product/source freshness checks pass.
+Product SHA-256 is `5d31572a60dd153169f85182fd67f1dd7a998ef08ef08282c457af842656821f`;
+runtime SHA-256 is `956c9f44e4024087b63954d5abbe6620a4a2c5c78c5a4cee044e3da2bde5ce96`.
+The previously failing callback-shaped cache-content regression now compiles
+and runs with exit 0 at both O0 and O2 on this exact product. Sanitizer,
+production ownership IR, prior project-repair integration, full gates and Studio
+runtime acceptance remain open. Cache-hit rehome allocation cost must be
+measured; unresolved-call static lifetime fallback does not qualify cleanup.
 
-Captured compiler source `60f5a3b2` is rebased onto main `9bdfec53`; the rebase preserves all
-26 preceding project patches unchanged. Region forwarding now retains the
-exact selected fact row and validates vector/span shape. Unresolved callees
-conservatively mark growable caller parameters. Invalid caller rows use a
-conservative signature fallback for growable reference parameters, preserving
-caller/callee ABI agreement. Direct malformed-table execution remains open:
-the backend harness encounters source lifetime diagnostics before its assertions.
-Baseline comparison identifies three inherited diagnostics and one new candidate
-diagnostic in `query_head_for`; repair its returned view's owner before qualification.
-The fresh seed
-exits 0; product SHA-256 is
-`04487c330fbbac27ce93660e15e6775686e32a9e1bfc29dd335788e1b750674d`
-and independent provenance checking passes for its clean source snapshot.
-Module-owner forwarding and nested void publication controls pass at O0/O2;
-LLVM-instrumented ASan controls also pass. These focused outcomes do not close
-the malformed-table harness, complete-graph, gate or speed requirements.
-Mixed-owner callee lookups carry scalar table selectors,
-and error-family consumers project views locally. Diagnostic compile
-`build/descriptor-current-projection.log` exits 0 and emits an object with
-SHA-256 `9a0b4fdde56af68c209b1e89162fc421dba0910b7d2190cd5fa3b7508cb0f564`.
-Its Stage0 includes diagnostic instrumentation, so this is not a qualifying seed
-or a fresh Stage1 product. Earlier candidate `b6e132d2` on main `341f72ba`
-has a clean-Stage0 seed exit 0;
-Stage1 SHA-256 is `76687087d31873332811e73508596ec5eb007e4dfa2bb963713ff4237eaa81ce`,
-and independent provenance validation passes. The `341f72ba` comparison baseline
-products also pass freshness checks; their wrapper exit code was not captured.
-The latest main additionally changes global darray indexing and module hierarchy
-resolution. A fresh `9bdfec53` baseline seed exits 0 with provenance checks
-passing; its complete 37-check gate is in progress. Required
-gates, speed comparison and application acceptance remain open. Earlier
-product/build observations remain comparison evidence in the linked records.
-
-Additional current-main dependency: compiler `cb10dd72` exposed a counted-fill
-reserve memory regression. Main now includes repair `04761c68` and hardening
-`0baaa951`: compiler-inserted reserves retain geometric growth, explicit reserve
-remains exact, and malformed helper signatures decline before caller emission.
-Root verified the hardened engine runtime log: 215 uncached tests pass in 21.79s,
-peak 1,326,208 KiB under the original 3,145,728 KiB cap. Preserve both repairs
-when rebasing the project candidate. Fixed-product native/prover compatibility
-and the sealed Studio redraw crash remain open. The earlier paired-prover
-manifest misclassified a renamed product as Stage0 and is not accepted; rebuild
-through the official wrapper with matched frontend/runtime provenance.
-Retained evidence: `../elisa-engine/docs/validation/counted-fill-memory-growth.md`.
-Do not qualify Studio by disabling the automatic reserve optimization.
+The `1482a808` baseline gate remains a captured historical comparison while it
+finishes. It cannot qualify promotion against newer main. Preserve the upstream
+counted-fill geometric-growth and NaN-diagnostic ownership fixes when integrating
+project repairs. Rebuild the paired prover on the final compiler tuple; its
+nested constant-owner source correspondence repair is still undergoing controls.
+See [retained FBX evidence](../acceptance/fbx-request-proof-2026-10-07.md).
 
 Remaining work:
 
@@ -73,9 +40,9 @@ Remaining work:
   erase lifetime tracking, or introduce copy allocations without measuring their
   cost. Distinguish a valid top-level empty owner from absence explicitly.
 - Rebuild from a clean source snapshot using an explicitly selected source-matched
-  Stage0. The available clean Stage0 is source `6f0988a2`, binary `7b190f5a`;
-  it differs from earlier retained binary `e4adbb5e`. Record its actual toolchain
-  and hash rather than reusing the prior artifact identity.
+  Stage0. Current installed Stage0 is source `778c8281`, binary `c81b66ee`.
+  Record its actual toolchain, preserved dirty test files and hash; verify that
+  source changes do not invalidate the selected product before each seed.
 - Preserve the resolved-callee/substituted-result carrier rule and fail-closed
   unmanaged-result checks. Cover inferred, qualified and explicit generic calls,
   concrete calls, scalar/borrowed results, shadow allocators, ambiguous mappings
@@ -86,7 +53,7 @@ Remaining work:
   disabled leak detection cannot qualify leaks. The production path remains
   nonblocking. See [lifetime evidence](../proof-gaps/fbx-join-buffer-lifetime.md).
 - Compare the required seed, self-host, native and registered fast gates
-  against fetched main `9bdfec53` or newer. Preserve semantic indexing, the
+  against fetched main `b26659e2` or newer. Preserve semantic indexing, the
   view-origin fixpoint optimization, runtime AST lookup inlining and the newer
   global darray/module hierarchy resolution changes.
   Preserve those changes alongside the project repairs. Match exact failing fixture lists,
@@ -97,7 +64,7 @@ Remaining work:
   self-host A–D passing. Logs are retained under
   `/tmp/elisa-compiler-baseline-665f40d7/build/baseline-665f40d7/`.
   Rebuild and rerun current main before using it as the promotion baseline;
-  historical gate outcomes cannot qualify the three new performance commits.
+  historical gate outcomes cannot qualify the current compiler changes.
 - Qualify the newly working Stage1 value-threading feature separately with
   `test/parity/value_threading_smoke.sh` and
   `test/parity/value_threading_codegen_smoke.sh` on current main and candidate;
@@ -135,6 +102,10 @@ Remaining work:
 - Build the current producer/replay pair against that exact compiler and runtime.
   Qualify std paths against the selected trust root and refuse whole-unit bypasses.
 - Compile current complete Studio and CLI graphs and preserve terminal evidence.
+  The test entry point now refreshes generated runtime declarations through the
+  canonical build-identity generator before deriving cache keys (`ebb9888`).
+  Verify this path in the integrated run; reject mismatched compiler roots and
+  preserve sealed historical input snapshots.
   Exercise borrow propagation, distinct owners and retained scratch capacity.
   Diagnose the captured contract-return SROA expansion while preserving snapshot
   semantics and ownership. O0 complete-graph LLVM generation succeeds for the

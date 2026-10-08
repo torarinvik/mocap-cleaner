@@ -308,3 +308,13 @@ callback arena is freed. Then qualify the current integrated app against the
 original source take. Cache-hit rehome allocation cost and unresolved-call static
 lifetime fallback remain explicit review items; neither seed success nor an
 indefinite allocation fallback establishes runtime performance or cleanup.
+
+
+The 8 GiB retry completed with exit 0 and provenance/freshness checks exit 0.
+Candidate product SHA-256 is
+`5d31572a60dd153169f85182fd67f1dd7a998ef08ef08282c457af842656821f`;
+runtime is `956c9f44e4024087b63954d5abbe6620a4a2c5c78c5a4cee044e3da2bde5ce96`.
+Root inspected `focused-result.txt`: the unchanged `cd85877f` callback fixture
+compiles and runs at both O0 and O2 with exit 0. This closes that reproduced
+content failure for the exact candidate product, not full Studio acceptance.
+Sanitizer and production ownership IR checks remain required.
