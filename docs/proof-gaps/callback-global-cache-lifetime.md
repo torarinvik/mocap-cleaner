@@ -90,6 +90,10 @@ runtime SHA is
 Evidence is retained under
 `/tmp/Elisa-compiler-gsr-nested/build/seed-e23f2f90/`; the directory name
 predates the alias fixture commit, so use the recorded source revision.
-Diagnostics controls are still running. A successful seed does not yet prove
-the nested refusals, remove the separate atomic-loader error, or qualify the
-Studio runtime.
+Diagnostics controls finished with exit 1 (779/787). The nested owning-return
+positives at lines 17 (full path), 20 (owning alias) and 37 (relative path)
+incorrectly report `P 0 / D 0`; scalar collision negatives pass. Therefore the
+build succeeds but this nested repair remains ineffective. Correct the owner
+selector and declaration collection, retain all three positives, then rebuild
+and rerun the same controls. The separate atomic-loader error and Studio runtime
+qualification also remain open.
