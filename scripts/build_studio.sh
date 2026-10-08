@@ -46,7 +46,7 @@ build_trash_sources=(io current path inventory journal restore reconcile identit
 build_candidate_sources=(candidate_provider creation_scan creation_json recovery_discovery)
 build_trash_objects=()
 inventory_arguments=(
-  --file main.o --file mocap_studio
+  --file main.o --file mocap_studio --file semantic.log --file compiler.log
   --file studio_canvas_shim.o --file studio_viewport_metal.o
   --file studio_file_panel.o --file studio_file_trash.o --file studio_file_path.o
   --file studio_file_path_namespace.o --file studio_workspace_root.o
