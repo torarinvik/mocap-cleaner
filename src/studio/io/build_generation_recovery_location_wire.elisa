@@ -14,7 +14,7 @@ module StudioBuildGenerationRecoveryLocationWire:
 
         affine struct Side:
             state: StudioGenerationRecoveryLocationPolicy::EntryState
-            reveal: i64
+            reveal: StudioGenerationRecoveryLocationPolicy::RevealAction
             entry_identity_verified: bool
             parent_identity_verified: bool
             descriptor_paths_bound: bool
@@ -97,7 +97,7 @@ module StudioBuildGenerationRecoveryLocationWire:
 
     private:
         def empty_side() -> Side:
-            Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, reveal: 0, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, entry_device: 0, entry_inode: 0, parent_device: 0, parent_inode: 0, artifact_path: [], parent_path: []}
+            Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, reveal: StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, entry_device: 0, entry_inode: 0, parent_device: 0, parent_inode: 0, artifact_path: [], parent_path: []}
 
         def empty_identity() -> Identity:
             Identity{build_root: [], operation_id: [], artifact_id: [], relative_path: [], root_device: 0, root_inode: 0, receipt_device: 0, receipt_inode: 0, receipt_bytes: 0, receipt_sha256: [], phase: -1, original: empty_side(), quarantine: empty_side()}
@@ -107,11 +107,11 @@ module StudioBuildGenerationRecoveryLocationWire:
 
         def side_valid(side: Side&) -> bool:
             return false if side.state.i64() < 0 or side.state.i64() > 4
-            return false if side.reveal < 0 or side.reveal > 2
-            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact and not (side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_inode > 0 and side.parent_inode > 0 and bytes_path_valid(side.artifact_path, true) and bytes_path_valid(side.parent_path, true) and side.reveal == 1)
-            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant and not (not side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_inode > 0 and side.artifact_path.count == 0 and bytes_path_valid(side.parent_path, true) and side.reveal == 2)
-            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent and not (not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0 and side.reveal == 0)
-            return false if (side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unsafe or side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown) and not (not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0 and side.reveal == 0)
+            return false if side.reveal.i64() < 0 or side.reveal.i64() > 2
+            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact and not (side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_inode > 0 and side.parent_inode > 0 and bytes_path_valid(side.artifact_path, true) and bytes_path_valid(side.parent_path, true) and side.reveal == StudioGenerationRecoveryLocationPolicy::RevealAction.ShowArtifactFolder)
+            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant and not (not side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_inode > 0 and side.artifact_path.count == 0 and bytes_path_valid(side.parent_path, true) and side.reveal == StudioGenerationRecoveryLocationPolicy::RevealAction.ShowConflictFolder)
+            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent and not (not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0 and side.reveal == StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled)
+            return false if (side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unsafe or side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown) and not (not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0 and side.reveal == StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled)
             true
 
         def bytes_path_valid(path: darray[u8]&, absolute: bool) -> bool:
@@ -144,11 +144,23 @@ module StudioBuildGenerationRecoveryLocationWire:
                 return false if not expect(bytes, cursor, ",\"parent_identity_verified\":") or not parse_boolean(bytes, cursor, &output.parent_identity_verified)
                 return false if not expect(bytes, cursor, ",\"parent_inode\":") or not parse_hex64(bytes, cursor, &output.parent_inode)
                 return false if not expect(bytes, cursor, ",\"parent_path\":") or not parse_string(bytes, cursor, &output.parent_path)
-                return false if not expect(bytes, cursor, ",\"reveal\":") or not parse_integer(bytes, cursor, &output.reveal)
+                mutable reveal: i64 = -1
+                return false if not expect(bytes, cursor, ",\"reveal\":") or not parse_integer(bytes, cursor, &reveal)
+                return false if not decode_reveal(reveal, &output.reveal)
                 mutable state: i64 = -1
                 return false if not expect(bytes, cursor, ",\"state\":") or not parse_integer(bytes, cursor, &state) or not expect(bytes, cursor, "}")
                 return false if not decode_state(state, &output.state)
                 return side_valid(output)
+
+        def decode_reveal(raw: i64, output: mutable StudioGenerationRecoveryLocationPolicy::RevealAction&) -> bool:
+            return false if not StudioGenerationRecoveryLocationPolicy::reveal_wire_valid(raw)
+            if raw == 0:
+                output <- StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled
+            elif raw == 1:
+                output <- StudioGenerationRecoveryLocationPolicy::RevealAction.ShowArtifactFolder
+            else:
+                output <- StudioGenerationRecoveryLocationPolicy::RevealAction.ShowConflictFolder
+            return true
 
         def decode_state(raw: i64, output: mutable StudioGenerationRecoveryLocationPolicy::EntryState&) -> bool:
             return false if raw < 0 or raw > 4
