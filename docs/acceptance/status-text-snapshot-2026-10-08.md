@@ -47,3 +47,11 @@ This avoids forcing a long literal recovery instruction through the 128-byte
 display formatter merely to read it with VoiceOver. Native accessibility review,
 complete filename/path inspection and the discoverable full-details view remain
 open; this source binding alone does not qualify the full recovery workflow.
+
+
+The three pure extent laws now execute through a focused O2 driver over counts
+-2 through 130, both readability states, and maximum i64 refusal; compile/run
+exit 0 on source-matched installed `b26659e2`. The maintained regression is
+`test/studio_status_text_extent.elisa`. This closes the pure admission runtime
+check only. The separate snapshot, formatter and formal source/replay acceptance
+items remain open.
