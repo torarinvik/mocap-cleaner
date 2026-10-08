@@ -2,16 +2,26 @@ include "../state/generation_recovery_ledger.elisa"
 
 extend Studio:
     private:
-        global mutable generation_recovery_ledger: StudioGenerationRecoveryLedger::Ledger = StudioGenerationRecoveryLedger::empty()
+        global mutable generation_recovery_ledger: StudioGenerationRecoveryLedger::Ledger? = null
+
+        # Startup owns construction; repeated initialization retains identities.
+        # A missing ledger refuses admission instead of behaving as an empty one.
+        def initialize_generation_recovery_ledger() -> void can[Global{Read, Write}]:
+            return if generation_recovery_ledger != null
+            generation_recovery_ledger <- StudioGenerationRecoveryLedger::empty()
 
         def generation_recovery_has_capacity() -> bool can[Global.Read]:
             can Global.Read:
-                return StudioGenerationRecoveryLedgerPolicy::may_reserve(StudioGenerationRecoveryLedger::count(generation_recovery_ledger), 0)
+                if generation_recovery_ledger is ledger:
+                    return StudioGenerationRecoveryLedgerPolicy::may_reserve(StudioGenerationRecoveryLedger::count(ledger), 0)
+                return false
 
         def generation_recovery_identity_can_record(root: darray[u8]&, operation: darray[u8]&) -> bool can[Global.Read]:
             can Global.Read:
-                admission: StudioGenerationRecoveryLedgerPolicy::Admission = StudioGenerationRecoveryLedgerPolicy::admission(StudioGenerationRecoveryLedger::count(generation_recovery_ledger), root, operation, StudioGenerationRecoveryLedger::find(generation_recovery_ledger, root, operation) >= 0)
-                return admission == StudioGenerationRecoveryLedgerPolicy::Admission.Accepted or admission == StudioGenerationRecoveryLedgerPolicy::Admission.Duplicate
+                if generation_recovery_ledger is ledger:
+                    admission: StudioGenerationRecoveryLedgerPolicy::Admission = StudioGenerationRecoveryLedgerPolicy::admission(StudioGenerationRecoveryLedger::count(ledger), root, operation, StudioGenerationRecoveryLedger::find(ledger, root, operation) >= 0)
+                    return admission == StudioGenerationRecoveryLedgerPolicy::Admission.Accepted or admission == StudioGenerationRecoveryLedgerPolicy::Admission.Duplicate
+                return false
 
         # Copy identity metadata before transferring the owning reply. Even if
         # recording fails, the reply and captured wire remain retained.
@@ -29,6 +39,9 @@ extend Studio:
                     mutable identity: darray[u8] = []
                     for offset in 0..<bytes.usize() |offset, operation, identity|:
                         identity.push(operation[offset])
-                    admission: StudioGenerationRecoveryLedgerPolicy::Admission = StudioGenerationRecoveryLedger::record(&generation_recovery_ledger, root, identity)
-                    return admission == StudioGenerationRecoveryLedgerPolicy::Admission.Accepted or admission == StudioGenerationRecoveryLedgerPolicy::Admission.Duplicate
+                    if generation_recovery_ledger is ledger:
+                        admission: StudioGenerationRecoveryLedgerPolicy::Admission = StudioGenerationRecoveryLedger::record(&ledger, root, identity)
+                        generation_recovery_ledger <- move ledger
+                        return admission == StudioGenerationRecoveryLedgerPolicy::Admission.Accepted or admission == StudioGenerationRecoveryLedgerPolicy::Admission.Duplicate
+                    return false
                 return false
