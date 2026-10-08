@@ -107,6 +107,13 @@ compilation, linking and package sealing do not close this item.
 Qualify synchronous edits, queued/coalesced edits, Undo/Redo, no-op drafts,
 cancellation, take replacement and close approval as one state machine:
 
+The FBX completion handler now gates failure status replacement on a positive,
+current request ticket with no cancellation or pending close. Obsolete and
+cancelled completions leave existing feedback intact, including with a loaded
+take. Companion laws and exhaustive small-domain controls cover this predicate;
+execution, independent proof replay and whole-handler runtime qualification
+remain open on the repaired current compiler.
+
 Finish the status-message presentation. Commit `061ec40` replaces the fixed
 560-pixel message offset with bounded, responsive summary/message regions and
 viewport clips. Its focused layout runtime check passes on installed `b26659e2`;
