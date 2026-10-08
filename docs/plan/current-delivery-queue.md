@@ -247,6 +247,15 @@ window size, long filenames, translated text, enlarged text and failures while
 an existing take remains loaded. Companion layout bounds/refusal laws must prove
 that invalid dimensions cannot produce overlapping or negative content regions.
 
+Retained formatted feedback now snapshots StudioText scratch into dedicated
+fixed storage, so the per-frame slot ring cannot overwrite the message. A
+300-redraw lifetime regression and extent contracts/laws accompany this source
+change. Semantic checking passes on installed `b26659e2`, but native emission
+declines the fixed-array generic UI view helper (also used by existing
+StudioText); runtime and final paired-proof qualification remain open. Preserve
+this regression through compiler repair integration. This does not replace the
+full-details view, UTF-8 formatting audit or complete error persistence policy.
+
 Partial implementation: empty-document import failures now select the failure
 guide through a contracted ticket/loaded/cancelled/closing policy. The guide uses
 the UI metric planner for grapheme-safe wrapping, with six visible rows and a
