@@ -5,6 +5,7 @@ include "../worker_path_capture.elisa"
 include "build_generation_trash_transaction.elisa"
 include "../state/generation_recovery_ledger_policy.elisa"
 include "../state/generation_operation_identity_policy.elisa"
+include "../state/generation_reconcile_identity_policy.elisa"
 
 module StudioBuildGenerationRecoveryScanWorker:
     public:
@@ -23,6 +24,7 @@ module StudioBuildGenerationRecoveryScanWorker:
             root: darray[u8]
             operation: darray[u8]
             observation: StudioBuildGenerationTrashTransaction::ReconcileResult
+            identity: StudioGenerationReconcileIdentityPolicy::Facts
 
         def reconcile(job: Job) -> Result can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
             mutable owned_job: Job = move job
@@ -37,13 +39,16 @@ module StudioBuildGenerationRecoveryScanWorker:
             operation_for_result.extend(operation)
             mutable error_bytes: darray[u8] = []
             mutable observation: StudioBuildGenerationTrashTransaction::ReconcileResult = unknown_observation()
+            mutable identity: StudioGenerationReconcileIdentityPolicy::Facts = StudioGenerationReconcileIdentityPolicy::unavailable()
             if ticket > 0 and index >= 0 and valid_identity(root, operation):
                 terminated_root: darray[u8] = StudioWorkerPathCapture::restore_terminated(&paths.root)
                 terminated_operation: darray[u8] = StudioWorkerPathCapture::restore_terminated(&paths.operation)
                 root_pointer: cstr = (&terminated_root[0]).cast[cstr]
                 operation_pointer: cstr = (&terminated_operation[0]).cast[cstr]
-                observation <- StudioBuildGenerationTrashTransaction::reconcile(root_pointer, operation_pointer, &error_bytes)
-            Result{ticket: ticket, index: index, root: root_for_result, operation: operation_for_result, observation: observation}
+                combined: StudioBuildGenerationTrashTransaction::ReconcileIdentityResult = StudioBuildGenerationTrashTransaction::reconcile_with_identity(root_pointer, operation_pointer, &error_bytes)
+                observation <- move combined.observation
+                identity <- move combined.identity
+            Result{ticket: ticket, index: index, root: root_for_result, operation: operation_for_result, observation: observation, identity: identity}
 
     private:
         def valid_identity(root: darray[u8]&, operation: darray[u8]&) -> bool:

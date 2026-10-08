@@ -5,6 +5,7 @@ include "../build_generation_trash_binding_policy.elisa"
 include "../state/generation_handle_policy.elisa"
 include "../state/generation_receipt_control_policy.elisa"
 include "../state/generation_operation_identity_policy.elisa"
+include "../state/generation_reconcile_identity_policy.elisa"
 
 module StudioBuildGenerationTrashTransaction:
     public:
@@ -33,6 +34,10 @@ module StudioBuildGenerationTrashTransaction:
             artifact_id: darray[u8]
             relative_path: darray[u8]
             output_details_valid: bool
+
+        struct ReconcileIdentityResult:
+            observation: ReconcileResult
+            identity: StudioGenerationReconcileIdentityPolicy::Facts
 
         struct BeginMoveResult:
             status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus
@@ -80,6 +85,14 @@ module StudioBuildGenerationTrashTransaction:
 
         def status(raw: i32) -> StudioBuildGenerationTrashBindingPolicy::DecodedStatus:
             StudioBuildGenerationTrashBindingPolicy::decode_status(raw)
+
+        def reconcile_identity_outputs_zero(root_device: u64, root_inode: u64,
+            receipt_device: u64, receipt_inode: u64, receipt_bytes: i64,
+            digest: u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()]&) -> bool:
+            return false if root_device != 0 or root_inode != 0 or receipt_device != 0 or receipt_inode != 0 or receipt_bytes != 0
+            for byte in digest:
+                return false if byte != 0
+            true
 
     public:
         def begin_move(build_root: cstr, relative_path: cstr,
@@ -276,6 +289,65 @@ module StudioBuildGenerationTrashTransaction:
             if not (id_valid and path_valid):
                 outcome <- StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
             ReconcileResult{status: decoded_status, phase: decoded_phase, location: decoded_location, outcome: outcome, artifact_id: artifact_id, relative_path: relative_path, output_details_valid: id_valid and path_valid}
+
+        # Additive identity-bearing entry point. The native facts are accepted
+        # only with exact bounded output extents and valid reconciliation rows.
+        def reconcile_with_identity(build_root: cstr, operation_id: cstr,
+                                    error_bytes: mutable darray[u8]&) -> ReconcileIdentityResult can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
+            error_bytes.clear()
+            mutable location_raw: i32 = StudioBuildGenerationTrashNative::Location.Unknown.i32()
+            mutable phase_raw: i32 = StudioBuildGenerationTrashNative::Phase.Unknown.i32()
+            mutable artifact_id_buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()] = zeroed
+            mutable path_buffer: u8[StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.usize()] = zeroed
+            mutable root_device: u64 = 0
+            mutable root_inode: u64 = 0
+            mutable receipt_device: u64 = 0
+            mutable receipt_inode: u64 = 0
+            mutable receipt_bytes: i64 = 0
+            mutable receipt_digest_buffer: u8[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize()] = zeroed
+            mutable identity_valid_raw: i32 = -1
+            mutable error_buffer: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()] = zeroed
+            artifact_id_ptr: mutable u8& = (&artifact_id_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            path_ptr: mutable u8& = (&path_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            digest_ptr: mutable u8& = (&receipt_digest_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            error_ptr: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+            mutable code: i32 = -1
+            can Unsafe.RawExtern:
+                code <- studio_build_trash_reconcile_identity_v1(build_root,
+                    operation_id, &location_raw, &phase_raw, artifact_id_ptr,
+                    StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.u32(),
+                    path_ptr, StudioBuildGenerationTrashNative::Limit::PATH_CAPACITY.u32(),
+                    &root_device, &root_inode, &receipt_device, &receipt_inode,
+                    &receipt_bytes, digest_ptr,
+                    StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.u32(),
+                    &identity_valid_raw, error_ptr,
+                    StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.u32())
+            mutable artifact_id: darray[u8] = []
+            mutable relative_path: darray[u8] = []
+            id_valid: bool = collect_id(artifact_id_buffer, artifact_id)
+            path_valid: bool = collect_path(path_buffer, relative_path)
+            collect_error(error_buffer, error_bytes)
+            decoded_status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = status(code)
+            decoded_phase: StudioBuildGenerationTrashBindingPolicy::DecodedPhase = StudioBuildGenerationTrashBindingPolicy::decode_phase(phase_raw)
+            decoded_location: StudioBuildGenerationTrashBindingPolicy::DecodedLocation = StudioBuildGenerationTrashBindingPolicy::decode_location(location_raw)
+            mutable outcome: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome = StudioBuildGenerationTrashBindingPolicy::recovery_outcome(decoded_status, decoded_phase, decoded_location)
+            if not (id_valid and path_valid):
+                outcome <- StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
+            observation: ReconcileResult = ReconcileResult{status: decoded_status, phase: decoded_phase, location: decoded_location, outcome: outcome, artifact_id: artifact_id, relative_path: relative_path, output_details_valid: id_valid and path_valid}
+            mutable digest: darray[u8] = []
+            mutable digest_extent_valid: bool = receipt_digest_buffer[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize() - 1] == 0
+            mutable digest_index: usize = 0
+            while digest_index < StudioGenerationReconcileIdentityPolicy::Limit::SHA256_BYTES.usize() and receipt_digest_buffer[digest_index] != 0:
+                digest.push(receipt_digest_buffer[digest_index])
+                digest_index <- digest_index + 1
+            digest_extent_valid <- digest_extent_valid and digest_index == StudioGenerationReconcileIdentityPolicy::Limit::SHA256_BYTES.usize()
+            mutable effective_identity_valid: i32 = identity_valid_raw
+            if identity_valid_raw == 0 and not reconcile_identity_outputs_zero(root_device, root_inode, receipt_device, receipt_inode, receipt_bytes, receipt_digest_buffer):
+                effective_identity_valid <- 2
+            if identity_valid_raw == 1 and (not observation.output_details_valid or not digest_extent_valid):
+                effective_identity_valid <- 2
+            identity: StudioGenerationReconcileIdentityPolicy::Facts = StudioGenerationReconcileIdentityPolicy::decode(effective_identity_valid, root_device, root_inode, receipt_device, receipt_inode, receipt_bytes, digest)
+            ReconcileIdentityResult{observation: observation, identity: identity}
 
         def query_receipt_scope(handle: i64) -> StudioGenerationReceiptControlPolicy::Evidence can[Blocking.IO, Unsafe.RawExtern]:
             mutable raw_scope: i32 = 0
