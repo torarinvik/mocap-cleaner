@@ -291,3 +291,20 @@ reproduced transitive global lifetime defect. Preserve the isolated ownership
 repair and earlier project repairs when rebasing onto this newer main; neither
 this focused passing control nor installation freshness qualifies the full app.
 Exact installation/test record: `build/studio-runtime-e24-20261008/installed-current-compiler-record.json`.
+
+
+## Repair build on newly pulled main
+
+The transitive global-write ownership repair is frozen at candidate `a6d52dc2`,
+rebased onto `b26659e2`. Its source changes remain unqualified. The first seed
+build using installed Stage0 `778c8281` exceeded the explicit 4 GiB RSS limit
+and exited 125; it published no candidate Stage1 product. An 8 GiB retry uses
+the same source and Stage0 tuple. Retain both attempt logs in
+`build/global-rehome-transitive-check-b266/` in the compiler repair checkout.
+
+After a successful seed, require exact-product callback content/growth controls
+at O0 and O2, sanitizer evidence, and production IR showing rehome before the
+callback arena is freed. Then qualify the current integrated app against the
+original source take. Cache-hit rehome allocation cost and unresolved-call static
+lifetime fallback remain explicit review items; neither seed success nor an
+indefinite allocation fallback establishes runtime performance or cleanup.

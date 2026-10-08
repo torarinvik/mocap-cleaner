@@ -259,11 +259,12 @@ compilation, linking and package sealing do not close this item.
 Qualify synchronous edits, queued/coalesced edits, Undo/Redo, no-op drafts,
 cancellation, take replacement and close approval as one state machine:
 
-Repair the current status-message presentation: `panels_toolbar.status_bar`
-starts every message at a fixed 560-pixel offset and draws one unwrapped line.
-The supplied FBX failure screenshots show recovery instructions clipped at the
-window edge. Provide a compact status summary plus a discoverable, persistent
-full explanation and retry action. Keep the failure visible until acknowledged
+Finish the status-message presentation. Commit `061ec40` replaces the fixed
+560-pixel message offset with bounded, responsive summary/message regions and
+viewport clips. Its focused layout runtime check passes on installed `b26659e2`;
+whole-app and proof qualification remain open. The supplied FBX failure
+screenshots show why clipping alone is insufficient. Provide a compact status
+summary plus a discoverable, persistent full explanation and retry action. Keep the failure visible until acknowledged
 or superseded by a relevant operation; expose the complete text to VoiceOver.
 Use available window width for layout, wrap at word boundaries without splitting
 UTF-8, and keep keyboard focus and timeline controls usable. Qualify minimum
