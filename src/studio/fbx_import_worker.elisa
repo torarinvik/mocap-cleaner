@@ -46,52 +46,54 @@ extend StudioFbxImportWorker:
             memo: StudioModel::Memo?
 
         def load(job: Job) -> Result can[Unsafe{PointerCast, RawExtern}, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
-            ticket: i64 = job.ticket
-            rate: i64 = job.rate
-            mutable source: darray[u8] = path_copy(&job.buffers.source)
-            mutable build_root: darray[u8] = path_copy(&job.buffers.build_root)
-            mutable destination: darray[u8] = []
-            mutable source_digest: darray[u8] = []
-            mutable runtime_digest: darray[u8] = []
-            mutable animation: darray[u8] = animation_copy(&job.buffers.animation)
-            mutable status: i64 = Status.InvalidJob.i64()
-            mutable memo: StudioModel::Memo? = null
-            if ticket > 0 and StudioFbxImportPolicy::rate_valid(rate) and StudioFbxImportPolicy::terminated(&source, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&build_root, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&animation, StudioFbxImportPolicy::Limit::ANIMATION_BYTES):
-                mutable snapshot_owned: darray[u8] = []
-                match StudioFbxImportNative::stage(&build_root, &source):
-                    StudioFbxImportNative::StagingResult{status: staged_status, snapshot: staged_snapshot, destination: staged_destination, source_sha256: staged_digest}:
-                        status <- staged_status
-                        destination <- move staged_destination
-                        source_digest <- move staged_digest
-                        snapshot_owned <- move staged_snapshot
-                if status == 0:
-                    status <- Status.InvalidJob.i64()
-                    if StudioFbxImportNativePolicy::staging_output_valid(&source, &snapshot_owned, &destination, &source_digest):
-                        status <- StudioFbxImportNative::convert(&snapshot_owned, &destination, rate)
+            can Global{Read, Write}:
+                ticket: i64 = job.ticket
+                rate: i64 = job.rate
+                mutable source: darray[u8] = path_copy(&job.buffers.source)
+                mutable build_root: darray[u8] = path_copy(&job.buffers.build_root)
+                mutable destination: darray[u8] = []
+                mutable source_digest: darray[u8] = []
+                mutable runtime_digest: darray[u8] = []
+                mutable animation: darray[u8] = animation_copy(&job.buffers.animation)
+                mutable status: i64 = Status.InvalidJob.i64()
+                mutable memo: StudioModel::Memo? = null
+                if ticket > 0 and StudioFbxImportPolicy::rate_valid(rate) and StudioFbxImportPolicy::terminated(&source, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&build_root, StudioFbxImportPolicy::Limit::PATH_BYTES) and StudioFbxImportPolicy::terminated(&animation, StudioFbxImportPolicy::Limit::ANIMATION_BYTES):
+                    mutable snapshot_owned: darray[u8] = []
+                    match StudioFbxImportNative::stage(&build_root, &source):
+                        StudioFbxImportNative::StagingResult{status: staged_status, snapshot: staged_snapshot, destination: staged_destination, source_sha256: staged_digest}:
+                            status <- staged_status
+                            destination <- move staged_destination
+                            source_digest <- move staged_digest
+                            snapshot_owned <- move staged_snapshot
                     if status == 0:
-                        current_source: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(&source)
-                        current_runtime: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(&destination)
-                        if current_source.status != 0 or current_runtime.status != 0:
-                            status <- Status.DigestUnavailable.i64()
-                        else:
-                            status <- Status.SourceChanged.i64() if not StudioFbxImportPolicy::same_path(&current_source.bytes, &source_digest)
-                            runtime_digest <- move current_runtime.bytes
-                    if status == 0:
-                        can Unsafe.PointerCast:
-                            memo <- StudioModel::load((&destination[0]).cast[cstr], (&animation[0]).cast[cstr])
-                        status <- Status.UnreadableAnimation.i64() if memo == null else 0
-                        if memo is held:
-                            mutable owned: StudioModel::Memo = move held
-                            memo <- null
-                            reference_result: StudioFbxImportReference::Result = StudioFbxImportReference::make(&source, &destination, &source_digest, &runtime_digest, rate)
-                            if reference_result.value is reference:
-                                if StudioModel::attach_source_reference(&owned, reference):
-                                    memo <- move owned
+                        status <- Status.InvalidJob.i64()
+                        if StudioFbxImportNativePolicy::staging_output_valid(&source, &snapshot_owned, &destination, &source_digest):
+                            status <- StudioFbxImportNative::convert(&snapshot_owned, &destination, rate)
+                        if status == 0:
+                            current_source: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(&source)
+                            current_runtime: StudioFbxImportNative::DigestResult = StudioFbxImportNative::digest(&destination)
+                            if current_source.status != 0 or current_runtime.status != 0:
+                                status <- Status.DigestUnavailable.i64()
+                            else:
+                                status <- Status.SourceChanged.i64() if not StudioFbxImportPolicy::same_path(&current_source.bytes, &source_digest)
+                                runtime_digest <- move current_runtime.bytes
+                        if status == 0:
+                            can Unsafe.PointerCast:
+                                memo <- StudioModel::load((&destination[0]).cast[cstr], (&animation[0]).cast[cstr])
+                            status <- Status.UnreadableAnimation.i64() if memo == null else 0
+                            if memo is held:
+                                mutable owned: StudioModel::Memo = move held
+                                memo <- null
+                                reference_result: StudioFbxImportReference::Result = StudioFbxImportReference::make(&source, &destination, &source_digest, &runtime_digest, rate)
+                                if reference_result.value is reference:
+                                    if StudioModel::attach_source_reference(&owned, reference):
+                                        memo <- move owned
+                                    else:
+                                        status <- Status.InvalidJob.i64()
                                 else:
                                     status <- Status.InvalidJob.i64()
-                            else:
-                                status <- Status.InvalidJob.i64()
-            Result{ticket: ticket, status: status, source: move source, destination: move destination, source_sha256: move source_digest, runtime_sha256: move runtime_digest, memo: move memo}
+                return Result{ticket: ticket, status: status, source: move source, destination: move destination, source_sha256: move source_digest, runtime_sha256: move runtime_digest, memo: move memo}
 
 def load_fbx_import_job(job: StudioFbxImportWorker::Job) -> StudioFbxImportWorker::Result can[Unsafe{PointerCast, RawExtern}, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
-    StudioFbxImportWorker::load(move job)
+    can Global{Read, Write}:
+        return StudioFbxImportWorker::load(move job)
