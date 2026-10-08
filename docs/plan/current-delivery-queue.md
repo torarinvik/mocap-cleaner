@@ -55,9 +55,12 @@ record; actual native interaction on the repaired binary; focused lifetime
 controls; source hash unchanged; no stale candidate publication. A seed, clean
 single-file diagnostic, screenshot or live process is insufficient.
 
-**Current status:** individual global-owner migrations have reduced diagnostics,
-but the complete closure still fails. Grouped syntax is prepared in source but
-compiler repair/qualification is pending. The user-visible crash remains open.
+**Current status:** grouped-family positive controls and partial Global-member
+refusals pass on the retained `090c4121` compiler tuple. Strict native Unsafe
+member refusal remains a separate compiler repair awaiting qualification. The
+latest frozen full-graph capture has 2,445 diagnostic lines; migrated owners
+pass individually, but the complete closure still fails. The user-visible crash
+remains open. These intermediate counts are progress evidence, not acceptance.
 See [compiler qualification](compiler-qualification.md),
 [responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 

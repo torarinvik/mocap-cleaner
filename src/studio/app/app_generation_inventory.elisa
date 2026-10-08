@@ -11,51 +11,55 @@ extend Studio:
         global mutable generation_inventory: StudioBuildGenerationCandidateProvider::Snapshot? = null
         global mutable generation_scan_root: darray[u8] = []
 
-        def request_generation_inventory() -> void:
-            return if storage_close_requested
-            generation_scan_ticket <- StudioGenerationCandidateScanWorkerPolicy::next_ticket(generation_scan_ticket)
-            generation_scan_requested <- true
-            generation_scan_cancelled <- true if generation_scan_task != null
-            generation_inventory <- null
+        def request_generation_inventory() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if storage_close_requested
+                generation_scan_ticket <- StudioGenerationCandidateScanWorkerPolicy::next_ticket(generation_scan_ticket)
+                generation_scan_requested <- true
+                generation_scan_cancelled <- true if generation_scan_task != null
+                generation_inventory <- null
 
-        def cancel_generation_inventory() -> void:
-            generation_scan_requested <- false
-            generation_scan_cancelled <- true
-            generation_inventory <- null
+        def cancel_generation_inventory() -> void can[Global.Write]:
+            can Global.Write:
+                generation_scan_requested <- false
+                generation_scan_cancelled <- true
+                generation_inventory <- null
 
-        def advance_generation_inventory() -> void can[Threads, Unsafe{PointerCast, RawExtern}, Memory{Allocate, Release}]:
-            if generation_scan_task is active:
-                generation_scan_task <- null
-                readiness: ThreadReadiness[StudioBuildGenerationCandidateScanWorker::Result] = poll_ready(move active)
-                if not readiness.complete:
-                    generation_scan_task <- move readiness.thread
-                    UiCore::request_frame_after(0.016)
-                    return
-                match join(move readiness.thread):
-                    StudioBuildGenerationCandidateScanWorker::Result{ticket: completed_ticket, snapshot: returned_snapshot}:
-                        mutable observed: StudioBuildGenerationCandidateProvider::Snapshot = move returned_snapshot
-                        current_root: darray[u8] = path_bytes(workspace_build_directory())
-                        source_current: bool = StudioBuildGenerationCandidateProvider::bytes_equal(generation_scan_root, current_root) and observed.retention_days == StudioStorageSelectionPolicy::retention_days(storage_retention_preset)
-                        admission: StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission = StudioGenerationCandidateScanWorkerPolicy::reply_admission(completed_ticket, generation_scan_ticket, generation_scan_cancelled or not storage_screen_open or not source_current, StudioBuildGenerationCandidateProvider::snapshot_valid(observed))
-                        if admission == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Publish:
-                            generation_inventory <- move observed
-                            touch()
-            return if not storage_screen_open or storage_close_requested or not generation_scan_requested
-            return if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
-            generation_scan_requested <- false
-            generation_scan_cancelled <- false
-            owned_path: darray[u8] = path_bytes(workspace_build_directory())
-            generation_scan_root <- owned_path
-            job: StudioBuildGenerationCandidateScanWorker::Job = StudioBuildGenerationCandidateScanWorker::Job{ticket: generation_scan_ticket, retention_days: StudioStorageSelectionPolicy::retention_days(storage_retention_preset), paths: StudioBuildGenerationCandidateScanWorker::Paths{build_root: StudioWorkerPathCapture::capture(&owned_path)}}
-            generation_scan_task <- StudioBuildGenerationCandidateScanWorker::start(move job)
-            touch()
-            UiCore::request_frame_after(0.016)
+        def advance_generation_inventory() -> void can[Threads, Unsafe{PointerCast, RawExtern}, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if generation_scan_task is active:
+                    generation_scan_task <- null
+                    readiness: ThreadReadiness[StudioBuildGenerationCandidateScanWorker::Result] = poll_ready(move active)
+                    if not readiness.complete:
+                        generation_scan_task <- move readiness.thread
+                        UiCore::request_frame_after(0.016)
+                        return
+                    match join(move readiness.thread):
+                        StudioBuildGenerationCandidateScanWorker::Result{ticket: completed_ticket, snapshot: returned_snapshot}:
+                            mutable observed: StudioBuildGenerationCandidateProvider::Snapshot = move returned_snapshot
+                            current_root: darray[u8] = path_bytes(workspace_build_directory())
+                            source_current: bool = StudioBuildGenerationCandidateProvider::bytes_equal(generation_scan_root, current_root) and observed.retention_days == StudioStorageSelectionPolicy::retention_days(storage_retention_preset)
+                            admission: StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission = StudioGenerationCandidateScanWorkerPolicy::reply_admission(completed_ticket, generation_scan_ticket, generation_scan_cancelled or not storage_screen_open or not source_current, StudioBuildGenerationCandidateProvider::snapshot_valid(observed))
+                            if admission == StudioGenerationCandidateScanWorkerPolicy::ReplyAdmission.Publish:
+                                generation_inventory <- move observed
+                                touch()
+                return if not storage_screen_open or storage_close_requested or not generation_scan_requested
+                return if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
+                generation_scan_requested <- false
+                generation_scan_cancelled <- false
+                owned_path: darray[u8] = path_bytes(workspace_build_directory())
+                generation_scan_root <- owned_path
+                job: StudioBuildGenerationCandidateScanWorker::Job = StudioBuildGenerationCandidateScanWorker::Job{ticket: generation_scan_ticket, retention_days: StudioStorageSelectionPolicy::retention_days(storage_retention_preset), paths: StudioBuildGenerationCandidateScanWorker::Paths{build_root: StudioWorkerPathCapture::capture(&owned_path)}}
+                generation_scan_task <- StudioBuildGenerationCandidateScanWorker::start(move job)
+                touch()
+                UiCore::request_frame_after(0.016)
 
-        def generation_inventory_message() -> sview:
-            return "Finishing background operations before closing Storage." if storage_close_requested
-            return "Scanning generated builds; source takes remain protected." if generation_scan_task != null or generation_scan_requested
-            if generation_inventory is snapshot:
-                return "Generated build scan exceeded its limit; cleanup remains unavailable." if snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Overflow
-                return "Generated build scan could not verify ownership; cleanup remains unavailable." if snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Refused
-                return "Generated builds scanned; source takes remain protected."
-            "Generated build scan unavailable; source takes remain protected."
+        def generation_inventory_message() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Finishing background operations before closing Storage." if storage_close_requested
+                return "Scanning generated builds; source takes remain protected." if generation_scan_task != null or generation_scan_requested
+                if generation_inventory is snapshot:
+                    return "Generated build scan exceeded its limit; cleanup remains unavailable." if snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Overflow
+                    return "Generated build scan could not verify ownership; cleanup remains unavailable." if snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Refused
+                    return "Generated builds scanned; source takes remain protected."
+                return "Generated build scan unavailable; source takes remain protected."

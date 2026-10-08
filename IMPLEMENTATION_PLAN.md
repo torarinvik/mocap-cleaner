@@ -68,7 +68,8 @@ All M0–M8 requirements remain in scope; priority changes do not waive acceptan
   family, for example `can[Memory{Allocate, Release}, Global{Read, Write}]`.
   Preserve the exact member set and unsafe tracking; qualify compiler expansion
   and member-specific refusals before treating the syntax as supported.
-- Commit each small improvement.
+- Commit each small source/proof improvement; include related documentation
+  in those commits. Do not create documentation-only commits.
 - Extend arrays for fixed sequences of literals. The lexical
   `scripts/check_literal_push_runs.py` gate rejects consecutive integer-literal
   pushes to the same array; review other literal forms manually.
