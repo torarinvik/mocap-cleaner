@@ -8,58 +8,62 @@ extend SessionState:
         # present the located take's identity to take_located_candidate.
         # Failed inspection retains the previous candidate; publish only after
         # complete decoding and identity validation succeed.
-        def inspect_locate_candidate(path: cstr) -> bool can[Blocking.IO, Memory.Allocate]:
-            session_load_error <- SessionState::LoadError.None.i64()
-            mutable text: darray[u8] = []
-            read_status: BoundedReadPolicy::Status = OpsFile::read_bytes_bounded(path, &text, BoundedReadPolicy::Capacity::DEFAULT_BYTES)
-            if read_status != BoundedReadPolicy::Status.Ok:
-                session_load_error <- SessionState::LoadError.TooLarge.i64() if read_status == BoundedReadPolicy::Status.TooLarge
-                session_load_error <- SessionState::LoadError.Close.i64() if read_status == BoundedReadPolicy::Status.CloseFailed
-                session_load_error <- SessionState::LoadError.Read.i64() if read_status == BoundedReadPolicy::Status.OpenFailed or read_status == BoundedReadPolicy::Status.ReadFailed
-                session_load_error <- SessionState::LoadError.Format.i64() if read_status == BoundedReadPolicy::Status.InvalidLimit
+        def inspect_locate_candidate(path: cstr) -> bool can[Blocking.IO, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                session_load_error <- SessionState::LoadError.None.i64()
+                mutable text: darray[u8] = []
+                read_status: BoundedReadPolicy::Status = OpsFile::read_bytes_bounded(path, &text, BoundedReadPolicy::Capacity::DEFAULT_BYTES)
+                if read_status != BoundedReadPolicy::Status.Ok:
+                    session_load_error <- SessionState::LoadError.TooLarge.i64() if read_status == BoundedReadPolicy::Status.TooLarge
+                    session_load_error <- SessionState::LoadError.Close.i64() if read_status == BoundedReadPolicy::Status.CloseFailed
+                    session_load_error <- SessionState::LoadError.Read.i64() if read_status == BoundedReadPolicy::Status.OpenFailed or read_status == BoundedReadPolicy::Status.ReadFailed
+                    session_load_error <- SessionState::LoadError.Format.i64() if read_status == BoundedReadPolicy::Status.InvalidLimit
+                    return false
+                version: i64 = SessionState::header_version(&text)
+                if version < 4 or version > StudioChrome::Session::VERSION:
+                    session_load_error <- SessionState::LoadError.Format.i64()
+                    return false
+                if SessionState::locate_identity_in_text(&text) is saved:
+                    mutable annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
+                    mutable impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                    mutable impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = []
+                    mutable source_outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
+                    if SessionState::decode_session_with_source_reference(&text, saved.frames, saved.nodes, saved, false, &annotations, &impact_state, &impact_annotations, &source_outcome) is decoded:
+                        locate_candidate_stack <- decoded
+                        locate_candidate_identity_value <- saved
+                        locate_candidate_annotations <- move annotations
+                        locate_candidate_impact_state <- impact_state
+                        locate_candidate_impact_annotations <- move impact_annotations
+                        locate_candidate_reference <- move source_outcome.reference
+                        locate_candidate_open <- true
+                        return true
+                    session_load_error <- SessionState::LoadError.SourceReference.i64() if source_outcome.invalid
+                session_load_error <- SessionState::LoadError.Source.i64()
                 return false
-            version: i64 = SessionState::header_version(&text)
-            if version < 4 or version > StudioChrome::Session::VERSION:
-                session_load_error <- SessionState::LoadError.Format.i64()
-                return false
-            if SessionState::locate_identity_in_text(&text) is saved:
-                mutable annotations: darray[SessionIssueAnnotationPolicy::Stored] = []
-                mutable impact_state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
-                mutable impact_annotations: darray[SessionImpactAnnotationPolicy::Stored] = []
-                mutable source_outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
-                if SessionState::decode_session_with_source_reference(&text, saved.frames, saved.nodes, saved, false, &annotations, &impact_state, &impact_annotations, &source_outcome) is decoded:
-                    locate_candidate_stack <- decoded
-                    locate_candidate_identity_value <- saved
-                    locate_candidate_annotations <- move annotations
-                    locate_candidate_impact_state <- impact_state
-                    locate_candidate_impact_annotations <- move impact_annotations
-                    locate_candidate_reference <- move source_outcome.reference
-                    locate_candidate_open <- true
-                    return true
-                session_load_error <- SessionState::LoadError.SourceReference.i64() if source_outcome.invalid
-            session_load_error <- SessionState::LoadError.Source.i64()
-            false
 
-        def locate_candidate_identity() -> SourceIdentity?:
-            return null if not locate_candidate_open
-            locate_candidate_identity_value
+        def locate_candidate_identity() -> SourceIdentity? can[Global.Read]:
+            can Global.Read:
+                return null if not locate_candidate_open
+                return locate_candidate_identity_value
 
-        def locate_candidate_has_source_reference() -> bool:
-            locate_candidate_open and locate_candidate_reference != null
+        def locate_candidate_has_source_reference() -> bool can[Global.Read]:
+            can Global.Read:
+                return locate_candidate_open and locate_candidate_reference != null
 
-        def copy_locate_candidate_source_reference[@r]() -> SessionSourceReferenceCodec::Record? @r can Memory.Allocate:
-            return null if not locate_candidate_open
-            if locate_candidate_reference is saved:
-                copied: StudioTakeSourceRefPolicy::TakeSourceRef = StudioTakeSourceRefPolicy::TakeSourceRef{
-                    format: saved.reference.format,
-                    original_path: copy_source_bytes(saved.reference.original_path),
-                    original_sha256: copy_source_bytes(saved.reference.original_sha256),
-                    runtime_glb_path: copy_source_bytes(saved.reference.runtime_glb_path),
-                    runtime_glb_sha256: copy_source_bytes(saved.reference.runtime_glb_sha256),
-                    importer_revision: copy_source_bytes(saved.reference.importer_revision),
-                    options_sha256: copy_source_bytes(saved.reference.options_sha256)}
-                return SessionSourceReferenceCodec::Record{reference: copied, animation_name: copy_source_bytes(saved.animation_name)}
-            null
+        def copy_locate_candidate_source_reference[@r]() -> SessionSourceReferenceCodec::Record? @r can[Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return null if not locate_candidate_open
+                if locate_candidate_reference is saved:
+                    copied: StudioTakeSourceRefPolicy::TakeSourceRef = StudioTakeSourceRefPolicy::TakeSourceRef{
+                        format: saved.reference.format,
+                        original_path: copy_source_bytes(saved.reference.original_path),
+                        original_sha256: copy_source_bytes(saved.reference.original_sha256),
+                        runtime_glb_path: copy_source_bytes(saved.reference.runtime_glb_path),
+                        runtime_glb_sha256: copy_source_bytes(saved.reference.runtime_glb_sha256),
+                        importer_revision: copy_source_bytes(saved.reference.importer_revision),
+                        options_sha256: copy_source_bytes(saved.reference.options_sha256)}
+                    return SessionSourceReferenceCodec::Record{reference: copied, animation_name: copy_source_bytes(saved.animation_name)}
+                return null
 
         # Consumes the pending candidate only after complete v4 source identity
         # metadata equality. Changed fingerprint residues, animation or shape
@@ -67,39 +71,42 @@ extend SessionState:
         def take_located_candidate(current: SourceIdentity,
                 annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&,
                 impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
-                impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack?:
-            return null if locate_candidate_reference != null
-            mutable outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
-            take_located_candidate_with_source_reference(current, annotations, impact_state, impact_annotations, &outcome)
+                impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return null if locate_candidate_reference != null
+                mutable outcome: SessionState::SourceReferenceOutcome = SessionState::SourceReferenceOutcome{reference: null, invalid: false}
+                return take_located_candidate_with_source_reference(current, annotations, impact_state, impact_annotations, &outcome)
 
         def take_located_candidate_with_source_reference(current: SourceIdentity,
                 annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&,
                 impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
                 impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&,
-                source_outcome: mutable SessionState::SourceReferenceOutcome&) -> StackState::Stack?:
+                source_outcome: mutable SessionState::SourceReferenceOutcome&) -> StackState::Stack? can[Global{Read, Write}]:
             ensure result == null implies source_outcome.reference == null
             ensure result != null implies source_outcome.invalid == false
-            source_outcome.reference <- null
-            source_outcome.invalid <- false
-            if not SessionState::locate_candidate_source_matches(current):
-                return null
-            restored: StackState::Stack = locate_candidate_stack
-            annotations <- move locate_candidate_annotations
-            impact_state <- locate_candidate_impact_state
-            impact_annotations <- move locate_candidate_impact_annotations
-            source_outcome.reference <- move locate_candidate_reference
-            source_outcome.invalid <- false
-            SessionState::discard_locate_candidate()
-            restored
+            can Global{Read, Write}:
+                source_outcome.reference <- null
+                source_outcome.invalid <- false
+                if not SessionState::locate_candidate_source_matches(current):
+                    return null
+                restored: StackState::Stack = locate_candidate_stack
+                annotations <- move locate_candidate_annotations
+                impact_state <- locate_candidate_impact_state
+                impact_annotations <- move locate_candidate_impact_annotations
+                source_outcome.reference <- move locate_candidate_reference
+                source_outcome.invalid <- false
+                SessionState::discard_locate_candidate()
+                return restored
 
-        def discard_locate_candidate() -> void:
-            locate_candidate_open <- false
-            locate_candidate_identity_value <- null
-            locate_candidate_stack <- StackState::empty()
-            locate_candidate_annotations <- zeroed
-            locate_candidate_impact_state <- SessionImpactAnnotationPolicy::ReviewState.Unreviewed
-            locate_candidate_impact_annotations <- zeroed
-            locate_candidate_reference <- null
+        def discard_locate_candidate() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                locate_candidate_open <- false
+                locate_candidate_identity_value <- null
+                locate_candidate_stack <- StackState::empty()
+                locate_candidate_annotations <- zeroed
+                locate_candidate_impact_state <- SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                locate_candidate_impact_annotations <- zeroed
+                locate_candidate_reference <- null
 
     private:
         global mutable locate_candidate_open: bool = false
@@ -116,11 +123,12 @@ extend SessionState:
                 result.push(byte)
             return move result
 
-        def locate_candidate_source_matches(current: SourceIdentity) -> bool:
-            if locate_candidate_identity_value is saved:
-                StudioSessionSourcePolicy::compare(saved.first, saved.second, saved.animation, saved.frames, saved.nodes, current.first, current.second, current.animation, current.frames, current.nodes) == StudioSessionSourcePolicy::Comparison.Matching
-            else:
-                false
+        def locate_candidate_source_matches(current: SourceIdentity) -> bool can[Global.Read]:
+            can Global.Read:
+                if locate_candidate_identity_value is saved:
+                    return StudioSessionSourcePolicy::compare(saved.first, saved.second, saved.animation, saved.frames, saved.nodes, current.first, current.second, current.animation, current.frames, current.nodes) == StudioSessionSourcePolicy::Comparison.Matching
+                else:
+                    return false
 
         def locate_identity_in_text(text: darray[u8]&) -> SourceIdentity? can Memory.Allocate:
             version: i64 = SessionState::header_version(text)
