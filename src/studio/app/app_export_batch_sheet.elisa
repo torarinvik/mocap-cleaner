@@ -15,204 +15,214 @@ extend Studio:
         global mutable prepared_return_focus: usize = 0
         global mutable prepared_revision: i64 = 0
 
-        def prepared_sheet_open() -> bool:
-            StudioExportBatchSheetState::valid(prepared_sheet) and prepared_sheet.opened
+        def prepared_sheet_open() -> bool can[Global.Read]:
+            can Global.Read:
+                return StudioExportBatchSheetState::valid(prepared_sheet) and prepared_sheet.opened
 
-        def prepared_queue_entry_available() -> bool:
-            return false if goto_open or contact_preview_close_pending or suggestion_state == StudioSuggestionPolicy::State.Open
-            return false if prepared_batch_modal_open() or not export_recovery_entry_available()
-            if prepared_export_queue is queue:
-                return StudioExportBatchReviewBinding::valid(queue) and StudioExportBatchReviewBinding::item_count(queue) > 0
-            false
+        def prepared_queue_entry_available() -> bool can[Global.Read]:
+            can Global.Read:
+                return false if goto_open or contact_preview_close_pending or suggestion_state == StudioSuggestionPolicy::State.Open
+                return false if prepared_batch_modal_open() or not export_recovery_entry_available()
+                if prepared_export_queue is queue:
+                    return StudioExportBatchReviewBinding::valid(queue) and StudioExportBatchReviewBinding::item_count(queue) > 0
+                return false
 
         def prepared_label(bytes: darray[u8]&) -> sview can Unsafe.PointerCast:
             return "" if bytes.count == 0
             UiText::unsafe_sview_bounded_bytes(&bytes[0], bytes.count)
 
-        def refresh_prepared_sheet() -> void can Unsafe.PointerCast:
-            prepared_revision <- StudioExportBatchWarningReviewPolicy::next_epoch(prepared_revision)
-            mutable snapshots: darray[StudioExportBatchDisplayProjection::Snapshot] = []
-            if prepared_export_queue is queue:
-                if StudioExportBatchReviewBinding::valid(queue):
-                    for index in 0..<StudioExportBatchReviewBinding::item_count(queue).i64() |index, queue, snapshots|:
-                        snapshots.push(StudioExportBatchReviewBinding::overview_projection(queue, index))
+        def refresh_prepared_sheet() -> void can[Unsafe.PointerCast, Global{Read, Write}]:
+            can Global{Read, Write}:
+                prepared_revision <- StudioExportBatchWarningReviewPolicy::next_epoch(prepared_revision)
+                mutable snapshots: darray[StudioExportBatchDisplayProjection::Snapshot] = []
+                if prepared_export_queue is queue:
+                    if StudioExportBatchReviewBinding::valid(queue):
+                        for index in 0..<StudioExportBatchReviewBinding::item_count(queue).i64() |index, queue, snapshots|:
+                            snapshots.push(StudioExportBatchReviewBinding::overview_projection(queue, index))
+                    else:
+                        prepared_message <- "Queue state is unavailable. Recovery files remain unchanged."
+                # Retain owned path/report bytes before creating views into them.
+                release_prepared_sheet_row_accessibility_text()
+                prepared_rows <- []
+                prepared_row_details <- []
+                prepared_snapshots <- snapshots
+                mutable rows: darray[StudioExportBatchPanelPolicy::Row] = []
+                mutable details: darray[sview] = []
+                for index in 0..<prepared_snapshots.count |index, rows, details|:
+                    rows.push(StudioExportBatchPanelPolicy::Row{label: prepared_label(prepared_snapshots[index].source_label),
+                        output_label: prepared_label(prepared_snapshots[index].output_label),
+                        state: prepared_snapshots[index].state, attempt: prepared_snapshots[index].attempt,
+                        warning_count: prepared_snapshots[index].warning_count,
+                        approved: prepared_snapshots[index].approved, receipt: prepared_snapshots[index].receipt})
+                    details.push(StudioExportBatchPanelPolicy::row_state(prepared_snapshots[index].state,
+                        prepared_snapshots[index].approved))
+                prepared_rows <- rows
+                prepared_row_details <- details
+                if not StudioExportBatchSheetState::valid(prepared_sheet):
+                    prepared_sheet <- StudioExportBatchSheetState::create(prepared_rows.count.i64())
                 else:
-                    prepared_message <- "Queue state is unavailable. Recovery files remain unchanged."
-            # Retain owned path/report bytes before creating views into them.
-            release_prepared_sheet_row_accessibility_text()
-            prepared_rows <- []
-            prepared_row_details <- []
-            prepared_snapshots <- snapshots
-            mutable rows: darray[StudioExportBatchPanelPolicy::Row] = []
-            mutable details: darray[sview] = []
-            for index in 0..<prepared_snapshots.count |index, rows, details|:
-                rows.push(StudioExportBatchPanelPolicy::Row{label: prepared_label(prepared_snapshots[index].source_label),
-                    output_label: prepared_label(prepared_snapshots[index].output_label),
-                    state: prepared_snapshots[index].state, attempt: prepared_snapshots[index].attempt,
-                    warning_count: prepared_snapshots[index].warning_count,
-                    approved: prepared_snapshots[index].approved, receipt: prepared_snapshots[index].receipt})
-                details.push(StudioExportBatchPanelPolicy::row_state(prepared_snapshots[index].state,
-                    prepared_snapshots[index].approved))
-            prepared_rows <- rows
-            prepared_row_details <- details
-            if not StudioExportBatchSheetState::valid(prepared_sheet):
-                prepared_sheet <- StudioExportBatchSheetState::create(prepared_rows.count.i64())
-            else:
-                prepared_sheet <- StudioExportBatchSheetState::reconcile(prepared_sheet, prepared_rows.count.i64())
+                    prepared_sheet <- StudioExportBatchSheetState::reconcile(prepared_sheet, prepared_rows.count.i64())
 
-        def open_prepared_sheet() -> void can Unsafe.PointerCast:
-            return if prepared_sheet_open()
-            return if contact_preview_close_pending or suggestion_state == StudioSuggestionPolicy::State.Open
-            return if goto_open or export_review_open or export_result_open or export_recovery_open or storage_screen_open or export_path_inspector_open or export_warning_detail_open or replacement_prompt_open or legacy_prompt_open
-            prepared_return_focus <- UiFlat::focused()
-            file_menu_open <- false
-            reset_menu_open <- false
-            help_open <- false
-            drag_view <- -1
-            drag_button <- -1
-            scrubbing <- false
-            selecting <- false
-            slider_drag <- false
-            edge_drag <- RetimeState::no_drag()
-            refresh_prepared_sheet()
-            prepared_sheet <- StudioExportBatchSheetState::show(prepared_sheet, true)
-            if timeline is t:
-                mutable paused: TimelineState::State = t
-                paused.playing <- false
-                set_timeline(paused)
-            UiFlat::clear_focus()
-            touch()
-
-        def close_prepared_sheet() -> void can Memory.Release:
-            close_prepared_destination_inspector()
-            return if not prepared_sheet_open()
-            prepared_sheet <- StudioExportBatchSheetState::show(prepared_sheet, false)
-            # Release borrowed views before the display-owned path snapshots.
-            # The bound queue and navigation state survive for the next open.
-            release_prepared_sheet_row_accessibility_text()
-            prepared_rows <- []
-            prepared_row_details <- []
-            prepared_snapshots <- []
-            UiFlat::clear_focus()
-            _ = UiFlat::request_focus(prepared_return_focus)
-            touch()
-
-        def prepared_controls() -> StudioExportBatchPanelPolicy::Controls:
-            mutable can_pause: bool = false
-            mutable can_resume: bool = false
-            mutable can_cancel: bool = false
-            mutable can_publish: bool = false
-            mutable can_review: bool = false
-            mutable can_inspect: bool = false
-            if prepared_export_queue is queue:
-                if StudioExportBatchReviewBinding::valid(queue):
-                    can_inspect <- StudioExportBatchDestinationInspectorEntryPolicy::admitted(
-                        prepared_sheet_open(), prepared_report_open, prepared_destination_inspector_open(),
-                        true, StudioExportBatchReviewBinding::item_count(queue).i64(), prepared_sheet.selected)
-                    can_pause <- not StudioExportBatchReviewBinding::paused(queue) and not StudioExportBatchReviewBinding::cancelled(queue)
-                    can_resume <- StudioExportBatchPanelPolicy::resume_admitted(StudioExportBatchReviewBinding::paused(queue), StudioExportBatchReviewBinding::cancelled(queue), StudioExportBatchReviewBinding::worker_count(queue), prepared_workspace_writable())
-                    can_cancel <- prepared_workspace_writable() and not StudioExportBatchReviewBinding::cancelled(queue) and StudioExportBatchReviewBinding::item_count(queue) > 0
-                    index: i64 = prepared_sheet.selected
-                    if index >= 0 and index < prepared_snapshots.count.i64():
-                        can_review <- prepared_snapshots[index.usize()].warning_count > 0
-                        can_publish <- prepared_workspace_writable() and StudioExportBatchPanelPolicy::prepared_publish_admitted(prepared_snapshots[index.usize()].state,
-                            prepared_snapshots[index.usize()].approved, StudioExportBatchReviewBinding::cancelled(queue), StudioExportBatchReviewBinding::paused(queue))
-            StudioExportBatchPanelPolicy::Controls{enqueue: false, run: can_resume,
-                pause: can_pause, cancel: can_cancel, retry: false, reopen: false,
-                review: can_review, publish: can_publish, acknowledge: false, refresh: true, inspect: can_inspect,
-                previous: prepared_sheet.first > 0,
-                next: prepared_sheet.first < StudioExportBatchPanelPolicy::last_page(prepared_sheet.total)}
-
-        def prepared_control_action(focus: StudioExportBatchPanelPolicy::Focus) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}]:
-            return if not prepared_sheet_open()
-            controls: StudioExportBatchPanelPolicy::Controls = prepared_controls()
-            return if not StudioExportBatchPanelPolicy::action_enabled(focus, controls)
-            if focus == StudioExportBatchPanelPolicy::Focus.Close:
-                close_prepared_sheet()
-                return
-            if focus == StudioExportBatchPanelPolicy::Focus.Review:
-                open_prepared_warning_review()
-                return
-            if focus == StudioExportBatchPanelPolicy::Focus.Inspect:
-                mutable return_widget: usize = UiFlat::NONE
-                if prepared_sheet_accessibility_ready and prepared_sheet_action_widgets.count > focus.i64().usize():
-                    return_widget <- prepared_sheet_action_widgets[focus.i64().usize()]
-                open_prepared_destination_inspector(return_widget)
-                return
-            if focus == StudioExportBatchPanelPolicy::Focus.Previous or focus == StudioExportBatchPanelPolicy::Focus.Next:
-                direction: StudioExportBatchPanelPolicy::Direction = StudioExportBatchPanelPolicy::Direction.Previous if focus == StudioExportBatchPanelPolicy::Focus.Previous else StudioExportBatchPanelPolicy::Direction.Next
-                prepared_sheet <- StudioExportBatchSheetState::page(prepared_sheet, direction)
-                touch()
-                return
-            if focus == StudioExportBatchPanelPolicy::Focus.Refresh:
+        def open_prepared_sheet() -> void can[Unsafe.PointerCast, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if prepared_sheet_open()
+                return if contact_preview_close_pending or suggestion_state == StudioSuggestionPolicy::State.Open
+                return if goto_open or export_review_open or export_result_open or export_recovery_open or storage_screen_open or export_path_inspector_open or export_warning_detail_open or replacement_prompt_open or legacy_prompt_open
+                prepared_return_focus <- UiFlat::focused()
+                file_menu_open <- false
+                reset_menu_open <- false
+                help_open <- false
+                drag_view <- -1
+                drag_button <- -1
+                scrubbing <- false
+                selecting <- false
+                slider_drag <- false
+                edge_drag <- RetimeState::no_drag()
                 refresh_prepared_sheet()
+                prepared_sheet <- StudioExportBatchSheetState::show(prepared_sheet, true)
+                if timeline is t:
+                    mutable paused: TimelineState::State = t
+                    paused.playing <- false
+                    set_timeline(paused)
+                UiFlat::clear_focus()
                 touch()
-                return
-            if prepared_export_queue is queue:
-                if not StudioExportBatchReviewBinding::valid(queue):
-                    return
-                if focus == StudioExportBatchPanelPolicy::Focus.Pause:
-                    paused: bool = StudioExportBatchReviewBinding::pause(&queue)
-                    prepared_export_queue <- queue
-                    prepared_message <- "Queue paused. Prepared outputs and reports are retained." if paused else "Queue could not pause. Refresh its current state before another action."
-                else:
-                    descriptor: i32 = begin_storage_transaction()
-                    if descriptor < 0:
-                        prepared_message <- "Workspace lock unavailable. No queue write was attempted."
-                        touch()
-                        return
-                    mutable completed: bool = false
-                    if focus == StudioExportBatchPanelPolicy::Focus.Publish:
+
+        def close_prepared_sheet() -> void can[Memory.Release, Global{Read, Write}]:
+            can Global{Read, Write}:
+                close_prepared_destination_inspector()
+                return if not prepared_sheet_open()
+                prepared_sheet <- StudioExportBatchSheetState::show(prepared_sheet, false)
+                # Release borrowed views before the display-owned path snapshots.
+                # The bound queue and navigation state survive for the next open.
+                release_prepared_sheet_row_accessibility_text()
+                prepared_rows <- []
+                prepared_row_details <- []
+                prepared_snapshots <- []
+                UiFlat::clear_focus()
+                _ = UiFlat::request_focus(prepared_return_focus)
+                touch()
+
+        def prepared_controls() -> StudioExportBatchPanelPolicy::Controls can[Global.Read]:
+            can Global.Read:
+                mutable can_pause: bool = false
+                mutable can_resume: bool = false
+                mutable can_cancel: bool = false
+                mutable can_publish: bool = false
+                mutable can_review: bool = false
+                mutable can_inspect: bool = false
+                if prepared_export_queue is queue:
+                    if StudioExportBatchReviewBinding::valid(queue):
+                        can_inspect <- StudioExportBatchDestinationInspectorEntryPolicy::admitted(
+                            prepared_sheet_open(), prepared_report_open, prepared_destination_inspector_open(),
+                            true, StudioExportBatchReviewBinding::item_count(queue).i64(), prepared_sheet.selected)
+                        can_pause <- not StudioExportBatchReviewBinding::paused(queue) and not StudioExportBatchReviewBinding::cancelled(queue)
+                        can_resume <- StudioExportBatchPanelPolicy::resume_admitted(StudioExportBatchReviewBinding::paused(queue), StudioExportBatchReviewBinding::cancelled(queue), StudioExportBatchReviewBinding::worker_count(queue), prepared_workspace_writable())
+                        can_cancel <- prepared_workspace_writable() and not StudioExportBatchReviewBinding::cancelled(queue) and StudioExportBatchReviewBinding::item_count(queue) > 0
                         index: i64 = prepared_sheet.selected
-                        if index >= 0 and index < StudioExportBatchReviewBinding::item_count(queue).i64():
-                            completed <- StudioExportBatchReviewBinding::publish_prepared_result(&queue, index, descriptor)
-                        prepared_message <- "Selected export and both reports published and verified." if completed else "Publication is incomplete. Inspect the item receipt and destination files."
-                    elif focus == StudioExportBatchPanelPolicy::Focus.Cancel:
-                        _ = StudioExportBatchReviewBinding::cancel(&queue, descriptor)
-                        prepared_message <- "Cancellation requested. Completed outputs are retained; running work must drain." if StudioExportBatchReviewBinding::cancelled(queue) else "Cancellation could not finish. Inspect recoverable item states before another action."
-                    elif focus == StudioExportBatchPanelPolicy::Focus.Run:
-                        completed <- StudioExportBatchReviewBinding::resume(&queue, descriptor)
-                        prepared_message <- "Queue resumed. Select a prepared result to publish." if completed else "Queue could not resume. Active work must drain and recovery facts must remain valid."
-                    prepared_export_queue <- queue
-                    released: bool = end_storage_transaction(descriptor)
-                    if not released:
-                        prepared_message <- "Workspace lock release is uncertain. Restart before further workspace writes."
-                refresh_prepared_sheet()
-                touch()
+                        if index >= 0 and index < prepared_snapshots.count.i64():
+                            can_review <- prepared_snapshots[index.usize()].warning_count > 0
+                            can_publish <- prepared_workspace_writable() and StudioExportBatchPanelPolicy::prepared_publish_admitted(prepared_snapshots[index.usize()].state,
+                                prepared_snapshots[index.usize()].approved, StudioExportBatchReviewBinding::cancelled(queue), StudioExportBatchReviewBinding::paused(queue))
+                return StudioExportBatchPanelPolicy::Controls{enqueue: false, run: can_resume,
+                    pause: can_pause, cancel: can_cancel, retry: false, reopen: false,
+                    review: can_review, publish: can_publish, acknowledge: false, refresh: true, inspect: can_inspect,
+                    previous: prepared_sheet.first > 0,
+                    next: prepared_sheet.first < StudioExportBatchPanelPolicy::last_page(prepared_sheet.total)}
 
-        def prepared_sheet_pointer(w: f32, h: f32, x: f32, y: f32) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}]:
-            return if not prepared_sheet_open() or prepared_report_open
-            visible: i64 = StudioExportBatchPanelPolicy::visible_count(prepared_sheet.first, prepared_sheet.total)
-            row: i64 = StudioPanels::export_batch_row_hit(w, h, x, y, visible, prepared_sheet.first)
-            if row >= 0:
-                prepared_sheet <- StudioExportBatchSheetState::select(prepared_sheet, row)
-                touch()
-                return
-            action: StudioExportBatchPanelPolicy::Action = StudioPanels::export_batch_action_hit(w, h, x, y)
-            return if action == StudioExportBatchPanelPolicy::Action.None
-            for code in 0..<StudioExportBatchPanelPolicy::FocusDomain::COUNT |code, action|:
-                if StudioExportBatchPanelPolicy::focus_from_code(code) is focus:
-                    if StudioExportBatchPanelPolicy::action_for_focus(focus) == action:
-                        return if not StudioExportBatchPanelPolicy::action_enabled(focus, prepared_controls())
-                        prepared_sheet.focus <- focus
-                        prepared_control_action(focus)
+        def prepared_control_action(focus: StudioExportBatchPanelPolicy::Focus) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not prepared_sheet_open()
+                controls: StudioExportBatchPanelPolicy::Controls = prepared_controls()
+                return if not StudioExportBatchPanelPolicy::action_enabled(focus, controls)
+                if focus == StudioExportBatchPanelPolicy::Focus.Close:
+                    close_prepared_sheet()
+                    return
+                if focus == StudioExportBatchPanelPolicy::Focus.Review:
+                    open_prepared_warning_review()
+                    return
+                if focus == StudioExportBatchPanelPolicy::Focus.Inspect:
+                    mutable return_widget: usize = UiFlat::NONE
+                    if prepared_sheet_accessibility_ready and prepared_sheet_action_widgets.count > focus.i64().usize():
+                        return_widget <- prepared_sheet_action_widgets[focus.i64().usize()]
+                    open_prepared_destination_inspector(return_widget)
+                    return
+                if focus == StudioExportBatchPanelPolicy::Focus.Previous or focus == StudioExportBatchPanelPolicy::Focus.Next:
+                    direction: StudioExportBatchPanelPolicy::Direction = StudioExportBatchPanelPolicy::Direction.Previous if focus == StudioExportBatchPanelPolicy::Focus.Previous else StudioExportBatchPanelPolicy::Direction.Next
+                    prepared_sheet <- StudioExportBatchSheetState::page(prepared_sheet, direction)
+                    touch()
+                    return
+                if focus == StudioExportBatchPanelPolicy::Focus.Refresh:
+                    refresh_prepared_sheet()
+                    touch()
+                    return
+                if prepared_export_queue is queue:
+                    if not StudioExportBatchReviewBinding::valid(queue):
                         return
+                    if focus == StudioExportBatchPanelPolicy::Focus.Pause:
+                        paused: bool = StudioExportBatchReviewBinding::pause(&queue)
+                        prepared_export_queue <- queue
+                        prepared_message <- "Queue paused. Prepared outputs and reports are retained." if paused else "Queue could not pause. Refresh its current state before another action."
+                    else:
+                        descriptor: i32 = begin_storage_transaction()
+                        if descriptor < 0:
+                            prepared_message <- "Workspace lock unavailable. No queue write was attempted."
+                            touch()
+                            return
+                        mutable completed: bool = false
+                        if focus == StudioExportBatchPanelPolicy::Focus.Publish:
+                            index: i64 = prepared_sheet.selected
+                            if index >= 0 and index < StudioExportBatchReviewBinding::item_count(queue).i64():
+                                completed <- StudioExportBatchReviewBinding::publish_prepared_result(&queue, index, descriptor)
+                            prepared_message <- "Selected export and both reports published and verified." if completed else "Publication is incomplete. Inspect the item receipt and destination files."
+                        elif focus == StudioExportBatchPanelPolicy::Focus.Cancel:
+                            _ = StudioExportBatchReviewBinding::cancel(&queue, descriptor)
+                            prepared_message <- "Cancellation requested. Completed outputs are retained; running work must drain." if StudioExportBatchReviewBinding::cancelled(queue) else "Cancellation could not finish. Inspect recoverable item states before another action."
+                        elif focus == StudioExportBatchPanelPolicy::Focus.Run:
+                            completed <- StudioExportBatchReviewBinding::resume(&queue, descriptor)
+                            prepared_message <- "Queue resumed. Select a prepared result to publish." if completed else "Queue could not resume. Active work must drain and recovery facts must remain valid."
+                        prepared_export_queue <- queue
+                        released: bool = end_storage_transaction(descriptor)
+                        if not released:
+                            prepared_message <- "Workspace lock release is uncertain. Restart before further workspace writes."
+                    refresh_prepared_sheet()
+                    touch()
 
-        def prepared_sheet_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}]:
-            return if not prepared_sheet_open() or prepared_report_open
-            if code == UiCore::Key.Escape:
-                close_prepared_sheet()
-            elif code == UiCore::Key.Tab:
-                prepared_sheet <- StudioExportBatchSheetState::move_focus(prepared_sheet, StudioShortcuts::shift(modifiers), prepared_controls())
-                touch()
-            elif code == UiCore::Key.Up or code == UiCore::Key.Down:
-                row: i64 = prepared_sheet.selected + (-1 if code == UiCore::Key.Up else 1)
-                prepared_sheet <- StudioExportBatchSheetState::select(prepared_sheet, row)
-                touch()
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                prepared_control_action(prepared_sheet.focus)
+        def prepared_sheet_pointer(w: f32, h: f32, x: f32, y: f32) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not prepared_sheet_open() or prepared_report_open
+                visible: i64 = StudioExportBatchPanelPolicy::visible_count(prepared_sheet.first, prepared_sheet.total)
+                row: i64 = StudioPanels::export_batch_row_hit(w, h, x, y, visible, prepared_sheet.first)
+                if row >= 0:
+                    prepared_sheet <- StudioExportBatchSheetState::select(prepared_sheet, row)
+                    touch()
+                    return
+                action: StudioExportBatchPanelPolicy::Action = StudioPanels::export_batch_action_hit(w, h, x, y)
+                return if action == StudioExportBatchPanelPolicy::Action.None
+                for code in 0..<StudioExportBatchPanelPolicy::FocusDomain::COUNT |code, action|:
+                    if StudioExportBatchPanelPolicy::focus_from_code(code) is focus:
+                        if StudioExportBatchPanelPolicy::action_for_focus(focus) == action:
+                            return if not StudioExportBatchPanelPolicy::action_enabled(focus, prepared_controls())
+                            prepared_sheet.focus <- focus
+                            prepared_control_action(focus)
+                            return
 
-        def draw_prepared_sheet(w: f32, h: f32) -> void:
-            return if not prepared_sheet_open()
-            StudioPanels::export_batch_panel(w, h, prepared_rows, prepared_sheet.first,
-                prepared_sheet.selected, prepared_sheet.focus, prepared_controls(), prepared_message)
+        def prepared_sheet_key(code: UiCore::Key) -> void can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not prepared_sheet_open() or prepared_report_open
+                if code == UiCore::Key.Escape:
+                    close_prepared_sheet()
+                elif code == UiCore::Key.Tab:
+                    prepared_sheet <- StudioExportBatchSheetState::move_focus(prepared_sheet, StudioShortcuts::shift(modifiers), prepared_controls())
+                    touch()
+                elif code == UiCore::Key.Up or code == UiCore::Key.Down:
+                    row: i64 = prepared_sheet.selected + (-1 if code == UiCore::Key.Up else 1)
+                    prepared_sheet <- StudioExportBatchSheetState::select(prepared_sheet, row)
+                    touch()
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    prepared_control_action(prepared_sheet.focus)
+
+        def draw_prepared_sheet(w: f32, h: f32) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not prepared_sheet_open()
+                StudioPanels::export_batch_panel(w, h, prepared_rows, prepared_sheet.first,
+                    prepared_sheet.selected, prepared_sheet.focus, prepared_controls(), prepared_message)
