@@ -71,85 +71,87 @@ module Corrections:
         # engine refuses individual invalid components; without this pass an
         # overflowing translation could otherwise update only two axes.
         def outputs_admitted(doc: GlbDocument::Document&, anim: usize, c: Correction&) -> bool can[Global{Read, Write}]:
-            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, c|:
-                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
-                continue if held.node.i64() != c.node or held.interpolation == GlbDocument::Interpolation.CubicSpline
-                rotation: bool = held.path == GlbDocument::TargetPath.Rotation
-                translation: bool = held.path == GlbDocument::TargetPath.Translation
-                continue if not rotation and not translation
-                # A shared output accessor would couple different channels
-                # or apply this correction twice after a one-pass preflight.
-                for other_at in 0..<GlbDocument::channel_count(doc, anim) |other_at, at, doc, anim, held|:
-                    continue if other_at == at
-                    other: GlbDocument::Channel = GlbDocument::channel(doc, anim, other_at)
-                    return false if other.output == held.output
-                track: GlbDocument::Track = GlbDocument::track(doc, held.output)
-                return false if track.components != (4 if rotation else 3)
-                if storage_length(doc, track) is length:
-                    for other_slot in 0..<GlbDocument::track_count(doc) |other_slot, doc, held, track, length|:
-                        continue if other_slot == held.output
-                        other: GlbDocument::Track = GlbDocument::track(doc, other_slot)
-                        if storage_length(doc, other) is other_length:
-                            return false if StorageRangePolicy::overlaps(track.byte_start, length, other.byte_start, other_length)
-                        else:
-                            return false
-                else:
-                    return false
-                for k in 0..<track.count |k, doc, held, c, rotation|:
-                    continue if not KeyWeight::admits_index(k, c.first, c.last)
-                    weight: i64 = KeyWeight::weight(k.i64(), c.first, c.key, c.last)
-                    continue if weight <= 0
-                    if rotation:
-                        q: Geometry::Quat = Geometry::Quat{x: GlbDocument::track_value(doc, held.output, k, 0), y: GlbDocument::track_value(doc, held.output, k, 1), z: GlbDocument::track_value(doc, held.output, k, 2), w: GlbDocument::track_value(doc, held.output, k, 3)}
-                        offset: Geometry::Quat = partial_raw(c.rotation, weight)
-                        return false if not quaternion_admitted(offset) or not quaternion_admitted(q)
-                        product: Geometry::Quat = Geometry::quat_mul(Geometry::quat_normalize(offset), q)
-                        return false if not quaternion_admitted(product)
-                        r: Geometry::Quat = Geometry::quat_normalize(product)
-                        return false if not scalar_storable(r.x) or not scalar_storable(r.y) or not scalar_storable(r.z) or not scalar_storable(r.w)
-                        norm: f32 = Geometry::quat_length(r)
-                        return false if norm - norm != 0.0 or norm <= 0.0
+            can Global{Read, Write}:
+                for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, c|:
+                    held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                    continue if held.node.i64() != c.node or held.interpolation == GlbDocument::Interpolation.CubicSpline
+                    rotation: bool = held.path == GlbDocument::TargetPath.Rotation
+                    translation: bool = held.path == GlbDocument::TargetPath.Translation
+                    continue if not rotation and not translation
+                    # A shared output accessor would couple different channels
+                    # or apply this correction twice after a one-pass preflight.
+                    for other_at in 0..<GlbDocument::channel_count(doc, anim) |other_at, at, doc, anim, held|:
+                        continue if other_at == at
+                        other: GlbDocument::Channel = GlbDocument::channel(doc, anim, other_at)
+                        return false if other.output == held.output
+                    track: GlbDocument::Track = GlbDocument::track(doc, held.output)
+                    return false if track.components != (4 if rotation else 3)
+                    if storage_length(doc, track) is length:
+                        for other_slot in 0..<GlbDocument::track_count(doc) |other_slot, doc, held, track, length|:
+                            continue if other_slot == held.output
+                            other: GlbDocument::Track = GlbDocument::track(doc, other_slot)
+                            if storage_length(doc, other) is other_length:
+                                return false if StorageRangePolicy::overlaps(track.byte_start, length, other.byte_start, other_length)
+                            else:
+                                return false
                     else:
-                        t: f32 = weight.f32() / KeyWeight::Domain::FULL_PERMILLE.f32()
-                        return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 0) + c.translation.x * t)
-                        return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 1) + c.translation.y * t)
-                        return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 2) + c.translation.z * t)
-            true
+                        return false
+                    for k in 0..<track.count |k, doc, held, c, rotation|:
+                        continue if not KeyWeight::admits_index(k, c.first, c.last)
+                        weight: i64 = KeyWeight::weight(k.i64(), c.first, c.key, c.last)
+                        continue if weight <= 0
+                        if rotation:
+                            q: Geometry::Quat = Geometry::Quat{x: GlbDocument::track_value(doc, held.output, k, 0), y: GlbDocument::track_value(doc, held.output, k, 1), z: GlbDocument::track_value(doc, held.output, k, 2), w: GlbDocument::track_value(doc, held.output, k, 3)}
+                            offset: Geometry::Quat = partial_raw(c.rotation, weight)
+                            return false if not quaternion_admitted(offset) or not quaternion_admitted(q)
+                            product: Geometry::Quat = Geometry::quat_mul(Geometry::quat_normalize(offset), q)
+                            return false if not quaternion_admitted(product)
+                            r: Geometry::Quat = Geometry::quat_normalize(product)
+                            return false if not scalar_storable(r.x) or not scalar_storable(r.y) or not scalar_storable(r.z) or not scalar_storable(r.w)
+                            norm: f32 = Geometry::quat_length(r)
+                            return false if norm - norm != 0.0 or norm <= 0.0
+                        else:
+                            t: f32 = weight.f32() / KeyWeight::Domain::FULL_PERMILLE.f32()
+                            return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 0) + c.translation.x * t)
+                            return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 1) + c.translation.y * t)
+                            return false if not scalar_storable(GlbDocument::track_value(doc, held.output, k, 2) + c.translation.z * t)
+                true
 
         # Number of keys moved, or -1 on refusal before any channel write.
         def apply(doc: mutable GlbDocument::Document&, anim: usize, c: Correction&) -> i64 can[Global{Read, Write}]:
-            return 0 if not c.enabled
-            return -1 if not CorrectionScopePolicy::valid(c.node, c.first, c.key, c.last) or not transform_admitted(c)
-            return -1 if not outputs_admitted(doc, anim, c)
-            mutable moved: i64 = 0
-            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, c, moved|:
-                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
-                continue if held.node.i64() != c.node
-                continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
-                rotation: bool = held.path == GlbDocument::TargetPath.Rotation
-                translation: bool = held.path == GlbDocument::TargetPath.Translation
-                continue if not rotation and not translation
-                keys: usize = GlbDocument::key_count(doc, held.output)
-                for k in 0..<keys |k, doc, held, c, moved, rotation|:
-                    # Out-of-scope keys are untouched, including indices too
-                    # large for the signed frame domain of the weight kernel.
-                    continue if not KeyWeight::admits_index(k, c.first, c.last)
-                    w: i64 = KeyWeight::weight(k.i64(), c.first, c.key, c.last)
-                    if w > 0:
-                        if rotation:
-                            q: Geometry::Quat = Geometry::Quat{x: GlbDocument::track_value(doc, held.output, k, 0), y: GlbDocument::track_value(doc, held.output, k, 1), z: GlbDocument::track_value(doc, held.output, k, 2), w: GlbDocument::track_value(doc, held.output, k, 3)}
-                            r: Geometry::Quat = Geometry::quat_normalize(Geometry::quat_mul(partial(c.rotation, w), q))
-                            _ = GlbDocument::set_track_value(doc, held.output, k, 0, r.x)
-                            _ = GlbDocument::set_track_value(doc, held.output, k, 1, r.y)
-                            _ = GlbDocument::set_track_value(doc, held.output, k, 2, r.z)
-                            _ = GlbDocument::set_track_value(doc, held.output, k, 3, r.w)
-                        else:
-                            t: f32 = w.f32() / KeyWeight::Domain::FULL_PERMILLE.f32()
-                            _ = GlbDocument::set_track_value(doc, held.output, k, 0, GlbDocument::track_value(doc, held.output, k, 0) + c.translation.x * t)
-                            _ = GlbDocument::set_track_value(doc, held.output, k, 1, GlbDocument::track_value(doc, held.output, k, 1) + c.translation.y * t)
-                            _ = GlbDocument::set_track_value(doc, held.output, k, 2, GlbDocument::track_value(doc, held.output, k, 2) + c.translation.z * t)
-                        moved <- moved + 1
-            return moved
+            can Global{Read, Write}:
+                return 0 if not c.enabled
+                return -1 if not CorrectionScopePolicy::valid(c.node, c.first, c.key, c.last) or not transform_admitted(c)
+                return -1 if not outputs_admitted(doc, anim, c)
+                mutable moved: i64 = 0
+                for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, c, moved|:
+                    held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                    continue if held.node.i64() != c.node
+                    continue if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                    rotation: bool = held.path == GlbDocument::TargetPath.Rotation
+                    translation: bool = held.path == GlbDocument::TargetPath.Translation
+                    continue if not rotation and not translation
+                    keys: usize = GlbDocument::key_count(doc, held.output)
+                    for k in 0..<keys |k, doc, held, c, moved, rotation|:
+                        # Out-of-scope keys are untouched, including indices too
+                        # large for the signed frame domain of the weight kernel.
+                        continue if not KeyWeight::admits_index(k, c.first, c.last)
+                        w: i64 = KeyWeight::weight(k.i64(), c.first, c.key, c.last)
+                        if w > 0:
+                            if rotation:
+                                q: Geometry::Quat = Geometry::Quat{x: GlbDocument::track_value(doc, held.output, k, 0), y: GlbDocument::track_value(doc, held.output, k, 1), z: GlbDocument::track_value(doc, held.output, k, 2), w: GlbDocument::track_value(doc, held.output, k, 3)}
+                                r: Geometry::Quat = Geometry::quat_normalize(Geometry::quat_mul(partial(c.rotation, w), q))
+                                _ = GlbDocument::set_track_value(doc, held.output, k, 0, r.x)
+                                _ = GlbDocument::set_track_value(doc, held.output, k, 1, r.y)
+                                _ = GlbDocument::set_track_value(doc, held.output, k, 2, r.z)
+                                _ = GlbDocument::set_track_value(doc, held.output, k, 3, r.w)
+                            else:
+                                t: f32 = w.f32() / KeyWeight::Domain::FULL_PERMILLE.f32()
+                                _ = GlbDocument::set_track_value(doc, held.output, k, 0, GlbDocument::track_value(doc, held.output, k, 0) + c.translation.x * t)
+                                _ = GlbDocument::set_track_value(doc, held.output, k, 1, GlbDocument::track_value(doc, held.output, k, 1) + c.translation.y * t)
+                                _ = GlbDocument::set_track_value(doc, held.output, k, 2, GlbDocument::track_value(doc, held.output, k, 2) + c.translation.z * t)
+                            moved <- moved + 1
+                return moved
 
     private:
         def partial_raw(d: Geometry::Quat, weight: i64) -> Geometry::Quat:
