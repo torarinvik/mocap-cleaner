@@ -176,6 +176,12 @@ runtime object
 The retained seed log is `/tmp/Elisa-compiler-atomic-load/build/seed-b8256d31.log`.
 Focused GSR/atomic regression execution and the fixed-snapshot Studio semantic
 check remain pending. The seed alone does not qualify installation or FBX redraw.
+The focused run also exposed dropped lexical ownership on parser `__using`
+annotations. Repair `1beecf48` restores the current module and passes Stage0
+semantic checking; its exact-source reseed is in progress. Preserve the failed
+`b8256d31` regression log and require individual line/message assertions in the
+rerun. The next Studio snapshot includes the source-path admission law and
+validated FBX request comprehension from root `3e0ac6a`.
 
 **Finish evidence:** exact input manifests and product provenance, authenticated
 current prover/replay pair, current complete graph/link closure and successful
