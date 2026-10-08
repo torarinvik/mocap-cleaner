@@ -45,7 +45,8 @@ The current app is still unqualified. Prioritize these steps in order:
 3. **Fix the observed user failure.** Reproduce FBX open and Character/Skeleton
    switching on the user's asset, including repeated redraw and playback.
    Preserve the source and retain crash/ownership evidence. Make workspace setup
-   and failure recovery visible in the same journey. Exit: import, display,
+   and failure recovery visible in the same journey. The empty-state control now
+   names the next workspace action and pending setup step. Exit: import, display,
    cancel and retry work without a crash or ambiguous status.
 4. **Complete one useful result.** Use an existing cleanup to inspect, preview,
    apply/cancel, undo and export; reopen the GLB and compare reviewed motion.
