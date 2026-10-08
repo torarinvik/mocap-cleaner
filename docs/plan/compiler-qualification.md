@@ -156,6 +156,17 @@ Remaining work:
   matching candidate scan. Qualify all four callbacks and publication after the
   polling frame ends; input capture alone cannot establish returned-data lifetime.
 
+**Latest Git refresh (2026-10-08):** compiler upstream remains `7ec9def9`,
+Stage0 remains `778c8281`, and prover upstream remains `e27b11bc` after fetch.
+Engine upstream advanced to `2d052b44`; merged into the mocap client at
+`6a6aced2`, preserving project repairs. These four engine commits update retained
+validation and quantifier-repair documentation; they do not establish a Studio fix.
+The combined GSR and atomic callee-resolution compiler candidate `b8256d31`
+passes its frozen full-driver Stage0 semantic preflight. Build its Stage1 product
+with the current Stage0, retain source/product/runtime correspondence, then qualify
+the regressions and full Studio graph. No current Stage1 runtime acceptance is
+claimed from that semantic preflight.
+
 **Finish evidence:** exact input manifests and product provenance, authenticated
 current prover/replay pair, current complete graph/link closure and successful
 fixed-snapshot regression evidence. A seed, object or package alone does not close
