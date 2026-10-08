@@ -69,3 +69,19 @@ still reports undefined/non-function errors. Rename test-only protocol types and
 rerun with no unrelated diagnostics for the collision control. Investigate the
 ancestor symbol-binding gap separately; an expected mismatch alone cannot prove
 the same program is otherwise correctly resolved.
+
+## Full Studio integration after the import-owner repair
+
+The frozen `1beecf48` product checks the complete Studio graph with exit 1.
+The previous atomic `load` diagnostic is absent. Six remaining errors at
+`session_source_reference_codec.elisa:196–211` report `token_count`/`token_byte`
+expecting `Token` but receiving `u32`. The same codec module checks standalone
+with exit 0. Calls before the nested loops are unaffected; inspect loop-local,
+optional-binding and nominal-owner inference rather than renaming application
+symbols to avoid the compiler bug. The exact cause remains unconfirmed.
+
+Input manifests before/after match byte-for-byte. Retained evidence:
+`build/studio-build.atomic-compiler-semantic-1be/semantic.log`, SHA-256
+`958eec829c6fb96a4780966bcf532f34fe60604f3ee366fc227b017ba758e1cd`.
+This removes one integration diagnostic; it does not qualify native Studio or
+the FBX redraw fix.
