@@ -38,28 +38,29 @@ module StudioFbxImportReference:
             true
 
         def make(source: darray[u8]&, runtime: darray[u8]&, source_digest: darray[u8]&, runtime_digest: darray[u8]&, rate: i64) -> Result can[Unsafe.RawExtern, Memory.Allocate, Global{Read, Write}]:
-            options_result: StudioFbxImportNative::DigestResult = StudioFbxImportNative::options(rate)
-            return Result{value: null} if options_result.status != 0 or not StudioTakeSourceRefPolicy::sha256_valid(options_result.bytes)
-            mutable options_owned: darray[u8] = move options_result.bytes
-            mutable importer: darray[u8] = []
-            append_revision(StudioBuildIdentity::Inputs::FBX_IMPORTER_SHA256, &importer)
-            reference: StudioTakeSourceRefPolicy::TakeSourceRef = StudioTakeSourceRefPolicy::TakeSourceRef{
-                format: StudioTakeSourceRefPolicy::SourceFormat.FbxDerived,
-                original_path: without_terminator(source), original_sha256: copy_bytes(source_digest),
-                runtime_glb_path: without_terminator(runtime), runtime_glb_sha256: copy_bytes(runtime_digest),
-                importer_revision: move importer, options_sha256: move options_owned}
-            return Result{value: null} if not StudioTakeSourceRefPolicy::valid(&reference)
-            result: Result = Result{value: reference}
-            return move result
-
+            can Global{Read, Write}:
+                options_result: StudioFbxImportNative::DigestResult = StudioFbxImportNative::options(rate)
+                return Result{value: null} if options_result.status != 0 or not StudioTakeSourceRefPolicy::sha256_valid(options_result.bytes)
+                mutable options_owned: darray[u8] = move options_result.bytes
+                mutable importer: darray[u8] = []
+                append_revision(StudioBuildIdentity::Inputs::FBX_IMPORTER_SHA256, &importer)
+                reference: StudioTakeSourceRefPolicy::TakeSourceRef = StudioTakeSourceRefPolicy::TakeSourceRef{
+                    format: StudioTakeSourceRefPolicy::SourceFormat.FbxDerived,
+                    original_path: without_terminator(source), original_sha256: copy_bytes(source_digest),
+                    runtime_glb_path: without_terminator(runtime), runtime_glb_sha256: copy_bytes(runtime_digest),
+                    importer_revision: move importer, options_sha256: move options_owned}
+                return Result{value: null} if not StudioTakeSourceRefPolicy::valid(&reference)
+                result: Result = Result{value: reference}
+                return move result
         # A persisted processing identity is current only when both the
         # selected converter source digest and the exact configured options
         # digest match. Unknown or unsupported saved rates cannot be inferred.
         def current_processing_identity_matches(reference: StudioTakeSourceRefPolicy::TakeSourceRef&, rate: i64) -> bool can[Unsafe.RawExtern, Memory.Allocate, Global{Read, Write}]:
             ensure result implies StudioTakeSourceRefPolicy::valid(reference) and reference.format == StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
             ensure result implies rate == StudioFbxImportPolicy::Limit::DEFAULT_RATE
-            return false if not StudioTakeSourceRefPolicy::valid(reference) or reference.format != StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
-            return false if rate != StudioFbxImportPolicy::Limit::DEFAULT_RATE or not StudioFbxImportPolicy::rate_valid(rate)
-            options_result: StudioFbxImportNative::DigestResult = StudioFbxImportNative::options(rate)
-            return false if options_result.status != 0
-            processing_identity_matches(reference, StudioBuildIdentity::Inputs::FBX_IMPORTER_SHA256, options_result.bytes)
+            can Global{Read, Write}:
+                return false if not StudioTakeSourceRefPolicy::valid(reference) or reference.format != StudioTakeSourceRefPolicy::SourceFormat.FbxDerived
+                return false if rate != StudioFbxImportPolicy::Limit::DEFAULT_RATE or not StudioFbxImportPolicy::rate_valid(rate)
+                options_result: StudioFbxImportNative::DigestResult = StudioFbxImportNative::options(rate)
+                return false if options_result.status != 0
+                return processing_identity_matches(reference, StudioBuildIdentity::Inputs::FBX_IMPORTER_SHA256, options_result.bytes)
