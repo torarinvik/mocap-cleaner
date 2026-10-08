@@ -59,3 +59,13 @@ then reads `function_param_type[row]` without checking that vector's count.
 Validate all indexed metadata before use and enumerate sibling consumers;
 name-only shared lookup must not be described as resolved-owner qualification.
 Keep the indexed lookup rather than introducing whole-table argument scans.
+
+The `1beecf48` targeted rerun reports five fixtures and zero failed assertions:
+the imported mismatch now appears at L17, the ancestor mismatch at L18, six
+owning-return lines are refused, and scalar-owner collision diagnostics are absent.
+This is an assertion-level result, not clean fixture qualification: the original
+collision fixture still reports duplicate `Joinable`, and the ancestor fixture
+still reports undefined/non-function errors. Rename test-only protocol types and
+rerun with no unrelated diagnostics for the collision control. Investigate the
+ancestor symbol-binding gap separately; an expected mismatch alone cannot prove
+the same program is otherwise correctly resolved.
