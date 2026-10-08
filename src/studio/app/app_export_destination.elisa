@@ -4,11 +4,12 @@ include "../export_result_readiness_policy.elisa"
 extend Studio:
     private:
         def export_result_current() -> bool can Global.Read:
-            if built_stack is evaluated:
-                active: StackState::Stack = current_stack()
-                return StudioExportResultReadinessPolicy::ready(clip != null, true,
-                    StackState::same(active, evaluated), load_failed, contact_preview_rebuild_pending)
-            return false
+            can Global.Read:
+                if built_stack is evaluated:
+                    active: StackState::Stack = current_stack()
+                    return StudioExportResultReadinessPolicy::ready(clip != null, true,
+                        StackState::same(active, evaluated), load_failed, contact_preview_rebuild_pending)
+                return false
 
         def path_bytes(p: cstr) -> darray[u8] can Unsafe.PointerCast:
             mutable out: darray[u8] = []
@@ -21,33 +22,35 @@ extend Studio:
             []
 
         def export_reason(destination: cstr, overwrite_confirmed: bool) -> i64 can[Unsafe.PointerCast, Global{Read, Write}]:
-            mutable reason: i64 = StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
-            if FilePanel::resolve_path(workspace_build_directory()) is root_path:
-                if FilePanel::resolve_path(destination) is target_path:
-                    root_facts: i64 = FilePanel::path_facts(root_path)
-                    target_facts: i64 = FilePanel::path_facts(target_path)
-                    if root_facts >= 0 and target_facts >= 0:
-                        if (root_facts & FilePanel::PATH_DIRECTORY) == 0:
-                            reason <- StudioExportPolicy::Reason.OUTSIDE_BUILD.i64()
-                        else:
-                            root_bytes: darray[u8] = path_bytes(root_path)
-                            target_bytes: darray[u8] = path_bytes(target_path)
-                            if root_bytes.count > 0 and target_bytes.count > 0:
-                                reason <- StudioExportPolicy::decision(
-                                    true,
-                                    StudioExportPolicy::inside_build(root_bytes, target_bytes),
-                                    FilePanel::same_identity(path, target_path),
-                                    (target_facts & FilePanel::PATH_EXISTS) != 0,
-                                    (target_facts & FilePanel::PATH_SYMLINK) != 0,
-                                    (target_facts & FilePanel::PATH_REGULAR) != 0,
-                                    overwrite_confirmed)
-                    FilePanel::release_path(target_path)
-                FilePanel::release_path(root_path)
-            return reason
+            can Global{Read, Write}:
+                mutable reason: i64 = StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
+                if FilePanel::resolve_path(workspace_build_directory()) is root_path:
+                    if FilePanel::resolve_path(destination) is target_path:
+                        root_facts: i64 = FilePanel::path_facts(root_path)
+                        target_facts: i64 = FilePanel::path_facts(target_path)
+                        if root_facts >= 0 and target_facts >= 0:
+                            if (root_facts & FilePanel::PATH_DIRECTORY) == 0:
+                                reason <- StudioExportPolicy::Reason.OUTSIDE_BUILD.i64()
+                            else:
+                                root_bytes: darray[u8] = path_bytes(root_path)
+                                target_bytes: darray[u8] = path_bytes(target_path)
+                                if root_bytes.count > 0 and target_bytes.count > 0:
+                                    reason <- StudioExportPolicy::decision(
+                                        true,
+                                        StudioExportPolicy::inside_build(root_bytes, target_bytes),
+                                        FilePanel::same_identity(path, target_path),
+                                        (target_facts & FilePanel::PATH_EXISTS) != 0,
+                                        (target_facts & FilePanel::PATH_SYMLINK) != 0,
+                                        (target_facts & FilePanel::PATH_REGULAR) != 0,
+                                        overwrite_confirmed)
+                        FilePanel::release_path(target_path)
+                    FilePanel::release_path(root_path)
+                return reason
 
         def artifact_destination_allowed(destination: cstr) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
-            return StudioStorageArtifactDestination::allowed(workspace_build_directory(), destination, STORAGE_MANIFEST_PATH,
-                STORAGE_PREFERENCES_PATH, STORAGE_EXEMPTIONS_PATH, STORAGE_LOCK_PATH)
+            can Global{Read, Write}:
+                return StudioStorageArtifactDestination::allowed(workspace_build_directory(), destination, STORAGE_MANIFEST_PATH,
+                    STORAGE_PREFERENCES_PATH, STORAGE_EXEMPTIONS_PATH, STORAGE_LOCK_PATH)
 
         def export_error(reason: i64) -> sview:
             return "Export blocked: destination could not be resolved" if reason == StudioExportPolicy::Reason.PATH_UNRESOLVED.i64()
