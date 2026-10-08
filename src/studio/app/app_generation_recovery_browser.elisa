@@ -27,20 +27,21 @@ extend Studio:
                 copied.push(byte)
             copied
 
-        def generation_recovery_start_discovery() -> void can[Threads, Memory{Allocate, Release}, Unsafe{PointerCast, RawExtern}]:
-            return if storage_close_requested
-            return if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
-            return if generation_recovery_discovery_task != null or generation_recovery_scan_task != null or not generation_recovery_discovery_requested
-            mutable root: darray[u8] = path_bytes(workspace_build_directory())
-            if StudioGenerationRecoveryLedgerPolicy::valid_bytes(root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES):
-                job: StudioBuildGenerationRecoveryDiscoveryWorker::Job = StudioBuildGenerationRecoveryDiscoveryWorker::Job{ticket: generation_recovery_discovery_ticket, root: StudioWorkerPathCapture::capture(&root)}
-                generation_recovery_discovery_task <- task(generation_recovery_discovery_job, move job)
-                generation_recovery_discovery_requested <- false
-                UiCore::request_frame_after(0.016)
-            else:
-                generation_recovery_discovery_requested <- false
-                generation_recovery_discovery_ready <- true
-                generation_recovery_discovery_outcome <- StudioBuildGenerationRecoveryDiscovery::Outcome.Refused
+        def generation_recovery_start_discovery() -> void can[Threads, Memory{Allocate, Release}, Unsafe{PointerCast, RawExtern}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if storage_close_requested
+                return if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
+                return if generation_recovery_discovery_task != null or generation_recovery_scan_task != null or not generation_recovery_discovery_requested
+                mutable root: darray[u8] = path_bytes(workspace_build_directory())
+                if StudioGenerationRecoveryLedgerPolicy::valid_bytes(root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES):
+                    job: StudioBuildGenerationRecoveryDiscoveryWorker::Job = StudioBuildGenerationRecoveryDiscoveryWorker::Job{ticket: generation_recovery_discovery_ticket, root: StudioWorkerPathCapture::capture(&root)}
+                    generation_recovery_discovery_task <- task(generation_recovery_discovery_job, move job)
+                    generation_recovery_discovery_requested <- false
+                    UiCore::request_frame_after(0.016)
+                else:
+                    generation_recovery_discovery_requested <- false
+                    generation_recovery_discovery_ready <- true
+                    generation_recovery_discovery_outcome <- StudioBuildGenerationRecoveryDiscovery::Outcome.Refused
 
         def generation_recovery_append_unique(items: mutable darray[StudioGenerationRecoveryLedger::Identity]&, identity: StudioGenerationRecoveryLedger::Identity&) -> bool can Memory.Allocate:
             for previous in items |previous, identity|:
@@ -54,139 +55,148 @@ extend Studio:
             items.push(StudioGenerationRecoveryLedger::Identity{root: root, operation: operation})
             true
 
-        def generation_recovery_merge_discovery(result: StudioBuildGenerationRecoveryDiscoveryWorker::Result) -> bool can Memory.Allocate:
-            mutable items: darray[StudioGenerationRecoveryLedger::Identity] = []
-            for index in 0..<StudioGenerationRecoveryLedger::count(generation_recovery_ledger) |index, items, result|:
-                stored: StudioGenerationRecoveryLedger::Identity? = StudioGenerationRecoveryLedger::read(generation_recovery_ledger, index)
-                if stored is identity:
-                    if not generation_recovery_append_unique(items, identity):
-                        generation_recovery_items <- []
-                        generation_recovery_discovery_overflow <- true
-                        return false
-            if result.snapshot.outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Complete:
-                for operation in result.snapshot.operations |operation, result, items|:
-                    identity: StudioGenerationRecoveryLedger::Identity = StudioGenerationRecoveryLedger::Identity{root: generation_recovery_copy_bytes(result.root), operation: generation_recovery_copy_bytes(operation)}
-                    if not generation_recovery_append_unique(items, identity):
-                        generation_recovery_items <- []
-                        generation_recovery_discovery_overflow <- true
-                        return false
-            generation_recovery_items <- move items
-            generation_recovery_discovery_outcome <- result.snapshot.outcome
-            generation_recovery_pending_records <- result.snapshot.pending_records
-            generation_recovery_discovery_overflow <- result.snapshot.outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Overflow
-            true
+        def generation_recovery_merge_discovery(result: StudioBuildGenerationRecoveryDiscoveryWorker::Result) -> bool can[Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                mutable items: darray[StudioGenerationRecoveryLedger::Identity] = []
+                for index in 0..<StudioGenerationRecoveryLedger::count(generation_recovery_ledger) |index, items, result|:
+                    stored: StudioGenerationRecoveryLedger::Identity? = StudioGenerationRecoveryLedger::read(generation_recovery_ledger, index)
+                    if stored is identity:
+                        if not generation_recovery_append_unique(items, identity):
+                            generation_recovery_items <- []
+                            generation_recovery_discovery_overflow <- true
+                            return false
+                if result.snapshot.outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Complete:
+                    for operation in result.snapshot.operations |operation, result, items|:
+                        identity: StudioGenerationRecoveryLedger::Identity = StudioGenerationRecoveryLedger::Identity{root: generation_recovery_copy_bytes(result.root), operation: generation_recovery_copy_bytes(operation)}
+                        if not generation_recovery_append_unique(items, identity):
+                            generation_recovery_items <- []
+                            generation_recovery_discovery_overflow <- true
+                            return false
+                generation_recovery_items <- move items
+                generation_recovery_discovery_outcome <- result.snapshot.outcome
+                generation_recovery_pending_records <- result.snapshot.pending_records
+                generation_recovery_discovery_overflow <- result.snapshot.outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Overflow
+                return true
 
-        def generation_recovery_merge_ledger_only() -> bool can Memory.Allocate:
-            mutable items: darray[StudioGenerationRecoveryLedger::Identity] = []
-            for index in 0..<StudioGenerationRecoveryLedger::count(generation_recovery_ledger) |index, items|:
-                stored: StudioGenerationRecoveryLedger::Identity? = StudioGenerationRecoveryLedger::read(generation_recovery_ledger, index)
-                if stored is identity:
-                    if not generation_recovery_append_unique(items, identity):
-                        generation_recovery_items <- []
-                        generation_recovery_discovery_overflow <- true
-                        return false
-            generation_recovery_items <- move items
-            true
+        def generation_recovery_merge_ledger_only() -> bool can[Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                mutable items: darray[StudioGenerationRecoveryLedger::Identity] = []
+                for index in 0..<StudioGenerationRecoveryLedger::count(generation_recovery_ledger) |index, items|:
+                    stored: StudioGenerationRecoveryLedger::Identity? = StudioGenerationRecoveryLedger::read(generation_recovery_ledger, index)
+                    if stored is identity:
+                        if not generation_recovery_append_unique(items, identity):
+                            generation_recovery_items <- []
+                            generation_recovery_discovery_overflow <- true
+                            return false
+                generation_recovery_items <- move items
+                return true
 
-        def generation_recovery_browser_begin() -> void can[Threads, Memory{Allocate, Release}, Unsafe{PointerCast, RawExtern}]:
-            generation_recovery_browser_reset()
-            if generation_recovery_discovery_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX:
-                generation_recovery_discovery_ready <- true
-                generation_recovery_discovery_outcome <- StudioBuildGenerationRecoveryDiscovery::Outcome.Refused
-                return
-            generation_recovery_discovery_ticket <- generation_recovery_discovery_ticket + 1
-            generation_recovery_discovery_reply <- null
-            generation_recovery_discovery_ready <- false
-            generation_recovery_discovery_overflow <- false
-            generation_recovery_pending_records <- 0
-            generation_recovery_items <- []
-            generation_recovery_discovery_requested <- true
-            generation_recovery_start_discovery() if generation_recovery_discovery_task == null
+        def generation_recovery_browser_begin() -> void can[Threads, Memory{Allocate, Release}, Unsafe{PointerCast, RawExtern}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                generation_recovery_browser_reset()
+                if generation_recovery_discovery_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX:
+                    generation_recovery_discovery_ready <- true
+                    generation_recovery_discovery_outcome <- StudioBuildGenerationRecoveryDiscovery::Outcome.Refused
+                    return
+                generation_recovery_discovery_ticket <- generation_recovery_discovery_ticket + 1
+                generation_recovery_discovery_reply <- null
+                generation_recovery_discovery_ready <- false
+                generation_recovery_discovery_overflow <- false
+                generation_recovery_pending_records <- 0
+                generation_recovery_items <- []
+                generation_recovery_discovery_requested <- true
+                generation_recovery_start_discovery() if generation_recovery_discovery_task == null
 
-        def generation_recovery_browser_refresh() -> void can[Threads, Memory{Allocate, Release}, Unsafe{PointerCast, RawExtern}]:
-            generation_recovery_browser_begin()
+        def generation_recovery_browser_refresh() -> void can[Threads, Memory{Allocate, Release}, Unsafe{PointerCast, RawExtern}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                generation_recovery_browser_begin()
 
-        def generation_recovery_start_scan() -> void can[Threads, Memory{Allocate, Release}, Unsafe.RawExtern]:
-            return if storage_close_requested
-            return if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
-            return if generation_recovery_scan_task != null or generation_recovery_discovery_task != null or not generation_recovery_scan_requested
-            return if generation_recovery_scan_selected < 0 or generation_recovery_scan_ticket <= 0
-            if generation_recovery_scan_selected < generation_recovery_browser_count():
-                selected: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[generation_recovery_scan_selected]
-                paths: StudioBuildGenerationRecoveryScanWorker::Paths = StudioBuildGenerationRecoveryScanWorker::Paths{root: StudioWorkerPathCapture::capture(selected.root), operation: StudioWorkerPathCapture::capture(selected.operation)}
-                job: StudioBuildGenerationRecoveryScanWorker::Job = StudioBuildGenerationRecoveryScanWorker::Job{ticket: generation_recovery_scan_ticket, index: generation_recovery_scan_selected, paths: paths}
-                generation_recovery_scan_task <- task(generation_recovery_scan_job, move job)
-                generation_recovery_scan_requested <- false
-                UiCore::request_frame_after(0.016)
-            else:
-                generation_recovery_scan_requested <- false
-
-        def generation_recovery_browser_select(index: i64) -> void can[Threads, Memory{Allocate, Release}, Unsafe.RawExtern]:
-            return if not generation_review_recovery_mode
-            return if not StudioGenerationRecoveryScanPolicy::index_valid(index, generation_recovery_browser_count())
-            return if generation_recovery_scan_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
-            generation_restore_cancel_review()
-            generation_restore_clear_selection()
-            generation_recovery_scan_ticket <- generation_recovery_scan_ticket + 1
-            generation_recovery_scan_selected <- index
-            generation_recovery_scan_reply <- null
-            generation_recovery_scan_requested <- true
-            generation_recovery_start_scan() if generation_recovery_scan_task == null
-            touch()
-
-        def generation_recovery_browser_reset() -> void:
-            generation_restore_cancel_review()
-            generation_restore_clear_selection()
-            generation_recovery_scan_ticket <- generation_recovery_scan_ticket + 1 if generation_recovery_scan_ticket < StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
-            generation_recovery_scan_selected <- -1
-            generation_recovery_scan_reply <- null
-            generation_recovery_scan_requested <- false
-            generation_recovery_discovery_ticket <- generation_recovery_discovery_ticket + 1 if generation_recovery_discovery_ticket < StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
-            generation_recovery_discovery_requested <- false
-            generation_recovery_discovery_ready <- false
-            generation_recovery_discovery_reply <- null
-            generation_recovery_items <- []
-            generation_recovery_discovery_overflow <- false
-
-        def generation_recovery_browser_unselect() -> void:
-            generation_restore_cancel_review()
-            generation_restore_clear_selection()
-            generation_recovery_scan_ticket <- generation_recovery_scan_ticket + 1 if generation_recovery_scan_ticket < StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
-            generation_recovery_scan_selected <- -1
-            generation_recovery_scan_reply <- null
-            generation_recovery_scan_requested <- false
-
-        def poll_generation_recovery_browser() -> void can[Threads, Memory{Allocate, Release}, Unsafe.RawExtern]:
-            if generation_recovery_discovery_task is discovery_active:
-                generation_recovery_discovery_task <- null
-                discovery_readiness: ThreadReadiness[StudioBuildGenerationRecoveryDiscoveryWorker::Result] = poll_ready(move discovery_active)
-                if not discovery_readiness.complete:
-                    generation_recovery_discovery_task <- move discovery_readiness.thread
+        def generation_recovery_start_scan() -> void can[Threads, Memory{Allocate, Release}, Unsafe.RawExtern, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if storage_close_requested
+                return if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
+                return if generation_recovery_scan_task != null or generation_recovery_discovery_task != null or not generation_recovery_scan_requested
+                return if generation_recovery_scan_selected < 0 or generation_recovery_scan_ticket <= 0
+                if generation_recovery_scan_selected < generation_recovery_browser_count():
+                    selected: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[generation_recovery_scan_selected]
+                    paths: StudioBuildGenerationRecoveryScanWorker::Paths = StudioBuildGenerationRecoveryScanWorker::Paths{root: StudioWorkerPathCapture::capture(selected.root), operation: StudioWorkerPathCapture::capture(selected.operation)}
+                    job: StudioBuildGenerationRecoveryScanWorker::Job = StudioBuildGenerationRecoveryScanWorker::Job{ticket: generation_recovery_scan_ticket, index: generation_recovery_scan_selected, paths: paths}
+                    generation_recovery_scan_task <- task(generation_recovery_scan_job, move job)
+                    generation_recovery_scan_requested <- false
                     UiCore::request_frame_after(0.016)
                 else:
-                    mutable discovery_reply: StudioBuildGenerationRecoveryDiscoveryWorker::Result = join(move discovery_readiness.thread)
-                    if discovery_reply.ticket == generation_recovery_discovery_ticket:
-                        generation_recovery_discovery_ready <- true
-                        if generation_recovery_identity_equal(discovery_reply.root, path_bytes(workspace_build_directory())):
-                            _ = generation_recovery_merge_discovery(discovery_reply)
-                        else:
-                            generation_recovery_discovery_outcome <- StudioBuildGenerationRecoveryDiscovery::Outcome.Refused
-                            _ = generation_recovery_merge_ledger_only()
-                        generation_recovery_discovery_reply <- move discovery_reply
+                    generation_recovery_scan_requested <- false
+
+        def generation_recovery_browser_select(index: i64) -> void can[Threads, Memory{Allocate, Release}, Unsafe.RawExtern, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not generation_review_recovery_mode
+                return if not StudioGenerationRecoveryScanPolicy::index_valid(index, generation_recovery_browser_count())
+                return if generation_recovery_scan_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
+                generation_restore_cancel_review()
+                generation_restore_clear_selection()
+                generation_recovery_scan_ticket <- generation_recovery_scan_ticket + 1
+                generation_recovery_scan_selected <- index
+                generation_recovery_scan_reply <- null
+                generation_recovery_scan_requested <- true
+                generation_recovery_start_scan() if generation_recovery_scan_task == null
+                touch()
+
+        def generation_recovery_browser_reset() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                generation_restore_cancel_review()
+                generation_restore_clear_selection()
+                generation_recovery_scan_ticket <- generation_recovery_scan_ticket + 1 if generation_recovery_scan_ticket < StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
+                generation_recovery_scan_selected <- -1
+                generation_recovery_scan_reply <- null
+                generation_recovery_scan_requested <- false
+                generation_recovery_discovery_ticket <- generation_recovery_discovery_ticket + 1 if generation_recovery_discovery_ticket < StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
+                generation_recovery_discovery_requested <- false
+                generation_recovery_discovery_ready <- false
+                generation_recovery_discovery_reply <- null
+                generation_recovery_items <- []
+                generation_recovery_discovery_overflow <- false
+
+        def generation_recovery_browser_unselect() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                generation_restore_cancel_review()
+                generation_restore_clear_selection()
+                generation_recovery_scan_ticket <- generation_recovery_scan_ticket + 1 if generation_recovery_scan_ticket < StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
+                generation_recovery_scan_selected <- -1
+                generation_recovery_scan_reply <- null
+                generation_recovery_scan_requested <- false
+
+        def poll_generation_recovery_browser() -> void can[Threads, Memory{Allocate, Release}, Unsafe{PointerCast, RawExtern}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if generation_recovery_discovery_task is discovery_active:
+                    generation_recovery_discovery_task <- null
+                    discovery_readiness: ThreadReadiness[StudioBuildGenerationRecoveryDiscoveryWorker::Result] = poll_ready(move discovery_active)
+                    if not discovery_readiness.complete:
+                        generation_recovery_discovery_task <- move discovery_readiness.thread
+                        UiCore::request_frame_after(0.016)
+                    else:
+                        mutable discovery_reply: StudioBuildGenerationRecoveryDiscoveryWorker::Result = join(move discovery_readiness.thread)
+                        if discovery_reply.ticket == generation_recovery_discovery_ticket:
+                            generation_recovery_discovery_ready <- true
+                            if generation_recovery_identity_equal(discovery_reply.root, path_bytes(workspace_build_directory())):
+                                _ = generation_recovery_merge_discovery(discovery_reply)
+                            else:
+                                generation_recovery_discovery_outcome <- StudioBuildGenerationRecoveryDiscovery::Outcome.Refused
+                                _ = generation_recovery_merge_ledger_only()
+                            generation_recovery_discovery_reply <- move discovery_reply
+                            touch()
+                generation_recovery_start_discovery() if generation_recovery_discovery_requested and generation_recovery_discovery_task == null
+                if generation_recovery_scan_task is active:
+                    generation_recovery_scan_task <- null
+                    readiness: ThreadReadiness[StudioBuildGenerationRecoveryScanWorker::Result] = poll_ready(move active)
+                    if not readiness.complete:
+                        generation_recovery_scan_task <- move readiness.thread
+                        UiCore::request_frame_after(0.016)
+                        return
+                    mutable reply: StudioBuildGenerationRecoveryScanWorker::Result = join(move readiness.thread)
+                    if StudioGenerationRecoveryScanPolicy::reply_current(reply.ticket, generation_recovery_scan_ticket, reply.index, generation_recovery_scan_selected):
+                        generation_recovery_scan_reply <- move reply
                         touch()
-            generation_recovery_start_discovery() if generation_recovery_discovery_requested and generation_recovery_discovery_task == null
-            if generation_recovery_scan_task is active:
-                generation_recovery_scan_task <- null
-                readiness: ThreadReadiness[StudioBuildGenerationRecoveryScanWorker::Result] = poll_ready(move active)
-                if not readiness.complete:
-                    generation_recovery_scan_task <- move readiness.thread
-                    UiCore::request_frame_after(0.016)
-                    return
-                mutable reply: StudioBuildGenerationRecoveryScanWorker::Result = join(move readiness.thread)
-                if StudioGenerationRecoveryScanPolicy::reply_current(reply.ticket, generation_recovery_scan_ticket, reply.index, generation_recovery_scan_selected):
-                    generation_recovery_scan_reply <- move reply
-                    touch()
-            generation_recovery_start_scan() if generation_recovery_scan_requested and generation_recovery_scan_task == null
+                generation_recovery_start_scan() if generation_recovery_scan_requested and generation_recovery_scan_task == null
 
         def generation_recovery_identity_equal(left: darray[u8]&, right: darray[u8]&) -> bool:
             return false if left.count != right.count
@@ -194,36 +204,41 @@ extend Studio:
                 return false if left[index] != right[index]
             true
 
-        def generation_recovery_scan_current() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            return false if generation_recovery_scan_selected < 0
-            if generation_recovery_scan_reply is reply:
-                return false if not StudioGenerationRecoveryScanPolicy::reply_current(reply.ticket, generation_recovery_scan_ticket, reply.index, generation_recovery_scan_selected)
-                if generation_recovery_scan_selected < generation_recovery_browser_count():
-                    selected: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[generation_recovery_scan_selected]
-                    current_root: darray[u8] = path_bytes(workspace_build_directory())
-                    return generation_recovery_identity_equal(reply.root, selected.root) and generation_recovery_identity_equal(reply.operation, selected.operation) and generation_recovery_identity_equal(current_root, selected.root)
-            false
+        def generation_recovery_scan_current() -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return false if generation_recovery_scan_selected < 0
+                if generation_recovery_scan_reply is reply:
+                    return false if not StudioGenerationRecoveryScanPolicy::reply_current(reply.ticket, generation_recovery_scan_ticket, reply.index, generation_recovery_scan_selected)
+                    if generation_recovery_scan_selected < generation_recovery_browser_count():
+                        selected: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[generation_recovery_scan_selected]
+                        current_root: darray[u8] = path_bytes(workspace_build_directory())
+                        return generation_recovery_identity_equal(reply.root, selected.root) and generation_recovery_identity_equal(reply.operation, selected.operation) and generation_recovery_identity_equal(current_root, selected.root)
+                return false
 
-        def generation_recovery_browser_restore_admitted() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            return false if not generation_review_recovery_mode or not generation_recovery_scan_current()
-            if generation_recovery_scan_reply is reply:
-                StudioGenerationRecoveryScanPolicy::restore_admitted(reply.ticket, generation_recovery_scan_ticket, reply.index, generation_recovery_scan_selected, true, true, reply.observation.outcome, reply.observation.output_details_valid)
-            false
+        def generation_recovery_browser_restore_admitted() -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return false if not generation_review_recovery_mode or not generation_recovery_scan_current()
+                if generation_recovery_scan_reply is reply:
+                    return StudioGenerationRecoveryScanPolicy::restore_admitted(reply.ticket, generation_recovery_scan_ticket, reply.index, generation_recovery_scan_selected, true, true, reply.observation.outcome, reply.observation.output_details_valid)
+                return false
 
-        def generation_recovery_browser_count() -> i64:
-            return 0 if not generation_recovery_discovery_ready or generation_recovery_discovery_overflow
-            count: i64 = generation_recovery_items.count.i64()
-            return count if count >= 0 and count <= StudioGenerationRecoveryLedgerPolicy::Limit::OPERATIONS
-            0
+        def generation_recovery_browser_count() -> i64 can[Global.Read]:
+            can Global.Read:
+                return 0 if not generation_recovery_discovery_ready or generation_recovery_discovery_overflow
+                count: i64 = generation_recovery_items.count.i64()
+                return count if count >= 0 and count <= StudioGenerationRecoveryLedgerPolicy::Limit::OPERATIONS
+                return 0
 
-        def generation_recovery_selected_identity() -> StudioGenerationRecoveryLedger::Identity? can Memory.Allocate:
-            return null if generation_recovery_scan_selected < 0 or generation_recovery_scan_selected >= generation_recovery_browser_count()
-            stored: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[generation_recovery_scan_selected]
-            StudioGenerationRecoveryLedger::Identity{root: generation_recovery_copy_bytes(stored.root), operation: generation_recovery_copy_bytes(stored.operation)}
+        def generation_recovery_selected_identity() -> StudioGenerationRecoveryLedger::Identity? can[Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return null if generation_recovery_scan_selected < 0 or generation_recovery_scan_selected >= generation_recovery_browser_count()
+                stored: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[generation_recovery_scan_selected]
+                return StudioGenerationRecoveryLedger::Identity{root: generation_recovery_copy_bytes(stored.root), operation: generation_recovery_copy_bytes(stored.operation)}
 
-        def generation_recovery_selected_operation_bytes() -> i64:
-            return generation_recovery_items[generation_recovery_scan_selected].operation.count.i64() if generation_recovery_scan_selected >= 0 and generation_recovery_scan_selected < generation_recovery_browser_count()
-            0
+        def generation_recovery_selected_operation_bytes() -> i64 can[Global.Read]:
+            can Global.Read:
+                return generation_recovery_items[generation_recovery_scan_selected].operation.count.i64() if generation_recovery_scan_selected >= 0 and generation_recovery_scan_selected < generation_recovery_browser_count()
+                return 0
 
         def generation_recovery_outcome_name(outcome: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome) -> sview:
             return "quarantined and verified" if outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Quarantined
@@ -237,68 +252,71 @@ extend Studio:
             return "failed; protected" if outcome == StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Failed
             "unknown; protected"
 
-        def generation_recovery_browser_message() -> sview can[Unsafe.PointerCast, Memory.Allocate]:
-            facts: StudioGenerationRecoveryMessagePolicy::Facts = StudioGenerationRecoveryMessagePolicy::Facts{closing: storage_close_requested, discovery_ready: generation_recovery_discovery_ready, overflow: generation_recovery_discovery_overflow, selected: generation_recovery_scan_selected >= 0, observation_current: generation_recovery_scan_current(), scan_queued: generation_recovery_scan_requested, scan_active: generation_recovery_scan_task != null, discovery_refused: generation_recovery_discovery_outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Refused, pending_records: generation_recovery_pending_records, operation_count: generation_recovery_browser_count()}
-            status: StudioGenerationRecoveryMessagePolicy::Status = StudioGenerationRecoveryMessagePolicy::classify(facts)
-            return "Recovery metadata is invalid; operations remain protected." if status == StudioGenerationRecoveryMessagePolicy::Status.Invalid
-            return "Finishing background operations before closing Storage." if status == StudioGenerationRecoveryMessagePolicy::Status.Closing
-            return "Scanning recovery receipts in the background." if status == StudioGenerationRecoveryMessagePolicy::Status.Discovering
-            return "Recovery discovery exceeded the 512 operation limit; listing and restore are refused." if status == StudioGenerationRecoveryMessagePolicy::Status.Overflow
-            return "Reconciling selected recovery operation in the background." if status == StudioGenerationRecoveryMessagePolicy::Status.Reconciling
-            return "Recovery review is queued; waiting for background operations to finish." if status == StudioGenerationRecoveryMessagePolicy::Status.Waiting
-            return "Selected recovery evidence is stale. Refresh or reselect the operation; it remains protected." if status == StudioGenerationRecoveryMessagePolicy::Status.Stale
-            if status == StudioGenerationRecoveryMessagePolicy::Status.Selected:
-                if generation_recovery_scan_reply is reply:
+        def generation_recovery_browser_message() -> sview can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                facts: StudioGenerationRecoveryMessagePolicy::Facts = StudioGenerationRecoveryMessagePolicy::Facts{closing: storage_close_requested, discovery_ready: generation_recovery_discovery_ready, overflow: generation_recovery_discovery_overflow, selected: generation_recovery_scan_selected >= 0, observation_current: generation_recovery_scan_current(), scan_queued: generation_recovery_scan_requested, scan_active: generation_recovery_scan_task != null, discovery_refused: generation_recovery_discovery_outcome == StudioBuildGenerationRecoveryDiscovery::Outcome.Refused, pending_records: generation_recovery_pending_records, operation_count: generation_recovery_browser_count()}
+                status: StudioGenerationRecoveryMessagePolicy::Status = StudioGenerationRecoveryMessagePolicy::classify(facts)
+                return "Recovery metadata is invalid; operations remain protected." if status == StudioGenerationRecoveryMessagePolicy::Status.Invalid
+                return "Finishing background operations before closing Storage." if status == StudioGenerationRecoveryMessagePolicy::Status.Closing
+                return "Scanning recovery receipts in the background." if status == StudioGenerationRecoveryMessagePolicy::Status.Discovering
+                return "Recovery discovery exceeded the 512 operation limit; listing and restore are refused." if status == StudioGenerationRecoveryMessagePolicy::Status.Overflow
+                return "Reconciling selected recovery operation in the background." if status == StudioGenerationRecoveryMessagePolicy::Status.Reconciling
+                return "Recovery review is queued; waiting for background operations to finish." if status == StudioGenerationRecoveryMessagePolicy::Status.Waiting
+                return "Selected recovery evidence is stale. Refresh or reselect the operation; it remains protected." if status == StudioGenerationRecoveryMessagePolicy::Status.Stale
+                if status == StudioGenerationRecoveryMessagePolicy::Status.Selected:
+                    if generation_recovery_scan_reply is reply:
+                        StudioText::begin()
+                        StudioText::put("Selected operation: ")
+                        StudioText::put(generation_recovery_outcome_name(reply.observation.outcome))
+                        if generation_recovery_pending_records > 0:
+                            StudioText::put(". Unresolved pending receipt files: ")
+                            StudioText::put_i(generation_recovery_pending_records)
+                        if facts.discovery_refused:
+                            StudioText::put(". Receipt listing is incomplete; other operations remain protected.")
+                        return StudioText::view()
+                    return "Recovery scan unavailable; operations remain protected."
+                return "Durable receipt discovery was refused; known session ledger entries still require reconciliation." if status == StudioGenerationRecoveryMessagePolicy::Status.DiscoveryRefused
+                if status == StudioGenerationRecoveryMessagePolicy::Status.Pending:
                     StudioText::begin()
-                    StudioText::put("Selected operation: ")
-                    StudioText::put(generation_recovery_outcome_name(reply.observation.outcome))
-                    if generation_recovery_pending_records > 0:
-                        StudioText::put(". Unresolved pending receipt files: ")
-                        StudioText::put_i(generation_recovery_pending_records)
-                    if facts.discovery_refused:
-                        StudioText::put(". Receipt listing is incomplete; other operations remain protected.")
+                    StudioText::put_i(generation_recovery_pending_records)
+                    StudioText::put(" unresolved pending receipt files remain. Listed operation IDs are candidates only; select one to reconcile its durable evidence.")
                     return StudioText::view()
-                return "Recovery scan unavailable; operations remain protected."
-            return "Durable receipt discovery was refused; known session ledger entries still require reconciliation." if status == StudioGenerationRecoveryMessagePolicy::Status.DiscoveryRefused
-            if status == StudioGenerationRecoveryMessagePolicy::Status.Pending:
-                StudioText::begin()
-                StudioText::put_i(generation_recovery_pending_records)
-                StudioText::put(" unresolved pending receipt files remain. Listed operation IDs are candidates only; select one to reconcile its durable evidence.")
-                return StudioText::view()
-            return "No retained recovery operation IDs were found; discovery does not validate the complete receipt inventory." if status == StudioGenerationRecoveryMessagePolicy::Status.Empty
-            "Select an operation to reconcile its receipt and current location."
+                return "No retained recovery operation IDs were found; discovery does not validate the complete receipt inventory." if status == StudioGenerationRecoveryMessagePolicy::Status.Empty
+                return "Select an operation to reconcile its receipt and current location."
 
-        def generation_recovery_row_name(index: i64) -> sview can Memory.Allocate:
-            if index >= 0 and index < generation_recovery_browser_count():
-                identity: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[index]
-                StudioText::begin()
-                StudioText::put("Recovery operation ")
-                for byte in identity.operation:
-                    StudioText::byte(byte)
-                StudioText::view()
-            "Unavailable recovery identity"
+        def generation_recovery_row_name(index: i64) -> sview can[Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if index >= 0 and index < generation_recovery_browser_count():
+                    identity: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[index]
+                    StudioText::begin()
+                    StudioText::put("Recovery operation ")
+                    for byte in identity.operation:
+                        StudioText::byte(byte)
+                    return StudioText::view()
+                return "Unavailable recovery identity"
 
-        def generation_recovery_row_value(index: i64) -> sview can[Unsafe.PointerCast, Memory.Allocate]:
-            if index >= 0 and index < generation_recovery_browser_count():
-                identity: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[index]
-                StudioText::begin()
-                StudioText::put("Original build root: ")
-                for byte in identity.root:
-                    StudioText::byte(byte)
-                StudioText::put(". Operation ID: ")
-                for byte in identity.operation:
-                    StudioText::byte(byte)
-                if generation_recovery_scan_selected == index and generation_recovery_scan_current() and generation_recovery_scan_reply is reply:
-                    StudioText::put(". Reconciliation: ")
-                    StudioText::put(generation_recovery_outcome_name(reply.observation.outcome))
-                    if reply.observation.output_details_valid:
-                        StudioText::put(". Artifact: ")
-                        for byte in reply.observation.artifact_id:
-                            StudioText::byte(byte)
-                        StudioText::put(". Path: ")
-                        for byte in reply.observation.relative_path:
-                            StudioText::byte(byte)
-                else:
-                    StudioText::put(". Receipt reconciliation pending.")
-                StudioText::view()
-            "Recovery identity unavailable; protected."
+        def generation_recovery_row_value(index: i64) -> sview can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if index >= 0 and index < generation_recovery_browser_count():
+                    identity: StudioGenerationRecoveryLedger::Identity = generation_recovery_items[index]
+                    StudioText::begin()
+                    StudioText::put("Original build root: ")
+                    for byte in identity.root:
+                        StudioText::byte(byte)
+                    StudioText::put(". Operation ID: ")
+                    for byte in identity.operation:
+                        StudioText::byte(byte)
+                    if generation_recovery_scan_selected == index and generation_recovery_scan_current() and generation_recovery_scan_reply is reply:
+                        StudioText::put(". Reconciliation: ")
+                        StudioText::put(generation_recovery_outcome_name(reply.observation.outcome))
+                        if reply.observation.output_details_valid:
+                            StudioText::put(". Artifact: ")
+                            for byte in reply.observation.artifact_id:
+                                StudioText::byte(byte)
+                            StudioText::put(". Path: ")
+                            for byte in reply.observation.relative_path:
+                                StudioText::byte(byte)
+                    else:
+                        StudioText::put(". Receipt reconciliation pending.")
+                    return StudioText::view()
+                return "Recovery identity unavailable; protected."
