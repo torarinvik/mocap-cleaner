@@ -15,374 +15,389 @@ extend Studio:
             StudioPanels::box(dialog.x + 220.0, dialog.y + 184.0 + content,
                 dialog.w - 244.0, 26.0)
 
-        def generation_review_storage_busy() -> bool:
-            storage_batch_state == StudioStorageBatchPolicy::State.Running.i64() or storage_move_review or storage_restore_review
+        def generation_review_storage_busy() -> bool can[Global.Read]:
+            can Global.Read:
+                return storage_batch_state == StudioStorageBatchPolicy::State.Running.i64() or storage_move_review or storage_restore_review
 
         def generation_review_control_enabled(action: StudioGenerationReviewAccessibilityPolicy::Action,
-                                              page: i64, pages: i64) -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            return StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()) if action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath
-            return StudioGenerationReviewAccessibilityPolicy::review_action_enabled(generation_move_action_enabled()) if action == StudioGenerationReviewAccessibilityPolicy::Action.Review
-            return generation_restore_action_enabled() if action == StudioGenerationReviewAccessibilityPolicy::Action.Restore
-            return true if action == StudioGenerationReviewAccessibilityPolicy::Action.Operations
-            StudioGenerationReviewAccessibilityPolicy::action_enabled(action, page, pages)
+                                              page: i64, pages: i64) -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()) if action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath
+                return StudioGenerationReviewAccessibilityPolicy::review_action_enabled(generation_move_action_enabled()) if action == StudioGenerationReviewAccessibilityPolicy::Action.Review
+                return generation_restore_action_enabled() if action == StudioGenerationReviewAccessibilityPolicy::Action.Restore
+                return true if action == StudioGenerationReviewAccessibilityPolicy::Action.Operations
+                return StudioGenerationReviewAccessibilityPolicy::action_enabled(action, page, pages)
 
-        def generation_review_status_message() -> sview can[Unsafe.PointerCast, Memory.Allocate]:
-            facts: StudioGenerationReviewStatusPolicy::Facts = StudioGenerationReviewStatusPolicy::Facts{closing: storage_close_requested, restore_worker: generation_restore_task != null, move_worker: generation_move_task != null, restore_review: StudioGenerationReviewStatusPolicy::reviewing(generation_restore_state), recovery_mode: generation_review_recovery_mode, restore_summary: generation_restore_status_visible(), move_summary: generation_move_state != StudioGenerationMoveConfirmationPolicy::State.Inspecting}
-            source: StudioGenerationReviewStatusPolicy::Source = StudioGenerationReviewStatusPolicy::classify(facts)
-            match source:
-                StudioGenerationReviewStatusPolicy::Source.Closing: generation_inventory_message()
-                StudioGenerationReviewStatusPolicy::Source.Restore: generation_restore_message()
-                StudioGenerationReviewStatusPolicy::Source.Move: generation_move_message()
-                StudioGenerationReviewStatusPolicy::Source.Recovery: generation_recovery_browser_message()
-                StudioGenerationReviewStatusPolicy::Source.Inventory: generation_inventory_message()
+        def generation_review_status_message() -> sview can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                facts: StudioGenerationReviewStatusPolicy::Facts = StudioGenerationReviewStatusPolicy::Facts{closing: storage_close_requested, restore_worker: generation_restore_task != null, move_worker: generation_move_task != null, restore_review: StudioGenerationReviewStatusPolicy::reviewing(generation_restore_state), recovery_mode: generation_review_recovery_mode, restore_summary: generation_restore_status_visible(), move_summary: generation_move_state != StudioGenerationMoveConfirmationPolicy::State.Inspecting}
+                source: StudioGenerationReviewStatusPolicy::Source = StudioGenerationReviewStatusPolicy::classify(facts)
+                match source:
+                    StudioGenerationReviewStatusPolicy::Source.Closing: return generation_inventory_message()
+                    StudioGenerationReviewStatusPolicy::Source.Restore: return generation_restore_message()
+                    StudioGenerationReviewStatusPolicy::Source.Move: return generation_move_message()
+                    StudioGenerationReviewStatusPolicy::Source.Recovery: return generation_recovery_browser_message()
+                    StudioGenerationReviewStatusPolicy::Source.Inventory: return generation_inventory_message()
 
         def generation_review_accessibility_node(role: UiCore::AccessibilityRole,
             label: sview, help_text: sview, box: StudioPanels::Box, id: usize,
             parent_id: usize, first_child_id: usize, next_sibling_id: usize,
             widget: usize, enabled: bool, focused: bool, selected: bool,
-            value: sview) -> void:
-            UiCore::accessibility_with_metadata(role, label, help_text,
-                UiCore::Rect(box.x, box.y, box.w, box.h), id, widget, enabled,
-                focused, selected, 0.0, value, "", revision.usize(), 0, 0,
-                parent_id, first_child_id, next_sibling_id, 0.0, 1.0, false)
+            value: sview) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                UiCore::accessibility_with_metadata(role, label, help_text,
+                    UiCore::Rect(box.x, box.y, box.w, box.h), id, widget, enabled,
+                    focused, selected, 0.0, value, "", revision.usize(), 0, 0,
+                    parent_id, first_child_id, next_sibling_id, 0.0, 1.0, false)
 
-        def publish_generation_path_accessibility(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            none: usize = StudioAccessibility::SemanticId::NO_NODE
-            geometry: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::panel_geometry(w, h)
-            d: StudioPanels::Box = StudioGenerationReviewPathInspector::to_box(geometry)
-            supported: bool = StudioGenerationReviewPathPolicy::panel_supported(geometry)
-            inset: f32 = StudioGenerationReviewPathPolicy::panel_inset(geometry)
-            escaped: bool = StudioGenerationReviewPathPolicy::escaped_display(generation_path_bytes)
-            visible: i64 = StudioGenerationReviewPathPolicy::visible_lines(generation_path_bytes, generation_path_page) if supported else 0
-            pages: i64 = StudioGenerationReviewPathPolicy::page_count(generation_path_bytes)
-            StudioText::begin()
-            StudioText::put("Page ")
-            StudioText::put_i(generation_path_page + 1)
-            StudioText::put(" of ")
-            StudioText::put_i(pages)
-            StudioText::put("; complete path, ")
-            StudioText::put_i(generation_path_bytes.count.i64())
-            StudioText::put(" bytes")
-            StudioText::put("; hexadecimal byte escapes" if escaped else "; UTF-8 scalar boundaries")
-            StudioText::put("; enlarge window or choose Done" if not supported else "")
-            status: sview = StudioText::view()
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Dialog,
-                "Build artifact path", "Read exact segments of the recorded build root followed by the artifact's relative path. In recovery review this is the recorded build path; reconciliation separately reports the verified current location. Previous and Next page through the entire bounded value. Invalid UTF-8 or control bytes switch the whole path to hexadecimal byte escapes; each escape denotes one original byte. Done returns to generation review.",
-                d, StudioGenerationReviewPathPolicy::Node::DIALOG, none,
-                StudioGenerationReviewPathPolicy::Node::STATUS, none, none, true, false, false, "")
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Status,
-                "Path page", "Read segments in order. Unicode segments preserve scalar boundaries; hexadecimal escapes preserve every original byte.",
-                StudioPanels::box(d.x + inset, d.y + d.h - 76.0 if supported else d.y, d.w - inset * 2.0, 24.0 if d.h >= 24.0 else d.h),
-                StudioGenerationReviewPathPolicy::Node::STATUS,
-                StudioGenerationReviewPathPolicy::Node::DIALOG,
-                none, StudioGenerationReviewPathPolicy::Node::LINE_FIRST if visible > 0 else StudioGenerationReviewPathPolicy::Node::PREVIOUS, none, true, false, false, status)
-            for row in 0..<visible |row, d, visible, w, h|:
-                id: usize = StudioGenerationReviewPathPolicy::Node::LINE_FIRST + row.usize()
-                next: usize = id + 1 if row + 1 < visible else StudioGenerationReviewPathPolicy::Node::PREVIOUS
-                line_box: StudioPanels::Box = StudioGenerationReviewPathInspector::to_box(StudioGenerationReviewPathPolicy::panel_row_box(geometry, row))
-                generation_review_accessibility_node(UiCore::AccessibilityRole.Label,
-                    StudioText::number("Path segment ", row + 1),
-                    "Each hexadecimal escape denotes one original byte. Read all segments in order." if escaped else "Consecutive Unicode characters from the complete path. Read all segments in order; none are omitted.",
-                    line_box, id, StudioGenerationReviewPathPolicy::Node::DIALOG, none, next, none,
-                    true, false, false, StudioGenerationReviewPathInspector::line(generation_path_bytes, generation_path_page, row))
-            previous: bool = supported and generation_path_page > 0
-            next_page: bool = supported and generation_path_page + 1 < pages
-            UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Previous.i64().usize()], previous)
-            UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Next.i64().usize()], next_page)
-            UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Back.i64().usize()], true)
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
-                "Previous path page", "Show the preceding exact path segments.",
-                StudioGenerationReviewPathInspector::button_box(w, h, 0), StudioGenerationReviewPathPolicy::Node::PREVIOUS,
-                StudioGenerationReviewPathPolicy::Node::DIALOG, none, StudioGenerationReviewPathPolicy::Node::NEXT,
-                accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Previous.i64().usize()],
-                previous, false, false, "")
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
-                "Next path page", "Show the next exact path segments.",
-                StudioGenerationReviewPathInspector::button_box(w, h, 1), StudioGenerationReviewPathPolicy::Node::NEXT,
-                StudioGenerationReviewPathPolicy::Node::DIALOG, none, StudioGenerationReviewPathPolicy::Node::DONE,
-                accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Next.i64().usize()],
-                next_page, false, false, "")
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
-                "Done", "Return to generated build review.",
-                StudioGenerationReviewPathInspector::button_box(w, h, 2), StudioGenerationReviewPathPolicy::Node::DONE,
-                StudioGenerationReviewPathPolicy::Node::DIALOG, none, none,
-                accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Back.i64().usize()],
-                true, generation_path_focus == 2, false, "")
-
-        def generation_review_row_text(row: StudioBuildGenerationCandidateProvider::Row) -> sview can Memory.Allocate:
-            StudioText::begin()
-            StudioText::put(StudioGenerationReviewCopy::protection(row))
-            StudioText::put(" Captured retention: ")
-            StudioText::put_i(row.retention_days)
-            StudioText::put(" days. Age: ")
-            match row.age:
-                StudioBuildGenerationCandidateProvider::AgeEvidence.Unknown:
-                    StudioText::put("unknown")
-                StudioBuildGenerationCandidateProvider::AgeEvidence.Verified(days, origin):
-                    StudioText::put_i(days)
-                    StudioText::put(" days from verified filesystem birthtime")
-            StudioText::put(". Creation evidence: ")
-            match row.creation_evidence:
-                StudioBuildGenerationCandidateProvider::CreationEvidence.LegacyAbsent:
-                    StudioText::put("legacy record absent; protected")
-                StudioBuildGenerationCandidateProvider::CreationEvidence.Journaled(revision_value, creation_digest, latest_digest, tree_digest):
-                    StudioText::put("journaled revision ")
-                    StudioText::put_i(revision_value)
-                    StudioText::put(" with verified creation and observed tree digests")
-            StudioText::view()
-
-        def generation_review_inspection_summary(row: StudioBuildGenerationCandidateProvider::Row) -> sview:
-            StudioText::begin()
-            StudioText::put("Captured retention: ")
-            StudioText::put_i(row.retention_days)
-            StudioText::put(" days; age: ")
-            match row.age:
-                StudioBuildGenerationCandidateProvider::AgeEvidence.Unknown:
-                    StudioText::put("unknown")
-                StudioBuildGenerationCandidateProvider::AgeEvidence.Verified(days, origin):
-                    StudioText::put_i(days)
-                    StudioText::put(" days, filesystem birthtime")
-            StudioText::put("; creation evidence: ")
-            match row.creation_evidence:
-                StudioBuildGenerationCandidateProvider::CreationEvidence.LegacyAbsent:
-                    StudioText::put("legacy journal absent, protected")
-                StudioBuildGenerationCandidateProvider::CreationEvidence.Journaled(revision_value, creation_digest, latest_digest, tree_digest):
-                    StudioText::put("verified journaled revision ")
-                    StudioText::put_i(revision_value)
-            StudioText::view()
-
-        def draw_generation_review_inspection_detail(w: f32, h: f32) -> void:
-            return if not generation_review_open
-            if generation_inventory is snapshot:
-                count: i64 = generation_review_count()
-                return if generation_inspected_row < 0 or generation_inspected_row >= count
-                row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
-                d: StudioPanels::Box = generation_review_box(w, h)
-                StudioDraw::text(d.x + 24.0, d.y + d.h - 84.0, 10.0,
-                    generation_review_inspection_summary(row), StudioDraw::muted())
-
-        def generation_review_row_name(row: StudioBuildGenerationCandidateProvider::Row) -> sview can Memory.Allocate:
-            StudioText::begin()
-            StudioText::put("Generated artifact ")
-            for byte in row.artifact_id:
-                StudioText::byte(byte)
-            StudioText::put("; ")
-            StudioText::put("build" if row.artifact == StudioBuildGenerationCandidateProvider::Artifact.Build else "package")
-            StudioText::put("; ")
-            StudioText::put("created" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Created else "building" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Building else "failed" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Failed else "sealed" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Sealed else "published" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Published else "unknown phase")
-            StudioText::view()
-
-        def generation_review_row_value(row: StudioBuildGenerationCandidateProvider::Row) -> sview can[Unsafe.PointerCast, Memory.Allocate]:
-            StudioText::begin()
-            StudioText::put("Path: ")
-            for byte in row.relative_path:
-                StudioText::byte(byte)
-            StudioText::put(". ")
-            StudioText::put(StudioGenerationReviewCopy::protection(row))
-            StudioText::put(" Captured retention: ")
-            StudioText::put_i(row.retention_days)
-            StudioText::put(" days. Age: ")
-            match row.age:
-                StudioBuildGenerationCandidateProvider::AgeEvidence.Unknown:
-                    StudioText::put("unknown")
-                StudioBuildGenerationCandidateProvider::AgeEvidence.Verified(days, origin):
-                    StudioText::put_i(days)
-                    StudioText::put(" days, filesystem birthtime")
-            StudioText::put(". Creation record: ")
-            match row.creation_evidence:
-                StudioBuildGenerationCandidateProvider::CreationEvidence.LegacyAbsent:
-                    StudioText::put("absent legacy journal; protected")
-                StudioBuildGenerationCandidateProvider::CreationEvidence.Journaled(revision_value, creation_digest, latest_digest, tree_digest):
-                    StudioText::put("verified journaled revision ")
-                    StudioText::put_i(revision_value)
-            StudioText::view()
-
-        def init_generation_review_accessibility() -> void:
-            transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
-            accessibility_generation_review_entry_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            mutable ready: bool = accessibility_generation_review_entry_widget != UiFlat::NONE
-            mutable rows: darray[usize] = []
-            for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot, rows, ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                rows.push(widget)
-                ready <- false if widget == UiFlat::NONE
-            mutable controls: darray[usize] = []
-            for action in 0..<StudioGenerationReviewAccessibilityPolicy::ActionLimit::COUNT |action, controls, ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                controls.push(widget)
-                ready <- false if widget == UiFlat::NONE
-            accessibility_generation_review_rows <- move rows
-            accessibility_generation_review_controls <- move controls
-            accessibility_generation_review_ready <- ready
-
-        def draw_generation_review_entry(w: f32, h: f32) -> void:
-            return if not storage_screen_open or generation_review_open
-            b: StudioPanels::Box = generation_review_entry_box(w, h)
-            enabled: bool = StudioGenerationReviewAccessibilityPolicy::entry_enabled(storage_screen_open, generation_review_open, generation_review_storage_busy())
-            StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(47, 68, 92) if enabled else StudioDraw::color(38, 44, 56))
-            StudioDraw::text(b.x + 8.0, b.y + 9.0, 11.0, "Review generated builds", StudioDraw::ink())
-
-        def publish_generation_review_entry(w: f32, h: f32) -> void:
-            return if not accessibility_generation_review_ready or not storage_screen_open or generation_review_open
-            enabled: bool = StudioGenerationReviewAccessibilityPolicy::entry_enabled(storage_screen_open, generation_review_open, generation_review_storage_busy())
-            UiFlat::set_enabled(accessibility_generation_review_entry_widget, enabled)
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
-                "Review generated builds",
-                "Open a read-only, bounded inventory of build and package generations. Protected and uncertain artifacts remain visible with their reasons.",
-                generation_review_entry_box(w, h), StudioGenerationReviewAccessibilityPolicy::Node::STORAGE_ENTRY,
-                StudioStorageAccessibilityPolicy::Node::DIALOG,
-                StudioAccessibility::SemanticId::NO_NODE,
-                StudioAccessibility::SemanticId::NO_NODE,
-                accessibility_generation_review_entry_widget, enabled, false, false, "")
-
-        def publish_generation_review_accessibility(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            return if not accessibility_generation_review_ready or not generation_review_open
-            if generation_path_open:
-                publish_generation_path_accessibility(w, h)
-                return
-            none: usize = StudioAccessibility::SemanticId::NO_NODE
-            dialog: StudioPanels::Box = generation_review_box(w, h)
-            count: i64 = generation_review_count()
-            first: i64 = StudioGenerationReviewListPolicy::first_row(count, generation_review_page)
-            visible: i64 = StudioGenerationReviewListPolicy::visible_rows(count, generation_review_page)
-            pages: i64 = StudioGenerationReviewListPolicy::page_count(count)
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Dialog,
-                "Generated builds review",
-                "Inspect verified generation evidence. Review Move and confirm it to move a generation into recoverable storage. Open Operations to discover and reconcile retained receipts; reconciliation can finish a durable journal record but does not rename artifacts. Review Restore requires verified quarantine and a separate confirmation. Retry Release drains a retained native handle; Resolve Review acknowledges matching terminal recovery evidence while retaining the operation identity. Use Previous and Next to page, Up and Down to inspect rows, Refresh to rescan, or Back to Storage.",
-                dialog, StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
-                none, StudioGenerationReviewAccessibilityPolicy::Node::STATUS, none,
-                none, true, false, false, "")
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Status,
-                "Generation operation status", generation_review_status_message(),
-                StudioPanels::box(dialog.x + 24.0, dialog.y + 48.0, dialog.w - 48.0, 24.0),
-                StudioGenerationReviewAccessibilityPolicy::Node::STATUS,
-                StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
-                none, StudioGenerationReviewAccessibilityPolicy::Node::PAGE, none,
-                true, false, false, generation_review_status_message())
-            StudioText::begin()
-            StudioText::put("Page ")
-            StudioText::put_i(generation_review_page + 1 if pages > 0 else 0)
-            StudioText::put(" of ")
-            StudioText::put_i(pages)
-            page_value: sview = StudioText::view()
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Label,
-                "Generation review page", "At most 16 rows are shown on each page.",
-                StudioPanels::box(dialog.x + 24.0, dialog.y + 76.0, dialog.w - 48.0, 20.0),
-                StudioGenerationReviewAccessibilityPolicy::Node::PAGE,
-                StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
-                none, StudioGenerationReviewAccessibilityPolicy::Node::LIST, none,
-                true, false, false, page_value)
-            list_box: StudioPanels::Box = StudioPanels::box(dialog.x + 20.0, dialog.y + 103.0, dialog.w - 40.0, 420.0)
-            generation_review_accessibility_node(UiCore::AccessibilityRole.List,
-                "Recovery operations" if generation_review_recovery_mode else "Generated build artifacts",
-                "Select a retained operation to inspect its exact root, operation ID, and reconciled location. Every uncertain outcome stays protected." if generation_review_recovery_mode else "Select a row to inspect its path, protection, age, retention, and creation evidence.",
-                list_box, StudioGenerationReviewAccessibilityPolicy::Node::LIST,
-                StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
-                StudioGenerationReviewAccessibilityPolicy::Node::ROW_FIRST if visible > 0 else none,
-                StudioGenerationReviewAccessibilityPolicy::Node::DETAILS, none,
-                true, false, false, "")
-            for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot|:
-                UiFlat::set_enabled(accessibility_generation_review_rows[slot.usize()], false)
-            if generation_review_recovery_mode:
-                for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot, first, visible, count|:
-                    widget: usize = accessibility_generation_review_rows[slot.usize()]
-                    active: bool = slot < visible
-                    UiFlat::set_enabled(widget, active)
-                    if active:
-                        index: i64 = first + slot
-                        generation_review_accessibility_node(UiCore::AccessibilityRole.ListItem,
-                            generation_recovery_row_name(index), "Retained recovery identity; reconcile status is shown in row details.",
-                            generation_review_row_box(w, h, slot), StudioGenerationReviewAccessibilityPolicy::row_id(slot.usize()),
-                            StudioGenerationReviewAccessibilityPolicy::Node::LIST, none,
-                            StudioGenerationReviewAccessibilityPolicy::row_id((slot + 1).usize()) if slot + 1 < visible else none,
-                            widget, true, generation_inspected_row == index, generation_inspected_row == index,
-                            generation_recovery_row_value(index))
-            elif generation_inventory is snapshot and snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Complete:
-                for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |snapshot, slot, first, visible, count|:
-                    widget: usize = accessibility_generation_review_rows[slot.usize()]
-                    active: bool = slot < visible
-                    UiFlat::set_enabled(widget, active)
-                    if active:
-                        row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[first + slot]
-                        id: usize = StudioGenerationReviewAccessibilityPolicy::row_id(slot.usize())
-                        generation_review_accessibility_node(UiCore::AccessibilityRole.ListItem,
-                            generation_review_row_name(row), generation_review_row_text(row),
-                            generation_review_row_box(w, h, slot), id,
-                            StudioGenerationReviewAccessibilityPolicy::Node::LIST, none,
-                            StudioGenerationReviewAccessibilityPolicy::row_id((slot + 1).usize()) if slot + 1 < visible else none,
-                            widget, true, generation_inspected_row == first + slot,
-                            generation_inspected_row == first + slot, generation_review_row_value(row))
-            mutable details: sview = "Select a generation row to inspect its identity and protection evidence."
-            if generation_review_recovery_mode and generation_inspected_row >= 0 and generation_inspected_row < count:
-                details <- generation_recovery_row_value(generation_inspected_row)
-            elif generation_inventory is snapshot and generation_inspected_row >= 0 and generation_inspected_row < count:
-                details <- generation_review_row_value(snapshot.rows[generation_inspected_row])
-            generation_review_accessibility_node(UiCore::AccessibilityRole.Label,
-                "Inspected generation details", details,
-                StudioPanels::box(dialog.x + 24.0, dialog.y + dialog.h - 100.0, dialog.w - 48.0, 24.0),
-                StudioGenerationReviewAccessibilityPolicy::Node::DETAILS,
-                StudioGenerationReviewAccessibilityPolicy::Node::DIALOG, none,
-                StudioGenerationReviewAccessibilityPolicy::Node::PREVIOUS, none,
-                true, false, false, details)
-            for policy_action in [StudioGenerationReviewAccessibilityPolicy::Action.Previous,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.Next,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.Refresh,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.Back,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.Review,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.Restore,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.Operations,
-                                  StudioGenerationReviewAccessibilityPolicy::Action.InspectPath] |policy_action, pages, generation_review_page, dialog, w, h|:
-                action: i64 = policy_action.i64()
-                id: usize = StudioGenerationReviewAccessibilityPolicy::action_id(policy_action)
-                widget: usize = accessibility_generation_review_controls[action.usize()]
-                enabled: bool = StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()) if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else generation_review_control_enabled(policy_action, generation_review_page, pages)
-                UiFlat::set_enabled(widget, enabled)
+        def publish_generation_path_accessibility(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                none: usize = StudioAccessibility::SemanticId::NO_NODE
+                geometry: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::panel_geometry(w, h)
+                d: StudioPanels::Box = StudioGenerationReviewPathInspector::to_box(geometry)
+                supported: bool = StudioGenerationReviewPathPolicy::panel_supported(geometry)
+                inset: f32 = StudioGenerationReviewPathPolicy::panel_inset(geometry)
+                escaped: bool = StudioGenerationReviewPathPolicy::escaped_display(generation_path_bytes)
+                visible: i64 = StudioGenerationReviewPathPolicy::visible_lines(generation_path_bytes, generation_path_page) if supported else 0
+                pages: i64 = StudioGenerationReviewPathPolicy::page_count(generation_path_bytes)
+                StudioText::begin()
+                StudioText::put("Page ")
+                StudioText::put_i(generation_path_page + 1)
+                StudioText::put(" of ")
+                StudioText::put_i(pages)
+                StudioText::put("; complete path, ")
+                StudioText::put_i(generation_path_bytes.count.i64())
+                StudioText::put(" bytes")
+                StudioText::put("; hexadecimal byte escapes" if escaped else "; UTF-8 scalar boundaries")
+                StudioText::put("; enlarge window or choose Done" if not supported else "")
+                status: sview = StudioText::view()
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Dialog,
+                    "Build artifact path", "Read exact segments of the recorded build root followed by the artifact's relative path. In recovery review this is the recorded build path; reconciliation separately reports the verified current location. Previous and Next page through the entire bounded value. Invalid UTF-8 or control bytes switch the whole path to hexadecimal byte escapes; each escape denotes one original byte. Done returns to generation review.",
+                    d, StudioGenerationReviewPathPolicy::Node::DIALOG, none,
+                    StudioGenerationReviewPathPolicy::Node::STATUS, none, none, true, false, false, "")
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Status,
+                    "Path page", "Read segments in order. Unicode segments preserve scalar boundaries; hexadecimal escapes preserve every original byte.",
+                    StudioPanels::box(d.x + inset, d.y + d.h - 76.0 if supported else d.y, d.w - inset * 2.0, 24.0 if d.h >= 24.0 else d.h),
+                    StudioGenerationReviewPathPolicy::Node::STATUS,
+                    StudioGenerationReviewPathPolicy::Node::DIALOG,
+                    none, StudioGenerationReviewPathPolicy::Node::LINE_FIRST if visible > 0 else StudioGenerationReviewPathPolicy::Node::PREVIOUS, none, true, false, false, status)
+                for row in 0..<visible |row, d, visible, w, h|:
+                    id: usize = StudioGenerationReviewPathPolicy::Node::LINE_FIRST + row.usize()
+                    next: usize = id + 1 if row + 1 < visible else StudioGenerationReviewPathPolicy::Node::PREVIOUS
+                    line_box: StudioPanels::Box = StudioGenerationReviewPathInspector::to_box(StudioGenerationReviewPathPolicy::panel_row_box(geometry, row))
+                    generation_review_accessibility_node(UiCore::AccessibilityRole.Label,
+                        StudioText::number("Path segment ", row + 1),
+                        "Each hexadecimal escape denotes one original byte. Read all segments in order." if escaped else "Consecutive Unicode characters from the complete path. Read all segments in order; none are omitted.",
+                        line_box, id, StudioGenerationReviewPathPolicy::Node::DIALOG, none, next, none,
+                        true, false, false, StudioGenerationReviewPathInspector::line(generation_path_bytes, generation_path_page, row))
+                previous: bool = supported and generation_path_page > 0
+                next_page: bool = supported and generation_path_page + 1 < pages
+                UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Previous.i64().usize()], previous)
+                UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Next.i64().usize()], next_page)
+                UiFlat::set_enabled(accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Back.i64().usize()], true)
                 generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
-                    generation_move_action_label() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Review else generation_restore_action_label() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Restore else ("Show generations" if generation_review_recovery_mode else "Show recovery operations") if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Operations else "Inspect full selected artifact path" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else "Previous page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Previous else "Next page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Next else "Refresh generation inventory" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Refresh else "Back to Storage",
-                    generation_move_action_help() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Review else generation_restore_action_help() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Restore else "Open the exact selected artifact path in bounded pages." if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else "Activates the matching visible control.",
-                    StudioGenerationReviewPathInspector::inspect_button_box(w, h) if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else generation_review_control_box(w, h, action), id,
+                    "Previous path page", "Show the preceding exact path segments.",
+                    StudioGenerationReviewPathInspector::button_box(w, h, 0), StudioGenerationReviewPathPolicy::Node::PREVIOUS,
+                    StudioGenerationReviewPathPolicy::Node::DIALOG, none, StudioGenerationReviewPathPolicy::Node::NEXT,
+                    accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Previous.i64().usize()],
+                    previous, false, false, "")
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Next path page", "Show the next exact path segments.",
+                    StudioGenerationReviewPathInspector::button_box(w, h, 1), StudioGenerationReviewPathPolicy::Node::NEXT,
+                    StudioGenerationReviewPathPolicy::Node::DIALOG, none, StudioGenerationReviewPathPolicy::Node::DONE,
+                    accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Next.i64().usize()],
+                    next_page, false, false, "")
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Done", "Return to generated build review.",
+                    StudioGenerationReviewPathInspector::button_box(w, h, 2), StudioGenerationReviewPathPolicy::Node::DONE,
+                    StudioGenerationReviewPathPolicy::Node::DIALOG, none, none,
+                    accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Back.i64().usize()],
+                    true, generation_path_focus == 2, false, "")
+
+        def generation_review_row_text(row: StudioBuildGenerationCandidateProvider::Row) -> sview can[Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::begin()
+                StudioText::put(StudioGenerationReviewCopy::protection(row))
+                StudioText::put(" Captured retention: ")
+                StudioText::put_i(row.retention_days)
+                StudioText::put(" days. Age: ")
+                match row.age:
+                    StudioBuildGenerationCandidateProvider::AgeEvidence.Unknown:
+                        StudioText::put("unknown")
+                    StudioBuildGenerationCandidateProvider::AgeEvidence.Verified(days, origin):
+                        StudioText::put_i(days)
+                        StudioText::put(" days from verified filesystem birthtime")
+                StudioText::put(". Creation evidence: ")
+                match row.creation_evidence:
+                    StudioBuildGenerationCandidateProvider::CreationEvidence.LegacyAbsent:
+                        StudioText::put("legacy record absent; protected")
+                    StudioBuildGenerationCandidateProvider::CreationEvidence.Journaled(revision_value, creation_digest, latest_digest, tree_digest):
+                        StudioText::put("journaled revision ")
+                        StudioText::put_i(revision_value)
+                        StudioText::put(" with verified creation and observed tree digests")
+                return StudioText::view()
+
+        def generation_review_inspection_summary(row: StudioBuildGenerationCandidateProvider::Row) -> sview can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::begin()
+                StudioText::put("Captured retention: ")
+                StudioText::put_i(row.retention_days)
+                StudioText::put(" days; age: ")
+                match row.age:
+                    StudioBuildGenerationCandidateProvider::AgeEvidence.Unknown:
+                        StudioText::put("unknown")
+                    StudioBuildGenerationCandidateProvider::AgeEvidence.Verified(days, origin):
+                        StudioText::put_i(days)
+                        StudioText::put(" days, filesystem birthtime")
+                StudioText::put("; creation evidence: ")
+                match row.creation_evidence:
+                    StudioBuildGenerationCandidateProvider::CreationEvidence.LegacyAbsent:
+                        StudioText::put("legacy journal absent, protected")
+                    StudioBuildGenerationCandidateProvider::CreationEvidence.Journaled(revision_value, creation_digest, latest_digest, tree_digest):
+                        StudioText::put("verified journaled revision ")
+                        StudioText::put_i(revision_value)
+                return StudioText::view()
+
+        def draw_generation_review_inspection_detail(w: f32, h: f32) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not generation_review_open
+                if generation_inventory is snapshot:
+                    count: i64 = generation_review_count()
+                    return if generation_inspected_row < 0 or generation_inspected_row >= count
+                    row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
+                    d: StudioPanels::Box = generation_review_box(w, h)
+                    StudioDraw::text(d.x + 24.0, d.y + d.h - 84.0, 10.0,
+                        generation_review_inspection_summary(row), StudioDraw::muted())
+
+        def generation_review_row_name(row: StudioBuildGenerationCandidateProvider::Row) -> sview can[Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::begin()
+                StudioText::put("Generated artifact ")
+                for byte in row.artifact_id:
+                    StudioText::byte(byte)
+                StudioText::put("; ")
+                StudioText::put("build" if row.artifact == StudioBuildGenerationCandidateProvider::Artifact.Build else "package")
+                StudioText::put("; ")
+                StudioText::put("created" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Created else "building" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Building else "failed" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Failed else "sealed" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Sealed else "published" if row.phase == StudioBuildGenerationCandidateProvider::CreationPhase.Published else "unknown phase")
+                return StudioText::view()
+
+        def generation_review_row_value(row: StudioBuildGenerationCandidateProvider::Row) -> sview can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::begin()
+                StudioText::put("Path: ")
+                for byte in row.relative_path:
+                    StudioText::byte(byte)
+                StudioText::put(". ")
+                StudioText::put(StudioGenerationReviewCopy::protection(row))
+                StudioText::put(" Captured retention: ")
+                StudioText::put_i(row.retention_days)
+                StudioText::put(" days. Age: ")
+                match row.age:
+                    StudioBuildGenerationCandidateProvider::AgeEvidence.Unknown:
+                        StudioText::put("unknown")
+                    StudioBuildGenerationCandidateProvider::AgeEvidence.Verified(days, origin):
+                        StudioText::put_i(days)
+                        StudioText::put(" days, filesystem birthtime")
+                StudioText::put(". Creation record: ")
+                match row.creation_evidence:
+                    StudioBuildGenerationCandidateProvider::CreationEvidence.LegacyAbsent:
+                        StudioText::put("absent legacy journal; protected")
+                    StudioBuildGenerationCandidateProvider::CreationEvidence.Journaled(revision_value, creation_digest, latest_digest, tree_digest):
+                        StudioText::put("verified journaled revision ")
+                        StudioText::put_i(revision_value)
+                return StudioText::view()
+
+        def init_generation_review_accessibility() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
+                accessibility_generation_review_entry_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                mutable ready: bool = accessibility_generation_review_entry_widget != UiFlat::NONE
+                mutable rows: darray[usize] = []
+                for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot, rows, ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    rows.push(widget)
+                    ready <- false if widget == UiFlat::NONE
+                mutable controls: darray[usize] = []
+                for action in 0..<StudioGenerationReviewAccessibilityPolicy::ActionLimit::COUNT |action, controls, ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    controls.push(widget)
+                    ready <- false if widget == UiFlat::NONE
+                accessibility_generation_review_rows <- move rows
+                accessibility_generation_review_controls <- move controls
+                accessibility_generation_review_ready <- ready
+
+        def draw_generation_review_entry(w: f32, h: f32) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not storage_screen_open or generation_review_open
+                b: StudioPanels::Box = generation_review_entry_box(w, h)
+                enabled: bool = StudioGenerationReviewAccessibilityPolicy::entry_enabled(storage_screen_open, generation_review_open, generation_review_storage_busy())
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(47, 68, 92) if enabled else StudioDraw::color(38, 44, 56))
+                StudioDraw::text(b.x + 8.0, b.y + 9.0, 11.0, "Review generated builds", StudioDraw::ink())
+
+        def publish_generation_review_entry(w: f32, h: f32) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not accessibility_generation_review_ready or not storage_screen_open or generation_review_open
+                enabled: bool = StudioGenerationReviewAccessibilityPolicy::entry_enabled(storage_screen_open, generation_review_open, generation_review_storage_busy())
+                UiFlat::set_enabled(accessibility_generation_review_entry_widget, enabled)
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
+                    "Review generated builds",
+                    "Open a read-only, bounded inventory of build and package generations. Protected and uncertain artifacts remain visible with their reasons.",
+                    generation_review_entry_box(w, h), StudioGenerationReviewAccessibilityPolicy::Node::STORAGE_ENTRY,
+                    StudioStorageAccessibilityPolicy::Node::DIALOG,
+                    StudioAccessibility::SemanticId::NO_NODE,
+                    StudioAccessibility::SemanticId::NO_NODE,
+                    accessibility_generation_review_entry_widget, enabled, false, false, "")
+
+        def publish_generation_review_accessibility(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not accessibility_generation_review_ready or not generation_review_open
+                if generation_path_open:
+                    publish_generation_path_accessibility(w, h)
+                    return
+                none: usize = StudioAccessibility::SemanticId::NO_NODE
+                dialog: StudioPanels::Box = generation_review_box(w, h)
+                count: i64 = generation_review_count()
+                first: i64 = StudioGenerationReviewListPolicy::first_row(count, generation_review_page)
+                visible: i64 = StudioGenerationReviewListPolicy::visible_rows(count, generation_review_page)
+                pages: i64 = StudioGenerationReviewListPolicy::page_count(count)
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Dialog,
+                    "Generated builds review",
+                    "Inspect verified generation evidence. Review Move and confirm it to move a generation into recoverable storage. Open Operations to discover and reconcile retained receipts; reconciliation can finish a durable journal record but does not rename artifacts. Review Restore requires verified quarantine and a separate confirmation. Retry Release drains a retained native handle; Resolve Review acknowledges matching terminal recovery evidence while retaining the operation identity. Use Previous and Next to page, Up and Down to inspect rows, Refresh to rescan, or Back to Storage.",
+                    dialog, StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
+                    none, StudioGenerationReviewAccessibilityPolicy::Node::STATUS, none,
+                    none, true, false, false, "")
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Status,
+                    "Generation operation status", generation_review_status_message(),
+                    StudioPanels::box(dialog.x + 24.0, dialog.y + 48.0, dialog.w - 48.0, 24.0),
+                    StudioGenerationReviewAccessibilityPolicy::Node::STATUS,
+                    StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
+                    none, StudioGenerationReviewAccessibilityPolicy::Node::PAGE, none,
+                    true, false, false, generation_review_status_message())
+                StudioText::begin()
+                StudioText::put("Page ")
+                StudioText::put_i(generation_review_page + 1 if pages > 0 else 0)
+                StudioText::put(" of ")
+                StudioText::put_i(pages)
+                page_value: sview = StudioText::view()
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Label,
+                    "Generation review page", "At most 16 rows are shown on each page.",
+                    StudioPanels::box(dialog.x + 24.0, dialog.y + 76.0, dialog.w - 48.0, 20.0),
+                    StudioGenerationReviewAccessibilityPolicy::Node::PAGE,
+                    StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
+                    none, StudioGenerationReviewAccessibilityPolicy::Node::LIST, none,
+                    true, false, false, page_value)
+                list_box: StudioPanels::Box = StudioPanels::box(dialog.x + 20.0, dialog.y + 103.0, dialog.w - 40.0, 420.0)
+                generation_review_accessibility_node(UiCore::AccessibilityRole.List,
+                    "Recovery operations" if generation_review_recovery_mode else "Generated build artifacts",
+                    "Select a retained operation to inspect its exact root, operation ID, and reconciled location. Every uncertain outcome stays protected." if generation_review_recovery_mode else "Select a row to inspect its path, protection, age, retention, and creation evidence.",
+                    list_box, StudioGenerationReviewAccessibilityPolicy::Node::LIST,
+                    StudioGenerationReviewAccessibilityPolicy::Node::DIALOG,
+                    StudioGenerationReviewAccessibilityPolicy::Node::ROW_FIRST if visible > 0 else none,
+                    StudioGenerationReviewAccessibilityPolicy::Node::DETAILS, none,
+                    true, false, false, "")
+                for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot|:
+                    UiFlat::set_enabled(accessibility_generation_review_rows[slot.usize()], false)
+                if generation_review_recovery_mode:
+                    for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot, first, visible, count|:
+                        widget: usize = accessibility_generation_review_rows[slot.usize()]
+                        active: bool = slot < visible
+                        UiFlat::set_enabled(widget, active)
+                        if active:
+                            index: i64 = first + slot
+                            generation_review_accessibility_node(UiCore::AccessibilityRole.ListItem,
+                                generation_recovery_row_name(index), "Retained recovery identity; reconcile status is shown in row details.",
+                                generation_review_row_box(w, h, slot), StudioGenerationReviewAccessibilityPolicy::row_id(slot.usize()),
+                                StudioGenerationReviewAccessibilityPolicy::Node::LIST, none,
+                                StudioGenerationReviewAccessibilityPolicy::row_id((slot + 1).usize()) if slot + 1 < visible else none,
+                                widget, true, generation_inspected_row == index, generation_inspected_row == index,
+                                generation_recovery_row_value(index))
+                elif generation_inventory is snapshot and snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Complete:
+                    for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |snapshot, slot, first, visible, count|:
+                        widget: usize = accessibility_generation_review_rows[slot.usize()]
+                        active: bool = slot < visible
+                        UiFlat::set_enabled(widget, active)
+                        if active:
+                            row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[first + slot]
+                            id: usize = StudioGenerationReviewAccessibilityPolicy::row_id(slot.usize())
+                            generation_review_accessibility_node(UiCore::AccessibilityRole.ListItem,
+                                generation_review_row_name(row), generation_review_row_text(row),
+                                generation_review_row_box(w, h, slot), id,
+                                StudioGenerationReviewAccessibilityPolicy::Node::LIST, none,
+                                StudioGenerationReviewAccessibilityPolicy::row_id((slot + 1).usize()) if slot + 1 < visible else none,
+                                widget, true, generation_inspected_row == first + slot,
+                                generation_inspected_row == first + slot, generation_review_row_value(row))
+                mutable details: sview = "Select a generation row to inspect its identity and protection evidence."
+                if generation_review_recovery_mode and generation_inspected_row >= 0 and generation_inspected_row < count:
+                    details <- generation_recovery_row_value(generation_inspected_row)
+                elif generation_inventory is snapshot and generation_inspected_row >= 0 and generation_inspected_row < count:
+                    details <- generation_review_row_value(snapshot.rows[generation_inspected_row])
+                generation_review_accessibility_node(UiCore::AccessibilityRole.Label,
+                    "Inspected generation details", details,
+                    StudioPanels::box(dialog.x + 24.0, dialog.y + dialog.h - 100.0, dialog.w - 48.0, 24.0),
+                    StudioGenerationReviewAccessibilityPolicy::Node::DETAILS,
                     StudioGenerationReviewAccessibilityPolicy::Node::DIALOG, none,
-                    StudioGenerationReviewAccessibilityPolicy::next_sibling(id, visible),
-                    widget, enabled, generation_review_focus == action, false, "")
+                    StudioGenerationReviewAccessibilityPolicy::Node::PREVIOUS, none,
+                    true, false, false, details)
+                for policy_action in [StudioGenerationReviewAccessibilityPolicy::Action.Previous,
+                                      StudioGenerationReviewAccessibilityPolicy::Action.Next,
+                                      StudioGenerationReviewAccessibilityPolicy::Action.Refresh,
+                                      StudioGenerationReviewAccessibilityPolicy::Action.Back,
+                                      StudioGenerationReviewAccessibilityPolicy::Action.Review,
+                                      StudioGenerationReviewAccessibilityPolicy::Action.Restore,
+                                      StudioGenerationReviewAccessibilityPolicy::Action.Operations,
+                                      StudioGenerationReviewAccessibilityPolicy::Action.InspectPath] |policy_action, pages, generation_review_page, dialog, w, h|:
+                    action: i64 = policy_action.i64()
+                    id: usize = StudioGenerationReviewAccessibilityPolicy::action_id(policy_action)
+                    widget: usize = accessibility_generation_review_controls[action.usize()]
+                    enabled: bool = StudioGenerationReviewPathPolicy::path_valid(generation_review_path_bytes()) if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else generation_review_control_enabled(policy_action, generation_review_page, pages)
+                    UiFlat::set_enabled(widget, enabled)
+                    generation_review_accessibility_node(UiCore::AccessibilityRole.Button,
+                        generation_move_action_label() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Review else generation_restore_action_label() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Restore else ("Show generations" if generation_review_recovery_mode else "Show recovery operations") if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Operations else "Inspect full selected artifact path" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else "Previous page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Previous else "Next page" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Next else "Refresh generation inventory" if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Refresh else "Back to Storage",
+                        generation_move_action_help() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Review else generation_restore_action_help() if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.Restore else "Open the exact selected artifact path in bounded pages." if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else "Activates the matching visible control.",
+                        StudioGenerationReviewPathInspector::inspect_button_box(w, h) if policy_action == StudioGenerationReviewAccessibilityPolicy::Action.InspectPath else generation_review_control_box(w, h, action), id,
+                        StudioGenerationReviewAccessibilityPolicy::Node::DIALOG, none,
+                        StudioGenerationReviewAccessibilityPolicy::next_sibling(id, visible),
+                        widget, enabled, generation_review_focus == action, false, "")
 
     public:
-        def generation_review_accessibility_action(widget: usize, event: i32) -> bool can[Threads, Unsafe{PointerCast, RawExtern}, Blocking.IO, Memory{Allocate, Release}]:
-            if generation_review_open:
-                if event == UiConst::WidgetEvent.Click.i32() and accessibility_generation_review_ready:
-                    if generation_path_open:
-                        if widget == accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Previous.i64().usize()]:
-                            generation_path_action(0)
+        def generation_review_accessibility_action(widget: usize, event: i32) -> bool can[Threads, Unsafe{PointerCast, RawExtern}, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if generation_review_open:
+                    if event == UiConst::WidgetEvent.Click.i32() and accessibility_generation_review_ready:
+                        if generation_path_open:
+                            if widget == accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Previous.i64().usize()]:
+                                generation_path_action(0)
+                                return true
+                            if widget == accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Next.i64().usize()]:
+                                generation_path_action(1)
+                                return true
+                            if widget == accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Back.i64().usize()]:
+                                generation_path_action(2)
+                                return true
                             return true
-                        if widget == accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Next.i64().usize()]:
-                            generation_path_action(1)
-                            return true
-                        if widget == accessibility_generation_review_controls[StudioGenerationReviewAccessibilityPolicy::Action.Back.i64().usize()]:
-                            generation_path_action(2)
-                            return true
-                        return true
-                    for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot, widget|:
-                        if widget == accessibility_generation_review_rows[slot.usize()] and (generation_review_recovery_mode or (generation_inventory is snapshot and snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Complete)):
-                            target: i64 = StudioGenerationReviewListPolicy::inspection_target(generation_review_count(), generation_review_page, slot)
-                            cancel_generation_move_review()
-                            generation_restore_cancel_review()
-                            generation_inspected_row <- target if target >= 0
-                            generation_recovery_browser_select(target) if target >= 0 and generation_review_recovery_mode
-                            touch() if target >= 0
-                            return true
-                    for action in [StudioGenerationReviewAccessibilityPolicy::Action.Previous,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.Next,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.Refresh,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.Back,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.Review,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.Restore,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.Operations,
-                                   StudioGenerationReviewAccessibilityPolicy::Action.InspectPath] |action, widget|:
-                        if widget == accessibility_generation_review_controls[action.i64().usize()] and generation_review_control_enabled(action, generation_review_page, StudioGenerationReviewListPolicy::page_count(generation_review_count())):
-                            generation_review_focus <- action.i64()
-                            generation_review_action(action.i64())
-                            return true
-                return StudioGenerationReviewAccessibilityPolicy::consumes_widget_event(generation_review_open)
-            if event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_generation_review_entry_widget and StudioGenerationReviewAccessibilityPolicy::entry_enabled(storage_screen_open, generation_review_open, generation_review_storage_busy()):
-                open_generation_review()
-                return true
-            false
+                        for slot in 0..<StudioGenerationReviewAccessibilityPolicy::Node::ROW_COUNT |slot, widget|:
+                            if widget == accessibility_generation_review_rows[slot.usize()] and (generation_review_recovery_mode or (generation_inventory is snapshot and snapshot.outcome == StudioBuildGenerationCandidateProvider::Outcome.Complete)):
+                                target: i64 = StudioGenerationReviewListPolicy::inspection_target(generation_review_count(), generation_review_page, slot)
+                                cancel_generation_move_review()
+                                generation_restore_cancel_review()
+                                generation_inspected_row <- target if target >= 0
+                                generation_recovery_browser_select(target) if target >= 0 and generation_review_recovery_mode
+                                touch() if target >= 0
+                                return true
+                        for action in [StudioGenerationReviewAccessibilityPolicy::Action.Previous,
+                                       StudioGenerationReviewAccessibilityPolicy::Action.Next,
+                                       StudioGenerationReviewAccessibilityPolicy::Action.Refresh,
+                                       StudioGenerationReviewAccessibilityPolicy::Action.Back,
+                                       StudioGenerationReviewAccessibilityPolicy::Action.Review,
+                                       StudioGenerationReviewAccessibilityPolicy::Action.Restore,
+                                       StudioGenerationReviewAccessibilityPolicy::Action.Operations,
+                                       StudioGenerationReviewAccessibilityPolicy::Action.InspectPath] |action, widget|:
+                            if widget == accessibility_generation_review_controls[action.i64().usize()] and generation_review_control_enabled(action, generation_review_page, StudioGenerationReviewListPolicy::page_count(generation_review_count())):
+                                generation_review_focus <- action.i64()
+                                generation_review_action(action.i64())
+                                return true
+                    return StudioGenerationReviewAccessibilityPolicy::consumes_widget_event(generation_review_open)
+                if event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_generation_review_entry_widget and StudioGenerationReviewAccessibilityPolicy::entry_enabled(storage_screen_open, generation_review_open, generation_review_storage_busy()):
+                    open_generation_review()
+                    return true
+                return false
