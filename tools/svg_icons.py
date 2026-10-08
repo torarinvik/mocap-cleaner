@@ -235,15 +235,16 @@ def main():
     lines += ["",
               "        # Strokes icon `icon` into the s x s box at (x, y); 24 SVG units span s.",
               "        def draw(icon: Icon, x: f32, y: f32, s: f32, w: f32, c: UiCore::Color) -> void can[Global{Read, Write}]:",
-              "            k: f32 = s / 24.0"]
+              "            can Global{Read, Write}:",
+              "                k: f32 = s / 24.0"]
     total = 0
     for code, (name, src) in enumerate(ICONS):
         segs = icon_segments(os.path.join(ROOT, "assets", "icons", src))
         total += len(segs)
         variant = "".join(part.title() for part in name.lower().split("_"))
-        lines.append(f"            {'if' if code == 0 else 'elif'} icon == Icon.{variant}:")
+        lines.append(f"                {'if' if code == 0 else 'elif'} icon == Icon.{variant}:")
         for x1, y1, x2, y2 in segs:
-            lines.append(f"                StudioDraw::segment(x + {x1:.2f} * k, y + {y1:.2f} * k, x + {x2:.2f} * k, y + {y2:.2f} * k, w, c)")
+            lines.append(f"                    StudioDraw::segment(x + {x1:.2f} * k, y + {y1:.2f} * k, x + {x2:.2f} * k, y + {y2:.2f} * k, w, c)")
     with open(out, "w") as fh:
         fh.write("\n".join(lines) + "\n")
     print(f"wrote {out}: {len(ICONS)} icons, {total} segments")
