@@ -2,12 +2,24 @@ include "panels_geometry.elisa"
 include "../../../../elisa-ui/src/widgets/ui_text_measure_layout.elisa"
 include "../failure_guide_layout_policy.elisa"
 include "../status_bar_layout_policy.elisa"
+include "../tooltip_layout_policy.elisa"
 
 extend StudioPanels:
     public:
         def is_clean_action(action: i64) -> bool:
             action == PrivateToolbarAction::Clean
     private:
+        const module Tooltip:
+            PADDING: f32 = 16.0
+            HEIGHT: i64 = 22
+            TEXT_SIZE: f32 = 12.0
+            GAP: f32 = 4.0
+
+        def tooltip_pixels(value: f32) -> i64:
+            ensure result >= 0 and result <= StudioTooltipLayoutPolicy::Limit::EXTENT
+            return StudioTooltipLayoutPolicy::Limit::EXTENT if value >= StudioTooltipLayoutPolicy::Limit::EXTENT.f32()
+            value.i64() if value > 0.0 else 0
+
         def icon_of(action: i64, playing: bool) -> StudioIcons::Icon:
             return (StudioIcons::Icon.Pause if playing else StudioIcons::Icon.Play) if action == ToolbarAction.Play.i64()
             return StudioIcons::Icon.Back if action == ToolbarAction.Back.i64()
@@ -53,13 +65,23 @@ extend StudioPanels:
             return "Review boxing cleanup suggestion  (A)" if action == PrivateToolbarAction::Clean
             ""
 
-        def tooltip(action: i64) -> void:
+        def tooltip(action: i64, window_width: f32, window_height: f32) -> void:
             return if action < 0 or action >= PanelLimit::BUTTONS
+            available_width: i64 = tooltip_pixels(window_width)
+            available_height: i64 = tooltip_pixels(window_height)
+            return if available_width == 0 or available_height == 0
             b: Box = button_box(action)
             text: sview = tip_of(action)
-            width: f32 = text.len.f32() * 6.6 + 16.0
-            StudioDraw::rect(b.x, b.y + b.h + 4.0, width, 22.0, StudioDraw::color(240, 236, 220))
-            StudioDraw::text(b.x + 8.0, b.y + b.h + 8.0, 12.0, text, StudioDraw::color(20, 22, 28))
+            # Round measured width upward before bounding it to the viewport.
+            measured: f32 = UiTextMetrics::width(text, Tooltip::TEXT_SIZE, false)
+            width: i64 = StudioTooltipLayoutPolicy::extent(available_width, tooltip_pixels(measured + Tooltip::PADDING + 1.0))
+            height: i64 = StudioTooltipLayoutPolicy::extent(available_height, Tooltip::HEIGHT)
+            x: i64 = StudioTooltipLayoutPolicy::origin(available_width, width, tooltip_pixels(b.x))
+            y: i64 = StudioTooltipLayoutPolicy::origin(available_height, height, tooltip_pixels(b.y + b.h + Tooltip::GAP))
+            UiCore::set_clip(UiCore::Rect(x.f32(), y.f32(), width.f32(), height.f32()))
+            StudioDraw::rect(x.f32(), y.f32(), width.f32(), height.f32(), StudioDraw::color(240, 236, 220))
+            StudioDraw::text(x.f32() + 8.0, y.f32() + 4.0, Tooltip::TEXT_SIZE, text, StudioDraw::color(20, 22, 28))
+            UiCore::clear_clip()
 
         # Shortcut sheet ("?"): every binding, grouped.
     private:
