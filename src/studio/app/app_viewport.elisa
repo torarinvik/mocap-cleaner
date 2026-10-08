@@ -86,52 +86,55 @@ extend Studio:
 
         # Re-skin the mesh when the frame or the clip changed (MESH on only).
         # A drawable character model wins over the take's own mesh.
-        def refresh_skin(c: StudioModel::Clip&) -> void:
-            return if not StudioScene::on(flags, StudioScene::Flags::MESH)
-            bind_character(c)
-            return if skinned_frame == frame_now() and skinned_revision == revision
-            if character_ready():
-                if character is ch:
-                    if character_binding is b:
-                        posed_character: darray[Geometry::Vec3] = StudioCharacter::pose(ch, b, c, frame_now())
-                        skinned <- posed_character
-                        skinned_frame <- frame_now()
-                        skinned_revision <- revision
-                return
-            if mesh is m:
-                posed: darray[Geometry::Vec3] = StudioScene::pose_mesh(c, m, frame_now())
-                skinned <- posed
-                skinned_frame <- frame_now()
-                skinned_revision <- revision
+        def refresh_skin(c: StudioModel::Clip&) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return if not StudioScene::on(flags, StudioScene::Flags::MESH)
+                bind_character(c)
+                return if skinned_frame == frame_now() and skinned_revision == revision
+                if character_ready():
+                    if character is ch:
+                        if character_binding is b:
+                            posed_character: darray[Geometry::Vec3] = StudioCharacter::pose(ch, b, c, frame_now())
+                            skinned <- posed_character
+                            skinned_frame <- frame_now()
+                            skinned_revision <- revision
+                    return
+                if mesh is m:
+                    posed: darray[Geometry::Vec3] = StudioScene::pose_mesh(c, m, frame_now())
+                    skinned <- posed
+                    skinned_frame <- frame_now()
+                    skinned_revision <- revision
 
-        # Refreshes the cached base pose and solves the gizmo chain preview. It reads and
-        # writes heap globals, so its allocations live in the never-freed static region;
-        # keeping it out of draw_list confines that to frames with an active gizmo goal.
-        def chain_preview_of(c: StudioModel::Clip&, goal: Geometry::Transform) -> darray[Geometry::Transform]:
-            r: PoseOverride::Rig = StudioModel::rig(c)
-            if base_frame != frame_now() or base_built != built:
-                base_models <- StudioModel::models(c, r, frame_now(), false)
-                base_locals <- StudioClip::locals_at(c.cleaned, c.anim, frame_now(), c.nodes, c.slot)
-                base_frame <- frame_now()
-                base_built <- built
-            p: StudioPerf::Preview = StudioPerf::chain_preview(r, base_models, base_locals, bone, goal)
-            preview_moved <- p.moved
-            return move p.models
+        # Refreshes the cached base pose and solves the gizmo chain preview.
+        # Cached arrays must remain owned across redraws; Global grants track
+        # access and do not by themselves prove their allocation lifetime.
+        def chain_preview_of(c: StudioModel::Clip&, goal: Geometry::Transform) -> darray[Geometry::Transform] can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                r: PoseOverride::Rig = StudioModel::rig(c)
+                if base_frame != frame_now() or base_built != built:
+                    base_models <- StudioModel::models(c, r, frame_now(), false)
+                    base_locals <- StudioClip::locals_at(c.cleaned, c.anim, frame_now(), c.nodes, c.slot)
+                    base_frame <- frame_now()
+                    base_built <- built
+                p: StudioPerf::Preview = StudioPerf::chain_preview(r, base_models, base_locals, bone, goal)
+                preview_moved <- p.moved
+                return move p.models
 
-        def draw_list(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, empty_mesh: GlbSkinMesh::Mesh&, no_points: darray[Geometry::Vec3]&) -> ViewportDraw::List:
-            mutable preview: darray[Geometry::Transform] = []
-            if StudioOverlay::preview(gizmo_view, gizmo_drag != null, bone) and gizmo_target_current(gizmo_view):
-                if gizmo_goal is goal:
-                    preview <- chain_preview_of(c, goal)
-            if character_ready():
-                if character is ch:
+        def draw_list(cam: ViewportCamera::Camera&, c: StudioModel::Clip&, empty_mesh: GlbSkinMesh::Mesh&, no_points: darray[Geometry::Vec3]&) -> ViewportDraw::List can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                mutable preview: darray[Geometry::Transform] = []
+                if StudioOverlay::preview(gizmo_view, gizmo_drag != null, bone) and gizmo_target_current(gizmo_view):
+                    if gizmo_goal is goal:
+                        preview <- chain_preview_of(c, goal)
+                if character_ready():
+                    if character is ch:
+                        if skinned is p:
+                            return StudioScene::build_with(cam, c, &ch.mesh, p, frame_now(), flags, bone, &preview)
+                    return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
+                if mesh is m:
                     if skinned is p:
-                        return StudioScene::build_with(cam, c, &ch.mesh, p, frame_now(), flags, bone, &preview)
+                        return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
                 return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
-            if mesh is m:
-                if skinned is p:
-                    return StudioScene::build_with(cam, c, m, p, frame_now(), flags, bone, &preview)
-            return StudioScene::build_with(cam, c, empty_mesh, no_points, frame_now(), flags, bone, &preview)
 
         def present(i: i64, vp: Viewport::Viewport&, rect: UiHostedSurface::Rect) -> i32:
             w: f32 = UiCore::viewport_width()
