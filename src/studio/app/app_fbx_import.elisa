@@ -106,9 +106,7 @@ extend Studio:
             canonical: darray[u8] = canonical_fbx_source((&fbx_setup_request_bytes[0]).cast[cstr])
             if not StudioFbxImportPolicy::terminated(&canonical, StudioFbxImportPolicy::Limit::PATH_BYTES):
                 cancel_pending_fbx_import_setup()
-                status <- "The selected FBX path could not be resolved. The current take stays open. Choose the FBX again after checking its location."
-                status_file <- null
-                touch()
+                retain_fbx_setup_refusal("The selected FBX path could not be resolved. The current take stays open. Choose the FBX again after checking its location.")
                 return
             for index in 0..<canonical.count |index, canonical|:
                 fbx_import_source_bytes[index] <- canonical[index]
@@ -183,6 +181,17 @@ extend Studio:
                 return false if source[index] != fbx_import_source_bytes[index]
             true
 
+        def retain_fbx_setup_refusal(message: sview) -> void:
+            return if not StudioFbxFailureFeedbackPolicy::may_capture_setup_refusal(true, fbx_import_cancelled, fbx_import_close_pending)
+            status <- message
+            status_file <- null
+            load_failure_feedback.message <- message
+            # The literal is self-contained and does not borrow a chooser or
+            # request buffer that a later open could overwrite.
+            load_failure_feedback.source <- null
+            load_failed <- clip == null
+            touch()
+
         def start_fbx_import() -> void can[Threads, Unsafe.PointerCast, Unsafe.RawExtern, Memory.Allocate, Memory.Release]:
             return if not fbx_import_start_pending or fbx_import_task != null
             load_failure_feedback.message <- ""
@@ -190,25 +199,19 @@ extend Studio:
             load_failed <- false if clip == null
             if not GenerationPolicy::can_advance(fbx_import_ticket):
                 fbx_import_start_pending <- false
-                status <- "FBX import could not start because its request sequence is exhausted. The current take is unchanged."
-                status_file <- null
-                touch()
+                retain_fbx_setup_refusal("FBX import could not start because its request sequence is exhausted. The current take is unchanged.")
                 return
             if fbx_import_source_length == 0 or fbx_import_source_length > FbxImportLimit::PATH_BYTES:
                 fbx_import_start_pending <- false
                 fbx_import_source_length <- 0
-                status <- "The retained FBX path is unavailable or exceeds the path limit. The current take is unchanged. Open the FBX again to retry."
-                status_file <- null
-                touch()
+                retain_fbx_setup_refusal("The retained FBX path is unavailable or exceeds the path limit. The current take is unchanged. Open the FBX again to retry.")
                 return
             source: darray[u8] = [fbx_import_source_bytes[index] for index in 0..<fbx_import_source_length]
             mutable root: darray[u8] = cstr_path_bytes((&workspace_build_bytes[0]).cast[cstr])
             mutable animation: darray[u8] = cstr_path_bytes(anim_name)
             if not StudioFbxImportPolicy::request_buffers_fit(&source, &root, &animation):
                 fbx_import_start_pending <- false
-                status <- "FBX import request could not be retained within the path and animation limits. The current take is unchanged."
-                status_file <- null
-                touch()
+                retain_fbx_setup_refusal("FBX import request could not be retained within the path and animation limits. The current take is unchanged.")
                 return
             fbx_import_ticket <- GenerationPolicy::advance(fbx_import_ticket)
             mutable buffers: StudioFbxImportWorker::RequestBuffers = zeroed

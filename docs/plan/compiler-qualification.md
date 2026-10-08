@@ -1,5 +1,37 @@
 # Q01 — Current compiler and paired prover
 
+## Current integrated qualification checkpoint
+
+Compiler repair `03ae54d3` was rebuilt with clean Stage0 `35e5d07c`.
+Stage1 SHA is `6909950f6974dc33440bff20986a3114b2768b8fc13fb1b5eabfa7b0503bfca4`;
+linked runtime SHA is `6b5247cec30a39ac1d00e0e61a088ccb4d0901932d518d3f6be32e79b9f5412f`.
+Provenance and freshness checks pass. Focused O0/O2/LLVM23 ASan callback
+executions return 42, including 9 KiB arguments outliving the submitting frame.
+Bare module-local `Arena&` and aliases now resolve their actual declaration;
+qualified shadow, by-value shadow and scalar controls pass. Named usize
+specialization controls and the application feedback executable pass.
+
+Full Studio semantic checking passes for root `c36d1a7`, engine `378e8c33`
+(integrating upstream `1a472e99`) and UI `f33e439b` with its captured dirty tree.
+The 703-file manifest hash is
+`bf0765bf0cec62f2ad6c261c30cfefdfbaebd805d51760cf1d04a078ac2618ac`.
+The compile reads live paths under a checked manifest; it is not a copied tree.
+Before/after validation passed. Exact record:
+`build/studio-build.c83-03ae54d3/semantic-record.json`.
+Native build, actual FBX journey, current-main gates and performance acceptance
+remain open. Changes after this root capture require a fresh input manifest.
+The later terminal FBX setup-refusal feedback change is outside this semantic
+snapshot and still needs a fresh source qualification.
+
+Proof pair `66309417` uses proof `797c8e1a` and compiler `c83ea675`; it is
+comparison evidence after the newer compiler/root changes. Its feedback report
+checks 8 functions, leaves 2 unmatched and refuses 6 unsupported functions;
+32 replayed theorems do not establish complete source correspondence. Import
+failure laws remain unsupported at the return-type gate; eight other selected
+law packages are inadmissible. Keep those gaps open and rebuild the pair after
+new checker repairs before qualifying current application laws.
+
+
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
 Current fetched compiler main is `7ec9def9`. Clean isolated Stage0 source
