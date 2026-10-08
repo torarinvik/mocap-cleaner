@@ -43,3 +43,23 @@ This is focused runtime evidence, not a formal theorem about the full backend.
 
 Full evidence and acceptance boundaries:
 [FBX request record](../acceptance/fbx-request-proof-2026-10-07.md).
+
+
+## Production scalar-type owner collision
+
+The candidate full Studio compile does not yet reach production IR because
+`UiDialog::result` receives a global-storage return diagnostic. Root isolated
+this on the exact candidate product: a fixed global array of `UiDialog::Result`
+(a scalar const enum) returns one element successfully. Including the actual
+UI dialog source also emits LLVM successfully. Adding an unrelated
+`Other::Result` struct containing `darray[u8]` makes the unchanged scalar return
+fail with the same diagnostic. Sources, logs and terminal statuses are retained
+in `build/dialog-result-reduction/{scalar-enum,actual-ui,other-owner}.*`.
+
+The global-storage return checker currently compares a bare return type name
+against collected owning-struct names without preserving module owner identity.
+A repair must distinguish the scalar enum from the unrelated owning struct,
+while continuing to refuse genuine owning global-storage copies. Qualify exact
+qualified/unqualified owner resolution, nested owners and ambiguous/shadow
+refusal; changing the UI result API or dropping tracking would hide the defect.
+The concurrent atomic-loader diagnostic remains a separate unresolved reduction.
