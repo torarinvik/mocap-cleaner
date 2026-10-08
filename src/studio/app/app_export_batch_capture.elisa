@@ -15,93 +15,95 @@ extend Studio:
         global mutable prepared_export_queue: StudioExportBatchReviewBinding::BoundQueue? = null
 
         def prepared_workspace_writable() -> bool can Global.Read:
-            return StudioExportBatchPanelPolicy::workspace_write_admitted(workspace_available(), storage_release_uncertain, storage_transaction_active)
+            can Global.Read:
+                return StudioExportBatchPanelPolicy::workspace_write_admitted(workspace_available(), storage_release_uncertain, storage_transaction_active)
 
         def enqueue_reviewed_export() -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
-            destination: cstr = export_review_path
-            if not export_result_current():
-                say_file("Prepared export was not added: current edits have not produced a ready result. Wait for rebuilding or undo the failed edit, then review again.", destination)
-                touch()
-                return false
-            if not prepared_workspace_writable():
-                say_file("Prepared export was not added: workspace writes are unavailable. Resolve workspace state before retrying.", destination)
-                touch()
-                return false
-            if not export_review_open:
-                say_file("Prepared export was not added: review is no longer active.", destination)
-                touch()
-                return false
-            if export_review_generation != built or not StudioExportSnapshotPolicy::current(export_review_generation, built):
-                say_file("Prepared export was not added: the displayed result changed. Review the current result again.", destination)
-                touch()
-                return false
-            if current_export_warnings() > 0 and not export_review_acknowledged:
-                say_file("Prepared export was not added: inspect and acknowledge the warning report first.", destination)
-                touch()
-                return false
-            if not export_report_paths_fit(destination) or not artifact_destination_allowed(destination):
-                say_file("Prepared export was not added: choose a distinct output path inside build/.", destination)
-                touch()
-                return false
+            can Global{Read, Write}:
+                destination: cstr = export_review_path
+                if not export_result_current():
+                    say_file("Prepared export was not added: current edits have not produced a ready result. Wait for rebuilding or undo the failed edit, then review again.", destination)
+                    touch()
+                    return false
+                if not prepared_workspace_writable():
+                    say_file("Prepared export was not added: workspace writes are unavailable. Resolve workspace state before retrying.", destination)
+                    touch()
+                    return false
+                if not export_review_open:
+                    say_file("Prepared export was not added: review is no longer active.", destination)
+                    touch()
+                    return false
+                if export_review_generation != built or not StudioExportSnapshotPolicy::current(export_review_generation, built):
+                    say_file("Prepared export was not added: the displayed result changed. Review the current result again.", destination)
+                    touch()
+                    return false
+                if current_export_warnings() > 0 and not export_review_acknowledged:
+                    say_file("Prepared export was not added: inspect and acknowledge the warning report first.", destination)
+                    touch()
+                    return false
+                if not export_report_paths_fit(destination) or not artifact_destination_allowed(destination):
+                    say_file("Prepared export was not added: choose a distinct output path inside build/.", destination)
+                    touch()
+                    return false
 
-            if clip is c:
-                captured_generation: i64 = built
-                mutable recipe: StackState::Stack = current_stack()
-                if built_stack is evaluated_stack:
-                    if not StackState::same(recipe, evaluated_stack) or load_failed:
-                        say_file("Prepared export was not added: current edits have not produced the displayed result.", destination)
+                if clip is c:
+                    captured_generation: i64 = built
+                    mutable recipe: StackState::Stack = current_stack()
+                    if built_stack is evaluated_stack:
+                        if not StackState::same(recipe, evaluated_stack) or load_failed:
+                            say_file("Prepared export was not added: current edits have not produced the displayed result.", destination)
+                            touch()
+                            return false
+                        recipe <- evaluated_stack
+                    else:
+                        say_file("Prepared export was not added: evaluated recipe provenance is unavailable.", destination)
                         touch()
                         return false
-                    recipe <- evaluated_stack
-                else:
-                    say_file("Prepared export was not added: evaluated recipe provenance is unavailable.", destination)
-                    touch()
-                    return false
-                report_animation: sview = anim_name
-                mutable prepare_error: StudioExportValidation::Result = StudioExportValidation::Result.WRITE_FAILED
-                if StudioExportPublisher::prepare(c.cleaned, destination, &prepare_error) is temporary:
-                    mutable output_bytes: darray[u8] = []
-                    mutable recipe_bytes: darray[u8] = []
-                    mutable report: ExportReportSnapshot? = null
-                    staged_read: bool = StudioExportRecoveryBytes::read(temporary, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES, &output_bytes)
-                    mutable output_fingerprint: StudioSourceFingerprint::Fingerprint? = null
-                    output_fingerprint <- export_staged_identity(temporary) if staged_read
-                    if output_fingerprint is fingerprint:
-                        report <- prepare_export_report_for(c, recipe, report_animation, fingerprint)
-                    mutable report_ready: bool = false
-                    if report is frozen:
-                        report_ready <- frozen.json.count > 0 and frozen.summary.count > 0 and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.json.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES) and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.summary.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
-                    mutable frames: i64 = c.source_frames
-                    mutable nodes: i64 = GlbDocument::node_count(c.source).i64()
-                    recipe_ready: bool = StudioExportBatchRecipeCodec::encode(recipe, frames, nodes, &recipe_bytes)
-                    descriptor: i32 = begin_storage_transaction()
-                    mutable enqueued: bool = false
-                    mutable released: bool = false
-                    warnings: i64 = current_export_warnings()
-                    if descriptor >= 0 and staged_read and output_fingerprint is fingerprint and report is frozen and report_ready and recipe_ready:
-                        enqueued <- enqueue_prepared_snapshot(destination, temporary, captured_generation, c.anim.i64(),
-                            frames, nodes, c.source_fingerprint, recipe_bytes, output_bytes, frozen.json, frozen.summary, warnings, descriptor)
-                    released <- end_storage_transaction(descriptor) if descriptor >= 0
-                    if enqueued:
-                        export_review_open <- false
-                        export_review_path <- ""
-                        say_file("Prepared export added to the queue. Its captured result and reports are retained for create-only publication.", destination)
-                        say_file("Prepared export retained, but storage lock release is uncertain. Restart Studio before another workspace write.", destination) if not released
+                    report_animation: sview = anim_name
+                    mutable prepare_error: StudioExportValidation::Result = StudioExportValidation::Result.WRITE_FAILED
+                    if StudioExportPublisher::prepare(c.cleaned, destination, &prepare_error) is temporary:
+                        mutable output_bytes: darray[u8] = []
+                        mutable recipe_bytes: darray[u8] = []
+                        mutable report: ExportReportSnapshot? = null
+                        staged_read: bool = StudioExportRecoveryBytes::read(temporary, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES, &output_bytes)
+                        mutable output_fingerprint: StudioSourceFingerprint::Fingerprint? = null
+                        output_fingerprint <- export_staged_identity(temporary) if staged_read
+                        if output_fingerprint is fingerprint:
+                            report <- prepare_export_report_for(c, recipe, report_animation, fingerprint)
+                        mutable report_ready: bool = false
+                        if report is frozen:
+                            report_ready <- frozen.json.count > 0 and frozen.summary.count > 0 and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.json.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES) and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.summary.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+                        mutable frames: i64 = c.source_frames
+                        mutable nodes: i64 = GlbDocument::node_count(c.source).i64()
+                        recipe_ready: bool = StudioExportBatchRecipeCodec::encode(recipe, frames, nodes, &recipe_bytes)
+                        descriptor: i32 = begin_storage_transaction()
+                        mutable enqueued: bool = false
+                        mutable released: bool = false
+                        warnings: i64 = current_export_warnings()
+                        if descriptor >= 0 and staged_read and output_fingerprint is fingerprint and report is frozen and report_ready and recipe_ready:
+                            enqueued <- enqueue_prepared_snapshot(destination, temporary, captured_generation, c.anim.i64(),
+                                frames, nodes, c.source_fingerprint, recipe_bytes, output_bytes, frozen.json, frozen.summary, warnings, descriptor)
+                        released <- end_storage_transaction(descriptor) if descriptor >= 0
+                        if enqueued:
+                            export_review_open <- false
+                            export_review_path <- ""
+                            say_file("Prepared export added to the queue. Its captured result and reports are retained for create-only publication.", destination)
+                            say_file("Prepared export retained, but storage lock release is uncertain. Restart Studio before another workspace write.", destination) if not released
+                            FilePanel::release_path(temporary)
+                            touch()
+                            return true
+                        StudioExportPublisher::discard(temporary)
                         FilePanel::release_path(temporary)
+                        say_file("Prepared export was not queued. Check the workspace lock, exact source identity, output paths and recovery capacity.", destination)
+                        say_file("Storage lock release is uncertain; restart Studio before another workspace write.", destination) if descriptor >= 0 and not released
                         touch()
-                        return true
-                    StudioExportPublisher::discard(temporary)
-                    FilePanel::release_path(temporary)
-                    say_file("Prepared export was not queued. Check the workspace lock, exact source identity, output paths and recovery capacity.", destination)
-                    say_file("Storage lock release is uncertain; restart Studio before another workspace write.", destination) if descriptor >= 0 and not released
+                        return false
+                    say_file(StudioExportValidation::message(prepare_error), destination)
                     touch()
-                    return false
-                say_file(StudioExportValidation::message(prepare_error), destination)
-                touch()
-            else:
-                say_file("Prepared export was not added: load a take and build its result first.", destination)
-                touch()
-            return false
+                else:
+                    say_file("Prepared export was not added: load a take and build its result first.", destination)
+                    touch()
+                return false
 
         # Called only inside one begin/end storage transaction. It rechecks the
         # exact workspace root before reserving an ID or persisting snapshots.
@@ -110,96 +112,97 @@ extend Studio:
                 captured_source: StudioSourceFingerprint::Fingerprint,
                 recipe_bytes: darray[u8]&, output_bytes: darray[u8]&, json_bytes: darray[u8]&, text_bytes: darray[u8]&, warning_count: i64,
                 descriptor: i32) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
-            mutable root_candidate: darray[u8] = batch_path_bytes(workspace_build_directory())
-            mutable root_identity: StudioExportBatchRootIdentity::Facts = zeroed
-            mutable root_errors: darray[u8] = []
-            root_result: StudioExportBatchRootIdentity::Outcome = StudioExportBatchRootIdentity::capture(root_candidate, &root_identity, &root_errors)
-            return false if root_result != StudioExportBatchRootIdentity::Outcome.Ready
-            return false if not StudioExportBatchRootIdentity::same_bytes(root_identity.canonical_path, root_candidate)
+            can Global{Read, Write}:
+                mutable root_candidate: darray[u8] = batch_path_bytes(workspace_build_directory())
+                mutable root_identity: StudioExportBatchRootIdentity::Facts = zeroed
+                mutable root_errors: darray[u8] = []
+                root_result: StudioExportBatchRootIdentity::Outcome = StudioExportBatchRootIdentity::capture(root_candidate, &root_identity, &root_errors)
+                return false if root_result != StudioExportBatchRootIdentity::Outcome.Ready
+                return false if not StudioExportBatchRootIdentity::same_bytes(root_identity.canonical_path, root_candidate)
 
-            mutable source_facts: StudioExportBatchSourceIdentity::Facts = zeroed
-            mutable source_errors: darray[u8] = []
-            source_candidate: darray[u8] = batch_path_bytes(path)
-            source_result: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(source_candidate, &source_facts, &source_errors)
-            return false if not StudioExportBatchSourceIdentity::admitted(source_result)
-            mutable source_c: darray[u8] = StudioNativePathBytes::terminated(source_facts.canonical_path)
-            return false if source_c.count == 0
-            if StudioModel::open((&source_c[0]).cast[cstr]) is source_document:
-                if StudioModel::fingerprint(&source_document) is source_fingerprint:
-                    return false if source_fingerprint.first != captured_source.first or source_fingerprint.second != captured_source.second
+                mutable source_facts: StudioExportBatchSourceIdentity::Facts = zeroed
+                mutable source_errors: darray[u8] = []
+                source_candidate: darray[u8] = batch_path_bytes(path)
+                source_result: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(source_candidate, &source_facts, &source_errors)
+                return false if not StudioExportBatchSourceIdentity::admitted(source_result)
+                mutable source_c: darray[u8] = StudioNativePathBytes::terminated(source_facts.canonical_path)
+                return false if source_c.count == 0
+                if StudioModel::open((&source_c[0]).cast[cstr]) is source_document:
+                    if StudioModel::fingerprint(&source_document) is source_fingerprint:
+                        return false if source_fingerprint.first != captured_source.first or source_fingerprint.second != captured_source.second
+                    else:
+                        return false
                 else:
                     return false
-            else:
-                return false
-            mutable after_read: StudioExportBatchSourceIdentity::Facts = zeroed
-            mutable after_errors: darray[u8] = []
-            after_read_result: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(source_facts.canonical_path, &after_read, &after_errors)
-            return false if not StudioExportBatchSourceIdentity::admitted(after_read_result)
-            return false if not StudioExportBatchSourceIdentity::matches(after_read, source_facts.canonical_path, source_facts.device, source_facts.inode, source_facts.size_bytes, source_facts.modified_seconds, source_facts.modified_nanoseconds)
-            mutable json_path: darray[u8] = []
-            mutable text_path: darray[u8] = []
-            return false if not recovery_report_paths(destination, &json_path, &text_path)
-            mutable output_path: darray[u8] = []
-            if FilePanel::resolve_path(destination) is resolved_output:
-                output_path <- batch_path_bytes(resolved_output)
-                FilePanel::release_path(resolved_output)
-            else:
-                return false
-            if FilePanel::resolve_path((&json_path[0]).cast[cstr]) is resolved_json:
-                json_path <- batch_path_bytes(resolved_json)
-                FilePanel::release_path(resolved_json)
-            else:
-                return false
-            if FilePanel::resolve_path((&text_path[0]).cast[cstr]) is resolved_text:
-                text_path <- batch_path_bytes(resolved_text)
-                FilePanel::release_path(resolved_text)
-            else:
-                return false
-            mutable staged_path: darray[u8] = batch_path_bytes(temporary)
-            mutable output_c: darray[u8] = StudioNativePathBytes::terminated(output_path)
-            mutable json_c: darray[u8] = StudioNativePathBytes::terminated(json_path)
-            mutable text_c: darray[u8] = StudioNativePathBytes::terminated(text_path)
-            return false if output_c.count == 0 or json_c.count == 0 or text_c.count == 0
-            mutable animation_available: bool = false
-            if clip is current_clip:
-                animation_available <- animation_id == current_clip.anim.i64() and animation_id >= 0 and animation_id < GlbDocument::animation_count(current_clip.source).i64()
-            preflight: StudioExportBatchPreflightPolicy::Outcome = StudioExportBatchPreflightPolicy::evaluate(
-                true,
-                animation_available,
-                recovery_destinations_ready(destination, (&json_c[0]).cast[cstr], (&text_c[0]).cast[cstr], false),
-                not StudioStorageManifest::same_path(source_facts.canonical_path, output_path) and not StudioStorageManifest::same_path(source_facts.canonical_path, json_path) and not StudioStorageManifest::same_path(source_facts.canonical_path, text_path),
-                not StudioStorageManifest::same_path(output_path, json_path) and not StudioStorageManifest::same_path(output_path, text_path) and not StudioStorageManifest::same_path(json_path, text_path),
-                FilePanel::path_facts((&output_c[0]).cast[cstr]) == 0,
-                FilePanel::path_facts((&json_c[0]).cast[cstr]) == 0 and FilePanel::path_facts((&text_c[0]).cast[cstr]) == 0,
-                StudioExportBatchRecipeCodec::valid_bytes(recipe_bytes),
-                true)
-            return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
+                mutable after_read: StudioExportBatchSourceIdentity::Facts = zeroed
+                mutable after_errors: darray[u8] = []
+                after_read_result: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(source_facts.canonical_path, &after_read, &after_errors)
+                return false if not StudioExportBatchSourceIdentity::admitted(after_read_result)
+                return false if not StudioExportBatchSourceIdentity::matches(after_read, source_facts.canonical_path, source_facts.device, source_facts.inode, source_facts.size_bytes, source_facts.modified_seconds, source_facts.modified_nanoseconds)
+                mutable json_path: darray[u8] = []
+                mutable text_path: darray[u8] = []
+                return false if not recovery_report_paths(destination, &json_path, &text_path)
+                mutable output_path: darray[u8] = []
+                if FilePanel::resolve_path(destination) is resolved_output:
+                    output_path <- batch_path_bytes(resolved_output)
+                    FilePanel::release_path(resolved_output)
+                else:
+                    return false
+                if FilePanel::resolve_path((&json_path[0]).cast[cstr]) is resolved_json:
+                    json_path <- batch_path_bytes(resolved_json)
+                    FilePanel::release_path(resolved_json)
+                else:
+                    return false
+                if FilePanel::resolve_path((&text_path[0]).cast[cstr]) is resolved_text:
+                    text_path <- batch_path_bytes(resolved_text)
+                    FilePanel::release_path(resolved_text)
+                else:
+                    return false
+                mutable staged_path: darray[u8] = batch_path_bytes(temporary)
+                mutable output_c: darray[u8] = StudioNativePathBytes::terminated(output_path)
+                mutable json_c: darray[u8] = StudioNativePathBytes::terminated(json_path)
+                mutable text_c: darray[u8] = StudioNativePathBytes::terminated(text_path)
+                return false if output_c.count == 0 or json_c.count == 0 or text_c.count == 0
+                mutable animation_available: bool = false
+                if clip is current_clip:
+                    animation_available <- animation_id == current_clip.anim.i64() and animation_id >= 0 and animation_id < GlbDocument::animation_count(current_clip.source).i64()
+                preflight: StudioExportBatchPreflightPolicy::Outcome = StudioExportBatchPreflightPolicy::evaluate(
+                    true,
+                    animation_available,
+                    recovery_destinations_ready(destination, (&json_c[0]).cast[cstr], (&text_c[0]).cast[cstr], false),
+                    not StudioStorageManifest::same_path(source_facts.canonical_path, output_path) and not StudioStorageManifest::same_path(source_facts.canonical_path, json_path) and not StudioStorageManifest::same_path(source_facts.canonical_path, text_path),
+                    not StudioStorageManifest::same_path(output_path, json_path) and not StudioStorageManifest::same_path(output_path, text_path) and not StudioStorageManifest::same_path(json_path, text_path),
+                    FilePanel::path_facts((&output_c[0]).cast[cstr]) == 0,
+                    FilePanel::path_facts((&json_c[0]).cast[cstr]) == 0 and FilePanel::path_facts((&text_c[0]).cast[cstr]) == 0,
+                    StudioExportBatchRecipeCodec::valid_bytes(recipe_bytes),
+                    true)
+                return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
 
-            mutable identity: StudioExportBatchIdentity::Identity = StudioExportBatchIdentity::Identity{
-                source_path: source_facts.canonical_path, source_device: source_facts.device,
-                source_inode: source_facts.inode, source_size: source_facts.size_bytes,
-                source_modified_seconds: source_facts.modified_seconds,
-                source_modified_nanoseconds: source_facts.modified_nanoseconds,
-                result_generation: generation, animation_id: animation_id,
-                staged_path: staged_path, recipe_bytes: recipe_bytes,
-                output_path: output_path, report_json_path: json_path, report_text_path: text_path,
-                staged_result_bytes: output_bytes, report_json_bytes: json_bytes, report_text_bytes: text_bytes}
-            return false if not StudioExportBatchIdentity::valid(identity)
+                mutable identity: StudioExportBatchIdentity::Identity = StudioExportBatchIdentity::Identity{
+                    source_path: source_facts.canonical_path, source_device: source_facts.device,
+                    source_inode: source_facts.inode, source_size: source_facts.size_bytes,
+                    source_modified_seconds: source_facts.modified_seconds,
+                    source_modified_nanoseconds: source_facts.modified_nanoseconds,
+                    result_generation: generation, animation_id: animation_id,
+                    staged_path: staged_path, recipe_bytes: recipe_bytes,
+                    output_path: output_path, report_json_path: json_path, report_text_path: text_path,
+                    staged_result_bytes: output_bytes, report_json_bytes: json_bytes, report_text_bytes: text_bytes}
+                return false if not StudioExportBatchIdentity::valid(identity)
 
-            if prepared_export_queue is queue:
-                added: bool = StudioExportBatchReviewBinding::enqueue_prepared(&queue, preflight, identity, warning_count, true, descriptor)
-                prepared_export_queue <- move queue
-                return added
-            else:
-                mutable batch_id: darray[u8] = []
-                mutable build_c: darray[u8] = StudioNativePathBytes::terminated(root_candidate)
-                return false if build_c.count == 0
-                return false if not StudioExportBatchQueueStore::reserve_batch_id((&build_c[0]).cast[cstr], descriptor, &batch_id)
-                mutable queue: StudioExportBatchReviewBinding::BoundQueue = StudioExportBatchReviewBinding::create_durable(1, root_candidate, root_identity, batch_id)
-                added: bool = StudioExportBatchReviewBinding::enqueue_prepared(&queue, preflight, identity, warning_count, true, descriptor)
-                return false if not added
-                prepared_export_queue <- move queue
-                return true
+                if prepared_export_queue is queue:
+                    added: bool = StudioExportBatchReviewBinding::enqueue_prepared(&queue, preflight, identity, warning_count, true, descriptor)
+                    prepared_export_queue <- move queue
+                    return added
+                else:
+                    mutable batch_id: darray[u8] = []
+                    mutable build_c: darray[u8] = StudioNativePathBytes::terminated(root_candidate)
+                    return false if build_c.count == 0
+                    return false if not StudioExportBatchQueueStore::reserve_batch_id((&build_c[0]).cast[cstr], descriptor, &batch_id)
+                    mutable queue: StudioExportBatchReviewBinding::BoundQueue = StudioExportBatchReviewBinding::create_durable(1, root_candidate, root_identity, batch_id)
+                    added: bool = StudioExportBatchReviewBinding::enqueue_prepared(&queue, preflight, identity, warning_count, true, descriptor)
+                    return false if not added
+                    prepared_export_queue <- move queue
+                    return true
 
         def batch_path_bytes(value: cstr) -> darray[u8] can Unsafe.PointerCast:
             mutable output: darray[u8] = []
