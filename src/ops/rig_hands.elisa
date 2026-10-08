@@ -22,17 +22,18 @@ extend RigOps:
 
         # Lowest foot point over the clip (micro-units); `none` when no leg.
         def floor_plane(c: Rig::Clip&, none: i64) -> i64 can[Global{Read, Write}]:
-            mutable floor: i64 = none
-            mutable w: Rig::World = Rig::empty_world()
-            for side in 0..<2:
-                leg: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, side)
-                continue if leg.end < 0
-                for f in 0..<c.frames:
-                    Rig::solve_world(c, f, &w)
-                    y: f64 = w.pos[leg.end.usize()].y
-                    low: f64 = w.pos[leg.toe.usize()].y if leg.toe >= 0 and w.pos[leg.toe.usize()].y < y else y
-                    floor <- Limb::micro(low) if Limb::micro(low) < floor
-            return floor
+            can Global{Read, Write}:
+                mutable floor: i64 = none
+                mutable w: Rig::World = Rig::empty_world()
+                for side in 0..<2:
+                    leg: (upper: i64, hinge: i64, end: i64, toe: i64) = leg_nodes(c, side)
+                    continue if leg.end < 0
+                    for f in 0..<c.frames:
+                        Rig::solve_world(c, f, &w)
+                        y: f64 = w.pos[leg.end.usize()].y
+                        low: f64 = w.pos[leg.toe.usize()].y if leg.toe >= 0 and w.pos[leg.toe.usize()].y < y else y
+                        floor <- Limb::micro(low) if Limb::micro(low) < floor
+                return floor
 
         def bounded(value: i64) -> i64:
             return Order::clamp(value, -Hand::Domain::BOUND, Hand::Domain::BOUND)
@@ -43,54 +44,55 @@ extend RigOps:
         # arm is missing.
     public:
         def hand_contacts(c: Rig::Clip&, side: i64, ops: darray[RigOp]&) -> darray[bool] can[Global{Read, Write}]:
-            mutable none: darray[bool] = []
-            arm: (upper: i64, hinge: i64, end: i64, toe: i64) = arm_nodes(c, side)
-            return none if arm.upper < 0 or arm.hinge < 0 or arm.end < 0 or c.frames < 3
-            length: f64 = leg_length(c, arm)
-            return none if length <= 0.000001
-            mutable pos: darray[MotionQuat::V] = []
-            mutable rot: darray[MotionQuat::Q] = []
-            ankle_path(c, arm.end, &pos, &rot)
-            mutable lowest: i64 = Hand::Domain::BOUND
-            for p in pos:
-                lowest <- Limb::micro(p.y) if Limb::micro(p.y) < lowest
-            plane: i64 = bounded(floor_plane(c, lowest))
-            span: f64 = c.times[c.times.count - 1] - c.times[0]
-            fps: f64 = (c.frames - 1).f64() / span if span > 0.0 else 30.0
-            enter: i64 = Limb::micro(length * HandContactSettings::ENTER)
-            leave: i64 = Limb::micro(length * HandContactSettings::LEAVE)
-            max_speed: i64 = Limb::micro(length * HandContactSettings::SPEED)
-            return none if not Hand::thresholds_ok(enter, leave, max_speed)
-            mutable flags: darray[bool] = []
-            mutable planted: bool = false
-            for k in 0..<pos.count:
-                height: i64 = Hand::plane_height(bounded(Limb::micro(pos[k].y)), plane)
-                speed: i64 = 0 if k == 0 else Order::clamp(Limb::micro(Rig::vlen(Rig::vsub(pos[k], pos[k - 1])) * fps), 0, Footing::LIMIT)
-                planted <- Hand::step(planted, height, speed, enter, leave, max_speed)
-                flags.push(planted)
-            # Drop runs shorter than the minimum: each frame learns its run's
-            # length (counted forward, then spread back over the run).
-            n: usize = flags.count
-            mutable runs: darray[i64] = []
-            for k in 0..<n:
-                if not flags[k]:
-                    runs.push(0)
-                elif k == 0:
-                    runs.push(1)
-                else:
-                    runs.push(runs[k - 1] + 1)
-            for i in 1..<n:
-                k: usize = n - 1 - i
-                if flags[k] and flags[k + 1]:
-                    runs[k] <- runs[k + 1]
-            for k in 0..<n:
-                flags[k] <- Hand::kept_flag(flags[k], Order::clamp(runs[k], 0, Footing::LIMIT), Hand::Defaults::MIN_RUN)
-            hand: i64 = Roles::Joint.LeftHand.i64() if side == 0 else Roles::Joint.RightHand.i64()
-            for op in ops:
-                continue if not op.enabled or op.kind != RigKind.ContactEdit or not Hand::edit_applies(op.role, hand)
-                for k in 0..<flags.count:
-                    flags[k] <- Contact::edited(flags[k], k.i64(), op.first, op.last, op.amount != 0)
-            return move flags
+            can Global{Read, Write}:
+                mutable none: darray[bool] = []
+                arm: (upper: i64, hinge: i64, end: i64, toe: i64) = arm_nodes(c, side)
+                return none if arm.upper < 0 or arm.hinge < 0 or arm.end < 0 or c.frames < 3
+                length: f64 = leg_length(c, arm)
+                return none if length <= 0.000001
+                mutable pos: darray[MotionQuat::V] = []
+                mutable rot: darray[MotionQuat::Q] = []
+                ankle_path(c, arm.end, &pos, &rot)
+                mutable lowest: i64 = Hand::Domain::BOUND
+                for p in pos:
+                    lowest <- Limb::micro(p.y) if Limb::micro(p.y) < lowest
+                plane: i64 = bounded(floor_plane(c, lowest))
+                span: f64 = c.times[c.times.count - 1] - c.times[0]
+                fps: f64 = (c.frames - 1).f64() / span if span > 0.0 else 30.0
+                enter: i64 = Limb::micro(length * HandContactSettings::ENTER)
+                leave: i64 = Limb::micro(length * HandContactSettings::LEAVE)
+                max_speed: i64 = Limb::micro(length * HandContactSettings::SPEED)
+                return none if not Hand::thresholds_ok(enter, leave, max_speed)
+                mutable flags: darray[bool] = []
+                mutable planted: bool = false
+                for k in 0..<pos.count:
+                    height: i64 = Hand::plane_height(bounded(Limb::micro(pos[k].y)), plane)
+                    speed: i64 = 0 if k == 0 else Order::clamp(Limb::micro(Rig::vlen(Rig::vsub(pos[k], pos[k - 1])) * fps), 0, Footing::LIMIT)
+                    planted <- Hand::step(planted, height, speed, enter, leave, max_speed)
+                    flags.push(planted)
+                # Drop runs shorter than the minimum: each frame learns its run's
+                # length (counted forward, then spread back over the run).
+                n: usize = flags.count
+                mutable runs: darray[i64] = []
+                for k in 0..<n:
+                    if not flags[k]:
+                        runs.push(0)
+                    elif k == 0:
+                        runs.push(1)
+                    else:
+                        runs.push(runs[k - 1] + 1)
+                for i in 1..<n:
+                    k: usize = n - 1 - i
+                    if flags[k] and flags[k + 1]:
+                        runs[k] <- runs[k + 1]
+                for k in 0..<n:
+                    flags[k] <- Hand::kept_flag(flags[k], Order::clamp(runs[k], 0, Footing::LIMIT), Hand::Defaults::MIN_RUN)
+                hand: i64 = Roles::Joint.LeftHand.i64() if side == 0 else Roles::Joint.RightHand.i64()
+                for op in ops:
+                    continue if not op.enabled or op.kind != RigKind.ContactEdit or not Hand::edit_applies(op.role, hand)
+                    for k in 0..<flags.count:
+                        flags[k] <- Contact::edited(flags[k], k.i64(), op.first, op.last, op.amount != 0)
+                return move flags
 
         # Path length of a point track over consecutive planted frames.
     private:
@@ -109,59 +111,60 @@ extend RigOps:
         # soft-reach and speed limit of the knee kernel (smooth_targets).
     public:
         def lock_arm(c: mutable Rig::Clip&, op: RigOp, ops: darray[RigOp]&, side: i64, s: mutable Summary&) -> void can[Global{Read, Write}]:
-            arm: (upper: i64, hinge: i64, end: i64, toe: i64) = arm_nodes(c, side)
-            flags: darray[bool] = hand_contacts(c, side, ops)
-            return if flags.count == 0
-            mutable any: bool = false
-            for f in flags:
-                any <- any or f
-            return if not any
-            mutable pos: darray[MotionQuat::V] = []
-            mutable rot: darray[MotionQuat::Q] = []
-            ankle_path(c, arm.end, &pos, &rot)
-            mutable xs: darray[i64] = []
-            mutable ys: darray[i64] = []
-            mutable zs: darray[i64] = []
-            for p in pos:
-                xs.push(Limb::micro(p.x))
-                ys.push(Limb::micro(p.y))
-                zs.push(Limb::micro(p.z))
-            s.hand_before <- s.hand_before + slide3(&xs, &ys, &zs, &flags)
-            blend: i64 = Order::clamp(op.edge, 1, Fade::Domain::MAX_EDGE)
-            hx: darray[i64] = Track::hold_offsets(&xs, &flags)
-            hy: darray[i64] = Track::hold_offsets(&ys, &flags)
-            hz: darray[i64] = Track::hold_offsets(&zs, &flags)
-            step: i64 = Order::clamp(Limb::micro(leg_length(c, arm) * ContactSampling::STEP), 1, Footing::LIMIT)
-            mutable goals: darray[MotionQuat::V] = []
-            for k in 0..<pos.count:
-                goals.push(Rig::v(Limb::unmicro(xs[k] + hx[k]), Limb::unmicro(ys[k] + hy[k]), Limb::unmicro(zs[k] + hz[k])))
-            blends: darray[i64] = release_blends(c, arm, &goals, &flags, blend)
-            cx: darray[i64] = Track::carried_blends(&hx, &flags, &blends, step)
-            cy: darray[i64] = Track::carried_blends(&hy, &flags, &blends, step)
-            cz: darray[i64] = Track::carried_blends(&hz, &flags, &blends, step)
-            mutable targets: darray[MotionQuat::V] = []
-            mutable moved: darray[bool] = []
-            for f in 0..<c.frames:
-                k: usize = f.usize()
-                continue if k >= pos.count
-                targets.push(pos[k])
-                moved.push(false)
-                continue if k >= cx.count
-                weight: i64 = range_weight(op, f, c.frames)
-                nx: i64 = xs[k] + Offset::offset_amount(Order::clamp(cx[k], -Footing::LIMIT, Footing::LIMIT), weight)
-                ny: i64 = ys[k] + Offset::offset_amount(Order::clamp(cy[k], -Footing::LIMIT, Footing::LIMIT), weight)
-                nz: i64 = zs[k] + Offset::offset_amount(Order::clamp(cz[k], -Footing::LIMIT, Footing::LIMIT), weight)
-                continue if nx == xs[k] and ny == ys[k] and nz == zs[k]
-                targets[k] <- Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz))
-                moved[k] <- true
-            solve_smooth(c, arm, &targets, &moved, &flags, &rot)
-            ankle_path(c, arm.end, &pos, &rot)
-            mutable ax: darray[i64] = []
-            mutable ay: darray[i64] = []
-            mutable az: darray[i64] = []
-            for p in pos:
-                ax.push(Limb::micro(p.x))
-                ay.push(Limb::micro(p.y))
-                az.push(Limb::micro(p.z))
-            s.hand_after <- s.hand_after + slide3(&ax, &ay, &az, &flags)
+            can Global{Read, Write}:
+                arm: (upper: i64, hinge: i64, end: i64, toe: i64) = arm_nodes(c, side)
+                flags: darray[bool] = hand_contacts(c, side, ops)
+                return if flags.count == 0
+                mutable any: bool = false
+                for f in flags:
+                    any <- any or f
+                return if not any
+                mutable pos: darray[MotionQuat::V] = []
+                mutable rot: darray[MotionQuat::Q] = []
+                ankle_path(c, arm.end, &pos, &rot)
+                mutable xs: darray[i64] = []
+                mutable ys: darray[i64] = []
+                mutable zs: darray[i64] = []
+                for p in pos:
+                    xs.push(Limb::micro(p.x))
+                    ys.push(Limb::micro(p.y))
+                    zs.push(Limb::micro(p.z))
+                s.hand_before <- s.hand_before + slide3(&xs, &ys, &zs, &flags)
+                blend: i64 = Order::clamp(op.edge, 1, Fade::Domain::MAX_EDGE)
+                hx: darray[i64] = Track::hold_offsets(&xs, &flags)
+                hy: darray[i64] = Track::hold_offsets(&ys, &flags)
+                hz: darray[i64] = Track::hold_offsets(&zs, &flags)
+                step: i64 = Order::clamp(Limb::micro(leg_length(c, arm) * ContactSampling::STEP), 1, Footing::LIMIT)
+                mutable goals: darray[MotionQuat::V] = []
+                for k in 0..<pos.count:
+                    goals.push(Rig::v(Limb::unmicro(xs[k] + hx[k]), Limb::unmicro(ys[k] + hy[k]), Limb::unmicro(zs[k] + hz[k])))
+                blends: darray[i64] = release_blends(c, arm, &goals, &flags, blend)
+                cx: darray[i64] = Track::carried_blends(&hx, &flags, &blends, step)
+                cy: darray[i64] = Track::carried_blends(&hy, &flags, &blends, step)
+                cz: darray[i64] = Track::carried_blends(&hz, &flags, &blends, step)
+                mutable targets: darray[MotionQuat::V] = []
+                mutable moved: darray[bool] = []
+                for f in 0..<c.frames:
+                    k: usize = f.usize()
+                    continue if k >= pos.count
+                    targets.push(pos[k])
+                    moved.push(false)
+                    continue if k >= cx.count
+                    weight: i64 = range_weight(op, f, c.frames)
+                    nx: i64 = xs[k] + Offset::offset_amount(Order::clamp(cx[k], -Footing::LIMIT, Footing::LIMIT), weight)
+                    ny: i64 = ys[k] + Offset::offset_amount(Order::clamp(cy[k], -Footing::LIMIT, Footing::LIMIT), weight)
+                    nz: i64 = zs[k] + Offset::offset_amount(Order::clamp(cz[k], -Footing::LIMIT, Footing::LIMIT), weight)
+                    continue if nx == xs[k] and ny == ys[k] and nz == zs[k]
+                    targets[k] <- Rig::v(Limb::unmicro(nx), Limb::unmicro(ny), Limb::unmicro(nz))
+                    moved[k] <- true
+                solve_smooth(c, arm, &targets, &moved, &flags, &rot)
+                ankle_path(c, arm.end, &pos, &rot)
+                mutable ax: darray[i64] = []
+                mutable ay: darray[i64] = []
+                mutable az: darray[i64] = []
+                for p in pos:
+                    ax.push(Limb::micro(p.x))
+                    ay.push(Limb::micro(p.y))
+                    az.push(Limb::micro(p.z))
+                s.hand_after <- s.hand_after + slide3(&ax, &ay, &az, &flags)
 
