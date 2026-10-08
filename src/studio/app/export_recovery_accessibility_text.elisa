@@ -3,47 +3,53 @@
 include "../export_recovery_accessibility_text_policy.elisa"
 
 module StudioExportRecoveryAccessibilityText:
-    public:
+    private:
         global mutable buffer: u8[StudioExportRecoveryAccessibilityTextPolicy::Format::CAPACITY] = zeroed
         global mutable length: usize = 0
         global mutable truncated: bool = false
 
-        def begin() -> void:
-            length <- 0
-            truncated <- false
+    public:
+        def begin() -> void can[Global.Write]:
+            can Global.Write:
+                length <- 0
+                truncated <- false
 
-        def put(value: sview) -> void:
-            return if value.len <= 0 or value.data == null or truncated
-            usable: usize = StudioExportRecoveryAccessibilityTextPolicy::Format::CAPACITY - StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.len.usize()
-            for index in 0..<value.len.usize() |index|:
-                if length >= usable:
-                    truncated <- true
+        def put(value: sview) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if value.len <= 0 or value.data == null or truncated
+                usable: usize = StudioExportRecoveryAccessibilityTextPolicy::Format::CAPACITY - StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.len.usize()
+                for index in 0..<value.len.usize() |index|:
+                    if length >= usable:
+                        truncated <- true
+                        return
+                    buffer[length] <- value.data[index]
+                    length <- length + 1
+
+        def put_i(value: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if value < 0:
+                    put("-")
+                    if value > -1000000000000:
+                        put_i(0 - value)
                     return
-                buffer[length] <- value.data[index]
-                length <- length + 1
+                if value >= 10:
+                    put_i(value / 10)
+                byte((48 + value % 10).u8())
 
-        def put_i(value: i64) -> void:
-            if value < 0:
-                put("-")
-                if value > -1000000000000:
-                    put_i(0 - value)
-                return
-            if value >= 10:
-                put_i(value / 10)
-            byte((48 + value % 10).u8())
-
-        def view() -> sview can Unsafe.PointerCast:
-            if truncated:
-                for index in 0..<StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.len.usize() |index|:
-                    buffer[length + index] <- StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.data[index]
-            displayed_length: usize = StudioExportRecoveryAccessibilityTextPolicy::view_length(length, truncated)
-            UiText::fixed_bytes_view_range[1024](buffer, 0, displayed_length)
+        def view() -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if truncated:
+                    for index in 0..<StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.len.usize() |index|:
+                        buffer[length + index] <- StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.data[index]
+                displayed_length: usize = StudioExportRecoveryAccessibilityTextPolicy::view_length(length, truncated)
+                return UiText::fixed_bytes_view_range[1024](buffer, 0, displayed_length)
 
     private:
-        def byte(value: u8) -> void:
-            return if truncated
-            if length >= StudioExportRecoveryAccessibilityTextPolicy::Format::CAPACITY - StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.len.usize():
-                truncated <- true
-                return
-            buffer[length] <- value
-            length <- length + 1
+        def byte(value: u8) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if truncated
+                if length >= StudioExportRecoveryAccessibilityTextPolicy::Format::CAPACITY - StudioExportRecoveryAccessibilityTextPolicy::Format::TRUNCATION_NOTICE.len.usize():
+                    truncated <- true
+                    return
+                buffer[length] <- value
+                length <- length + 1
