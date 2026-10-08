@@ -110,3 +110,13 @@ analysis must resolve the AST declaration target, including qualified names and
 container parameters, while preserving reference/view exclusions, lexical
 shadowing, unique declaration identity and bounded cycle refusal. A missing
 string projection is not evidence that an alias has no owning storage.
+
+Fixture review found an additional distinction: the original alias control uses
+`alias HeapPayload = Payload`, which Stage1 parses through the capability/effect
+alias grammar (`parser_decl_typestate.elisa`), retaining an `Expr.Invalid` target.
+It does not exercise the full `type HeapPayload = Payload` AST declaration.
+Preserve the legacy spelling as a separate unmodeled type-use control; do not
+derive a heap target from its effect-member annotations. The revised fixtures
+use `type` for local, parent-owned and other-module owning aliases. Those actual
+type-alias controls must run on the next rebuilt candidate before this gap can
+close. The earlier line-20 result alone cannot qualify their behavior.
