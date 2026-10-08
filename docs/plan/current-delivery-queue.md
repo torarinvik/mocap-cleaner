@@ -122,8 +122,11 @@ companion laws. The guide, ordinary status bar and workspace accessibility statu
 node now select the same feedback, so transient actions cannot leave the visible
 failure explanation different from its accessible text. Focused clean Stage0
 semantic checking passes for the predicate; full UI lifetime,
-layout, accessibility and paired-proof qualification remain open. Loaded-take
-failure details and explicit acknowledgement/retry controls still require work.
+layout, accessibility and paired-proof qualification remain open. Loaded-take failures now retain the same status/accessibility explanation when
+a replacement is refused; successful publication or the next accepted import
+clears it. The new selector and companion laws pass clean Stage0 semantic
+checking. Full runtime and proof qualification, detailed presentation and
+explicit acknowledgement/retry controls still require work.
 
 Finish the status-message presentation. Commit `061ec40` replaces the fixed
 560-pixel message offset with bounded, responsive summary/message regions and

@@ -2,16 +2,65 @@
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-Current fetched compiler main is `7ec9def9`, including sized AST record
-performance work; installed Stage0 source remains `778c8281`. Rebase the project
-repairs onto this main or newer and rebuild before qualification or installation.
-The latest built repair candidate is `b8256d31`, based on `7ec9def9`, with
-combined alias-owner and atomic-callee repairs. Its focused regression log
-reports 12 cases and one failure: the collision fixture itself declares
-`Joinable` twice. Correct that fixture without weakening its collision assertion
-and rerun. Nested owning-return and qualified/parent alias controls produce the
-expected refusals; scalar collision controls produce none. Retain separate
-reference/view, ambiguous-owner and cyclic-alias refusal controls.
+Current fetched compiler main is `7ec9def9`. Clean isolated Stage0 source
+`778c8281` produces binary `35e5d07c`; use that selected source/product pair.
+The installed `c81b66ee` binary has dirty-source fingerprint drift and cannot
+qualify the current implementation.
+
+Candidate `cdf2c329` built Stage1 `b4b2ca3d` with runtime `d3e7ffa9`;
+official provenance and freshness checks pass. Its seed child numeric exit was
+not captured because the zsh wrapper assigned its readonly `status` variable.
+Retain that observation gap and the wrapper failure. Product provenance does
+not establish runtime correctness. Focused checks found a real root-alias
+resolution gap and a qualified generic indexed-result typing gap.
+
+Combined candidate `4e54768d` adds the first-alias initialization repair and
+owner-aware single-/multi-argument generic result typing. Clean Stage0 semantic
+preflight passes (exit 0, peak 3,509,184 KiB); its fresh seed is running under
+a parent-process 8 GiB RSS guard. Seed, provenance and freshness checks pass
+(exit 0); product is `c36e5e84`, runtime `d3e7ffa9`. Aggregate worker-tree peak
+was not captured, so do not claim an aggregate 8 GiB bound. Future heavy checks
+must observe descendant RSS. Run exact alias/ambiguity/shadow controls,
+qualified result IR/runtime assertions, defer/aggregate/ownership controls and
+the full Studio closure at application `665ce9f`. Preserve the original failed
+controls. The numeric-width mismatch assertions in the old qualified-payload
+fixture are invalid: numeric width conversions are deliberately accepted. Retain
+the oracle evidence and replace those assertions with genuine owner/type
+mismatches. The local-callable optional payload error is valid and still missed;
+resolve its return TypeId from the lexical function-type side table without a
+global-name fallback. New direct-payload fixtures do not close that gap.
+
+Fresh `c36e5e84` runtime control reproduces a blocking callback ABI defect:
+aggregate void-poll O0 compiles then exits 139. ASan exits 134 in worker
+`arena_alloc`; the generated aggregate callback expects a hidden arena pointer,
+but both raw and closure indirect calls omit it. A scalar callback control
+compiles and exits its expected 42. Historical repair `d5a9b58a` is absent from
+the current ancestry and must be compared/ported against current source,
+including worker arena transfer/adoption and indirect function metadata. Preserve
+these exact artifacts under the candidate's `build/focused-c36/void-poll/`.
+Do not launch or qualify the Studio FBX journey until this current runtime
+control passes with its intended lifetime assertions. Scalar success does not
+establish aggregate safety.
+
+Coherent source candidate `2469d5ed` ports that callback ABI/worker ownership
+repair, integrates lexical local-callback return typing and validates Fn-pool
+rows/spans before access. Its first semantic preflight failed because the port
+omitted a generic callback specialization helper. Follow-up `4218e314` restores
+that helper; full-driver semantic checking passes (exit 0, peak aggregate
+5,063,024 KiB under the 8 GiB guard). Preserve the first failed attempt.
+Rebuilt-product provenance and O0/O2/ASan execution remain pending. Qualify raw
+aggregate callbacks and scalar capturing closures separately; hidden-arena
+aggregate lambda construction remains unsupported and must refuse explicitly.
+Corrected fixture source is frozen at `07f9e3cb` for the next seed. Both fixture
+AST parses and shell syntax pass. Clean Stage0 semantic checking reports the
+same generic task callback hidden-region mismatch and optional-binding/escape
+diagnostics against old and repaired runtime sources. Preserve this oracle
+limitation separately; it neither accepts nor disproves the target Stage1 ABI
+repair. Stage1 compilation, exact raw/closure IR shape and actual runtime/lifetime
+controls remain the acceptance gate.
+The previous publisher IR uses the permanent static-region fallback and has no
+arena free or global rehome call. That absence alone does not prove a post-join
+use-after-free; it leaves bounded cleanup and allocation cost unqualified.
 
 The historical `5d17a2c0` full Studio semantic check reports only the atomic
 `load` selection error. The frozen `1beecf48` full Studio check removes that
@@ -26,14 +75,14 @@ record. Recheck them on the final source/product/runtime closure. Measure
 cache-hit rehome allocation cost; unresolved-call static lifetime fallback does
 not qualify cleanup.
 
-Direct body comparison confirms generic `pool_await` returns skip deferred
-actions before region unwind in current source. Port `a69638c1` on
-`codex/current-generic-await-defer` restores the deferred-action check and carries
-direct/generic/failed-postcondition runtime controls. Integrate after the frozen
-`1371ef63` capture; rebuild and run these controls on the combined tuple before
-acceptance. The port alone is unqualified. Specialized generic-result arena
-demand and aggregate return snapshots also have confirmed source differences;
-other historical repair groups require behavior comparison before porting.
+Candidate `cdf2c329` integrates successful generic-await defer execution,
+aggregate contract/defer snapshots and specialized generic-result arena demand.
+The combined candidate preserves these repairs. Run their actual O0/O2 controls
+on the freshly built product, including error propagation, reverse defer order,
+large contract-bearing returns and qualified indexed results. Clean Stage0
+reference execution is comparison evidence; it does not qualify Stage1 or Studio.
+Named constant specialization, current-main gate comparisons, carrier counts
+and quiet-window runtime benchmarks remain required before promotion.
 
 The `1482a808` historical baseline is terminal: the 32-check fast profile has
 24 passes and eight failures; the five separately run oracle lanes have one
@@ -46,12 +95,15 @@ project repairs. Rebuild the paired prover on the final compiler tuple; its
 nested constant-owner source correspondence repair is still undergoing controls.
 See [retained FBX evidence](../acceptance/fbx-request-proof-2026-10-07.md).
 
-Latest fetched proof main is `e27b11bc`, UI main `dc6cd397` and engine main
-`2d052b44`. UI `f33e439b` already contains its fetched main. The clean compiler
-checkout was fast-forwarded to `7ec9def9`; the mocap engine branch merged its
-new main without conflicts at `6a6aced2`, preserving project repairs. Preserve
+Latest fetched proof main is `d8716191`, UI main `dc6cd397` and engine main
+`5bfcaa64`. UI `f33e439b` already contains its fetched main. The clean compiler
+checkout was fast-forwarded to `7ec9def9`; the mocap engine branch is at `6a6aced2`, preserving project repairs. The
+new engine delta to `5bfcaa64` contains documentation changes only; reconcile
+it with the next legitimate source integration rather than creating a
+documentation-only merge commit. Preserve
 the dirty UI work and qualify its exact native-link snapshot. The proof checkout
-is rebased onto `e27b11bc`, with owner/call repairs preserved at `9fddab1a`;
+is rebased onto `d8716191`, with owner/call repairs preserved at `bf05d339`
+and checked helper conditions added at `34bd86b3`;
 its matching producer/replay rebuild remains open. Captured
 earlier source/product pairs remain comparison evidence; rebuild against the
 final closure before qualification.
@@ -64,7 +116,7 @@ Remaining work:
   erase lifetime tracking, or introduce copy allocations without measuring their
   cost. Distinguish a valid top-level empty owner from absence explicitly.
 - Rebuild from a clean source snapshot using an explicitly selected source-matched
-  Stage0. Current installed Stage0 is source `778c8281`, binary `c81b66ee`.
+  Stage0. Select clean isolated Stage0 source `778c8281`, binary `35e5d07c`.
   Record its actual toolchain, preserved dirty test files and hash; verify that
   source changes do not invalidate the selected product before each seed.
 - Repair named constant-value fixed-array specialization without duplicating
