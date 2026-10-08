@@ -33,6 +33,7 @@ status descriptions and evidence are preserved in the linked records.
 - [FBX joined-result buffer lifetime](proof-gaps/fbx-join-buffer-lifetime.md)
 - [Callback scratch ownership and global cache lifetime](proof-gaps/callback-global-cache-lifetime.md)
 - [Named constant fixed-array view specialization](proof-gaps/named-constant-array-specialization.md)
+- [Atomic callee owner and parameter identity](proof-gaps/atomic-callee-owner-resolution.md)
 - [Studio fixed-array clone compilation cost](proof-gaps/studio-fixed-array-clone-cost.md)
 - [Tracked FBX foreign adapter and strict extern bounds](proof-gaps/fbx-foreign-adapter.md)
 
