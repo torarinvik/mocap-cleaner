@@ -274,8 +274,13 @@ declines the fixed-array generic UI view helper (also used by existing
 StudioText); runtime and final paired-proof qualification remain open. Preserve
 this regression through compiler repair integration. The formatter now exposes
 only complete UTF-8 scalar prefixes, with two-/four-byte boundary tests and
-non-vacuous helper proof obligations. Their semantic checks pass; native and
-source/replay qualification remain open. This does not replace the full-details
+non-vacuous helper proof obligations. The three actual UI helper obligations
+execute successfully with literal array specializations on installed
+`b26659e2`; the standalone status-extent policy also compiles and executes
+successfully. Retained records are in `build/dialog-result-reduction/`.
+These narrow results leave the full formatter/snapshot native regression and
+source/replay qualification open: named constant specializations still decline.
+This does not replace the full-details
 view, grapheme/translation review or complete error persistence policy.
 
 Partial implementation: empty-document import failures now select the failure
