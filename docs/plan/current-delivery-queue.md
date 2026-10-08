@@ -110,7 +110,11 @@ cancellation, take replacement and close approval as one state machine:
 Finish the status-message presentation. Commit `061ec40` replaces the fixed
 560-pixel message offset with bounded, responsive summary/message regions and
 viewport clips. Its focused layout runtime check passes on installed `b26659e2`;
-whole-app and proof qualification remain open. The supplied FBX failure
+whole-app and proof qualification remain open. The layout now also explicitly
+contracts each region's width and zero text extent
+for tiny bars, with the `text_regions_are_bounded` companion law. Qualify these
+new obligations with the current source-authenticated prover/replay pair.
+The supplied FBX failure
 screenshots show why clipping alone is insufficient. Provide a compact status
 summary plus a discoverable, persistent full explanation and retry action. Keep the failure visible until acknowledged
 or superseded by a relevant operation; expose the complete text to VoiceOver.
