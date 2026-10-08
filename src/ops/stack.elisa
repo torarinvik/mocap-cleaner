@@ -192,8 +192,9 @@ module Ops:
         # unchanged prefix and running only the ops after it. The output is
         # identical to `evaluate`.
         def evaluate_cached(ops: darray[Operation]&, bone: i64, source: darray[i64]&, looping: bool, cache: mutable Cache&) -> darray[i64] can[Global{Read, Write}]:
-            unused: mutable darray[i64] = []
-            return evaluate_timed(ops, bone, source, looping, cache, &unused, false)
+            can Global{Read, Write}:
+                unused: mutable darray[i64] = []
+                return evaluate_timed(ops, bone, source, looping, cache, &unused, false)
 
         # evaluate_cached that also adds each op's CPU time (clock units) to
         # times[i] when `timed` (times grows to ops.count as needed). Timing
@@ -211,63 +212,64 @@ module Ops:
             current
 
         def evaluate_timed(ops: darray[Operation]&, bone: i64, source: darray[i64]&, looping: bool, cache: mutable Cache&, times: mutable darray[i64]&, timed: bool) -> darray[i64] can[Global{Read, Write}]:
-            while timed and times.count < ops.count |times|:
-                times.push(0)
-            count: i64 = ops.count.i64()
-            request: CacheBudgetPolicy::ChannelRequest = CacheBudgetPolicy::channel_request(source.count.i64(), count)
-            if count >= StackCache::Capacity::MAX_OPS or request.decision != CacheBudgetPolicy::Decision.ADMIT:
-                discard_cached_contents(cache)
-                return evaluate_uncached_timed(ops, bone, source, looping, times, timed, &cache.evaluations)
-            key: mutable i64 = source_key(source, looping)
-            keys: mutable darray[i64] = []
-            prefix: mutable i64 = 0
-            cached: i64 = cache.keys.count.i64()
-            exact_input: bool = source_matches(cache, source, bone, looping)
-            storage_valid: mutable bool = cache.frames == source.count.i64() and cache.operations.count.i64() >= cached
-            storage_valid <- storage_valid and cache.results.count.i64() / source.count.i64() >= cached if source.count > 0
-            for i in 0..<ops.count |i, ops, bone, key, keys, prefix, cache, cached, exact_input, storage_valid|:
-                key <- StackCache::op_key(key, params_key(ops[i], bone), ops[i].enabled)
-                keys.push(key)
-                index: i64 = i.i64()
-                exact_operation: bool = i < cache.operations.count and operation_matches(cache.operations[i], ops[i])
-                same: bool = CacheIdentityPolicy::reuse_admitted(index < cached and cache.keys[i] == key, exact_input, exact_operation, storage_valid)
-                prefix <- StackCache::scan(prefix, index, same)
-            frames: i64 = source.count.i64()
-            reuse: i64 = StackCache::reusable(cached, prefix, count)
-            current: mutable darray[i64] = copy(source)
-            evaluated: mutable i64 = 0
-            for i in 0..<ops.count |i, ops, bone, looping, reuse, current, cache, evaluated, frames, times, timed|:
-                index: i64 = i.i64()
-                if StackCache::needs_eval(index, reuse):
-                    if ops[i].enabled:
-                        start: i64 = s_clock() if timed else 0
-                        current <- apply(ops[i], bone, current, looping)
-                        evaluated <- evaluated + 1
-                        times[i] <- times[i] + s_clock() - start if timed
-                    base: i64 = index * frames
-                    for f in 0..<current.count |f, base, current, cache|:
-                        at: i64 = base + f.i64()
-                        if at < cache.results.count.i64():
-                            cache.results[at.usize()] <- current[f]
-                        else:
-                            cache.results.push(current[f])
-                else:
-                    base: i64 = index * frames
-                    for f in 0..<current.count |f, base, current, cache|:
-                        current[f] <- cache.results[(base + f.i64()).usize()]
-            while cache.results.count.i64() > count * frames:
-                cache.results.pop()
-            cache.frames <- frames
-            cache.keys.clear()
-            cache.keys.extend(keys)
-            cache.source_snapshot.clear()
-            cache.source_snapshot.extend(source)
-            cache.operations.clear()
-            cache.operations.extend(ops)
-            cache.bone <- bone
-            cache.looping <- looping
-            cache.evaluations <- cache.evaluations + evaluated
-            return current
+            can Global{Read, Write}:
+                while timed and times.count < ops.count |times|:
+                    times.push(0)
+                count: i64 = ops.count.i64()
+                request: CacheBudgetPolicy::ChannelRequest = CacheBudgetPolicy::channel_request(source.count.i64(), count)
+                if count >= StackCache::Capacity::MAX_OPS or request.decision != CacheBudgetPolicy::Decision.ADMIT:
+                    discard_cached_contents(cache)
+                    return evaluate_uncached_timed(ops, bone, source, looping, times, timed, &cache.evaluations)
+                key: mutable i64 = source_key(source, looping)
+                keys: mutable darray[i64] = []
+                prefix: mutable i64 = 0
+                cached: i64 = cache.keys.count.i64()
+                exact_input: bool = source_matches(cache, source, bone, looping)
+                storage_valid: mutable bool = cache.frames == source.count.i64() and cache.operations.count.i64() >= cached
+                storage_valid <- storage_valid and cache.results.count.i64() / source.count.i64() >= cached if source.count > 0
+                for i in 0..<ops.count |i, ops, bone, key, keys, prefix, cache, cached, exact_input, storage_valid|:
+                    key <- StackCache::op_key(key, params_key(ops[i], bone), ops[i].enabled)
+                    keys.push(key)
+                    index: i64 = i.i64()
+                    exact_operation: bool = i < cache.operations.count and operation_matches(cache.operations[i], ops[i])
+                    same: bool = CacheIdentityPolicy::reuse_admitted(index < cached and cache.keys[i] == key, exact_input, exact_operation, storage_valid)
+                    prefix <- StackCache::scan(prefix, index, same)
+                frames: i64 = source.count.i64()
+                reuse: i64 = StackCache::reusable(cached, prefix, count)
+                current: mutable darray[i64] = copy(source)
+                evaluated: mutable i64 = 0
+                for i in 0..<ops.count |i, ops, bone, looping, reuse, current, cache, evaluated, frames, times, timed|:
+                    index: i64 = i.i64()
+                    if StackCache::needs_eval(index, reuse):
+                        if ops[i].enabled:
+                            start: i64 = s_clock() if timed else 0
+                            current <- apply(ops[i], bone, current, looping)
+                            evaluated <- evaluated + 1
+                            times[i] <- times[i] + s_clock() - start if timed
+                        base: i64 = index * frames
+                        for f in 0..<current.count |f, base, current, cache|:
+                            at: i64 = base + f.i64()
+                            if at < cache.results.count.i64():
+                                cache.results[at.usize()] <- current[f]
+                            else:
+                                cache.results.push(current[f])
+                    else:
+                        base: i64 = index * frames
+                        for f in 0..<current.count |f, base, current, cache|:
+                            current[f] <- cache.results[(base + f.i64()).usize()]
+                while cache.results.count.i64() > count * frames:
+                    cache.results.pop()
+                cache.frames <- frames
+                cache.keys.clear()
+                cache.keys.extend(keys)
+                cache.source_snapshot.clear()
+                cache.source_snapshot.extend(source)
+                cache.operations.clear()
+                cache.operations.extend(ops)
+                cache.bone <- bone
+                cache.looping <- looping
+                cache.evaluations <- cache.evaluations + evaluated
+                return current
 
     private:
         # Hash equality is only an accelerator. Compare the actual input and
