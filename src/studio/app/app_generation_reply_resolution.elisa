@@ -2,56 +2,60 @@ include "../state/generation_reply_resolution_policy.elisa"
 
 extend Studio:
     private:
-        def generation_move_resolution_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            return false if not storage_screen_open or not generation_review_open or not generation_review_recovery_mode or storage_close_requested
-            return false if storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
-            return false if not generation_recovery_scan_current()
-            if generation_move_reply is retained:
-                if generation_move_wire is captured:
-                    return false if not captured.valid
+        def generation_move_resolution_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return false if not storage_screen_open or not generation_review_open or not generation_review_recovery_mode or storage_close_requested
+                return false if storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
+                return false if not generation_recovery_scan_current()
+                if generation_move_reply is retained:
+                    if generation_move_wire is captured:
+                        return false if not captured.valid
+                        if generation_recovery_scan_reply is scan:
+                            root: darray[u8] = generation_restore_copy_wire_path(captured.root)
+                            operation: darray[u8] = generation_restore_copy_wire_id(retained.operation_id)
+                            artifact_id: darray[u8] = generation_restore_copy_wire_id(captured.artifact_id)
+                            relative_path: darray[u8] = generation_restore_copy_wire_path(captured.path)
+                            identity_matches: bool = retained.operation_id_bytes == operation.count.i64() and StudioGenerationRestoreReviewIdentityPolicy::same_bytes(root, scan.root) and StudioGenerationRestoreReviewIdentityPolicy::same_bytes(operation, scan.operation)
+                            details_match: bool = scan.observation.output_details_valid and StudioGenerationRestoreReviewIdentityPolicy::exact_match(root, operation, artifact_id, relative_path, scan.root, scan.operation, scan.observation.artifact_id, scan.observation.relative_path)
+                            recorded: bool = StudioGenerationRecoveryLedger::find(generation_recovery_ledger, scan.root, scan.operation) >= 0
+                            jobs_idle: bool = StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
+                            evidence: StudioGenerationReplyResolutionPolicy::Evidence = StudioGenerationReplyResolutionPolicy::Evidence{remaining_handle: retained.remaining_handle, release: retained.release_status, jobs_idle: jobs_idle, identity_matches: identity_matches, details_match: details_match, identity_recorded: recorded, observation_current: true, observation_status: scan.observation.status, outcome: scan.observation.outcome}
+                            return StudioGenerationReplyResolutionPolicy::may_resolve(evidence)
+                return false
+
+        def generation_move_resolve_review() -> void can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not generation_move_resolution_enabled()
+                if generation_recovery_scan_reply is scan:
+                    generation_move_resolution <- scan.observation.outcome
+                    generation_move_reply <- null
+                    generation_move_wire <- null
+                    # Preserve RecoveryPending and its ticket: acknowledgment is
+                    # not publication of a previously cancelled move as success.
+                    touch()
+
+        def generation_restore_resolution_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return false if not storage_screen_open or not generation_review_open or not generation_review_recovery_mode or storage_close_requested
+                return false if storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
+                return false if not generation_recovery_scan_current()
+                if generation_restore_reply is retained:
                     if generation_recovery_scan_reply is scan:
-                        root: darray[u8] = generation_restore_copy_wire_path(captured.root)
-                        operation: darray[u8] = generation_restore_copy_wire_id(retained.operation_id)
-                        artifact_id: darray[u8] = generation_restore_copy_wire_id(captured.artifact_id)
-                        relative_path: darray[u8] = generation_restore_copy_wire_path(captured.path)
-                        identity_matches: bool = retained.operation_id_bytes == operation.count.i64() and StudioGenerationRestoreReviewIdentityPolicy::same_bytes(root, scan.root) and StudioGenerationRestoreReviewIdentityPolicy::same_bytes(operation, scan.operation)
-                        details_match: bool = scan.observation.output_details_valid and StudioGenerationRestoreReviewIdentityPolicy::exact_match(root, operation, artifact_id, relative_path, scan.root, scan.operation, scan.observation.artifact_id, scan.observation.relative_path)
+                        identity_matches: bool = StudioGenerationRestoreReviewIdentityPolicy::same_bytes(generation_restore_root, scan.root) and StudioGenerationRestoreReviewIdentityPolicy::same_bytes(generation_restore_operation_id, scan.operation)
+                        details_match: bool = scan.observation.output_details_valid and StudioGenerationRestoreReviewIdentityPolicy::exact_match(generation_restore_root, generation_restore_operation_id, generation_restore_artifact_id, generation_restore_relative_path, scan.root, scan.operation, scan.observation.artifact_id, scan.observation.relative_path)
                         recorded: bool = StudioGenerationRecoveryLedger::find(generation_recovery_ledger, scan.root, scan.operation) >= 0
                         jobs_idle: bool = StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
                         evidence: StudioGenerationReplyResolutionPolicy::Evidence = StudioGenerationReplyResolutionPolicy::Evidence{remaining_handle: retained.remaining_handle, release: retained.release_status, jobs_idle: jobs_idle, identity_matches: identity_matches, details_match: details_match, identity_recorded: recorded, observation_current: true, observation_status: scan.observation.status, outcome: scan.observation.outcome}
                         return StudioGenerationReplyResolutionPolicy::may_resolve(evidence)
-            false
+                return false
 
-        def generation_move_resolve_review() -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            return if not generation_move_resolution_enabled()
-            if generation_recovery_scan_reply is scan:
-                generation_move_resolution <- scan.observation.outcome
-                generation_move_reply <- null
-                generation_move_wire <- null
-                # Preserve RecoveryPending and its ticket: acknowledgment is
-                # not publication of a previously cancelled move as success.
-                touch()
-
-        def generation_restore_resolution_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            return false if not storage_screen_open or not generation_review_open or not generation_review_recovery_mode or storage_close_requested
-            return false if storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
-            return false if not generation_recovery_scan_current()
-            if generation_restore_reply is retained:
+        def generation_restore_resolve_review() -> void can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not generation_restore_resolution_enabled()
                 if generation_recovery_scan_reply is scan:
-                    identity_matches: bool = StudioGenerationRestoreReviewIdentityPolicy::same_bytes(generation_restore_root, scan.root) and StudioGenerationRestoreReviewIdentityPolicy::same_bytes(generation_restore_operation_id, scan.operation)
-                    details_match: bool = scan.observation.output_details_valid and StudioGenerationRestoreReviewIdentityPolicy::exact_match(generation_restore_root, generation_restore_operation_id, generation_restore_artifact_id, generation_restore_relative_path, scan.root, scan.operation, scan.observation.artifact_id, scan.observation.relative_path)
-                    recorded: bool = StudioGenerationRecoveryLedger::find(generation_recovery_ledger, scan.root, scan.operation) >= 0
-                    jobs_idle: bool = StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
-                    evidence: StudioGenerationReplyResolutionPolicy::Evidence = StudioGenerationReplyResolutionPolicy::Evidence{remaining_handle: retained.remaining_handle, release: retained.release_status, jobs_idle: jobs_idle, identity_matches: identity_matches, details_match: details_match, identity_recorded: recorded, observation_current: true, observation_status: scan.observation.status, outcome: scan.observation.outcome}
-                    return StudioGenerationReplyResolutionPolicy::may_resolve(evidence)
-            false
-
-        def generation_restore_resolve_review() -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            return if not generation_restore_resolution_enabled()
-            if generation_recovery_scan_reply is scan:
-                generation_restore_resolution <- scan.observation.outcome
-                generation_restore_reply <- null
-                generation_restore_clear_selection()
-                # The next Restore requires a new Review/Confirm sequence.
-                generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.Idle
-                touch()
+                    generation_restore_resolution <- scan.observation.outcome
+                    generation_restore_reply <- null
+                    generation_restore_clear_selection()
+                    # The next Restore requires a new Review/Confirm sequence.
+                    generation_restore_state <- StudioGenerationRestoreConfirmationPolicy::State.Idle
+                    touch()
