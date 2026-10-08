@@ -36,13 +36,14 @@ extend Studio:
                     return GlbDocument::node_count(&c.source).i64()
                 return 0
 
-        def current_stack() -> StackState::Stack:
-            if pending_edit_stack is draft:
-                if StudioEditTransactionPolicy::current(pending_edit_base, edit_transaction_base()):
-                    return draft
-            if history_ready:
-                return HistoryState::current(&history)
-            StackState::empty()
+        def current_stack() -> StackState::Stack can[Global.Read]:
+            can Global.Read:
+                if pending_edit_stack is draft:
+                    if StudioEditTransactionPolicy::current(pending_edit_base, edit_transaction_base()):
+                        return draft
+                if history_ready:
+                    return HistoryState::current(&history)
+                return StackState::empty()
 
         def session_identity(c: StudioModel::Clip) -> SessionState::SourceIdentity:
             SessionState::SourceIdentity{first: c.source_fingerprint.first, second: c.source_fingerprint.second, animation: c.anim.i64(), frames: c.source_frames, nodes: GlbDocument::node_count(&c.source).i64()}
@@ -67,193 +68,205 @@ extend Studio:
                     skinned_revision <- -1
                     UiCore::invalidate(UiCore::Invalidation.Semantics)
 
-        def ensure_issue_filter() -> void:
-            if not issue_filter_ready:
+        def ensure_issue_filter() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if not issue_filter_ready:
+                    issue_filter <- StudioIssueFilterPolicy::Filter{
+                        detector: StudioIssueFilterPolicy::Wildcard::DETECTOR,
+                        subject: StudioIssueFilterPolicy::Wildcard::SUBJECT,
+                        minimum_severity: 0,
+                        status: StudioIssueFilterPolicy::Disposition.Any.i64()}
+                    issue_filter_ready <- true
+
+        def rebuild_filtered_issues() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                ensure_issue_filter()
+                mutable filtered: darray[StudioIssues::Issue] = []
+                for issue in issues |issue_filter, issue_annotations, filtered|:
+                    disposition: StudioIssueAnnotation::Disposition = StudioIssueAnnotation::disposition(issue_annotations, issue)
+                    if StudioIssueFilterPolicy::matches(issue, issue_filter, disposition.i64()):
+                        filtered.push(issue)
+                filtered_issues <- move filtered
+                issue_selected <- 0 if filtered_issues.count == 0 or issue_selected >= filtered_issues.count.i64()
+
+        def reconcile_pending_session_annotations(fresh: darray[StudioIssues::Issue]&) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not pending_session_annotation_restore
+                mutable restored: i64 = 0
+                for record in pending_session_annotations |record, fresh, issue_annotations, restored|:
+                    for issue in fresh |issue, record, issue_annotations, restored|:
+                        if SessionIssueAnnotationPolicy::matches_issue(record, issue, frames()):
+                            if StudioIssueAnnotation::ignore(&issue_annotations, issue):
+                                restored <- restored + 1
+                session_annotations_expired <- pending_session_annotations.count.i64() - restored
+                pending_session_annotations <- zeroed
+                pending_session_annotation_restore <- false
+
+        def collect_issues(c: StudioModel::Clip&) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                mutable samples: darray[StudioIssues::Sample] = []
+                for frame in 0..<c.frames |frame, c|:
+                    if frame < c.problems.count.i64() and c.problems[frame.usize()] > 0:
+                        value: i64 = c.peaks[frame.usize()]
+                        if value >= c.threshold and c.threshold > 0:
+                            mutable severity: i64 = value * 1000 / c.threshold
+                            severity <- StudioIssues::MAX_SEVERITY if severity > StudioIssues::MAX_SEVERITY else severity
+                            samples.push(StudioIssues::Sample{frame: frame, issue_type: 0, subject_id: -1, source_revision: built, severity: severity, value: value, threshold: c.threshold})
+                mutable ranked: darray[StudioIssues::Issue] = StudioIssues::group(&samples)
+                # Stable descending severity, then descending peak excess. The
+                # grouping kernel has already made each row's peak deterministic.
+                if ranked.count > 1:
+                    for index in 1..<ranked.count |index, ranked|:
+                        mutable cursor: usize = index
+                        while cursor > 0:
+                            current: StudioIssues::Issue = ranked[cursor]
+                            previous: StudioIssues::Issue = ranked[cursor - 1]
+                            current_margin: i64 = current.peak_value - current.threshold
+                            previous_margin: i64 = previous.peak_value - previous.threshold
+                            wins: bool = current.severity > previous.severity or (current.severity == previous.severity and current_margin > previous_margin)
+                            if wins:
+                                ranked[cursor] <- previous
+                                ranked[cursor - 1] <- current
+                                cursor <- cursor - 1
+                            else:
+                                break
+                reconcile_pending_session_annotations(ranked)
+                issues <- move ranked
+                issues_revision <- built
+                _ = StudioIssueAnnotation::prune_revisions(&issue_annotations, built)
+                issue_selected <- 0
+                rebuild_filtered_issues()
+
+        def navigate_issue(index: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if issues_revision != built:
+                    status <- "findings updating; navigation unavailable"
+                    touch()
+                    return
+                return if filtered_issues.count == 0 or index < 0 or index >= filtered_issues.count.i64()
+                issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, index)
+                if not StudioIssueExplanation::valid_issue(issue):
+                    status <- "finding data is invalid; rebuild analysis before navigation"
+                    touch()
+                    return
+                if not issue.selectable or issue.source_revision != issues_revision:
+                    status <- "finding is stale; wait for update"
+                    touch()
+                    return
+                if timeline is t:
+                    if not StudioIssueBrowserPolicy::navigation_frame_admitted(issue.peak_frame, t.count):
+                        status <- "finding peak is outside this timeline; rebuild analysis"
+                        touch()
+                        return
+                    timeline <- TimelineState::scrub(t, issue.peak_frame)
+                else:
+                    status <- "finding navigation needs a loaded timeline"
+                    touch()
+                    return
+                issue_selected <- index
+                if clip is c and issue.subject_id >= 0 and issue.subject_id < c.nodes.count.i64():
+                    bone <- issue.subject_id
+                status <- "Spike peak selected · aggregate subject unknown · review intent" if issue.issue_type == 0 and issue.subject_id < 0 else "Finding peak selected · review detector evidence"
+                touch()
+
+        def issue_navigation(action: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not StudioIssueBrowserPolicy::navigation_enabled(filtered_issues.count.i64(), issues_revision == built, action)
+                current: i64 = issue_selected if issue_selected >= 0 and issue_selected < filtered_issues.count.i64() else 0
+                if action == StudioPanels::IssueAction::ISSUE_WORST:
+                    navigate_issue(0)
+                else:
+                    navigate_issue(StudioPanels::issue_navigation_target(current,
+                        filtered_issues.count.i64(), action))
+
+        def visible_issue_first() -> i64 can[Global.Read]:
+            can Global.Read:
+                selected: i64 = issue_selected if issue_selected >= 0 and issue_selected < filtered_issues.count.i64() else 0
+                return StudioIssueBrowserPolicy::window_start_for_rows(selected, filtered_issues.count.i64(), StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS)
+
+        def next_issue_value(current: i64, detector: bool) -> i64 can[Global.Read]:
+            can Global.Read:
+                mutable next: i64 = 9223372036854775807
+                for issue in issues |issue, current, detector, next|:
+                    value: i64 = issue.issue_type if detector else issue.subject_id
+                    next <- value if value > current and value < next
+                return next if next < 9223372036854775807
+                return StudioIssueFilterPolicy::Wildcard::DETECTOR if detector else StudioIssueFilterPolicy::Wildcard::SUBJECT
+
+        def reset_issue_filters() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                ensure_issue_filter()
                 issue_filter <- StudioIssueFilterPolicy::Filter{
                     detector: StudioIssueFilterPolicy::Wildcard::DETECTOR,
                     subject: StudioIssueFilterPolicy::Wildcard::SUBJECT,
                     minimum_severity: 0,
                     status: StudioIssueFilterPolicy::Disposition.Any.i64()}
-                issue_filter_ready <- true
-
-        def rebuild_filtered_issues() -> void:
-            ensure_issue_filter()
-            mutable filtered: darray[StudioIssues::Issue] = []
-            for issue in issues |issue_filter, issue_annotations, filtered|:
-                disposition: StudioIssueAnnotation::Disposition = StudioIssueAnnotation::disposition(issue_annotations, issue)
-                if StudioIssueFilterPolicy::matches(issue, issue_filter, disposition.i64()):
-                    filtered.push(issue)
-            filtered_issues <- move filtered
-            issue_selected <- 0 if filtered_issues.count == 0 or issue_selected >= filtered_issues.count.i64()
-
-        def reconcile_pending_session_annotations(fresh: darray[StudioIssues::Issue]&) -> void:
-            return if not pending_session_annotation_restore
-            mutable restored: i64 = 0
-            for record in pending_session_annotations |record, fresh, issue_annotations, restored|:
-                for issue in fresh |issue, record, issue_annotations, restored|:
-                    if SessionIssueAnnotationPolicy::matches_issue(record, issue, frames()):
-                        if StudioIssueAnnotation::ignore(&issue_annotations, issue):
-                            restored <- restored + 1
-            session_annotations_expired <- pending_session_annotations.count.i64() - restored
-            pending_session_annotations <- zeroed
-            pending_session_annotation_restore <- false
-
-        def collect_issues(c: StudioModel::Clip&) -> void:
-            mutable samples: darray[StudioIssues::Sample] = []
-            for frame in 0..<c.frames |frame, c|:
-                if frame < c.problems.count.i64() and c.problems[frame.usize()] > 0:
-                    value: i64 = c.peaks[frame.usize()]
-                    if value >= c.threshold and c.threshold > 0:
-                        mutable severity: i64 = value * 1000 / c.threshold
-                        severity <- StudioIssues::MAX_SEVERITY if severity > StudioIssues::MAX_SEVERITY else severity
-                        samples.push(StudioIssues::Sample{frame: frame, issue_type: 0, subject_id: -1, source_revision: built, severity: severity, value: value, threshold: c.threshold})
-            mutable ranked: darray[StudioIssues::Issue] = StudioIssues::group(&samples)
-            # Stable descending severity, then descending peak excess. The
-            # grouping kernel has already made each row's peak deterministic.
-            if ranked.count > 1:
-                for index in 1..<ranked.count |index, ranked|:
-                    mutable cursor: usize = index
-                    while cursor > 0:
-                        current: StudioIssues::Issue = ranked[cursor]
-                        previous: StudioIssues::Issue = ranked[cursor - 1]
-                        current_margin: i64 = current.peak_value - current.threshold
-                        previous_margin: i64 = previous.peak_value - previous.threshold
-                        wins: bool = current.severity > previous.severity or (current.severity == previous.severity and current_margin > previous_margin)
-                        if wins:
-                            ranked[cursor] <- previous
-                            ranked[cursor - 1] <- current
-                            cursor <- cursor - 1
-                        else:
-                            break
-            reconcile_pending_session_annotations(ranked)
-            issues <- move ranked
-            issues_revision <- built
-            _ = StudioIssueAnnotation::prune_revisions(&issue_annotations, built)
-            issue_selected <- 0
-            rebuild_filtered_issues()
-
-        def navigate_issue(index: i64) -> void:
-            if issues_revision != built:
-                status <- "findings updating; navigation unavailable"
+                issue_selected <- 0
+                rebuild_filtered_issues()
+                status <- "finding filters cleared"
                 touch()
-                return
-            return if filtered_issues.count == 0 or index < 0 or index >= filtered_issues.count.i64()
-            issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, index)
-            if not StudioIssueExplanation::valid_issue(issue):
-                status <- "finding data is invalid; rebuild analysis before navigation"
-                touch()
-                return
-            if not issue.selectable or issue.source_revision != issues_revision:
-                status <- "finding is stale; wait for update"
-                touch()
-                return
-            if timeline is t:
-                if not StudioIssueBrowserPolicy::navigation_frame_admitted(issue.peak_frame, t.count):
-                    status <- "finding peak is outside this timeline; rebuild analysis"
-                    touch()
+
+        def cycle_issue_filter(field: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                ensure_issue_filter()
+                if field == StudioPanels::IssueFilter.Detector.i64():
+                    issue_filter.detector <- next_issue_value(issue_filter.detector, true)
+                elif field == StudioPanels::IssueFilter.Subject.i64():
+                    issue_filter.subject <- next_issue_value(issue_filter.subject, false)
+                elif field == StudioPanels::IssueFilter.Severity.i64():
+                    if issue_filter.minimum_severity == 0:
+                        issue_filter.minimum_severity <- 250
+                    elif issue_filter.minimum_severity == 250:
+                        issue_filter.minimum_severity <- 500
+                    elif issue_filter.minimum_severity == 500:
+                        issue_filter.minimum_severity <- 750
+                    elif issue_filter.minimum_severity == 750:
+                        issue_filter.minimum_severity <- 900
+                    else:
+                        issue_filter.minimum_severity <- 0
+                elif field == StudioPanels::IssueFilter.Status.i64():
+                    if issue_filter.status == StudioIssueFilterPolicy::Disposition.Any.i64():
+                        issue_filter.status <- StudioIssueFilterPolicy::Disposition.Unresolved.i64()
+                    elif issue_filter.status == StudioIssueFilterPolicy::Disposition.Unresolved.i64():
+                        issue_filter.status <- StudioIssueFilterPolicy::Disposition.Ignored.i64()
+                    else:
+                        issue_filter.status <- StudioIssueFilterPolicy::Disposition.Any.i64()
+                else:
                     return
-                timeline <- TimelineState::scrub(t, issue.peak_frame)
-            else:
-                status <- "finding navigation needs a loaded timeline"
+                issue_selected <- 0
+                rebuild_filtered_issues()
+                status <- "finding filters updated"
                 touch()
-                return
-            issue_selected <- index
-            if clip is c and issue.subject_id >= 0 and issue.subject_id < c.nodes.count.i64():
-                bone <- issue.subject_id
-            status <- "Spike peak selected · aggregate subject unknown · review intent" if issue.issue_type == 0 and issue.subject_id < 0 else "Finding peak selected · review detector evidence"
-            touch()
 
-        def issue_navigation(action: i64) -> void:
-            return if not StudioIssueBrowserPolicy::navigation_enabled(filtered_issues.count.i64(), issues_revision == built, action)
-            current: i64 = issue_selected if issue_selected >= 0 and issue_selected < filtered_issues.count.i64() else 0
-            if action == StudioPanels::IssueAction::ISSUE_WORST:
-                navigate_issue(0)
-            else:
-                navigate_issue(StudioPanels::issue_navigation_target(current,
-                    filtered_issues.count.i64(), action))
-
-        def visible_issue_first() -> i64:
-            selected: i64 = issue_selected if issue_selected >= 0 and issue_selected < filtered_issues.count.i64() else 0
-            StudioIssueBrowserPolicy::window_start_for_rows(selected, filtered_issues.count.i64(), StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS)
-
-        def next_issue_value(current: i64, detector: bool) -> i64:
-            mutable next: i64 = 9223372036854775807
-            for issue in issues |issue, current, detector, next|:
-                value: i64 = issue.issue_type if detector else issue.subject_id
-                next <- value if value > current and value < next
-            return next if next < 9223372036854775807
-            StudioIssueFilterPolicy::Wildcard::DETECTOR if detector else StudioIssueFilterPolicy::Wildcard::SUBJECT
-
-        def reset_issue_filters() -> void:
-            ensure_issue_filter()
-            issue_filter <- StudioIssueFilterPolicy::Filter{
-                detector: StudioIssueFilterPolicy::Wildcard::DETECTOR,
-                subject: StudioIssueFilterPolicy::Wildcard::SUBJECT,
-                minimum_severity: 0,
-                status: StudioIssueFilterPolicy::Disposition.Any.i64()}
-            issue_selected <- 0
-            rebuild_filtered_issues()
-            status <- "finding filters cleared"
-            touch()
-
-        def cycle_issue_filter(field: i64) -> void:
-            ensure_issue_filter()
-            if field == StudioPanels::IssueFilter.Detector.i64():
-                issue_filter.detector <- next_issue_value(issue_filter.detector, true)
-            elif field == StudioPanels::IssueFilter.Subject.i64():
-                issue_filter.subject <- next_issue_value(issue_filter.subject, false)
-            elif field == StudioPanels::IssueFilter.Severity.i64():
-                if issue_filter.minimum_severity == 0:
-                    issue_filter.minimum_severity <- 250
-                elif issue_filter.minimum_severity == 250:
-                    issue_filter.minimum_severity <- 500
-                elif issue_filter.minimum_severity == 500:
-                    issue_filter.minimum_severity <- 750
-                elif issue_filter.minimum_severity == 750:
-                    issue_filter.minimum_severity <- 900
+        def toggle_issue_intent() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if issues_revision != built
+                return if filtered_issues.count == 0 or issue_selected < 0 or issue_selected >= filtered_issues.count.i64()
+                issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+                disposition: StudioIssueAnnotation::Disposition = StudioIssueAnnotation::disposition(issue_annotations, issue)
+                if disposition == StudioIssueAnnotation::Disposition.Ignored:
+                    if StudioIssueAnnotation::restore(&issue_annotations, issue):
+                        status <- "finding restored for this analysis"
+                elif StudioIssueAnnotation::ignore(&issue_annotations, issue):
+                    status <- "finding marked intentional for this analysis"
                 else:
-                    issue_filter.minimum_severity <- 0
-            elif field == StudioPanels::IssueFilter.Status.i64():
-                if issue_filter.status == StudioIssueFilterPolicy::Disposition.Any.i64():
-                    issue_filter.status <- StudioIssueFilterPolicy::Disposition.Unresolved.i64()
-                elif issue_filter.status == StudioIssueFilterPolicy::Disposition.Unresolved.i64():
-                    issue_filter.status <- StudioIssueFilterPolicy::Disposition.Ignored.i64()
-                else:
-                    issue_filter.status <- StudioIssueFilterPolicy::Disposition.Any.i64()
-            else:
-                return
-            issue_selected <- 0
-            rebuild_filtered_issues()
-            status <- "finding filters updated"
-            touch()
+                    status <- "intent list is full; restore a finding before adding another"
+                rebuild_filtered_issues()
+                touch()
 
-        def toggle_issue_intent() -> void:
-            return if issues_revision != built
-            return if filtered_issues.count == 0 or issue_selected < 0 or issue_selected >= filtered_issues.count.i64()
-            issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
-            disposition: StudioIssueAnnotation::Disposition = StudioIssueAnnotation::disposition(issue_annotations, issue)
-            if disposition == StudioIssueAnnotation::Disposition.Ignored:
-                if StudioIssueAnnotation::restore(&issue_annotations, issue):
-                    status <- "finding restored for this analysis"
-            elif StudioIssueAnnotation::ignore(&issue_annotations, issue):
-                status <- "finding marked intentional for this analysis"
-            else:
-                status <- "intent list is full; restore a finding before adding another"
-            rebuild_filtered_issues()
-            touch()
-
-        def draw_issue_browser(w: f32, h: f32, stale: bool, loading: bool) -> void:
-            ensure_issue_filter()
-            sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
-            StudioPanels::issue_browser(sb, filtered_issues, visible_issue_first(),
-                issue_selected, stale, loading,
-                StudioPanels::issue_filter_active(issue_filter))
-            StudioPanels::issue_filter_controls(sb, issue_filter)
-            selection_valid: bool = not stale and filtered_issues.count > 0 and issue_selected >= 0 and issue_selected < filtered_issues.count.i64()
-            mutable ignored: bool = false
-            if selection_valid:
-                selected_issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
-                ignored <- StudioIssueAnnotation::disposition(issue_annotations, selected_issue) == StudioIssueAnnotation::Disposition.Ignored
-            StudioPanels::issue_disposition_control(sb, selection_valid, ignored)
+        def draw_issue_browser(w: f32, h: f32, stale: bool, loading: bool) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                ensure_issue_filter()
+                sb: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+                StudioPanels::issue_browser(sb, filtered_issues, visible_issue_first(),
+                    issue_selected, stale, loading,
+                    StudioPanels::issue_filter_active(issue_filter))
+                StudioPanels::issue_filter_controls(sb, issue_filter)
+                selection_valid: bool = not stale and filtered_issues.count > 0 and issue_selected >= 0 and issue_selected < filtered_issues.count.i64()
+                mutable ignored: bool = false
+                if selection_valid:
+                    selected_issue: StudioIssues::Issue = StudioPanels::issue_at(filtered_issues, issue_selected)
+                    ignored <- StudioIssueAnnotation::disposition(issue_annotations, selected_issue) == StudioIssueAnnotation::Disposition.Ignored
+                StudioPanels::issue_disposition_control(sb, selection_valid, ignored)
 
         # Rebuild the cleaned clip from the current stack (live preview).
