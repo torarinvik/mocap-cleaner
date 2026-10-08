@@ -32,31 +32,28 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 
 ## Highest-return execution focus
 
-Allocate work by the next user-visible delivery, not by milestone size or proof
-counts. The immediate priority is the compiler failure preventing a current app
-build; then reproduce the reported crash and complete one useful cleanup/export
-journey. See the queue's **active blocker and exit gates** for the concrete next
-steps. Defer broad migrations, new algorithms and cosmetic expansion unless they
-remove a demonstrated blocker or protect work at risk.
+The next outcome is a **current runnable Studio**, followed by reliable FBX
+import and animated Character/Skeleton viewing on the user's reported asset.
+Complete one existing cleanup with preview, apply/cancel, undo and a GLB export
+that reopens correctly before expanding the toolset.
 
 Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
-current runnable build and redraw crash; clear FBX/workspace recovery;
-one complete inspect–preview–apply–undo–export journey, with required safety
-proofs alongside each transition; recoverable storage; responsiveness; repeat work and release; M8 decisions.
-The next deliverable is a current runnable Studio build and reproduction of the
-reported FBX/Character redraw crash. The refreshed compiler first needs declaration-aware global effect resolution
-completed. Local/global worker-result shadowing now passes focused native and
-production-payload emission controls; qualify it in the next full Studio build.
-The first useful checkpoint is FBX import, animated Character/Skeleton review,
-one existing cleanup with apply/cancel and undo, and a reviewed GLB export that
-reopens correctly. Proof and dependency work target the transitions that block
-that checkpoint.
-Use the queue’s next three delivery gates to select work and pause standalone
-feature expansion that does not unlock them. Keep one integrated product slice active;
-use full-graph diagnostics to target its remaining blockers. Critical proof
-repairs proceed alongside it and gate the affected operations. Finish and
-qualify existing production paths before adding another algorithm.
-All M0–M8 requirements remain in scope; priority changes do not waive acceptance.
+
+1. Qualify and integrate the compiler effect-resolution and allocation repairs;
+   capture the full app graph, build and package current dependencies.
+2. Reproduce and fix the reported import/toggle crash. Make workspace selection,
+   failure details, cancellation and retry obvious in the same workflow.
+3. Complete the first useful cleanup/export journey with its required contracts,
+   source correspondence and independent proof replay.
+4. Finish recoverable storage, measured responsiveness, repeat work and release;
+   activate research after the earlier acceptance gates pass.
+
+Keep one integrated product slice active, with only the compiler/prover/native
+repairs necessary to unlock it. Prioritize observed failures, user data at risk
+and missing workflow steps. Defer broad refactors, new algorithms and visual
+expansion unless they remove a demonstrated blocker. Existing implementation
+needs qualification before extension. All M0–M8 requirements remain in scope;
+priority changes do not waive acceptance or the mandatory engineering rules.
 
 ## Detailed roadmap
 

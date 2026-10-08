@@ -29,15 +29,15 @@ until the first usable journey passes.
 
 The current app is still unqualified. Prioritize these steps in order:
 
-1. **Repair the compiler's failing seed.** The `c3d87c04` attempt stopped with
-   414 call-summary Global grant diagnostics, including apparently pure standard
-   library functions; it published no qualified product. Determine the exact
-   unresolved-edge or caller-identity failure before migrating effect rows.
-   Fix declaration resolution and retain pure/external/namesake, no-header and
-   member-specific refusal controls. Add grants only for actual required access;
-   do not exempt the standard library or drop tracking to make the seed pass.
-   Exit: a rebuilt current compiler with matched source/runtime evidence and
-   passing targeted positive and refusal controls.
+1. **Qualify the compiler repair that unlocks Studio.** The latest completed
+   seed attempt (`996761bf`) stopped with 183 diagnostics; `d1606fcd` adds a
+   selected-callee visibility repair whose seed qualification is pending.
+   Verify module/namesake isolation, overload and callback effect propagation,
+   no-header enforcement and member-specific refusals on the rebuilt product.
+   Resolve actual remaining access requirements without blanket grants or
+   tracking exemptions. Integrate the allocation/ownership repair into the same
+   current source/product/runtime tuple. Exit: the official seed and targeted
+   controls pass, then immediately capture the full Studio graph.
 2. **Advance directly to the full app.** Capture Studio's complete graph using
    that compiler; fix the first remaining semantic or emission blocker, then
    package and launch. Passing focused controls must trigger integration rather
@@ -62,23 +62,6 @@ change and exit gate. Stop or defer work that cannot name which gate it unlocks.
 After a gate passes, select the next highest-impact observed failure; do not
 restart completed implementation or expand the feature surface by default.
 
-The next deliverable is a **current runnable Studio build**, followed by the
-reported FBX/Character redraw reproduction. Work backwards from that result:
-
-1. Use the latest frozen full-graph diagnostics to fix remaining production
-   owners in descending dependency impact. Grant migrations must remove an
-   observed diagnostic or complete a required access boundary; avoid unrelated
-   repository-wide refactoring while the build is blocked.
-2. Capture the full graph again after each coherent repair batch. Separate
-   semantic permission failures from native emission failures; retain the exact
-   source/product tuple and failed diagnostics so the next action is concrete.
-3. Once semantic checking passes, repair the first remaining native emission
-   blocker, build/package, and run the actual reported import/toggle journey.
-   Do not count more policy modules or isolated smoke passes as this delivery.
-4. Keep critical proof repair on its existing parallel dependency track. Gate
-   the affected data-mutating operation on its required evidence; independent
-   read-only import, display and diagnostic work can continue.
-
 **Work in progress limit:** one integrated product slice plus its necessary
 compiler/prover/native dependency repairs. Every new task names the user-visible
 result or observed blocker it unlocks and the smallest finish check. Re-rank
@@ -102,29 +85,24 @@ an observed defect. Recovery-location integration and broader storage controls
 follow the usable single-take journey unless they directly block it or protect
 work at risk. Proof repairs prioritize the contracts required by these deliveries.
 
-## Practical ROI budget
+## Allocation and activation gates
 
-Spend the next implementation effort on deliveries 1–3 above. Each change must
-unlock the build, remove a reproduced failure, or complete a missing step in the
-first useful journey. Use the smallest discriminating control first, then run
-integration when the relevant inputs change. A passing reducer is a reason to
-advance to integration, not to create more equivalent reducers.
+Use these gates to keep effort directed at usable results:
 
-- **Build blocker:** finish the compiler effect-resolution repair before another
-  broad grant migration. Keep unresolved overload/callback cases visible.
-- **User blocker:** once packaged, reproduce the actual FBX and toggle failure
-  before designing another import policy. Capture actionable failure details.
-- **Useful result:** finish one existing cleanup and single export; measure
-  source preservation, undo and reopened motion before adding new algorithms.
-- **Proof effort:** prioritize the critical transition's source correspondence
-  and replay. Investigate prover memory only where it prevents those obligations
-  from completing under the existing resource limit; avoid a broad census.
-- **Cleanup effort:** deliver recovery needed for current work at risk first;
-  broader storage management follows the working single-take journey.
+| Work | Do now when | Resume broader work when |
+| --- | --- | --- |
+| Compiler and dependency repair | It prevents the current Studio build or required proof execution | The integrated current tuple passes and exposes the next actual failure |
+| Proof repair | It blocks ownership, source preservation, history or publication in the active journey | Those critical obligations authenticate and replay under the original workload limits |
+| UI and ease of use | It prevents opening, understanding a failure, viewing, cancelling or completing the first cleanup | The first native journey works; then address measured usability problems |
+| Storage and recovery | Existing user work or required build evidence is at risk | Single export/reopen works; then complete cleanup/restore/restart |
+| Performance | The active journey crashes, stalls or exceeds its existing resource gate | The original gate passes repeatably; then measure supported large takes |
+| New algorithms, batch and research | An existing tool cannot deliver the first useful result and evidence identifies the missing capability | Single-take acceptance passes and a measured need justifies expansion |
 
-Re-rank at each delivery gate using observed user failures and measured cost.
-Keep deferred requirements in their existing milestone documents; give them an
-activation gate rather than treating every open item as equally urgent.
+Prefer one shared root-cause fix to several compensating wrappers. Run the
+smallest control that distinguishes the suspected cause, then integrate when
+inputs change. Do not repeat passing reducers or unchanged full builds. Keep
+completed implementation in Git and pending qualification in its acceptance
+record; avoid rebuilding a feature merely because native evidence is missing.
 
 ## Deliver the smallest useful release slice
 
