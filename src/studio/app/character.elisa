@@ -118,15 +118,16 @@ module StudioCharacter:
         def drawable(b: Binding&) -> bool:
             return StudioCharacterBind::drawable(b.coverage)
 
-        # `m` skinned by the cleaned pose of `c` at `frame`; empty on any
-        # mismatch.
-        def pose(m: Model&, b: Binding&, c: StudioModel::Clip&, frame: i64) -> darray[Geometry::Vec3] can[Global{Read, Write}]:
-            mutable out: darray[Geometry::Vec3] = []
+        # Write `m`'s cleaned pose into caller-owned storage. Clearing and
+        # reusing the output keeps playback's mesh buffer at its caller's
+        # lifetime instead of returning a fresh large array every frame.
+        def pose_into(m: Model&, b: Binding&, c: StudioModel::Clip&, frame: i64, out: mutable darray[Geometry::Vec3]&) -> void can[Global{Read, Write}]:
+            out.clear()
             joints: usize = GlbSkinMesh::joint_count(&m.mesh)
-            return out if not StudioCharacterBind::rest_shape_valid(joints.i64(), m.rest.count.i64())
+            return if not StudioCharacterBind::rest_shape_valid(joints.i64(), m.rest.count.i64())
             # Binding is public data, so fail closed if a caller supplies a
             # partial or stale binding instead of indexing its parallel arrays.
-            return out if b.slot.count != joints or b.mode.count != joints or b.anchor.count != joints or b.offset.count != joints
+            return if b.slot.count != joints or b.mode.count != joints or b.anchor.count != joints or b.offset.count != joints
             r: PoseOverride::Rig = StudioModel::rig(c)
             models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
             mutable transforms: darray[Geometry::Transform] = []
@@ -138,10 +139,16 @@ module StudioCharacter:
                     transforms.push(Geometry::transform_compose(models[b.slot[b.anchor[j].usize()].usize()], b.offset[j]))
                 else:
                     transforms.push(m.rest[j])
-            _ = catch MeshOverlay::skin(&m.mesh, &transforms, &out):
-                value: value
-                error failure: return []
-            return [] if out.count != GlbSkinMesh::vertex_count(&m.mesh)
+            skinned: bool = catch MeshOverlay::skin(&m.mesh, &transforms, out):
+                value: true
+                error failure: false
+            out.clear() if not skinned or out.count != GlbSkinMesh::vertex_count(&m.mesh)
+
+        # `m` skinned by the cleaned pose of `c` at `frame`; empty on any
+        # mismatch.
+        def pose(m: Model&, b: Binding&, c: StudioModel::Clip&, frame: i64) -> darray[Geometry::Vec3] can[Global{Read, Write}]:
+            mutable out: darray[Geometry::Vec3] = []
+            pose_into(m, b, c, frame, &out)
             return out
 
         # Nearest ancestor of skin joint `j` (through Model::parent) that has

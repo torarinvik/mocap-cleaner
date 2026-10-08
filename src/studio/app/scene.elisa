@@ -181,7 +181,14 @@ module StudioScene:
         # the rig keep the identity transform. Empty on any mismatch.
         def pose_mesh(c: StudioModel::Clip&, mesh: GlbSkinMesh::Mesh&, frame: i64) -> darray[Geometry::Vec3] can[Global{Read, Write}]:
             mutable out: darray[Geometry::Vec3] = []
-            return out if GlbSkinMesh::vertex_count(mesh) == 0
+            pose_mesh_into(c, mesh, frame, &out)
+            return out
+
+        # Write a take's skinned mesh into caller-owned output. Reusing the
+        # app's cache avoids returning a new large vertex array on each frame.
+        def pose_mesh_into(c: StudioModel::Clip&, mesh: GlbSkinMesh::Mesh&, frame: i64, out: mutable darray[Geometry::Vec3]&) -> void can[Global{Read, Write}]:
+            out.clear()
+            return if GlbSkinMesh::vertex_count(mesh) == 0
             r: PoseOverride::Rig = StudioModel::rig(c)
             models: darray[Geometry::Transform] = StudioModel::models(c, r, frame, false)
             mutable joints: darray[Geometry::Transform] = []
@@ -192,11 +199,10 @@ module StudioScene:
                     joints.push(models[s.usize()])
                 else:
                     joints.push(Geometry::transform_identity())
-            _ = catch MeshOverlay::skin(mesh, &joints, &out):
-                value: value
-                error failure: return []
-            return [] if out.count != GlbSkinMesh::vertex_count(mesh)
-            return out
+            skinned: bool = catch MeshOverlay::skin(mesh, &joints, out):
+                value: true
+                error failure: false
+            out.clear() if not skinned or out.count != GlbSkinMesh::vertex_count(mesh)
 
         # Rig slot `bone`'s model transform at `frame` (identity when out of range).
         def bone_model(c: StudioModel::Clip&, frame: i64, bone: i64) -> Geometry::Transform can[Global{Read, Write}]:

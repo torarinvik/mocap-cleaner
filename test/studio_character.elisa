@@ -12,7 +12,7 @@ def close(a: Geometry::Vec3, b: Geometry::Vec3) -> bool:
     d: Geometry::Vec3 = Geometry::vec3_sub(a, b)
     return Geometry::vec3_length_squared(d) < 0.0000001
 
-def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32:
+def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32 can[Global{Read, Write}]:
     b: StudioCharacter::Binding = StudioCharacter::bind(m, c)
     joints: usize = GlbSkinMesh::joint_count(&m.mesh)
     return 3 if b.slot.count != joints or b.mode.count != joints
@@ -23,6 +23,7 @@ def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32:
         value: value
         error failure: GlbSkinMesh::empty()
     frame: i64 = c.frames / 2
+    next_frame: i64 = (frame + 1) % c.frames
     malformed: StudioCharacter::Binding = StudioCharacter::Binding{slot: b.slot, mode: [], anchor: [], offset: [], bound: b.bound, coverage: b.coverage}
     return 8 if StudioCharacter::pose(m, &malformed, c, frame).count != 0
     want: darray[Geometry::Vec3] = StudioScene::pose_mesh(c, &mesh, frame)
@@ -30,9 +31,25 @@ def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32:
     return 6 if want.count == 0 or got.count != want.count
     for v in 0..<got.count |v, got, want|:
         return 7 if not close(got[v], want[v])
+    mutable reused_scene: darray[Geometry::Vec3] = []
+    StudioScene::pose_mesh_into(c, &mesh, frame, &reused_scene)
+    return 44 if reused_scene.count != want.count
+    for v in 0..<reused_scene.count |v, reused_scene, want|:
+        return 45 if not close(reused_scene[v], want[v])
+    scene_capacity: usize = reused_scene.capacity
+    StudioScene::pose_mesh_into(c, &mesh, next_frame, &reused_scene)
+    return 46 if reused_scene.capacity != scene_capacity or reused_scene.count != want.count
+    mutable reused: darray[Geometry::Vec3] = []
+    StudioCharacter::pose_into(m, &b, c, frame, &reused)
+    return 40 if reused.count != got.count
+    for v in 0..<reused.count |v, reused, got|:
+        return 41 if not close(reused[v], got[v])
+    capacity: usize = reused.capacity
+    StudioCharacter::pose_into(m, &b, c, next_frame, &reused)
+    return 42 if reused.capacity != capacity or reused.count != got.count
     return 0
 
-def main() -> i32:
+def main() -> i32 can[Global{Read, Write}]:
     # Rest metadata is an exact parallel array, including the empty shape.
     return 32 if not StudioCharacterBind::rest_shape_valid(0, 0)
     return 33 if not StudioCharacterBind::rest_shape_valid(4, 4)
@@ -63,8 +80,11 @@ def main() -> i32:
             code: i32 = run(c, m)
             return code if code != 0
             retained_binding: StudioCharacter::Binding = StudioCharacter::bind(m, c)
+            mutable cleared: darray[Geometry::Vec3] = [Geometry::Vec3{x: 1.0, y: 2.0, z: 3.0}]
             m.rest.clear()
             return 38 if StudioCharacter::pose(m, &retained_binding, c, 0).count != 0
+            StudioCharacter::pose_into(m, &retained_binding, c, 0, &cleared)
+            return 43 if cleared.count != 0
             refused_binding: StudioCharacter::Binding = StudioCharacter::bind(m, c)
             return 39 if refused_binding.coverage != 0 or refused_binding.slot.count != 0
             _ = puts("studio character: name binding, policy and skinning pass")
