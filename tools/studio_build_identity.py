@@ -106,6 +106,7 @@ def snapshot(project, engine, ui, compiler):
             "studio_build_generation_trash_journal_appkit.m",
             "studio_build_generation_trash_restore_appkit.m",
             "studio_build_generation_trash_reconcile_appkit.m",
+            "studio_build_generation_trash_identity_appkit.m",
             "studio_build_generation_trash_binding_appkit.m",
             "studio_build_generation_trash_appkit.h",
             "studio_build_generation_trash_private.h",
