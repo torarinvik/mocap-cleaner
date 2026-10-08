@@ -93,3 +93,17 @@ lines using the names vector's count. Tie exemptions to the selected declaration
 and validate parallel-vector/chain bounds. A same-named generic in another
 module must not suppress a genuine mismatch for a concrete parameter.
 This review finding is pending repair and regression qualification.
+
+The shadowing reducer's failing result is stored separately as
+`build/studio-build.atomic-compiler-semantic-1be/optional-loop-global-shadow.log`
+and `.exit` (1), not the older `optional-loop-owner-collision.log`/`.exit` (0).
+Its two diagnostics are L23 `token_count` and L24 `token_byte`, both receiving
+`u32` instead of the optional local payload's `Token`. Current reducer source
+`optional-loop-owner-collision.elisa` SHA-256 is
+`b9cfa20fd479ed6f7ca7ef494ba051ad0ddacec5bd1b694c7f3cd2e3bf0ea254`;
+failing log SHA-256 is
+`90b696762fb6d44077f112181ff34b6f140c3966af1ed52242b7170221c61a7c`.
+The actual graph has a same-named global in `elisa-ui/src/core/ui_tasks.elisa`.
+Preserve optional branch payload TypeIds and restore both flat and structural
+scope channels afterward. The repaired fixture must retain genuine mismatch
+refusals and prove that the outer/global binding resumes after the branch.
