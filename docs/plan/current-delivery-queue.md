@@ -52,14 +52,17 @@ passing; its complete 37-check gate is in progress. Required
 gates, speed comparison and application acceptance remain open. Earlier
 product/build observations remain comparison evidence in the linked records.
 
-Additional current-main dependency: compiler `cb10dd72` has a reproduced
-counted-fill reserve memory regression. Preserve isolated repair `04761c68`
-when constructing the next current candidate: compiler-inserted reserves must
-retain geometric growth while explicit reserve remains exact. Engine commit
-`71174804` records 215 uncached runtime passes on the fixed product and rebuilt
-runtime under the original aggregate memory cap. This is engine runtime evidence;
-fixed-product native/prover compatibility and the sealed Studio redraw crash
-remain open. Retained evidence: `../elisa-engine/docs/validation/counted-fill-memory-growth.md`.
+Additional current-main dependency: compiler `cb10dd72` exposed a counted-fill
+reserve memory regression. Main now includes repair `04761c68` and hardening
+`0baaa951`: compiler-inserted reserves retain geometric growth, explicit reserve
+remains exact, and malformed helper signatures decline before caller emission.
+Root verified the hardened engine runtime log: 215 uncached tests pass in 21.79s,
+peak 1,326,208 KiB under the original 3,145,728 KiB cap. Preserve both repairs
+when rebasing the project candidate. Fixed-product native/prover compatibility
+and the sealed Studio redraw crash remain open. The earlier paired-prover
+manifest misclassified a renamed product as Stage0 and is not accepted; rebuild
+through the official wrapper with matched frontend/runtime provenance.
+Retained evidence: `../elisa-engine/docs/validation/counted-fill-memory-growth.md`.
 Do not qualify Studio by disabling the automatic reserve optimization.
 
 Remaining work:
