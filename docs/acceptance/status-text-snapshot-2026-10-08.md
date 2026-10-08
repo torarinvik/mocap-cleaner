@@ -56,3 +56,22 @@ exit 0 on source-matched installed `b26659e2`. The maintained regression is
 `test/studio_status_text_extent.elisa`. This closes the pure admission runtime
 check only. The separate snapshot, formatter and formal source/replay acceptance
 items remain open.
+
+## Current Studio integration check
+
+After the complete guide clip, measured tooltip layout and unavailable-character
+tooltip changes (through root commit `d4e1d82`), the full Studio semantic check
+on clean compiler `5d17a2c0` exits 1 with only the known atomic `load` resolution
+diagnostic at runtime concurrency line 949. No additional guide or tooltip
+diagnostics are reported. The selected product SHA is
+`b60c2b081425874cb730b09de9e0a524fcd5f3beab6fe595353fc7bc4f8a0006`;
+the runtime remains `956c9f44e4024087b63954d5abbe6620a4a2c5c78c5a4cee044e3da2bde5ce96`.
+The normal identity generator selected this compiler's runtime declarations,
+and the compile used its canonical wrapper with a 2 GiB memory cap.
+
+Evidence: `build/studio-tooltip-integration/semantic.log` SHA
+`34f4b3ec63e559d75a668605af885e8ce0181d5eb74f8ae48dbefc90faa4cc31`,
+with `semantic.exit` and `identity.env` in the same directory. This is a failed
+whole-app check with a narrowed blocker, not a native build, visual result or
+proof replay. The nested owning-return regression checks are separate and still
+pending on this compiler tuple.
