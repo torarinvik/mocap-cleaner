@@ -25,6 +25,43 @@ until the first usable journey passes.
 
 ## Immediate execution contract
 
+### Active blocker and exit gates
+
+The current app is still unqualified. Prioritize these steps in order:
+
+1. **Repair the compiler's failing seed.** The `c3d87c04` attempt stopped with
+   414 call-summary Global grant diagnostics, including apparently pure standard
+   library functions; it published no qualified product. Determine the exact
+   unresolved-edge or caller-identity failure before migrating effect rows.
+   Fix declaration resolution and retain pure/external/namesake, no-header and
+   member-specific refusal controls. Add grants only for actual required access;
+   do not exempt the standard library or drop tracking to make the seed pass.
+   Exit: a rebuilt current compiler with matched source/runtime evidence and
+   passing targeted positive and refusal controls.
+2. **Advance directly to the full app.** Capture Studio's complete graph using
+   that compiler; fix the first remaining semantic or emission blocker, then
+   package and launch. Passing focused controls must trigger integration rather
+   than another equivalent fixture. Exit: a current packaged app that can run
+   the reported asset and toggle sequence.
+3. **Fix the observed user failure.** Reproduce FBX open and Character/Skeleton
+   switching on the user's asset, including repeated redraw and playback.
+   Preserve the source and retain crash/ownership evidence. Make workspace setup
+   and failure recovery visible in the same journey. Exit: import, display,
+   cancel and retry work without a crash or ambiguous status.
+4. **Complete one useful result.** Use an existing cleanup to inspect, preview,
+   apply/cancel, undo and export; reopen the GLB and compare reviewed motion.
+   Exit: the complete native journey and its required contracts/proofs pass.
+
+Keep proof repairs limited to obligations blocking these transitions. The prover
+allocation regression warrants a root-cause repair because it blocks required
+evidence; judge it against the original workload and resource limit, not a smaller
+passing substitute. Recovery work becomes immediate if user work is at risk.
+
+For each active task, record its owning module, observed failure, next source
+change and exit gate. Stop or defer work that cannot name which gate it unlocks.
+After a gate passes, select the next highest-impact observed failure; do not
+restart completed implementation or expand the feature surface by default.
+
 The next deliverable is a **current runnable Studio build**, followed by the
 reported FBX/Character redraw reproduction. Work backwards from that result:
 
@@ -139,8 +176,9 @@ unlocks every native UI acceptance check.
 2. Fetch current dependencies while preserving project repairs. Build and verify
    source/product/runtime/link correspondence. Freeze the actual input closure
    for qualification; changed inputs invalidate the attempt.
-3. On that tuple, reduce and repair any remaining native emission failures,
-   currently the specialized generic worker-result reads in the full app graph.
+3. On that tuple, reduce and repair any remaining native emission failures.
+   Worker-result reads already pass focused emission controls; their remaining
+   work is full-graph qualification, not another isolated implementation.
    Preserve privacy, affine ownership and caller-owned allocation lifetimes.
 4. Build/package Studio, identify the exact executable, then reproduce the
    reported FBX/redraw failure. The historical `14bdc130` binary crashed after

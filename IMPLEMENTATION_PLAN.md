@@ -32,6 +32,13 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 
 ## Highest-return execution focus
 
+Allocate work by the next user-visible delivery, not by milestone size or proof
+counts. The immediate priority is the compiler failure preventing a current app
+build; then reproduce the reported crash and complete one useful cleanup/export
+journey. See the queue's **active blocker and exit gates** for the concrete next
+steps. Defer broad migrations, new algorithms and cosmetic expansion unless they
+remove a demonstrated blocker or protect work at risk.
+
 Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
 current runnable build and redraw crash; clear FBX/workspace recovery;
 one complete inspect–preview–apply–undo–export journey, with required safety
