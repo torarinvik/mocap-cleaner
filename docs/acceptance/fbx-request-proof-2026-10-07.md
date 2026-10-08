@@ -318,3 +318,34 @@ Root inspected `focused-result.txt`: the unchanged `cd85877f` callback fixture
 compiles and runs at both O0 and O2 with exit 0. This closes that reproduced
 content failure for the exact candidate product, not full Studio acceptance.
 Sanitizer and production ownership IR checks remain required.
+
+
+## Current production IR integration refusal
+
+The exact candidate callback control also passes LLVM compile, instrumented
+link and ASan execution with exit 0. The generated code is instrumented; the
+custom mmap allocator runtime object is not. This establishes the focused
+content check, not complete leak or allocator qualification.
+
+The subsequent current Studio `-O2 -emit llvm` attempt exits 1 before emitting
+IR. The canonical generator selected the candidate std runtime declarations,
+and pre/post include-closure snapshots match. The diagnostics are:
+
+- `elisacore_runtime_concurrency.elisa:949`: atomic `load` expects `cstr` for its
+  first argument, suggesting selection of an unrelated same-named loader.
+- `elisa-ui/src/widgets/ui_dialog.elisa:148`: reading a fixed-array scalar
+  `Result` is reported as a regionless return retaining global storage.
+
+These require isolated compiler/type-resolution investigation; neither is
+resolved by updating status wording or suppressing unsafe tracking. No current
+production ownership IR or integrated executable was produced. Exact command,
+logs, terminal status and saved prior generated declarations are retained in
+`build/studio-global-rehome-current/`. This closure contains current dirty UI
+sources and differs from the sealed crash build.
+
+Test qualification now generates runtime declarations from the same canonical
+compiler checkout used for cache identity (`ebb9888`). Unknown wrapper commands
+and mismatched configured roots refuse rather than guessing a checkout
+(`cdbf972`); use `CHECKOUT/scripts/elisac_stage1.sh` with matching
+`ELISA_STAGE1`. Focused resolution controls pass without modifying generated
+files. Full `scripts/check.sh` qualification remains open.

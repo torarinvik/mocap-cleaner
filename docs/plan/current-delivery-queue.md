@@ -22,7 +22,11 @@ runtime SHA-256 is `956c9f44e4024087b63954d5abbe6620a4a2c5c78c5a4cee044e3da2bde5
 The previously failing callback-shaped cache-content regression now compiles
 and runs with exit 0 at both O0 and O2 on this exact product. Sanitizer,
 production ownership IR, prior project-repair integration, full gates and Studio
-runtime acceptance remain open. Cache-hit rehome allocation cost must be
+runtime acceptance remain open. The current O2 production IR attempt exits 1
+before emission: atomic `load` callee selection and scalar dialog-result global
+return diagnostics must be isolated and repaired with refusal controls. The
+canonical runtime bridge and include closure matched, so this attempt is not the
+earlier mixed-std check. Cache-hit rehome allocation cost must be
 measured; unresolved-call static lifetime fallback does not qualify cleanup.
 
 The `1482a808` baseline gate remains a captured historical comparison while it
