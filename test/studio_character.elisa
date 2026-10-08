@@ -12,6 +12,63 @@ def close(a: Geometry::Vec3, b: Geometry::Vec3) -> bool:
     d: Geometry::Vec3 = Geometry::vec3_sub(a, b)
     return Geometry::vec3_length_squared(d) < 0.0000001
 
+module StudioPlaybackCache:
+    public:
+        global mutable character_points: darray[Geometry::Vec3]? = null
+        global mutable character_frame: i64 = -1
+        global mutable take_points: darray[Geometry::Vec3]? = null
+        global mutable take_frame: i64 = -1
+
+        def refresh_character(model: StudioCharacter::Model&, binding: StudioCharacter::Binding&, clip: StudioModel::Clip&, frame: i64) -> bool can[Global{Read, Write}]:
+            return true if character_frame == frame
+            if character_points is cached and cached.count == model.mesh.positions.count:
+                StudioCharacter::pose_into(model, binding, clip, frame, cached)
+            else:
+                posed: darray[Geometry::Vec3] = StudioCharacter::pose(model, binding, clip, frame)
+                character_points <- posed
+            if character_points is vertices:
+                return false if vertices.count != model.mesh.positions.count
+                character_frame <- frame
+                return true
+            return false
+
+        def refresh_take(mesh: GlbSkinMesh::Mesh&, clip: StudioModel::Clip&, frame: i64) -> bool can[Global{Read, Write}]:
+            return true if take_frame == frame
+            if take_points is cached and cached.count == mesh.positions.count:
+                StudioScene::pose_mesh_into(clip, mesh, frame, cached)
+            else:
+                posed: darray[Geometry::Vec3] = StudioScene::pose_mesh(clip, mesh, frame)
+                take_points <- posed
+            if take_points is vertices:
+                return false if vertices.count != mesh.positions.count
+                take_frame <- frame
+                return true
+            return false
+
+        def draw_character(model: StudioCharacter::Model&, clip: StudioModel::Clip&, frame: i64, view: i64) -> bool can[Global{Read, Write}]:
+            if character_points is vertices:
+                mutable camera: ViewportCamera::Camera = ViewportCamera::create(480, 360) if view == 0 else (ViewportCamera::create_ortho(480, 360, ViewportCamera::FRONT) if view == 1 else ViewportCamera::create_ortho(480, 360, ViewportCamera::SIDE))
+                list: ViewportDraw::List = StudioScene::build(camera, clip, &model.mesh, vertices, frame, StudioScene::Flags::MESH, -1)
+                return ViewportDraw::vertex_count(&list) > 0
+            return false
+
+        def draw_take(mesh: GlbSkinMesh::Mesh&, clip: StudioModel::Clip&, frame: i64, view: i64) -> bool can[Global{Read, Write}]:
+            if take_points is vertices:
+                mutable camera: ViewportCamera::Camera = ViewportCamera::create(480, 360) if view == 0 else (ViewportCamera::create_ortho(480, 360, ViewportCamera::FRONT) if view == 1 else ViewportCamera::create_ortho(480, 360, ViewportCamera::SIDE))
+                list: ViewportDraw::List = StudioScene::build(camera, clip, mesh, vertices, frame, StudioScene::Flags::MESH, -1)
+                return ViewportDraw::vertex_count(&list) > 0
+            return false
+
+        def exercise(model: StudioCharacter::Model&, binding: StudioCharacter::Binding&, clip: StudioModel::Clip&, mesh: GlbSkinMesh::Mesh&) -> bool can[Global{Read, Write}]:
+            return false if clip.frames <= 0
+            for frame in 0..<clip.frames |frame, model, binding, clip, mesh|:
+                for view in 0..<3 |view, frame, model, binding, clip, mesh|:
+                    return false if not refresh_character(model, binding, clip, frame.i64())
+                    return false if not draw_character(model, clip, frame.i64(), view.i64())
+                    return false if not refresh_take(mesh, clip, frame.i64())
+                    return false if not draw_take(mesh, clip, frame.i64(), view.i64())
+            return true
+
 def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32 can[Global{Read, Write}]:
     b: StudioCharacter::Binding = StudioCharacter::bind(m, c)
     joints: usize = GlbSkinMesh::joint_count(&m.mesh)
@@ -47,6 +104,7 @@ def run(c: StudioModel::Clip&, m: StudioCharacter::Model&) -> i32 can[Global{Rea
     capacity: usize = reused.capacity
     StudioCharacter::pose_into(m, &b, c, next_frame, &reused)
     return 42 if reused.capacity != capacity or reused.count != got.count
+    return 47 if not StudioPlaybackCache::exercise(m, &b, c, &mesh)
     return 0
 
 def main() -> i32 can[Global{Read, Write}]:
