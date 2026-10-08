@@ -1,0 +1,239 @@
+# Strict decoder for the native observer's canonical v2 response. The schema
+# is intentionally fixed: reordered, duplicate, extra, or escaped field names
+# refuse instead of being interpreted as another identity.
+include "../state/generation_recovery_location_policy.elisa"
+include "../state/generation_operation_identity_policy.elisa"
+include "../state/generation_recovery_ledger_policy.elisa"
+include "../state/generation_review_path_policy.elisa"
+include "../state/generation_reconcile_identity_policy.elisa"
+
+module StudioBuildGenerationRecoveryLocationWire:
+    public:
+        const module Limit:
+            BYTES: i64 = 65536
+
+        affine struct Side:
+            state: StudioGenerationRecoveryLocationPolicy::EntryState
+            reveal: i64
+            entry_identity_verified: bool
+            parent_identity_verified: bool
+            descriptor_paths_bound: bool
+            entry_device: u64
+            entry_inode: u64
+            parent_device: u64
+            parent_inode: u64
+            artifact_path: darray[u8]
+            parent_path: darray[u8]
+
+        affine struct Identity:
+            build_root: darray[u8]
+            operation_id: darray[u8]
+            artifact_id: darray[u8]
+            relative_path: darray[u8]
+            root_device: u64
+            root_inode: u64
+            receipt_device: u64
+            receipt_inode: u64
+            receipt_bytes: i64
+            receipt_sha256: darray[u8]
+            phase: i64
+            original: Side
+            quarantine: Side
+
+        affine struct DecodeResult:
+            valid: bool
+            identity: Identity
+
+        def decode[@r](wire: u8[Limit::BYTES]&, wire_bytes: i64) -> DecodeResult @r can[Memory.Allocate]:
+            can Memory.Allocate:
+                return DecodeResult{valid: false, identity: empty_identity()} if wire_bytes <= 0 or wire_bytes >= Limit::BYTES
+                length: usize = wire_bytes.usize()
+                return DecodeResult{valid: false, identity: empty_identity()} if wire[length] != 0
+                for index in (length + 1)..<Limit::BYTES.usize() |index, wire|:
+                    return DecodeResult{valid: false, identity: empty_identity()} if wire[index] != 0
+                mutable bytes: darray[u8] = []
+                for index in 0..<length |index, bytes, wire|:
+                    return DecodeResult{valid: false, identity: empty_identity()} if wire[index] == 0
+                    bytes.push(wire[index])
+                mutable cursor: usize = 0
+                mutable identity: Identity = empty_identity()
+                if not expect(bytes, &cursor, "{\"artifact_id\":") or not parse_string(bytes, &cursor, &identity.artifact_id):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"build_root\":"):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                return DecodeResult{valid: false, identity: empty_identity()} if not parse_string(bytes, &cursor, &identity.build_root)
+                if not expect(bytes, &cursor, ",\"operation_id\":") or not parse_string(bytes, &cursor, &identity.operation_id):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"original\":") or not parse_side(bytes, &cursor, &identity.original):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"phase\":") or not parse_integer(bytes, &cursor, &identity.phase):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"quarantine\":") or not parse_side(bytes, &cursor, &identity.quarantine):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"receipt_bytes\":") or not parse_integer(bytes, &cursor, &identity.receipt_bytes):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"receipt_device\":") or not parse_hex64(bytes, &cursor, &identity.receipt_device):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"receipt_inode\":") or not parse_hex64(bytes, &cursor, &identity.receipt_inode):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"receipt_sha256\":") or not parse_string(bytes, &cursor, &identity.receipt_sha256):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"relative_path\":") or not parse_string(bytes, &cursor, &identity.relative_path):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"root_device\":") or not parse_hex64(bytes, &cursor, &identity.root_device):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"root_inode\":") or not parse_hex64(bytes, &cursor, &identity.root_inode):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                if not expect(bytes, &cursor, ",\"schema\":"):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                mutable schema: darray[u8] = []
+                return DecodeResult{valid: false, identity: empty_identity()} if not parse_string(bytes, &cursor, &schema) or not equal_literal(schema, "mocap-studio-generation-trash-locations-v2")
+                mutable version: i64 = -1
+                if not expect(bytes, &cursor, ",\"version\":") or not parse_integer(bytes, &cursor, &version):
+                    return DecodeResult{valid: false, identity: empty_identity()}
+                return DecodeResult{valid: false, identity: empty_identity()} if version != 2 or not expect(bytes, &cursor, "}") or cursor != bytes.count
+                return DecodeResult{valid: false, identity: empty_identity()} if not identity_valid(identity)
+                return DecodeResult{valid: true, identity: move identity}
+
+    private:
+        def empty_side() -> Side:
+            Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, reveal: 0, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, entry_device: 0, entry_inode: 0, parent_device: 0, parent_inode: 0, artifact_path: [], parent_path: []}
+
+        def empty_identity() -> Identity:
+            Identity{build_root: [], operation_id: [], artifact_id: [], relative_path: [], root_device: 0, root_inode: 0, receipt_device: 0, receipt_inode: 0, receipt_bytes: 0, receipt_sha256: [], phase: -1, original: empty_side(), quarantine: empty_side()}
+
+        def identity_valid(identity: Identity&) -> bool:
+            bytes_path_valid(identity.build_root, true) and StudioGenerationOperationIdentityPolicy::valid(identity.operation_id) and identity.artifact_id.count > 0 and identity.artifact_id.count <= StudioBuildGenerationTrashPolicy::Protocol::MAX_ARTIFACT_ID_BYTES.usize() and valid_utf8(identity.artifact_id) and bytes_path_valid(identity.relative_path, false) and identity.root_inode > 0 and identity.receipt_inode > 0 and identity.receipt_bytes > 0 and identity.receipt_bytes <= StudioGenerationReconcileIdentityPolicy::Limit::MAX_RECEIPT_BYTES and digest_valid(identity.receipt_sha256) and (identity.phase == 0 or identity.phase == 1 or identity.phase == 2 or identity.phase == 3 or identity.phase == 5) and side_valid(identity.original) and side_valid(identity.quarantine)
+
+        def side_valid(side: Side&) -> bool:
+            return false if side.state.i64() < 0 or side.state.i64() > 4
+            return false if side.reveal < 0 or side.reveal > 2
+            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact and not (side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_inode > 0 and side.parent_inode > 0 and bytes_path_valid(side.artifact_path, true) and bytes_path_valid(side.parent_path, true) and side.reveal == 1)
+            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant and not (not side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_inode > 0 and side.artifact_path.count == 0 and bytes_path_valid(side.parent_path, true) and side.reveal == 2)
+            return false if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent and not (not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0 and side.reveal == 0)
+            return false if (side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unsafe or side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown) and not (not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0 and side.reveal == 0)
+            true
+
+        def bytes_path_valid(path: darray[u8]&, absolute: bool) -> bool:
+            return false if not StudioGenerationReviewPathPolicy::path_valid(path) or path.count.i64() > StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES or not valid_utf8(path)
+            return false if absolute and path[0] != 47
+            true
+
+        def valid_utf8(path: darray[u8]&) -> bool:
+            mutable at: usize = 0
+            while at < path.count:
+                width: usize = StudioGenerationReviewPathPolicy::utf8_width(path, at)
+                return false if width == 0
+                at <- at + width
+            true
+
+        def digest_valid(digest: darray[u8]&) -> bool:
+            return false if digest.count != 64
+            for byte in digest:
+                return false if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102))
+            true
+
+        def parse_side[@r](bytes: darray[u8]&, cursor: mutable usize&, output: mutable Side& @r) -> bool @r can Memory.Allocate:
+            can Memory.Allocate:
+                return false if not expect(bytes, cursor, "{\"artifact_path\":") or not parse_string(bytes, cursor, &output.artifact_path)
+                return false if not expect(bytes, cursor, ",\"descriptor_paths_bound\":") or not parse_boolean(bytes, cursor, &output.descriptor_paths_bound)
+                return false if not expect(bytes, cursor, ",\"entry_device\":") or not parse_hex64(bytes, cursor, &output.entry_device)
+                return false if not expect(bytes, cursor, ",\"entry_identity_verified\":") or not parse_boolean(bytes, cursor, &output.entry_identity_verified)
+                return false if not expect(bytes, cursor, ",\"entry_inode\":") or not parse_hex64(bytes, cursor, &output.entry_inode)
+                return false if not expect(bytes, cursor, ",\"parent_device\":") or not parse_hex64(bytes, cursor, &output.parent_device)
+                return false if not expect(bytes, cursor, ",\"parent_identity_verified\":") or not parse_boolean(bytes, cursor, &output.parent_identity_verified)
+                return false if not expect(bytes, cursor, ",\"parent_inode\":") or not parse_hex64(bytes, cursor, &output.parent_inode)
+                return false if not expect(bytes, cursor, ",\"parent_path\":") or not parse_string(bytes, cursor, &output.parent_path)
+                return false if not expect(bytes, cursor, ",\"reveal\":") or not parse_integer(bytes, cursor, &output.reveal)
+                mutable state: i64 = -1
+                return false if not expect(bytes, cursor, ",\"state\":") or not parse_integer(bytes, cursor, &state) or not expect(bytes, cursor, "}")
+                return false if not decode_state(state, &output.state)
+                return side_valid(output)
+
+        def decode_state(raw: i64, output: mutable StudioGenerationRecoveryLocationPolicy::EntryState&) -> bool:
+            return false if raw < 0 or raw > 4
+            if raw == 0:
+                output <- StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact
+            elif raw == 1:
+                output <- StudioGenerationRecoveryLocationPolicy::EntryState.Absent
+            elif raw == 2:
+                output <- StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant
+            elif raw == 3:
+                output <- StudioGenerationRecoveryLocationPolicy::EntryState.Unsafe
+            else:
+                output <- StudioGenerationRecoveryLocationPolicy::EntryState.Unknown
+            true
+
+        def parse_string[@r](bytes: darray[u8]&, cursor: mutable usize&, output: mutable darray[u8]& @r) -> bool @r can Memory.Allocate:
+            can Memory.Allocate:
+                output.clear()
+                return false if at(bytes, cursor) != 34
+                cursor <- cursor + 1
+                while cursor < bytes.count:
+                    byte: u8 = bytes[cursor]
+                    cursor <- cursor + 1
+                    if byte == 34:
+                        return true
+                    if byte == 92:
+                        return false if cursor >= bytes.count
+                        escaped: u8 = bytes[cursor]
+                        cursor <- cursor + 1
+                        return false if not (escaped == 34 or escaped == 47 or escaped == 92)
+                        output.push(escaped)
+                    else:
+                        return false if byte < 32
+                        output.push(byte)
+                return false
+
+        def parse_integer(bytes: darray[u8]&, cursor: mutable usize&, output: mutable i64&) -> bool:
+            return false if at(bytes, cursor) < 48 or at(bytes, cursor) > 57
+            return false if at(bytes, cursor) == 48 and cursor + 1 < bytes.count and bytes[cursor + 1] >= 48 and bytes[cursor + 1] <= 57
+            mutable value: i64 = 0
+            while cursor < bytes.count and bytes[cursor] >= 48 and bytes[cursor] <= 57:
+                digit: i64 = bytes[cursor].i64() - 48
+                return false if value > (9223372036854775807 - digit) / 10
+                value <- value * 10 + digit
+                cursor <- cursor + 1
+            output <- value
+            true
+
+        def parse_hex64(bytes: darray[u8]&, cursor: mutable usize&, output: mutable u64&) -> bool:
+            mutable value: u64 = 0
+            return false if at(bytes, cursor) != 34 or cursor > bytes.count or 18 > bytes.count - cursor
+            cursor <- cursor + 1
+            for _ in 0..<16:
+                byte: u8 = bytes[cursor]
+                cursor <- cursor + 1
+                digit: u64 = byte.i64().u64() - 48 if byte >= 48 and byte <= 57 else byte.i64().u64() - 87 if byte >= 97 and byte <= 102 else 16
+                return false if digit >= 16
+                value <- value * 16 + digit
+            return false if bytes[cursor] != 34
+            cursor <- cursor + 1
+            output <- value
+            true
+
+        def parse_boolean(bytes: darray[u8]&, cursor: mutable usize&, output: mutable bool&) -> bool:
+            if expect(bytes, cursor, "true"):
+                output <- true
+                return true
+            if expect(bytes, cursor, "false"):
+                output <- false
+                return true
+            false
+
+        def expect(bytes: darray[u8]&, cursor: mutable usize&, literal: sview) -> bool:
+            return false if cursor > bytes.count or literal.len.usize() > bytes.count - cursor
+            for offset in 0..<literal.len.usize() |bytes, cursor, literal|:
+                return false if bytes[cursor + offset] != literal[offset]
+            cursor <- cursor + literal.len.usize()
+            true
+
+        def at(bytes: darray[u8]&, cursor: usize) -> u8:
+            return 0 if cursor >= bytes.count
+            bytes[cursor]
+
+        def equal_literal(bytes: darray[u8]&, literal: sview) -> bool:
+            return false if bytes.count != literal.len.usize()
+            for index in 0..<bytes.count |bytes, literal|:
+                return false if bytes[index] != literal[index]
+            true

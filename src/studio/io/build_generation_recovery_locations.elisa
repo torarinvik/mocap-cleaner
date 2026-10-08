@@ -1,9 +1,14 @@
-# Owned location evidence shape for a future bounded native recovery response.
-# No path is derived from a receipt name or operation ID in this adapter.
+# Owned location evidence from the bounded native observer. No path is derived
+# from a receipt name or operation ID in this adapter.
 include "../state/generation_recovery_location_policy.elisa"
 include "../state/generation_recovery_ledger_policy.elisa"
 include "../state/generation_operation_identity_policy.elisa"
 include "../state/generation_review_path_policy.elisa"
+include "../state/generation_reconcile_identity_policy.elisa"
+include "../state/generation_restore_review_identity_policy.elisa"
+include "build_generation_trash_native.elisa"
+include "build_generation_recovery_locations_native.elisa"
+include "build_generation_recovery_location_wire.elisa"
 
 module StudioBuildGenerationRecoveryLocations:
     public:
@@ -20,6 +25,10 @@ module StudioBuildGenerationRecoveryLocations:
             # to the entry and parent descriptors; absolute paths alone prove
             # no relationship between those identities.
             descriptor_paths_bound: bool
+            entry_device: u64
+            entry_inode: u64
+            parent_device: u64
+            parent_inode: u64
             artifact_path: darray[u8]
             parent_path: darray[u8]
 
@@ -29,38 +38,131 @@ module StudioBuildGenerationRecoveryLocations:
             index: i64
             root: darray[u8]
             operation: darray[u8]
+            artifact_id: darray[u8]
+            relative_path: darray[u8]
+            root_device: u64
+            root_inode: u64
+            receipt_device: u64
+            receipt_inode: u64
+            receipt_bytes: i64
+            receipt_sha256: darray[u8]
+            phase: i64
             original: Side
             quarantine: Side
 
         def unavailable[@r](ticket: i64, index: i64, root: darray[u8]&, operation: darray[u8]&) -> Snapshot @r can[Memory.Allocate]:
+            unknown_snapshot(ticket, index, root, operation, Availability.Unavailable)
+
+        # Called only from an owning background job. Native observation holds
+        # read-only shared locks and rechecks the complete retained identity.
+        def observe[@r](ticket: i64, index: i64, root: darray[u8]&,
+            operation: darray[u8]&, artifact_id: darray[u8]&,
+            relative_path: darray[u8]&, phase: i64,
+            identity_state: StudioGenerationReconcileIdentityPolicy::State,
+            identity: StudioGenerationReconcileIdentityPolicy::Details) -> Snapshot @r can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
+            can Memory.Allocate:
+                return unknown_snapshot(ticket, index, root, operation, Availability.Refused) if ticket <= 0 or index < 0 or identity_state != StudioGenerationReconcileIdentityPolicy::State.Verified
+                return unknown_snapshot(ticket, index, root, operation, Availability.Refused) if not StudioGenerationRecoveryLedgerPolicy::valid_bytes(root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES) or root[0] != 47
+                return unknown_snapshot(ticket, index, root, operation, Availability.Refused) if not StudioGenerationRestoreReviewIdentityPolicy::valid(root, operation, artifact_id, relative_path) or root[0] != 47 or not StudioGenerationReviewPathPolicy::path_valid(relative_path)
+                return unknown_snapshot(ticket, index, root, operation, Availability.Refused) if not StudioGenerationReconcileIdentityPolicy::verified(identity.root_device, identity.root_inode, identity.receipt_device, identity.receipt_inode, identity.receipt_bytes, identity.receipt_sha256)
+                mutable root_c: darray[u8] @r = terminated(root)
+                mutable operation_c: darray[u8] @r = terminated(operation)
+                mutable artifact_c: darray[u8] @r = terminated(artifact_id)
+                mutable relative_c: darray[u8] @r = terminated(relative_path)
+                mutable digest_c: darray[u8] @r = []
+                for byte in identity.receipt_sha256:
+                    digest_c.push(byte)
+                mutable wire: u8[StudioBuildGenerationRecoveryLocationsNative::Limit::WIRE_CAPACITY.usize()] = zeroed
+                mutable error_buffer: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()] = zeroed
+                mutable wire_bytes: i64 = -1
+                mutable status: i32 = -1
+                root_pointer: cstr = (&root_c[0]).cast[cstr] can Unsafe.PointerCast
+                operation_pointer: cstr = (&operation_c[0]).cast[cstr] can Unsafe.PointerCast
+                artifact_pointer: cstr = (&artifact_c[0]).cast[cstr] can Unsafe.PointerCast
+                relative_pointer: cstr = (&relative_c[0]).cast[cstr] can Unsafe.PointerCast
+                digest_pointer: cstr = (&digest_c[0]).cast[cstr] can Unsafe.PointerCast
+                wire_pointer: mutable u8& = (&wire[0]).cast[mutable u8&] can Unsafe.PointerCast
+                error_pointer: mutable u8& = (&error_buffer[0]).cast[mutable u8&] can Unsafe.PointerCast
+                can Unsafe.RawExtern:
+                    status <- observe_locations_v1(root_pointer, operation_pointer, artifact_pointer, relative_pointer, identity.root_device, identity.root_inode, identity.receipt_device, identity.receipt_inode, identity.receipt_bytes, digest_pointer, wire_pointer, StudioBuildGenerationRecoveryLocationsNative::Limit::WIRE_CAPACITY.u32(), &wire_bytes, error_pointer, StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.u32())
+                if status != StudioBuildGenerationTrashNative::Status.Acquired.i32():
+                    if wire_bytes == 0 and wire_empty(wire):
+                        return unknown_snapshot(ticket, index, root, operation, Availability.Unavailable) if status == StudioBuildGenerationTrashNative::Status.Busy.i32() or status == StudioBuildGenerationTrashNative::Status.Changed.i32()
+                        return unknown_snapshot(ticket, index, root, operation, Availability.Refused)
+                    return unknown_snapshot(ticket, index, root, operation, Availability.Refused)
+                return unknown_snapshot(ticket, index, root, operation, Availability.Refused) if not error_empty(error_buffer)
+                mutable decoded: StudioBuildGenerationRecoveryLocationWire::DecodeResult = StudioBuildGenerationRecoveryLocationWire::decode(wire, wire_bytes)
+                return unknown_snapshot(ticket, index, root, operation, Availability.Refused) if not decoded.valid
+                return unknown_snapshot(ticket, index, root, operation, Availability.Refused) if not wire_identity_matches(decoded.identity, root, operation, artifact_id, relative_path, phase, identity)
+                return snapshot_from_wire(ticket, index, root, operation, identity, move decoded.identity)
+
+        def snapshot_from_wire[@r](ticket: i64, index: i64, root: darray[u8]&,
+            operation: darray[u8]&, identity: StudioGenerationReconcileIdentityPolicy::Details,
+            mutable decoded: StudioBuildGenerationRecoveryLocationWire::Identity) -> Snapshot @r can[Memory.Allocate]:
             can Memory.Allocate:
                 mutable root_copy: darray[u8] @r = []
                 mutable operation_copy: darray[u8] @r = []
+                mutable artifact_copy: darray[u8] @r = []
+                mutable relative_copy: darray[u8] @r = []
+                mutable digest_copy: darray[u8] @r = []
+                mutable original_artifact_path: darray[u8] @r = []
+                mutable original_parent_path: darray[u8] @r = []
+                mutable quarantine_artifact_path: darray[u8] @r = []
+                mutable quarantine_parent_path: darray[u8] @r = []
                 root_copy.extend(root)
                 operation_copy.extend(operation)
-                original_unknown: Side = Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, artifact_path: [], parent_path: []}
-                quarantine_unknown: Side = Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, artifact_path: [], parent_path: []}
-                Snapshot{availability: Availability.Unavailable, ticket: ticket, index: index, root: move root_copy, operation: move operation_copy, original: move original_unknown, quarantine: move quarantine_unknown}
+                artifact_copy.extend(decoded.artifact_id)
+                relative_copy.extend(decoded.relative_path)
+                digest_copy.extend(decoded.receipt_sha256)
+                digest_copy.push(0)
+                original_artifact_path.extend(decoded.original.artifact_path)
+                original_parent_path.extend(decoded.original.parent_path)
+                quarantine_artifact_path.extend(decoded.quarantine.artifact_path)
+                quarantine_parent_path.extend(decoded.quarantine.parent_path)
+                original: Side = Side{state: decoded.original.state, entry_identity_verified: decoded.original.entry_identity_verified, parent_identity_verified: decoded.original.parent_identity_verified, descriptor_paths_bound: decoded.original.descriptor_paths_bound, entry_device: decoded.original.entry_device, entry_inode: decoded.original.entry_inode, parent_device: decoded.original.parent_device, parent_inode: decoded.original.parent_inode, artifact_path: move original_artifact_path, parent_path: move original_parent_path}
+                quarantine: Side = Side{state: decoded.quarantine.state, entry_identity_verified: decoded.quarantine.entry_identity_verified, parent_identity_verified: decoded.quarantine.parent_identity_verified, descriptor_paths_bound: decoded.quarantine.descriptor_paths_bound, entry_device: decoded.quarantine.entry_device, entry_inode: decoded.quarantine.entry_inode, parent_device: decoded.quarantine.parent_device, parent_inode: decoded.quarantine.parent_inode, artifact_path: move quarantine_artifact_path, parent_path: move quarantine_parent_path}
+                return Snapshot{availability: Availability.Verified, ticket: ticket, index: index, root: move root_copy, operation: move operation_copy, artifact_id: move artifact_copy, relative_path: move relative_copy, root_device: identity.root_device, root_inode: identity.root_inode, receipt_device: identity.receipt_device, receipt_inode: identity.receipt_inode, receipt_bytes: identity.receipt_bytes, receipt_sha256: move digest_copy, phase: decoded.phase, original: move original, quarantine: move quarantine}
+
+        def unknown_snapshot[@r](ticket: i64, index: i64, root: darray[u8]&,
+            operation: darray[u8]&, availability: Availability) -> Snapshot @r can[Memory.Allocate]:
+            can Memory.Allocate:
+                mutable root_copy: darray[u8] @r = []
+                mutable operation_copy: darray[u8] @r = []
+                if absolute_path_valid(root):
+                    root_copy.extend(root)
+                if StudioGenerationOperationIdentityPolicy::valid(operation):
+                    operation_copy.extend(operation)
+                original_unknown: Side = Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, entry_device: 0, entry_inode: 0, parent_device: 0, parent_inode: 0, artifact_path: [], parent_path: []}
+                quarantine_unknown: Side = Side{state: StudioGenerationRecoveryLocationPolicy::EntryState.Unknown, entry_identity_verified: false, parent_identity_verified: false, descriptor_paths_bound: false, entry_device: 0, entry_inode: 0, parent_device: 0, parent_inode: 0, artifact_path: [], parent_path: []}
+                safe_ticket: i64 = ticket if ticket > 0 else 0
+                safe_index: i64 = index if index >= 0 else -1
+                return Snapshot{availability: availability, ticket: safe_ticket, index: safe_index, root: move root_copy, operation: move operation_copy, artifact_id: [], relative_path: [], root_device: 0, root_inode: 0, receipt_device: 0, receipt_inode: 0, receipt_bytes: 0, receipt_sha256: [], phase: -1, original: move original_unknown, quarantine: move quarantine_unknown}
 
         def snapshot_valid(snapshot: Snapshot&) -> bool:
             ensure result and snapshot.original.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent and not snapshot.original.parent_identity_verified implies snapshot.original.parent_path.count == 0 and not snapshot.original.descriptor_paths_bound
             ensure result and snapshot.quarantine.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent and not snapshot.quarantine.parent_identity_verified implies snapshot.quarantine.parent_path.count == 0 and not snapshot.quarantine.descriptor_paths_bound
+            if snapshot.availability == Availability.Unavailable or snapshot.availability == Availability.Refused:
+                return false if snapshot.ticket < 0 or snapshot.index < -1
+                return false if snapshot.root.count != 0 and not absolute_path_valid(snapshot.root)
+                return false if snapshot.operation.count != 0 and not StudioGenerationOperationIdentityPolicy::valid(snapshot.operation)
+                return snapshot.artifact_id.count == 0 and snapshot.relative_path.count == 0 and snapshot.root_device == 0 and snapshot.root_inode == 0 and snapshot.receipt_device == 0 and snapshot.receipt_inode == 0 and snapshot.receipt_bytes == 0 and snapshot.receipt_sha256.count == 0 and snapshot.phase == -1 and empty_unknown(snapshot.original) and empty_unknown(snapshot.quarantine)
             return false if snapshot.ticket <= 0 or snapshot.index < 0
             return false if not StudioGenerationRecoveryLedgerPolicy::valid_bytes(snapshot.root, StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES)
             return false if not absolute_path_valid(snapshot.root) or not StudioGenerationOperationIdentityPolicy::valid(snapshot.operation)
-            if snapshot.availability == Availability.Unavailable or snapshot.availability == Availability.Refused:
-                return empty_unknown(snapshot.original) and empty_unknown(snapshot.quarantine)
-            snapshot.availability == Availability.Verified and side_valid(snapshot.original) and side_valid(snapshot.quarantine)
+            snapshot.availability == Availability.Verified and StudioGenerationRestoreReviewIdentityPolicy::valid(snapshot.root, snapshot.operation, snapshot.artifact_id, snapshot.relative_path) and absolute_path_valid(snapshot.root) and StudioGenerationReviewPathPolicy::path_valid(snapshot.relative_path) and snapshot.root_inode > 0 and snapshot.receipt_inode > 0 and snapshot.receipt_bytes > 0 and snapshot.receipt_bytes <= StudioGenerationReconcileIdentityPolicy::Limit::MAX_RECEIPT_BYTES and valid_digest(snapshot.receipt_sha256) and snapshot.phase >= 0 and side_valid(snapshot.original) and side_valid(snapshot.quarantine)
 
         def identity_matches(snapshot: Snapshot&, ticket: i64, index: i64,
-                             root: darray[u8]&, operation: darray[u8]&) -> bool:
+                             root: darray[u8]&, operation: darray[u8]&, artifact_id: darray[u8]&, relative_path: darray[u8]&, phase: i64, identity: StudioGenerationReconcileIdentityPolicy::Details) -> bool:
             ensure result implies snapshot_valid(snapshot)
             ensure result implies snapshot.availability == Availability.Verified
             ensure result implies ticket > 0 and ticket == snapshot.ticket and index >= 0 and index == snapshot.index
             ensure result implies equal_bytes(snapshot.root, root) and equal_bytes(snapshot.operation, operation)
+            ensure result implies equal_bytes(snapshot.artifact_id, artifact_id) and equal_bytes(snapshot.relative_path, relative_path)
+            ensure result implies snapshot.phase == phase
+            ensure result implies snapshot.root_device == identity.root_device and snapshot.root_inode == identity.root_inode and snapshot.receipt_device == identity.receipt_device and snapshot.receipt_inode == identity.receipt_inode and snapshot.receipt_bytes == identity.receipt_bytes and equal_array(snapshot.receipt_sha256, identity.receipt_sha256)
             return false if not snapshot_valid(snapshot) or snapshot.availability != Availability.Verified
             return false if ticket <= 0 or ticket != snapshot.ticket or index < 0 or index != snapshot.index
-            equal_bytes(snapshot.root, root) and equal_bytes(snapshot.operation, operation)
+            equal_bytes(snapshot.root, root) and equal_bytes(snapshot.operation, operation) and equal_bytes(snapshot.artifact_id, artifact_id) and equal_bytes(snapshot.relative_path, relative_path) and snapshot.phase == phase and snapshot.root_device == identity.root_device and snapshot.root_inode == identity.root_inode and snapshot.receipt_device == identity.receipt_device and snapshot.receipt_inode == identity.receipt_inode and snapshot.receipt_bytes == identity.receipt_bytes and equal_array(snapshot.receipt_sha256, identity.receipt_sha256)
 
         def display_label(side: StudioGenerationRecoveryLocationPolicy::Side,
                           state: StudioGenerationRecoveryLocationPolicy::EntryState) -> sview:
@@ -101,19 +203,19 @@ module StudioBuildGenerationRecoveryLocations:
             "Recovery locations are unresolved; no location is assumed safe."
 
         def reveal_action(snapshot: Snapshot&, ticket: i64, index: i64,
-                          root: darray[u8]&, operation: darray[u8]&,
+                          root: darray[u8]&, operation: darray[u8]&, artifact_id: darray[u8]&, relative_path: darray[u8]&, phase: i64, identity: StudioGenerationReconcileIdentityPolicy::Details,
                           side: StudioGenerationRecoveryLocationPolicy::Side) -> StudioGenerationRecoveryLocationPolicy::RevealAction:
-            ensure result != StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled implies identity_matches(snapshot, ticket, index, root, operation)
-            return StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled if not identity_matches(snapshot, ticket, index, root, operation)
+            ensure result != StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled implies identity_matches(snapshot, ticket, index, root, operation, artifact_id, relative_path, phase, identity)
+            return StudioGenerationRecoveryLocationPolicy::RevealAction.Disabled if not identity_matches(snapshot, ticket, index, root, operation, artifact_id, relative_path, phase, identity) or not valid_side_selector(side)
             selection: StudioGenerationRecoveryLocationPolicy::SelectedEvidence = StudioGenerationRecoveryLocationPolicy::SelectedEvidence{observation_current: true, root_matches_selection: true, operation_matches_selection: true}
             evidence: StudioGenerationRecoveryLocationPolicy::LocationEvidence = side_evidence(snapshot.original) if side == StudioGenerationRecoveryLocationPolicy::Side.Original else side_evidence(snapshot.quarantine)
             StudioGenerationRecoveryLocationPolicy::reveal_action(selection, evidence)
 
         def reveal_target[@r](snapshot: Snapshot&, ticket: i64, index: i64,
-                          root: darray[u8]&, operation: darray[u8]&,
+                          root: darray[u8]&, operation: darray[u8]&, artifact_id: darray[u8]&, relative_path: darray[u8]&, phase: i64, identity: StudioGenerationReconcileIdentityPolicy::Details,
                           side: StudioGenerationRecoveryLocationPolicy::Side) -> darray[u8] @r can[Memory.Allocate]:
             can Memory.Allocate:
-                return [] if not identity_matches(snapshot, ticket, index, root, operation)
+                return [] if not identity_matches(snapshot, ticket, index, root, operation, artifact_id, relative_path, phase, identity) or not valid_side_selector(side)
                 selection: StudioGenerationRecoveryLocationPolicy::SelectedEvidence = StudioGenerationRecoveryLocationPolicy::SelectedEvidence{observation_current: true, root_matches_selection: true, operation_matches_selection: true}
                 evidence: StudioGenerationRecoveryLocationPolicy::LocationEvidence = side_evidence(snapshot.original) if side == StudioGenerationRecoveryLocationPolicy::Side.Original else side_evidence(snapshot.quarantine)
                 action: StudioGenerationRecoveryLocationPolicy::RevealAction = StudioGenerationRecoveryLocationPolicy::reveal_action(selection, evidence)
@@ -141,28 +243,72 @@ module StudioBuildGenerationRecoveryLocations:
                 return false if left[index] != right[index]
             true
 
+        def equal_array(left: darray[u8]&, right: u8[65]) -> bool:
+            return false if left.count != 65
+            for index in 0..<65:
+                return false if left[index] != right[index]
+            true
+
+        def wire_identity_matches(decoded: StudioBuildGenerationRecoveryLocationWire::Identity&,
+            root: darray[u8]&, operation: darray[u8]&, artifact_id: darray[u8]&, relative_path: darray[u8]&, phase: i64,
+            identity: StudioGenerationReconcileIdentityPolicy::Details) -> bool:
+            equal_bytes(decoded.build_root, root) and equal_bytes(decoded.operation_id, operation) and equal_bytes(decoded.artifact_id, artifact_id) and equal_bytes(decoded.relative_path, relative_path) and decoded.phase == phase and decoded.root_device == identity.root_device and decoded.root_inode == identity.root_inode and decoded.receipt_device == identity.receipt_device and decoded.receipt_inode == identity.receipt_inode and decoded.receipt_bytes == identity.receipt_bytes and wire_digest_matches(decoded.receipt_sha256, identity.receipt_sha256)
+
+        def wire_digest_matches(wire_digest: darray[u8]&, digest: u8[65]) -> bool:
+            return false if wire_digest.count != 64 or digest[64] != 0
+            for index in 0..<64:
+                return false if wire_digest[index] != digest[index]
+            true
+
+        def terminated[@r](bytes: darray[u8]&) -> darray[u8] @r can[Memory.Allocate]:
+            can Memory.Allocate:
+                mutable result: darray[u8] @r = []
+                result.extend(bytes)
+                result.push(0)
+                return move result
+
+        def wire_empty(wire: u8[StudioBuildGenerationRecoveryLocationsNative::Limit::WIRE_CAPACITY.usize()]&) -> bool:
+            for byte in wire:
+                return false if byte != 0
+            true
+
+        def error_empty(error_buffer: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()]&) -> bool:
+            for byte in error_buffer:
+                return false if byte != 0
+            true
+
+        def valid_digest(digest: darray[u8]&) -> bool:
+            return false if digest.count != 65 or digest[64] != 0
+            for index in 0..<64:
+                byte: u8 = digest[index]
+                return false if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102))
+            true
+
+        def valid_side_selector(side: StudioGenerationRecoveryLocationPolicy::Side) -> bool:
+            side == StudioGenerationRecoveryLocationPolicy::Side.Original or side == StudioGenerationRecoveryLocationPolicy::Side.Quarantine
+
         def absolute_path_valid(path: darray[u8]&) -> bool:
             return false if not StudioGenerationReviewPathPolicy::path_valid(path)
             return false if path.count.i64() > StudioBuildGenerationTrashPolicy::Protocol::MAX_PATH_BYTES
             path[0] == 47
 
         def empty_unknown(side: Side&) -> bool:
-            side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown and not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.artifact_path.count == 0 and side.parent_path.count == 0
+            side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown and not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0
 
         def side_valid(side: Side&) -> bool:
             if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact:
-                return side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and absolute_path_valid(side.artifact_path) and absolute_path_valid(side.parent_path)
+                return side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_inode > 0 and side.parent_inode > 0 and absolute_path_valid(side.artifact_path) and absolute_path_valid(side.parent_path)
             if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.DifferentOccupant:
-                return not side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.artifact_path.count == 0 and absolute_path_valid(side.parent_path)
+                return not side.entry_identity_verified and side.parent_identity_verified and side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_inode > 0 and side.artifact_path.count == 0 and absolute_path_valid(side.parent_path)
             if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent:
-                return false if side.entry_identity_verified or side.artifact_path.count != 0
+                return false if side.entry_identity_verified or side.entry_device != 0 or side.entry_inode != 0 or side.artifact_path.count != 0
                 if side.parent_identity_verified:
-                    return side.descriptor_paths_bound and absolute_path_valid(side.parent_path)
+                    return side.descriptor_paths_bound and side.parent_inode > 0 and absolute_path_valid(side.parent_path)
                 # An unverified parent has no publishable path. Invalid nonempty
                 # bytes are partial native output, not evidence of absence.
                 return not side.descriptor_paths_bound and side.parent_path.count == 0
             if side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unsafe or side.state == StudioGenerationRecoveryLocationPolicy::EntryState.Unknown:
-                return not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.artifact_path.count == 0 and side.parent_path.count == 0
+                return not side.entry_identity_verified and not side.parent_identity_verified and not side.descriptor_paths_bound and side.entry_device == 0 and side.entry_inode == 0 and side.parent_device == 0 and side.parent_inode == 0 and side.artifact_path.count == 0 and side.parent_path.count == 0
             false
 
         def side_evidence(side: Side&) -> StudioGenerationRecoveryLocationPolicy::LocationEvidence:

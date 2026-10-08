@@ -1,0 +1,76 @@
+include "../src/studio/io/build_generation_recovery_location_wire.elisa"
+
+module StudioGenerationRecoveryLocationWireLaws:
+    private:
+        def fragment[N: usize](wire: mutable u8[N]&, cursor: mutable usize&, text: sview) -> bool:
+            return false if text.len.usize() > N - cursor
+            for byte in text:
+                wire[cursor] <- byte
+                cursor <- cursor + 1
+            true
+
+        def side_exact[N: usize](wire: mutable u8[N]&, cursor: mutable usize&) -> bool:
+            fragment(wire, &cursor, "{\"artifact_path\":\"/tmp/build/products/a\",\"descriptor_paths_bound\":true,\"entry_device\":\"0000000000000001\",\"entry_identity_verified\":true,\"entry_inode\":\"0000000000000002\",\"parent_device\":\"0000000000000001\",\"parent_identity_verified\":true,\"parent_inode\":\"0000000000000003\",\"parent_path\":\"/tmp/build/products\",\"reveal\":1,\"state\":0}")
+
+        def side_absent[N: usize](wire: mutable u8[N]&, cursor: mutable usize&) -> bool:
+            fragment(wire, &cursor, "{\"artifact_path\":\"\",\"descriptor_paths_bound\":false,\"entry_device\":\"0000000000000000\",\"entry_identity_verified\":false,\"entry_inode\":\"0000000000000000\",\"parent_device\":\"0000000000000000\",\"parent_identity_verified\":false,\"parent_inode\":\"0000000000000000\",\"parent_path\":\"\",\"reveal\":0,\"state\":1}")
+
+        def valid_fixture(wire: mutable u8[StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize()]&, length: mutable usize&) -> bool:
+            mutable cursor: usize = 0
+            ok: bool = fragment(wire, &cursor, "{\"artifact_id\":\"artifact\",\"build_root\":\"/tmp/build\",\"operation_id\":\"trash-0123456789abcdef0123456789abcdef\",\"original\":")
+            ok <- ok and side_exact(wire, &cursor)
+            ok <- ok and fragment(wire, &cursor, ",\"phase\":5,\"quarantine\":")
+            ok <- ok and side_absent(wire, &cursor)
+            ok <- ok and fragment(wire, &cursor, ",\"receipt_bytes\":5,\"receipt_device\":\"0000000000000001\",\"receipt_inode\":\"0000000000000004\",\"receipt_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"relative_path\":\"products/a\",\"root_device\":\"0000000000000001\",\"root_inode\":\"0000000000000005\",\"schema\":\"mocap-studio-generation-trash-locations-v2\",\"version\":2}")
+            return false if not ok or cursor >= StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize()
+            wire[cursor] <- 0
+            length <- cursor
+            true
+
+    public:
+        def canonical_complete_identity_decodes() -> bool can Memory.Allocate:
+            ensure result
+            can Memory.Allocate:
+                mutable wire: u8[StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize()] = zeroed
+                mutable length: usize = 0
+                return false if not valid_fixture(wire, &length)
+                decoded: StudioBuildGenerationRecoveryLocationWire::DecodeResult = StudioBuildGenerationRecoveryLocationWire::decode(wire, length.i64())
+                decoded.valid and decoded.identity.phase == 5 and decoded.identity.root_inode == 5 and decoded.identity.receipt_inode == 4 and decoded.identity.original.state == StudioGenerationRecoveryLocationPolicy::EntryState.ExactArtifact and decoded.identity.quarantine.state == StudioGenerationRecoveryLocationPolicy::EntryState.Absent
+
+        def truncated_identity_refuses() -> bool can Memory.Allocate:
+            ensure result
+            can Memory.Allocate:
+                mutable wire: u8[StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize()] = zeroed
+                mutable length: usize = 0
+                return false if not valid_fixture(wire, &length) or length == 0
+                decoded: StudioBuildGenerationRecoveryLocationWire::DecodeResult = StudioBuildGenerationRecoveryLocationWire::decode(wire, (length - 1).i64())
+                not decoded.valid
+
+        def nonzero_wire_padding_refuses() -> bool can Memory.Allocate:
+            ensure result
+            can Memory.Allocate:
+                mutable wire: u8[StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize()] = zeroed
+                mutable length: usize = 0
+                return false if not valid_fixture(wire, &length) or length + 2 >= StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize()
+                wire[length + 2] <- 120
+                decoded: StudioBuildGenerationRecoveryLocationWire::DecodeResult = StudioBuildGenerationRecoveryLocationWire::decode(wire, length.i64())
+                not decoded.valid
+
+        def appended_duplicate_top_level_key_refuses() -> bool can Memory.Allocate:
+            ensure result
+            can Memory.Allocate:
+                mutable wire: u8[StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize()] = zeroed
+                mutable length: usize = 0
+                return false if not valid_fixture(wire, &length) or length + 13 >= StudioBuildGenerationRecoveryLocationWire::Limit::BYTES.usize() or length == 0
+                wire[length - 1] <- 44
+                wire[length] <- 34
+                version_key: sview = "version"
+                for offset in 0..<7:
+                    wire[length + 1 + offset] <- version_key[offset]
+                wire[length + 8] <- 34
+                wire[length + 9] <- 58
+                wire[length + 10] <- 50
+                wire[length + 11] <- 125
+                wire[length + 12] <- 0
+                decoded: StudioBuildGenerationRecoveryLocationWire::DecodeResult = StudioBuildGenerationRecoveryLocationWire::decode(wire, (length + 12).i64())
+                not decoded.valid
