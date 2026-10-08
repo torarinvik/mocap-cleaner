@@ -32,7 +32,7 @@ extend Studio:
             keep_staging: mutable bool
             recovery_path_unavailable: mutable bool
 
-        def retry_retained_export(index: i64) -> RecoveryRetryResult can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}]:
+        def retry_retained_export(index: i64) -> RecoveryRetryResult can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global{Read, Write}]:
             mutable result: RecoveryRetryResult = zeroed
             mutable directory_bytes: darray[u8] = []
             mutable staging_bytes: darray[u8] = []
@@ -131,7 +131,7 @@ extend Studio:
                 result.tracking_failed <- true if not register_storage_artifact_locked(text_path, StudioStorageCleanupPolicy::Kind.GeneratedReport.i64())
             result.report_outcome <- StudioExportPublicationPolicy::sidecar_outcome(json_saved, text_saved)
             result.failure <- RecoveryRetryFailure.ReportsIncomplete if not json_saved or not text_saved
-            retry_finish(result, descriptor)
+            return retry_finish(result, descriptor)
 
         def recovery_retry_message(result: RecoveryRetryResult&) -> sview:
             return "The retained recovery entry is unavailable. Refresh the recovery list before retrying." if result.failure == RecoveryRetryFailure.InvalidEntry
@@ -151,11 +151,11 @@ extend Studio:
     private:
         def retry_failed(current: RecoveryRetryResult, failure: RecoveryRetryFailure) -> RecoveryRetryResult:
             current.failure <- failure
-            current
+            return current
 
-        def retry_finish(current: RecoveryRetryResult, descriptor: i32) -> RecoveryRetryResult:
+        def retry_finish(current: RecoveryRetryResult, descriptor: i32) -> RecoveryRetryResult can Global{Read, Write}:
             current.tracking_failed <- true if not end_storage_transaction(descriptor)
-            current
+            return current
 
         def retry_workspace_matches(path: cstr, expected: StudioExportRecoveryJournal::Record&) -> bool:
             mutable length: usize = 0
@@ -174,15 +174,15 @@ extend Studio:
             true
 
         def retry_destinations_ready(destination: cstr, json_path: cstr, text_path: cstr,
-                output: darray[u8]&, json: darray[u8]&, text: darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}]:
+                output: darray[u8]&, json: darray[u8]&, text: darray[u8]&) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global.Read]:
             return false if not retry_destination_admitted(destination, output, StudioExportRecoveryBudgetPolicy::Capacity::OUTPUT_BYTES)
             return false if not retry_destination_admitted(json_path, json, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
-            retry_destination_admitted(text_path, text, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+            return retry_destination_admitted(text_path, text, StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
 
-        def retry_destination_admitted(path: cstr, bytes: darray[u8]&, limit: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}]:
+        def retry_destination_admitted(path: cstr, bytes: darray[u8]&, limit: i64) -> bool can[Unsafe.PointerCast, Blocking.IO, Memory{Allocate, Release}, Global.Read]:
             return false if not artifact_destination_allowed(path)
             reason: i64 = export_reason(path, false)
             return true if reason == StudioExportPolicy::Reason.ALLOW.i64()
             return false if reason != StudioExportPolicy::Reason.OVERWRITE_UNCONFIRMED.i64()
             facts: i64 = FilePanel::path_facts(path)
-            facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0 and StudioExportRecoveryBytes::matches(path, bytes, limit)
+            return facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0 and StudioExportRecoveryBytes::matches(path, bytes, limit)
