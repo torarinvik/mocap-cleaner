@@ -43,100 +43,103 @@ extend RigOps:
         # moves to the roll bone by `share` when one is writable, otherwise
         # it stays on the hinge.
         def twist_limb(c: mutable Rig::Clip&, op: RigOp, hinge_role: i64, s: mutable Summary&) -> void can[Global{Read, Write}]:
-            hinge: i64 = Rig::node_of(c, hinge_role)
-            end: i64 = Rig::node_of(c, Roles::hinge_end(hinge_role))
-            roll: i64 = Rig::node_of(c, Roles::hinge_roll(hinge_role))
-            return if hinge < 0 or end < 0 or not Rig::rot_writable(c, hinge) or c.frames < 1
-            axis: MotionQuat::V = hinge_axis(c, hinge)
-            bone: MotionQuat::V = MotionQuat::vnormalize(c.joints[end.usize()].rest_t)
-            # A hinge turns across its bone: drop the axis' along-bone part,
-            # which is forearm pronation or shin roll leaking into the mean.
-            across: MotionQuat::V = Rig::vsub(axis, Rig::vscale(bone, MotionQuat::vdot(axis, bone)))
-            return if Rig::vlen(across) < 0.000001
-            h: MotionQuat::V = MotionQuat::vnormalize(across)
-            rest: MotionQuat::Q = c.joints[hinge.usize()].rest_r
-            tolerance: i64 = Order::clamp(op.amount, 0, Hinge::Domain::LIMIT)
-            share: i64 = Order::clamp(op.passes, 0, Fade::Domain::FULL_PERMILLE)
-            roll_ok: bool = roll >= 0 and share > 0 and Rig::rot_writable(c, roll)
-            # Lateral wobble per frame as a rotation vector (micro-rad), and its guard value.
-            mutable lx: darray[i64] = []
-            mutable ly: darray[i64] = []
-            mutable lz: darray[i64] = []
-            for f in 0..<c.frames:
-                d: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(rest), Rig::local_rot(c, f, hinge))
-                lateral: MotionQuat::Q = MotionQuat::swing_twist(MotionQuat::swing_twist(d, h).swing, bone).swing
-                r: MotionQuat::V = rotvec(lateral)
-                lx.push(Limb::micro(r.x))
-                ly.push(Limb::micro(r.y))
-                lz.push(Limb::micro(r.z))
-            gx: darray[i64] = Track::median(&lx, TwistFilter::RADIUS, 1)
-            gy: darray[i64] = Track::median(&ly, TwistFilter::RADIUS, 1)
-            gz: darray[i64] = Track::median(&lz, TwistFilter::RADIUS, 1)
-            mutable w: Rig::World = Rig::empty_world()
-            for f in 0..<c.frames:
-                weight: i64 = range_weight(op, f, c.frames)
-                continue if weight == 0
-                local: MotionQuat::Q = Rig::local_rot(c, f, hinge)
-                d: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(rest), local)
-                parts: MotionQuat::SwingTwist = MotionQuat::swing_twist(d, h)
-                lateral: MotionQuat::SwingTwist = MotionQuat::swing_twist(parts.swing, bone)
-                k: usize = f.usize()
-                guard: MotionQuat::V = Rig::v(Limb::unmicro(gx[k]), Limb::unmicro(gy[k]), Limb::unmicro(gz[k]))
-                deviation: MotionQuat::V = Rig::vsub(Rig::v(Limb::unmicro(lx[k]), Limb::unmicro(ly[k]), Limb::unmicro(lz[k])), guard)
-                off: i64 = Limb::micro(Rig::vlen(deviation))
-                kept: i64 = Hinge::kept_off_axis(off, tolerance) if off > 0 else 0
-                roll_angle: i64 = Order::clamp(Limb::micro(MotionQuat::hinge_angle(lateral.twist, bone)), -Hinge::Angle::PI, Hinge::Angle::PI)
-                moved: i64 = Hinge::roll_share(roll_angle, share) if roll_ok else 0
-                continue if kept == off and moved == 0
-                limited: MotionQuat::V = Rig::vscale(deviation, kept.f64() / off.f64()) if off > 0 else deviation
-                wobble: MotionQuat::Q = from_rotvec(Rig::vadd(guard, limited))
-                stay: MotionQuat::Q = MotionQuat::axis_angle(bone, Limb::unmicro(Hinge::kept_roll(roll_angle, share if roll_ok else 0)))
-                rebuilt: MotionQuat::Q = MotionQuat::mul(rest, MotionQuat::mul(MotionQuat::mul(wobble, stay), parts.twist))
-                Rig::solve_world(c, f, &w)
-                end_rot: MotionQuat::Q = w.rot[end.usize()]
-                fixed: MotionQuat::Q = MotionQuat::slerp(local, rebuilt, weight.f64() / 1000.0)
-                _ = Rig::set_local_rot(c, f, hinge, fixed)
-                removed_q: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(fixed), local)
-                removed: i64 = Limb::micro(MotionQuat::angle(removed_q))
-                s.twist_max <- removed if removed > s.twist_max
-                if moved != 0:
-                    roll_local: MotionQuat::Q = Rig::local_rot(c, f, roll)
-                    along: MotionQuat::V = MotionQuat::rotate(MotionQuat::conjugate(roll_local), bone)
-                    _ = Rig::set_local_rot(c, f, roll, MotionQuat::mul(roll_local, MotionQuat::axis_angle(along, Limb::unmicro(Offset::offset_amount(moved, weight)))))
-                Rig::solve_world(c, f, &w)
-                _ = Rig::set_world_rot(c, f, end, end_rot, &w)
+            can Global{Read, Write}:
+                hinge: i64 = Rig::node_of(c, hinge_role)
+                end: i64 = Rig::node_of(c, Roles::hinge_end(hinge_role))
+                roll: i64 = Rig::node_of(c, Roles::hinge_roll(hinge_role))
+                return if hinge < 0 or end < 0 or not Rig::rot_writable(c, hinge) or c.frames < 1
+                axis: MotionQuat::V = hinge_axis(c, hinge)
+                bone: MotionQuat::V = MotionQuat::vnormalize(c.joints[end.usize()].rest_t)
+                # A hinge turns across its bone: drop the axis' along-bone part,
+                # which is forearm pronation or shin roll leaking into the mean.
+                across: MotionQuat::V = Rig::vsub(axis, Rig::vscale(bone, MotionQuat::vdot(axis, bone)))
+                return if Rig::vlen(across) < 0.000001
+                h: MotionQuat::V = MotionQuat::vnormalize(across)
+                rest: MotionQuat::Q = c.joints[hinge.usize()].rest_r
+                tolerance: i64 = Order::clamp(op.amount, 0, Hinge::Domain::LIMIT)
+                share: i64 = Order::clamp(op.passes, 0, Fade::Domain::FULL_PERMILLE)
+                roll_ok: bool = roll >= 0 and share > 0 and Rig::rot_writable(c, roll)
+                # Lateral wobble per frame as a rotation vector (micro-rad), and its guard value.
+                mutable lx: darray[i64] = []
+                mutable ly: darray[i64] = []
+                mutable lz: darray[i64] = []
+                for f in 0..<c.frames:
+                    d: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(rest), Rig::local_rot(c, f, hinge))
+                    lateral: MotionQuat::Q = MotionQuat::swing_twist(MotionQuat::swing_twist(d, h).swing, bone).swing
+                    r: MotionQuat::V = rotvec(lateral)
+                    lx.push(Limb::micro(r.x))
+                    ly.push(Limb::micro(r.y))
+                    lz.push(Limb::micro(r.z))
+                gx: darray[i64] = Track::median(&lx, TwistFilter::RADIUS, 1)
+                gy: darray[i64] = Track::median(&ly, TwistFilter::RADIUS, 1)
+                gz: darray[i64] = Track::median(&lz, TwistFilter::RADIUS, 1)
+                mutable w: Rig::World = Rig::empty_world()
+                for f in 0..<c.frames:
+                    weight: i64 = range_weight(op, f, c.frames)
+                    continue if weight == 0
+                    local: MotionQuat::Q = Rig::local_rot(c, f, hinge)
+                    d: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(rest), local)
+                    parts: MotionQuat::SwingTwist = MotionQuat::swing_twist(d, h)
+                    lateral: MotionQuat::SwingTwist = MotionQuat::swing_twist(parts.swing, bone)
+                    k: usize = f.usize()
+                    guard: MotionQuat::V = Rig::v(Limb::unmicro(gx[k]), Limb::unmicro(gy[k]), Limb::unmicro(gz[k]))
+                    deviation: MotionQuat::V = Rig::vsub(Rig::v(Limb::unmicro(lx[k]), Limb::unmicro(ly[k]), Limb::unmicro(lz[k])), guard)
+                    off: i64 = Limb::micro(Rig::vlen(deviation))
+                    kept: i64 = Hinge::kept_off_axis(off, tolerance) if off > 0 else 0
+                    roll_angle: i64 = Order::clamp(Limb::micro(MotionQuat::hinge_angle(lateral.twist, bone)), -Hinge::Angle::PI, Hinge::Angle::PI)
+                    moved: i64 = Hinge::roll_share(roll_angle, share) if roll_ok else 0
+                    continue if kept == off and moved == 0
+                    limited: MotionQuat::V = Rig::vscale(deviation, kept.f64() / off.f64()) if off > 0 else deviation
+                    wobble: MotionQuat::Q = from_rotvec(Rig::vadd(guard, limited))
+                    stay: MotionQuat::Q = MotionQuat::axis_angle(bone, Limb::unmicro(Hinge::kept_roll(roll_angle, share if roll_ok else 0)))
+                    rebuilt: MotionQuat::Q = MotionQuat::mul(rest, MotionQuat::mul(MotionQuat::mul(wobble, stay), parts.twist))
+                    Rig::solve_world(c, f, &w)
+                    end_rot: MotionQuat::Q = w.rot[end.usize()]
+                    fixed: MotionQuat::Q = MotionQuat::slerp(local, rebuilt, weight.f64() / 1000.0)
+                    _ = Rig::set_local_rot(c, f, hinge, fixed)
+                    removed_q: MotionQuat::Q = MotionQuat::mul(MotionQuat::conjugate(fixed), local)
+                    removed: i64 = Limb::micro(MotionQuat::angle(removed_q))
+                    s.twist_max <- removed if removed > s.twist_max
+                    if moved != 0:
+                        roll_local: MotionQuat::Q = Rig::local_rot(c, f, roll)
+                        along: MotionQuat::V = MotionQuat::rotate(MotionQuat::conjugate(roll_local), bone)
+                        _ = Rig::set_local_rot(c, f, roll, MotionQuat::mul(roll_local, MotionQuat::axis_angle(along, Limb::unmicro(Offset::offset_amount(moved, weight)))))
+                    Rig::solve_world(c, f, &w)
+                    _ = Rig::set_world_rot(c, f, end, end_rot, &w)
 
         # ---- Pole -----------------------------------------------------------
 
         def pole_spikes(c: Rig::Clip&, upper: i64, hinge: i64, end: i64, threshold: i64) -> i64 can[Global{Read, Write}]:
-            track: darray[i64] = Limb::pole_track(c, upper, hinge, end)
-            return Track::spike_count(&track, threshold, false)
+            can Global{Read, Write}:
+                track: darray[i64] = Limb::pole_track(c, upper, hinge, end)
+                return Track::spike_count(&track, threshold, false)
 
         def pole_limb(c: mutable Rig::Clip&, op: RigOp, hinge_role: i64, threshold: i64, s: mutable Summary&) -> void can[Global{Read, Write}]:
-            upper: i64 = Rig::node_of(c, Roles::hinge_upper(hinge_role))
-            hinge: i64 = Rig::node_of(c, hinge_role)
-            end: i64 = Rig::node_of(c, Roles::hinge_end(hinge_role))
-            return if upper < 0 or hinge < 0 or end < 0 or not Rig::rot_writable(c, upper)
-            track: darray[i64] = Limb::pole_track(c, upper, hinge, end)
-            s.pole_before <- s.pole_before + Track::spike_count(&track, threshold, false)
-            mutable fixed: darray[i64] = Track::despike(&track, Order::clamp(op.passes, 1, 16), op.edge, false)
-            if op.amount > 0:
-                fixed <- Track::limit_wring(&fixed, op.amount)
-            mutable w: Rig::World = Rig::empty_world()
-            for f in 0..<c.frames:
-                weight: i64 = range_weight(op, f, c.frames)
-                k: usize = f.usize()
-                continue if weight == 0 or k >= fixed.count or k >= track.count
-                delta: i64 = Order::clamp(fixed[k] - track[k], -Offset::LIMIT, Offset::LIMIT)
-                turn: i64 = Offset::offset_amount(delta, weight)
-                continue if turn == 0
-                Rig::solve_world(c, f, &w)
-                end_rot: MotionQuat::Q = w.rot[end.usize()]
-                n: MotionQuat::V = Rig::vsub(w.pos[end.usize()], w.pos[upper.usize()])
-                continue if Rig::vlen(n) < 0.000001
-                q: MotionQuat::Q = MotionQuat::axis_angle(n, Limb::unmicro(turn))
-                _ = Rig::set_world_rot(c, f, upper, MotionQuat::mul(q, w.rot[upper.usize()]), &w)
-                Rig::solve_world(c, f, &w)
-                _ = Rig::set_world_rot(c, f, end, end_rot, &w)
-            s.pole_after <- s.pole_after + pole_spikes(c, upper, hinge, end, threshold)
+            can Global{Read, Write}:
+                upper: i64 = Rig::node_of(c, Roles::hinge_upper(hinge_role))
+                hinge: i64 = Rig::node_of(c, hinge_role)
+                end: i64 = Rig::node_of(c, Roles::hinge_end(hinge_role))
+                return if upper < 0 or hinge < 0 or end < 0 or not Rig::rot_writable(c, upper)
+                track: darray[i64] = Limb::pole_track(c, upper, hinge, end)
+                s.pole_before <- s.pole_before + Track::spike_count(&track, threshold, false)
+                mutable fixed: darray[i64] = Track::despike(&track, Order::clamp(op.passes, 1, 16), op.edge, false)
+                if op.amount > 0:
+                    fixed <- Track::limit_wring(&fixed, op.amount)
+                mutable w: Rig::World = Rig::empty_world()
+                for f in 0..<c.frames:
+                    weight: i64 = range_weight(op, f, c.frames)
+                    k: usize = f.usize()
+                    continue if weight == 0 or k >= fixed.count or k >= track.count
+                    delta: i64 = Order::clamp(fixed[k] - track[k], -Offset::LIMIT, Offset::LIMIT)
+                    turn: i64 = Offset::offset_amount(delta, weight)
+                    continue if turn == 0
+                    Rig::solve_world(c, f, &w)
+                    end_rot: MotionQuat::Q = w.rot[end.usize()]
+                    n: MotionQuat::V = Rig::vsub(w.pos[end.usize()], w.pos[upper.usize()])
+                    continue if Rig::vlen(n) < 0.000001
+                    q: MotionQuat::Q = MotionQuat::axis_angle(n, Limb::unmicro(turn))
+                    _ = Rig::set_world_rot(c, f, upper, MotionQuat::mul(q, w.rot[upper.usize()]), &w)
+                    Rig::solve_world(c, f, &w)
+                    _ = Rig::set_world_rot(c, f, end, end_rot, &w)
+                s.pole_after <- s.pole_after + pole_spikes(c, upper, hinge, end, threshold)
 
