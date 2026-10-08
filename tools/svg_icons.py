@@ -228,6 +228,9 @@ def main():
     for code, (name, _) in enumerate(ICONS):
         variant = "".join(part.title() for part in name.lower().split("_"))
         lines.append(f"            {variant} = {code}")
+    # A typed no-draw value is useful for call sites with a safe fallback.
+    # Keep COUNT limited to drawable assets so existing icon indexing stays stable.
+    lines.append(f"            None = {len(ICONS)}")
     lines.append(f"        const COUNT: i64 = {len(ICONS)}")
     lines += ["",
               "        # Strokes icon `icon` into the s x s box at (x, y); 24 SVG units span s.",
