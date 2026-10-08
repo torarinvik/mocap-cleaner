@@ -52,6 +52,33 @@ broad visual polish and speculative abstractions wait until the import,
 cleanup, undo and single-export journey works. Mandatory size, visibility,
 effect tracking and source-preservation rules apply to every touched file.
 
+## Next three deliveries
+
+| Order | User outcome | Smallest next action | Stop condition |
+| --- | --- | --- | --- |
+| 1 | Studio launches on current dependencies | Diagnose the five full-graph worker-result emission failures with a source-matched diagnostic compiler; repair the shared cause | Current app builds/packages, then the reported FBX/toggle journey runs |
+| 2 | Opening an FBX succeeds or explains how to recover | Exercise the reported asset and workspace chooser on that app; fix the first observed import/display failure | Open, cancel, retry and Character/Skeleton actions work with readable feedback and unchanged source |
+| 3 | A user produces a useful reviewed result | Finish one existing finding-to-preview-to-undo-to-export journey | Export reopens with the reviewed motion and required safety evidence |
+
+Treat each stop condition as a delivery gate, not permission to stop investigating
+an observed defect. Recovery-location integration and broader storage controls
+follow the usable single-take journey unless they directly block it or protect
+work at risk. Proof repairs prioritize the contracts required by these deliveries.
+
+## Work to pause while the app cannot run
+
+- Additional standalone policy/decoder features without a demonstrated build,
+  data-preservation or first-journey dependency.
+- Repository-wide effect/style/representation sweeps beyond touched production
+  paths and mandatory rules.
+- Batch expansion, new repair algorithms, broad visual redesign and M8 research.
+- Repeated full builds with unchanged inputs, duplicate passing reducers, and
+  proof census work that prevents the critical compiler repair from running.
+
+Retain these requirements in their milestone documents. Resume them after the
+relevant gate passes; do not mistake accumulated fixtures or proof counts for
+user-visible delivery. Qualify already-written code before extending its surface.
+
 ## 1. Q01 + J01: produce a current build and fix the reported redraw crash
 
 **Priority:** P0. **Return:** restores the user's ability to use the product and
@@ -66,7 +93,7 @@ unlocks every native UI acceptance check.
    source/product/runtime/link correspondence. Freeze the actual input closure
    for qualification; changed inputs invalidate the attempt.
 3. On that tuple, reduce and repair any remaining native emission failures,
-   including private-ledger initialization and generic worker-result reads.
+   currently the specialized generic worker-result reads in the full app graph.
    Preserve privacy, affine ownership and caller-owned allocation lifetimes.
 4. Build/package Studio, identify the exact executable, then reproduce the
    reported FBX/redraw failure. The historical `14bdc130` binary crashed after
@@ -81,16 +108,18 @@ record; actual native interaction on the repaired binary; focused lifetime
 controls; source hash unchanged; no stale candidate publication. A seed, clean
 single-file diagnostic, screenshot or live process is insufficient.
 
-**Current status:** grouped-family controls passed on `090c4121`; the newer
-`85eef9ff` compiler repair also passed focused strict native Unsafe-member
-refusal controls and has a matched rebuilt Stage1 product. Project-wide strict
-Unsafe acceptance remains pending. The latest retained full-graph capture
-(`build/studio-build.c9f-export-closure/`) has 12 diagnostic lines and still fails
-semantic and LLVM checks. Six involve UI dependency grants; six concern local
-publication-status pattern bindings being resolved as the Studio global status.
-The local bindings have since been renamed; both changes need a new capture.
-Diagnostic counts identify work, not correctness or user acceptance. The
-user-visible crash remains open, and no current replacement app is qualified.
+**Current status:** the matched `85eef9ff` Stage1 product passes the focused
+strict Unsafe-member controls. Project-wide strict Unsafe acceptance remains
+pending. The latest retained full-graph capture
+(`build/studio-build.c9f-ledger-startup/`) passes semantic checking and fails
+LLVM emission with ten decline lines: five specialized worker-result reads and
+five enclosing failures. The UI grant closure, local publication-status binding
+repairs and explicit private-ledger startup removed their earlier diagnostics.
+Target the full-graph result-read failure next; isolated worker reducers already
+pass and do not explain it. A diagnostic compiler seed stopped at its aggregate
+memory cap; that is a resource refusal, not a compiler failure. Serialize the
+next bounded build with the active proof workload.
+The user-visible crash remains open, and no current replacement app is qualified.
 See [compiler qualification](compiler-qualification.md),
 [responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 

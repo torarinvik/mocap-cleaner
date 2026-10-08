@@ -34,10 +34,13 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 
 Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
 current runnable build and redraw crash; clear FBX/workspace recovery;
-safety-critical proofs; one complete cleanup journey; single export and
-recoverable storage; responsiveness; repeat work and release; M8 decisions.
+one complete inspect–preview–apply–undo–export journey, with required safety
+proofs alongside each transition; recoverable storage; responsiveness; repeat work and release; M8 decisions.
 The next deliverable is a current runnable Studio build and reproduction of the
-reported FBX/Character redraw crash. Keep one integrated product slice active;
+reported FBX/Character redraw crash. Semantic checking now passes; the immediate
+blocker is specialized worker-result LLVM emission in the full application graph.
+Use the queue’s next three delivery gates to select work and pause standalone
+feature expansion that does not unlock them. Keep one integrated product slice active;
 use full-graph diagnostics to target its remaining blockers. Critical proof
 repairs proceed alongside it and gate the affected operations. Finish and
 qualify existing production paths before adding another algorithm.
