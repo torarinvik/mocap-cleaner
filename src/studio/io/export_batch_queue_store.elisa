@@ -50,16 +50,17 @@ module StudioExportBatchQueueStore:
         def context_valid(build_directory: darray[u8]&,
                 build_identity: StudioExportBatchRootIdentity::Facts&,
                 batch_id: darray[u8]&, descriptor: i32) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            return false if not path_valid(build_directory) or not StudioExportBatchRootIdentity::valid(build_identity)
-            return false if not StudioExportBatchRootIdentity::same_bytes(build_identity.canonical_path, build_directory)
-            mutable observed: StudioExportBatchRootIdentity::Facts = zeroed
-            mutable errors: darray[u8] = []
-            outcome: StudioExportBatchRootIdentity::Outcome = StudioExportBatchRootIdentity::capture(build_directory, &observed, &errors)
-            return false if outcome != StudioExportBatchRootIdentity::Outcome.Ready or not StudioExportBatchRootIdentity::matches(build_identity, observed)
-            mutable root: u8[4096] = zeroed
-            for index in 0..<build_directory.count |build_directory, root|:
-                root[index] <- build_directory[index]
-            batch_id_reserved((&root[0]).cast[cstr], descriptor, batch_id)
+            can Global{Read, Write}:
+                return false if not path_valid(build_directory) or not StudioExportBatchRootIdentity::valid(build_identity)
+                return false if not StudioExportBatchRootIdentity::same_bytes(build_identity.canonical_path, build_directory)
+                mutable observed: StudioExportBatchRootIdentity::Facts = zeroed
+                mutable errors: darray[u8] = []
+                outcome: StudioExportBatchRootIdentity::Outcome = StudioExportBatchRootIdentity::capture(build_directory, &observed, &errors)
+                return false if outcome != StudioExportBatchRootIdentity::Outcome.Ready or not StudioExportBatchRootIdentity::matches(build_identity, observed)
+                mutable root: u8[4096] = zeroed
+                for index in 0..<build_directory.count |build_directory, root|:
+                    root[index] <- build_directory[index]
+                batch_id_reserved((&root[0]).cast[cstr], descriptor, batch_id)
 
         const enum CreateResult of i64:
             LockRequired = 0
@@ -78,73 +79,76 @@ module StudioExportBatchQueueStore:
         # collision impossible while recovery evidence refers to this ID.
         def reserve_batch_id(build_directory: cstr, lock_descriptor: i32,
                 out_id: mutable darray[u8]&) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            return false if not transaction_valid(build_directory, lock_descriptor) or not build_directory_valid(build_directory)
-            mutable names: darray[darray[u8]] = []
-            return false if not Folder::entries_checked(build_directory, FolderScanPolicy::Capacity::NAMES, &names)
-            mutable reserved: i64 = 0
-            for name in names:
-                reserved <- reserved + 1 if reservation_name(name)
-            return false if reserved >= Limit::MAX_BATCH_RESERVATIONS
-            mutable path: u8[4096] = zeroed
-            mutable root_length: usize = 0
-            while root_length < 4000 and build_directory[root_length] != 0:
-                path[root_length] <- build_directory[root_length]
-                root_length <- root_length + 1
-            return false if root_length >= 4000
-            prefix: sview = "/.mocap-export-batch-id-"
-            for index in 0..<prefix.len.usize() |path, prefix, root_length|:
-                path[root_length + index] <- prefix[index]
-            suffix: sview = "XXXXXX"
-            for index in 0..<suffix.len.usize() |path, suffix, root_length, prefix|:
-                path[root_length + prefix.len.usize() + index] <- suffix[index]
-            mutable descriptor: i32 = batch_mkstemp((&path[0]).cast[u8&])
-            return false if descriptor < 0
-            synced_file: bool = batch_fsync(descriptor) == 0
-            closed_file: bool = batch_close(descriptor) == 0
-            mutable marker: u8[4096] = zeroed
-            for index in 0..<4096 |path, marker, index|:
-                marker[index] <- path[index]
-            marker_path: cstr = (&marker[0]).cast[cstr] can Unsafe.PointerCast
-            facts: i64 = FilePanel::path_facts(marker_path)
-            marker_ok: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
-            parent_synced: bool = StudioExportRecoveryStore::sync_directory(build_directory)
-            return false if not synced_file or not closed_file or not marker_ok or not parent_synced
-            out_id.clear()
-            mutable id_index: usize = 0
-            while id_index < 6 and path[root_length + prefix.len.usize() + id_index] != 0:
-                out_id.push(path[root_length + prefix.len.usize() + id_index])
-                id_index <- id_index + 1
-            out_id.count == 6
+            can Global{Read, Write}:
+                return false if not transaction_valid(build_directory, lock_descriptor) or not build_directory_valid(build_directory)
+                mutable names: darray[darray[u8]] = []
+                return false if not Folder::entries_checked(build_directory, FolderScanPolicy::Capacity::NAMES, &names)
+                mutable reserved: i64 = 0
+                for name in names:
+                    reserved <- reserved + 1 if reservation_name(name)
+                return false if reserved >= Limit::MAX_BATCH_RESERVATIONS
+                mutable path: u8[4096] = zeroed
+                mutable root_length: usize = 0
+                while root_length < 4000 and build_directory[root_length] != 0:
+                    path[root_length] <- build_directory[root_length]
+                    root_length <- root_length + 1
+                return false if root_length >= 4000
+                prefix: sview = "/.mocap-export-batch-id-"
+                for index in 0..<prefix.len.usize() |path, prefix, root_length|:
+                    path[root_length + index] <- prefix[index]
+                suffix: sview = "XXXXXX"
+                for index in 0..<suffix.len.usize() |path, suffix, root_length, prefix|:
+                    path[root_length + prefix.len.usize() + index] <- suffix[index]
+                mutable descriptor: i32 = batch_mkstemp((&path[0]).cast[u8&])
+                return false if descriptor < 0
+                synced_file: bool = batch_fsync(descriptor) == 0
+                closed_file: bool = batch_close(descriptor) == 0
+                mutable marker: u8[4096] = zeroed
+                for index in 0..<4096 |path, marker, index|:
+                    marker[index] <- path[index]
+                marker_path: cstr = (&marker[0]).cast[cstr] can Unsafe.PointerCast
+                facts: i64 = FilePanel::path_facts(marker_path)
+                marker_ok: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+                parent_synced: bool = StudioExportRecoveryStore::sync_directory(build_directory)
+                return false if not synced_file or not closed_file or not marker_ok or not parent_synced
+                out_id.clear()
+                mutable id_index: usize = 0
+                while id_index < 6 and path[root_length + prefix.len.usize() + id_index] != 0:
+                    out_id.push(path[root_length + prefix.len.usize() + id_index])
+                    id_index <- id_index + 1
+                out_id.count == 6
 
         def batch_id_reserved(build_directory: cstr, lock_descriptor: i32,
                 batch_id: darray[u8]&) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            return false if not transaction_valid(build_directory, lock_descriptor) or not batch_id_valid(batch_id) or not build_directory_valid(build_directory)
-            mutable path: u8[4096] = zeroed
-            mutable root_length: usize = 0
-            while root_length < 4000 and build_directory[root_length] != 0:
-                path[root_length] <- build_directory[root_length]
-                root_length <- root_length + 1
-            return false if root_length >= 4000
-            prefix: sview = "/.mocap-export-batch-id-"
-            for index in 0..<prefix.len.usize() |path, prefix, root_length|:
-                path[root_length + index] <- prefix[index]
-            for index in 0..<batch_id.count |path, batch_id, root_length, prefix|:
-                path[root_length + prefix.len.usize() + index] <- batch_id[index]
-            facts: i64 = FilePanel::path_facts((&path[0]).cast[cstr])
-            facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+            can Global{Read, Write}:
+                return false if not transaction_valid(build_directory, lock_descriptor) or not batch_id_valid(batch_id) or not build_directory_valid(build_directory)
+                mutable path: u8[4096] = zeroed
+                mutable root_length: usize = 0
+                while root_length < 4000 and build_directory[root_length] != 0:
+                    path[root_length] <- build_directory[root_length]
+                    root_length <- root_length + 1
+                return false if root_length >= 4000
+                prefix: sview = "/.mocap-export-batch-id-"
+                for index in 0..<prefix.len.usize() |path, prefix, root_length|:
+                    path[root_length + index] <- prefix[index]
+                for index in 0..<batch_id.count |path, batch_id, root_length, prefix|:
+                    path[root_length + prefix.len.usize() + index] <- batch_id[index]
+                facts: i64 = FilePanel::path_facts((&path[0]).cast[cstr])
+                facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
 
         def read_journal(build_directory: darray[u8]&,
                 build_identity: StudioExportBatchRootIdentity::Facts&,
                 directory: darray[u8]&, lock_descriptor: i32,
                 out: mutable StudioExportBatchJournal::Record&) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            mutable bytes: darray[u8] = []
-            return false if not read_record_relative(build_directory, build_identity,
-                directory, lock_descriptor, "batch-journal.txt",
-                StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES.usize(), &bytes)
-            mutable record: StudioExportBatchJournal::Record = zeroed
-            return false if not StudioExportBatchJournal::decode(bytes, &record)
-            out <- record
-            true
+            can Global{Read, Write}:
+                mutable bytes: darray[u8] = []
+                return false if not read_record_relative(build_directory, build_identity,
+                    directory, lock_descriptor, "batch-journal.txt",
+                    StudioExportRecoveryBudgetPolicy::Capacity::JOURNAL_BYTES.usize(), &bytes)
+                mutable record: StudioExportBatchJournal::Record = zeroed
+                return false if not StudioExportBatchJournal::decode(bytes, &record)
+                out <- record
+                true
 
         def create_item[@r](build_directory: cstr,
                 build_identity: StudioExportBatchRootIdentity::Facts&,
@@ -152,51 +156,52 @@ module StudioExportBatchQueueStore:
                 identity: StudioExportBatchIdentity::Identity&,
                 record: StudioExportBatchJournal::Record&,
                 out_directory: mutable darray[u8]& @r) -> CreateResult can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            return CreateResult.LockRequired if not transaction_valid(build_directory, lock_descriptor)
-            return CreateResult.InvalidIdentity if not StudioExportBatchJournal::matches_identity(record, identity)
-            return CreateResult.InvalidBuildDirectory if not build_directory_valid(build_directory)
-            return CreateResult.InvalidIdentity if not batch_id_reserved(build_directory, lock_descriptor, record.batch_id)
-            scan: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan(build_directory)
-            mutable records: i64 = 0
-            mutable retained: i64 = 0
-            match scan:
-                StudioExportRecoveryInventory::Scan.Rejected(reason):
-                    return CreateResult.InventoryUnavailable
-                StudioExportRecoveryInventory::Scan.Verified(found_records, found_bytes):
-                    records <- found_records
-                    retained <- found_bytes
-            mutable journal: darray[u8] = []
-            return CreateResult.JournalWriteFailed if not StudioExportBatchJournal::encode(record, &journal)
-            requested: i64 = StudioExportBatchRecoveryCapacityPolicy::requested_bytes(record.output_bytes, record.json_bytes, record.text_bytes, record.recipe_bytes, journal.count.i64())
-            return CreateResult.CapacityExceeded if not StudioExportBatchRecoveryCapacityPolicy::reservation_admitted(true, records, retained, requested)
-            return CreateResult.InvalidIdentity if not StudioExportBatchRootIdentity::valid(build_identity)
-            mutable directory_name: u8[64] = zeroed
-            create_status: i32 = batch_directory_create(build_directory, lock_descriptor,
-                build_identity.device, build_identity.inode, &directory_name[0], 64)
-            return CreateResult.DirectoryCreationFailed if create_status != 1
-            mutable leaf: darray[u8] = []
-            mutable leaf_index: usize = 0
-            while leaf_index < 64 and directory_name[leaf_index] != 0:
-                leaf.push(directory_name[leaf_index])
-                leaf_index <- leaf_index + 1
-            return CreateResult.DirectoryCreationFailed if not recovery_namespace(leaf)
-            output: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "output.glb", identity.staged_result_bytes)
-            json: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "report.json", identity.report_json_bytes)
-            text: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "report.txt", identity.report_text_bytes)
-            recipe: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "recipe.bin", identity.recipe_bytes)
-            if not StudioPublicationDurabilityPolicy::published(output) or not StudioPublicationDurabilityPolicy::published(json) or not StudioPublicationDurabilityPolicy::published(text) or not StudioPublicationDurabilityPolicy::published(recipe):
-                return CreateResult.SnapshotWriteFailed
-            journal_status: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "batch-journal.txt", journal)
-            return CreateResult.JournalWriteFailed if not StudioPublicationDurabilityPolicy::published(journal_status)
-            out_directory.clear()
-            mutable root_index: usize = 0
-            while root_index < 4096 and build_directory[root_index] != 0:
-                out_directory.push(build_directory[root_index])
-                root_index <- root_index + 1
-            out_directory.push(47) if out_directory.count > 0 and out_directory[out_directory.count - 1] != 47
-            out_directory.extend(leaf)
-            return CreateResult.Created if out_directory.count > 0
-            CreateResult.DirectoryCreationFailed
+            can Global{Read, Write}:
+                return CreateResult.LockRequired if not transaction_valid(build_directory, lock_descriptor)
+                return CreateResult.InvalidIdentity if not StudioExportBatchJournal::matches_identity(record, identity)
+                return CreateResult.InvalidBuildDirectory if not build_directory_valid(build_directory)
+                return CreateResult.InvalidIdentity if not batch_id_reserved(build_directory, lock_descriptor, record.batch_id)
+                scan: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan(build_directory)
+                mutable records: i64 = 0
+                mutable retained: i64 = 0
+                match scan:
+                    StudioExportRecoveryInventory::Scan.Rejected(reason):
+                        return CreateResult.InventoryUnavailable
+                    StudioExportRecoveryInventory::Scan.Verified(found_records, found_bytes):
+                        records <- found_records
+                        retained <- found_bytes
+                mutable journal: darray[u8] = []
+                return CreateResult.JournalWriteFailed if not StudioExportBatchJournal::encode(record, &journal)
+                requested: i64 = StudioExportBatchRecoveryCapacityPolicy::requested_bytes(record.output_bytes, record.json_bytes, record.text_bytes, record.recipe_bytes, journal.count.i64())
+                return CreateResult.CapacityExceeded if not StudioExportBatchRecoveryCapacityPolicy::reservation_admitted(true, records, retained, requested)
+                return CreateResult.InvalidIdentity if not StudioExportBatchRootIdentity::valid(build_identity)
+                mutable directory_name: u8[64] = zeroed
+                create_status: i32 = batch_directory_create(build_directory, lock_descriptor,
+                    build_identity.device, build_identity.inode, &directory_name[0], 64)
+                return CreateResult.DirectoryCreationFailed if create_status != 1
+                mutable leaf: darray[u8] = []
+                mutable leaf_index: usize = 0
+                while leaf_index < 64 and directory_name[leaf_index] != 0:
+                    leaf.push(directory_name[leaf_index])
+                    leaf_index <- leaf_index + 1
+                return CreateResult.DirectoryCreationFailed if not recovery_namespace(leaf)
+                output: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "output.glb", identity.staged_result_bytes)
+                json: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "report.json", identity.report_json_bytes)
+                text: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "report.txt", identity.report_text_bytes)
+                recipe: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "recipe.bin", identity.recipe_bytes)
+                if not StudioPublicationDurabilityPolicy::published(output) or not StudioPublicationDurabilityPolicy::published(json) or not StudioPublicationDurabilityPolicy::published(text) or not StudioPublicationDurabilityPolicy::published(recipe):
+                    return CreateResult.SnapshotWriteFailed
+                journal_status: StudioPublicationDurabilityPolicy::Result = write_record_relative(build_directory, build_identity, lock_descriptor, leaf, "batch-journal.txt", journal)
+                return CreateResult.JournalWriteFailed if not StudioPublicationDurabilityPolicy::published(journal_status)
+                out_directory.clear()
+                mutable root_index: usize = 0
+                while root_index < 4096 and build_directory[root_index] != 0:
+                    out_directory.push(build_directory[root_index])
+                    root_index <- root_index + 1
+                out_directory.push(47) if out_directory.count > 0 and out_directory[out_directory.count - 1] != 47
+                out_directory.extend(leaf)
+                return CreateResult.Created if out_directory.count > 0
+                CreateResult.DirectoryCreationFailed
 
 
         # Journal writes are atomic replacements. A durability-unknown return
@@ -234,30 +239,31 @@ module StudioExportBatchQueueStore:
                 directory: darray[u8]&, lock_descriptor: i32,
                 record: StudioExportBatchJournal::Record&,
                 out: mutable StudioExportBatchIdentity::Identity&) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            return false if not transaction_valid_bytes(build_directory, lock_descriptor) or not path_valid(directory) or not StudioExportBatchJournal::valid(record)
-            mutable output: darray[u8] = []
-            mutable json: darray[u8] = []
-            mutable text: darray[u8] = []
-            mutable recipe: darray[u8] = []
-            output_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "output.glb", StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES, &output)
-            json_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "report.json", StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES, &json)
-            text_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "report.txt", StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES, &text)
-            recipe_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "recipe.bin", StudioExportBatchIdentity::Limit::MAX_RECIPE_BYTES, &recipe)
-            return false if not output_ok or not json_ok or not text_ok or not recipe_ok
-            return false if output.count.i64() != record.output_bytes or json.count.i64() != record.json_bytes or text.count.i64() != record.text_bytes or recipe.count.i64() != record.recipe_bytes
-            identity: StudioExportBatchIdentity::Identity = StudioExportBatchIdentity::Identity{
-                source_path: record.source_path, source_device: record.source_device,
-                source_inode: record.source_inode, source_size: record.source_size,
-                source_modified_seconds: record.source_seconds,
-                source_modified_nanoseconds: record.source_nanoseconds,
-                result_generation: record.result_generation, animation_id: record.animation_id,
-                staged_path: record.staged_path, recipe_bytes: recipe,
-                output_path: record.output_path, report_json_path: record.json_path,
-                report_text_path: record.text_path, staged_result_bytes: output,
-                report_json_bytes: json, report_text_bytes: text}
-            return false if not StudioExportBatchIdentity::valid(identity)
-            out <- identity
-            true
+            can Global{Read, Write}:
+                return false if not transaction_valid_bytes(build_directory, lock_descriptor) or not path_valid(directory) or not StudioExportBatchJournal::valid(record)
+                mutable output: darray[u8] = []
+                mutable json: darray[u8] = []
+                mutable text: darray[u8] = []
+                mutable recipe: darray[u8] = []
+                output_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "output.glb", StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES, &output)
+                json_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "report.json", StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES, &json)
+                text_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "report.txt", StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES, &text)
+                recipe_ok: bool = read_record_relative(build_directory, build_identity, directory, lock_descriptor, "recipe.bin", StudioExportBatchIdentity::Limit::MAX_RECIPE_BYTES, &recipe)
+                return false if not output_ok or not json_ok or not text_ok or not recipe_ok
+                return false if output.count.i64() != record.output_bytes or json.count.i64() != record.json_bytes or text.count.i64() != record.text_bytes or recipe.count.i64() != record.recipe_bytes
+                identity: StudioExportBatchIdentity::Identity = StudioExportBatchIdentity::Identity{
+                    source_path: record.source_path, source_device: record.source_device,
+                    source_inode: record.source_inode, source_size: record.source_size,
+                    source_modified_seconds: record.source_seconds,
+                    source_modified_nanoseconds: record.source_nanoseconds,
+                    result_generation: record.result_generation, animation_id: record.animation_id,
+                    staged_path: record.staged_path, recipe_bytes: recipe,
+                    output_path: record.output_path, report_json_path: record.json_path,
+                    report_text_path: record.text_path, staged_result_bytes: output,
+                    report_json_bytes: json, report_text_bytes: text}
+                return false if not StudioExportBatchIdentity::valid(identity)
+                out <- identity
+                true
 
         # Reopen derives a conservative lifecycle item from fresh native path
         # facts, exact bytes and independently parsed matching warning reports.
@@ -270,26 +276,27 @@ module StudioExportBatchQueueStore:
             requires lock_descriptor >= 0
             requires StudioExportBatchJournal::valid(record)
             ensure not result or not out_item.approved
-            mutable identity: StudioExportBatchIdentity::Identity @r = zeroed
-            return false if not load_identity(build_directory, build_identity, directory, lock_descriptor, record, &identity)
-            identity_exact: bool = StudioExportBatchJournal::matches_identity(record, identity)
-            mutable source_facts: StudioExportBatchSourceIdentity::Facts @r = zeroed
-            mutable error_bytes: darray[u8] @r = []
-            source_outcome: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(identity.source_path, &source_facts, &error_bytes)
-            source_matches: bool = StudioExportBatchSourceIdentity::admitted(source_outcome) and StudioExportBatchSourceIdentity::matches(source_facts, identity.source_path, identity.source_device, identity.source_inode, identity.source_size, identity.source_modified_seconds, identity.source_modified_nanoseconds)
-            paths_ok: bool = StudioExportBatchJournal::valid(record)
-            staged_exact: bool = exact_file(identity.staged_path, identity.staged_result_bytes, StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64())
-            glb_exact: bool = exact_file(identity.output_path, identity.staged_result_bytes, StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64())
-            json_exact: bool = exact_file(identity.report_json_path, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
-            text_exact: bool = exact_file(identity.report_text_path, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
-            destinations_absent: bool = path_absent(identity.output_path) and path_absent(identity.report_json_path) and path_absent(identity.report_text_path)
-            receipt_consistent: bool = stage_consistent(record.glb_stage, glb_exact) and stage_consistent(record.json_stage, json_exact) and stage_consistent(record.text_stage, text_exact) and record.staging_disposition >= 0 and record.staging_disposition <= 3
-            mutable warning_count: i64 = 0
-            warning_facts_verified: bool = StudioExportReportWarningParser::warning_count(identity.report_json_bytes, identity.report_text_bytes, &warning_count)
-            mutable item: StudioExportBatchQueue::Item @r = StudioExportBatchRecoveryPolicy::item_after_reopen(record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64(), identity_exact, source_matches, paths_ok, true, receipt_consistent, staged_exact, glb_exact, json_exact, text_exact, destinations_absent, warning_facts_verified, warning_count)
-            out_identity <- identity
-            out_item <- item
-            true
+            can Global{Read, Write}:
+                mutable identity: StudioExportBatchIdentity::Identity @r = zeroed
+                return false if not load_identity(build_directory, build_identity, directory, lock_descriptor, record, &identity)
+                identity_exact: bool = StudioExportBatchJournal::matches_identity(record, identity)
+                mutable source_facts: StudioExportBatchSourceIdentity::Facts @r = zeroed
+                mutable error_bytes: darray[u8] @r = []
+                source_outcome: StudioExportBatchSourceIdentity::Outcome = StudioExportBatchSourceIdentity::capture(identity.source_path, &source_facts, &error_bytes)
+                source_matches: bool = StudioExportBatchSourceIdentity::admitted(source_outcome) and StudioExportBatchSourceIdentity::matches(source_facts, identity.source_path, identity.source_device, identity.source_inode, identity.source_size, identity.source_modified_seconds, identity.source_modified_nanoseconds)
+                paths_ok: bool = StudioExportBatchJournal::valid(record)
+                staged_exact: bool = exact_file(identity.staged_path, identity.staged_result_bytes, StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64())
+                glb_exact: bool = exact_file(identity.output_path, identity.staged_result_bytes, StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES.i64())
+                json_exact: bool = exact_file(identity.report_json_path, identity.report_json_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+                text_exact: bool = exact_file(identity.report_text_path, identity.report_text_bytes, StudioExportBatchIdentity::Limit::MAX_REPORT_BYTES.i64())
+                destinations_absent: bool = path_absent(identity.output_path) and path_absent(identity.report_json_path) and path_absent(identity.report_text_path)
+                receipt_consistent: bool = stage_consistent(record.glb_stage, glb_exact) and stage_consistent(record.json_stage, json_exact) and stage_consistent(record.text_stage, text_exact) and record.staging_disposition >= 0 and record.staging_disposition <= 3
+                mutable warning_count: i64 = 0
+                warning_facts_verified: bool = StudioExportReportWarningParser::warning_count(identity.report_json_bytes, identity.report_text_bytes, &warning_count)
+                mutable item: StudioExportBatchQueue::Item @r = StudioExportBatchRecoveryPolicy::item_after_reopen(record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64(), identity_exact, source_matches, paths_ok, true, receipt_consistent, staged_exact, glb_exact, json_exact, text_exact, destinations_absent, warning_facts_verified, warning_count)
+                out_identity <- identity
+                out_item <- item
+                true
 
     private:
         def read_record_relative(build_directory: darray[u8]&,
@@ -297,24 +304,25 @@ module StudioExportBatchQueueStore:
                 directory: darray[u8]&, lock_descriptor: i32,
                 file_name: cstr, capacity: usize,
                 out: mutable darray[u8]&) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            return false if not path_valid(build_directory) or not path_valid(directory) or not StudioExportBatchRootIdentity::valid(build_identity) or capacity == 0 or capacity > StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES
-            mutable directory_name: u8[4096] = zeroed
-            return false if not recovery_leaf(build_directory, directory, &directory_name)
-            if path_string(build_directory) is native_root:
-                out.clear()
-                for index in 0..<capacity |out|:
-                    out.push(0)
-                got: i64 = batch_file_read(native_root, lock_descriptor, build_identity.device,
-                    build_identity.inode, (&directory_name[0]).cast[cstr], file_name,
-                    &out[0], capacity.u64())
-                StudioExportRecoveryStore::release_path(native_root)
-                if got > 0 and got <= capacity.i64():
-                    out.count <- got.usize()
-                    return true
-                out.clear()
-                false
-            else:
-                false
+            can Global{Read, Write}:
+                return false if not path_valid(build_directory) or not path_valid(directory) or not StudioExportBatchRootIdentity::valid(build_identity) or capacity == 0 or capacity > StudioExportBatchIdentity::Limit::MAX_RESULT_BYTES
+                mutable directory_name: u8[4096] = zeroed
+                return false if not recovery_leaf(build_directory, directory, &directory_name)
+                if path_string(build_directory) is native_root:
+                    out.clear()
+                    for index in 0..<capacity |out|:
+                        out.push(0)
+                    got: i64 = batch_file_read(native_root, lock_descriptor, build_identity.device,
+                        build_identity.inode, (&directory_name[0]).cast[cstr], file_name,
+                        &out[0], capacity.u64())
+                    StudioExportRecoveryStore::release_path(native_root)
+                    if got > 0 and got <= capacity.i64():
+                        out.count <- got.usize()
+                        return true
+                    out.clear()
+                    false
+                else:
+                    false
 
         def write_record_relative(build_directory: cstr,
                 build_identity: StudioExportBatchRootIdentity::Facts&,
@@ -395,8 +403,9 @@ module StudioExportBatchQueueStore:
             true
 
         def build_directory_valid(path: cstr) -> bool can[Global{Read, Write}]:
-            facts: i64 = FilePanel::path_facts(path)
-            facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
+            can Global{Read, Write}:
+                facts: i64 = FilePanel::path_facts(path)
+                facts >= 0 and (facts & FilePanel::PATH_DIRECTORY) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0
 
         def path_valid(path: darray[u8]&) -> bool:
             return false if path.count == 0 or path.count >= 4096
@@ -405,19 +414,21 @@ module StudioExportBatchQueueStore:
             true
 
         def exact_file(path: darray[u8]&, expected: darray[u8]&, limit: i64) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
-            if path_string(path) is native_path:
-                facts: i64 = FilePanel::path_facts(native_path)
-                exact: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0 and StudioExportRecoveryBytes::matches(native_path, expected, limit)
-                StudioExportRecoveryStore::release_path(native_path)
-                return exact
-            false
+            can Global{Read, Write}:
+                if path_string(path) is native_path:
+                    facts: i64 = FilePanel::path_facts(native_path)
+                    exact: bool = facts >= 0 and (facts & FilePanel::PATH_REGULAR) != 0 and (facts & FilePanel::PATH_SYMLINK) == 0 and StudioExportRecoveryBytes::matches(native_path, expected, limit)
+                    StudioExportRecoveryStore::release_path(native_path)
+                    return exact
+                false
 
         def path_absent(path: darray[u8]&) -> bool can[Memory.Allocate, Unsafe.PointerCast, Global{Read, Write}]:
-            if path_string(path) is native_path:
-                facts: i64 = FilePanel::path_facts(native_path)
-                StudioExportRecoveryStore::release_path(native_path)
-                return facts == 0
-            false
+            can Global{Read, Write}:
+                if path_string(path) is native_path:
+                    facts: i64 = FilePanel::path_facts(native_path)
+                    StudioExportRecoveryStore::release_path(native_path)
+                    return facts == 0
+                false
 
         def stage_consistent(stage: i64, exact: bool) -> bool:
             if exact:
@@ -433,14 +444,15 @@ module StudioExportBatchQueueStore:
             bytes
 
         def path_string(path: darray[u8]&) -> cstr? can[Memory.Allocate, Unsafe.PointerCast, Global{Read, Write}]:
-            return null if not path_valid(path)
-            mutable buffer: u8[4096] = zeroed
-            for index in 0..<path.count |path, buffer|:
-                buffer[index] <- path[index]
-            if batch_store_strdup((&buffer[0]).cast[cstr]) is retained:
-                retained
-            else:
-                null
+            can Global{Read, Write}:
+                return null if not path_valid(path)
+                mutable buffer: u8[4096] = zeroed
+                for index in 0..<path.count |path, buffer|:
+                    buffer[index] <- path[index]
+                if batch_store_strdup((&buffer[0]).cast[cstr]) is retained:
+                    retained
+                else:
+                    null
 
         def read_regular(directory: cstr, record: StudioExportRecoveryStore::Record,
                 out: mutable darray[u8]&) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:

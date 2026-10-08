@@ -168,29 +168,30 @@ module StudioExportBatchReviewBinding:
             ensure queue.recovery_directories.count == queue.identities.count
             ensure queue.journals.count == queue.identities.count
             ensure not result or StudioExportBatchIdentity::valid(identity)
-            return false if StudioExportBatchQueue::cancelled(queue.queue)
-            return false if StudioExportBatchQueue::item_count(queue.queue) >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
-            return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
-            return false if not StudioExportBatchIdentity::valid(identity)
-            return false if not paths_valid(identity)
-            return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            return false if not source_still_matches(identity)
-            mutable durable_record: StudioExportBatchJournal::Record = zeroed
-            mutable recovery_directory: darray[u8] @r = []
-            if queue.durable:
-                durable_record <- StudioExportBatchJournal::from_identity(queue.batch_id, identity, StudioExportBatchQueue::item_count(queue.queue).i64(), 0, 0, StudioExportBatchQueuePolicy::ItemState.Queued, StudioExportBatchQueue::worker_limit(queue.queue), false, 0, 0, 0, 0)
-                build_path: darray[u8] = nul_terminated(queue.build_directory)
-                stored: StudioExportBatchQueueStore::CreateResult = StudioExportBatchQueueStore::create_item((&build_path[0]).cast[cstr], queue.build_identity, lock_descriptor, identity, durable_record, &recovery_directory)
-                return false if stored != StudioExportBatchQueueStore::CreateResult.Created
-            return false if not StudioExportBatchQueue::enqueue(&queue.queue, preflight)
-            queue.identities.push(identity)
-            queue.attempts.push(0)
-            queue.review_attempts.push(0)
-            queue.review_issued.push(false)
-            queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.NotInspected})
-            queue.recovery_directories.push(recovery_directory)
-            queue.journals.push(durable_record)
-            true
+            can Global{Read, Write}:
+                return false if StudioExportBatchQueue::cancelled(queue.queue)
+                return false if StudioExportBatchQueue::item_count(queue.queue) >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+                return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
+                return false if not StudioExportBatchIdentity::valid(identity)
+                return false if not paths_valid(identity)
+                return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                return false if not source_still_matches(identity)
+                mutable durable_record: StudioExportBatchJournal::Record = zeroed
+                mutable recovery_directory: darray[u8] @r = []
+                if queue.durable:
+                    durable_record <- StudioExportBatchJournal::from_identity(queue.batch_id, identity, StudioExportBatchQueue::item_count(queue.queue).i64(), 0, 0, StudioExportBatchQueuePolicy::ItemState.Queued, StudioExportBatchQueue::worker_limit(queue.queue), false, 0, 0, 0, 0)
+                    build_path: darray[u8] = nul_terminated(queue.build_directory)
+                    stored: StudioExportBatchQueueStore::CreateResult = StudioExportBatchQueueStore::create_item((&build_path[0]).cast[cstr], queue.build_identity, lock_descriptor, identity, durable_record, &recovery_directory)
+                    return false if stored != StudioExportBatchQueueStore::CreateResult.Created
+                return false if not StudioExportBatchQueue::enqueue(&queue.queue, preflight)
+                queue.identities.push(identity)
+                queue.attempts.push(0)
+                queue.review_attempts.push(0)
+                queue.review_issued.push(false)
+                queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.NotInspected})
+                queue.recovery_directories.push(recovery_directory)
+                queue.journals.push(durable_record)
+                true
 
         # Capture an already prepared, explicitly reviewed export without
         # routing it through a not-yet-existing multi-take evaluation worker.
@@ -209,48 +210,50 @@ module StudioExportBatchReviewBinding:
             ensure not result or StudioExportBatchQueue::item(queue.queue, StudioExportBatchQueue::item_count(queue.queue).i64() - 1).warning_count == warning_count
             ensure not result or StudioExportBatchQueue::item(queue.queue, StudioExportBatchQueue::item_count(queue.queue).i64() - 1).approved == (warning_count > 0)
             ensure not result or StudioExportBatchQueue::item(queue.queue, StudioExportBatchQueue::item_count(queue.queue).i64() - 1).state == (StudioExportBatchQueuePolicy::ItemState.AwaitingReview if warning_count > 0 else StudioExportBatchQueuePolicy::ItemState.Staged)
-            return false if not queue.durable or StudioExportBatchQueue::cancelled(queue.queue)
-            return false if warning_count > 0 and not explicitly_reviewed
-            return false if StudioExportBatchQueue::item_count(queue.queue) >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
-            return false if not StudioExportBatchPreflightPolicy::admitted(preflight) or not StudioExportBatchIdentity::valid(identity) or not paths_valid(identity)
-            return false if not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor) or not source_still_matches(identity)
-            state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueuePolicy::ItemState.AwaitingReview if warning_count > 0 else StudioExportBatchQueuePolicy::ItemState.Staged
-            durable_record: StudioExportBatchJournal::Record = StudioExportBatchJournal::from_identity(queue.batch_id, identity, StudioExportBatchQueue::item_count(queue.queue).i64(), 1, warning_count, state, StudioExportBatchQueue::worker_limit(queue.queue), false, 0, 0, 0, 0)
-            mutable recovery_directory: darray[u8] @r = []
-            build_path: darray[u8] = nul_terminated(queue.build_directory)
-            stored: StudioExportBatchQueueStore::CreateResult = StudioExportBatchQueueStore::create_item((&build_path[0]).cast[cstr], queue.build_identity, lock_descriptor, identity, durable_record, &recovery_directory)
-            return false if stored != StudioExportBatchQueueStore::CreateResult.Created
-            item: StudioExportBatchQueue::Item = StudioExportBatchQueue::Item{state: state, warning_count: warning_count, approved: warning_count > 0}
-            return false if not StudioExportBatchQueue::restore_item(&queue.queue, item)
-            queue.identities.push(identity)
-            queue.attempts.push(1)
-            queue.review_attempts.push(1 if warning_count > 0 and explicitly_reviewed else 0)
-            queue.review_issued.push(warning_count > 0 and explicitly_reviewed)
-            queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.StillPresent})
-            queue.recovery_directories.push(recovery_directory)
-            queue.journals.push(durable_record)
-            true
+            can Global{Read, Write}:
+                return false if not queue.durable or StudioExportBatchQueue::cancelled(queue.queue)
+                return false if warning_count > 0 and not explicitly_reviewed
+                return false if StudioExportBatchQueue::item_count(queue.queue) >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+                return false if not StudioExportBatchPreflightPolicy::admitted(preflight) or not StudioExportBatchIdentity::valid(identity) or not paths_valid(identity)
+                return false if not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor) or not source_still_matches(identity)
+                state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueuePolicy::ItemState.AwaitingReview if warning_count > 0 else StudioExportBatchQueuePolicy::ItemState.Staged
+                durable_record: StudioExportBatchJournal::Record = StudioExportBatchJournal::from_identity(queue.batch_id, identity, StudioExportBatchQueue::item_count(queue.queue).i64(), 1, warning_count, state, StudioExportBatchQueue::worker_limit(queue.queue), false, 0, 0, 0, 0)
+                mutable recovery_directory: darray[u8] @r = []
+                build_path: darray[u8] = nul_terminated(queue.build_directory)
+                stored: StudioExportBatchQueueStore::CreateResult = StudioExportBatchQueueStore::create_item((&build_path[0]).cast[cstr], queue.build_identity, lock_descriptor, identity, durable_record, &recovery_directory)
+                return false if stored != StudioExportBatchQueueStore::CreateResult.Created
+                item: StudioExportBatchQueue::Item = StudioExportBatchQueue::Item{state: state, warning_count: warning_count, approved: warning_count > 0}
+                return false if not StudioExportBatchQueue::restore_item(&queue.queue, item)
+                queue.identities.push(identity)
+                queue.attempts.push(1)
+                queue.review_attempts.push(1 if warning_count > 0 and explicitly_reviewed else 0)
+                queue.review_issued.push(warning_count > 0 and explicitly_reviewed)
+                queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.StillPresent})
+                queue.recovery_directories.push(recovery_directory)
+                queue.journals.push(durable_record)
+                true
 
         # Claims bind worker output to both the retained input identity and a
         # monotonically increasing per-item attempt number.
         def claim_next(queue: mutable BoundQueue&, lock_descriptor: i32) -> WorkerClaim can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Global{Read, Write}]:
             requires valid(queue)
             ensure valid(queue)
-            next_index: i64 = next_queued_index(queue)
-            return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if next_index < 0
-            if queue.durable:
-                return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-                return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if not source_still_matches(queue.identities[next_index.usize()])
-                next_record: StudioExportBatchJournal::Record = queue.journals[next_index.usize()]
-                next_record.attempt <- queue.attempts[next_index.usize()] + 1
-                next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Running.i64()
-                persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[next_index.usize()], lock_descriptor, next_record)
-                return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if not durable(persisted)
-                queue.journals[next_index.usize()] <- next_record
-            claimed_index: i64 = StudioExportBatchQueue::launch_next(&queue.queue)
-            return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if claimed_index < 0
-            queue.attempts[claimed_index.usize()] <- queue.attempts[claimed_index.usize()] + 1
-            WorkerClaim{identity: queue.identities[claimed_index.usize()], index: claimed_index, attempt: queue.attempts[claimed_index.usize()], issued: true}
+            can Global{Read, Write}:
+                next_index: i64 = next_queued_index(queue)
+                return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if next_index < 0
+                if queue.durable:
+                    return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                    return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if not source_still_matches(queue.identities[next_index.usize()])
+                    next_record: StudioExportBatchJournal::Record = queue.journals[next_index.usize()]
+                    next_record.attempt <- queue.attempts[next_index.usize()] + 1
+                    next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Running.i64()
+                    persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[next_index.usize()], lock_descriptor, next_record)
+                    return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if not durable(persisted)
+                    queue.journals[next_index.usize()] <- next_record
+                claimed_index: i64 = StudioExportBatchQueue::launch_next(&queue.queue)
+                return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if claimed_index < 0
+                queue.attempts[claimed_index.usize()] <- queue.attempts[claimed_index.usize()] + 1
+                WorkerClaim{identity: queue.identities[claimed_index.usize()], index: claimed_index, attempt: queue.attempts[claimed_index.usize()], issued: true}
 
         def complete_claim(queue: mutable BoundQueue&, claim: WorkerClaim,
                            succeeded: bool, staged_outputs_valid: bool,
@@ -258,37 +261,39 @@ module StudioExportBatchReviewBinding:
             requires valid(queue)
             ensure valid(queue)
             requires warning_count >= 0
-            return false if not claim.issued or claim.index < 0 or claim.index >= queue.identities.count.i64()
-            current_attempt: i64 = queue.attempts[claim.index.usize()]
-            identity_matches: bool = StudioExportBatchIdentity::equal(claim.identity, queue.identities[claim.index.usize()])
-            running: bool = StudioExportBatchQueue::item(queue.queue, claim.index).state == StudioExportBatchQueuePolicy::ItemState.Running
-            return false if not claim_admitted(claim.issued, claim.attempt, current_attempt, identity_matches, running)
-            return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            current_source: bool = source_still_matches(claim.identity)
-            completion_state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueuePolicy::completion(succeeded and current_source, staged_outputs_valid and current_source, warning_count)
-            if queue.durable:
-                next_record: StudioExportBatchJournal::Record = queue.journals[claim.index.usize()]
-                next_record.state_hint <- completion_state.i64()
-                next_record.warning_count <- warning_count
-                persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[claim.index.usize()], lock_descriptor, next_record)
-                if not durable(persisted):
-                    return StudioExportBatchQueue::mark_recoverable(&queue.queue, claim.index, warning_count)
-                queue.journals[claim.index.usize()] <- next_record
-            StudioExportBatchQueue::complete(&queue.queue, claim.index, succeeded and current_source, staged_outputs_valid and current_source, warning_count)
+            can Global{Read, Write}:
+                return false if not claim.issued or claim.index < 0 or claim.index >= queue.identities.count.i64()
+                current_attempt: i64 = queue.attempts[claim.index.usize()]
+                identity_matches: bool = StudioExportBatchIdentity::equal(claim.identity, queue.identities[claim.index.usize()])
+                running: bool = StudioExportBatchQueue::item(queue.queue, claim.index).state == StudioExportBatchQueuePolicy::ItemState.Running
+                return false if not claim_admitted(claim.issued, claim.attempt, current_attempt, identity_matches, running)
+                return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                current_source: bool = source_still_matches(claim.identity)
+                completion_state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueuePolicy::completion(succeeded and current_source, staged_outputs_valid and current_source, warning_count)
+                if queue.durable:
+                    next_record: StudioExportBatchJournal::Record = queue.journals[claim.index.usize()]
+                    next_record.state_hint <- completion_state.i64()
+                    next_record.warning_count <- warning_count
+                    persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[claim.index.usize()], lock_descriptor, next_record)
+                    if not durable(persisted):
+                        return StudioExportBatchQueue::mark_recoverable(&queue.queue, claim.index, warning_count)
+                    queue.journals[claim.index.usize()] <- next_record
+                StudioExportBatchQueue::complete(&queue.queue, claim.index, succeeded and current_source, staged_outputs_valid and current_source, warning_count)
 
         def cancel(queue: mutable BoundQueue&, lock_descriptor: i32) -> i64 can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
             requires valid(queue)
             ensure valid(queue)
-            return -1 if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            if queue.durable:
-                for index in 0..<queue.journals.count.i64() |index, queue|:
-                    next_record: StudioExportBatchJournal::Record = queue.journals[index.usize()]
-                    next_record.cancel_requested <- 1
-                    next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Cancelled.i64() if StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Queued
-                    persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
-                    return -1 if not durable(persisted)
-                    queue.journals[index.usize()] <- next_record
-            StudioExportBatchQueue::cancel(&queue.queue)
+            can Global{Read, Write}:
+                return -1 if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                if queue.durable:
+                    for index in 0..<queue.journals.count.i64() |index, queue|:
+                        next_record: StudioExportBatchJournal::Record = queue.journals[index.usize()]
+                        next_record.cancel_requested <- 1
+                        next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Cancelled.i64() if StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Queued
+                        persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
+                        return -1 if not durable(persisted)
+                        queue.journals[index.usize()] <- next_record
+                StudioExportBatchQueue::cancel(&queue.queue)
 
         def pause(queue: mutable BoundQueue&) -> bool:
             requires valid(queue)
@@ -303,37 +308,39 @@ module StudioExportBatchReviewBinding:
             requires valid(queue)
             ensure valid(queue)
             requires index >= 0 and index < queue.identities.count.i64()
-            return false if StudioExportBatchQueue::worker_count(queue.queue) != 0
-            state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueue::item(queue.queue, index).state
-            return false if state != StudioExportBatchQueuePolicy::ItemState.Failed and state != StudioExportBatchQueuePolicy::ItemState.Cancelled
-            return false if queue.attempts[index.usize()] >= Limit::MAX_ATTEMPTS
-            return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
-            return false if not StudioExportBatchIdentity::equal(queue.identities[index.usize()], current)
-            return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            return false if not paths_valid(current) or not source_still_matches(current)
-            if queue.durable:
-                next_record: StudioExportBatchJournal::Record = queue.journals[index.usize()]
-                next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Queued.i64()
-                next_record.warning_count <- 0
-                persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
-                return false if not durable(persisted)
-                queue.journals[index.usize()] <- next_record
-            StudioExportBatchQueue::retry(&queue.queue, index, preflight)
+            can Global{Read, Write}:
+                return false if StudioExportBatchQueue::worker_count(queue.queue) != 0
+                state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueue::item(queue.queue, index).state
+                return false if state != StudioExportBatchQueuePolicy::ItemState.Failed and state != StudioExportBatchQueuePolicy::ItemState.Cancelled
+                return false if queue.attempts[index.usize()] >= Limit::MAX_ATTEMPTS
+                return false if not StudioExportBatchPreflightPolicy::admitted(preflight)
+                return false if not StudioExportBatchIdentity::equal(queue.identities[index.usize()], current)
+                return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                return false if not paths_valid(current) or not source_still_matches(current)
+                if queue.durable:
+                    next_record: StudioExportBatchJournal::Record = queue.journals[index.usize()]
+                    next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Queued.i64()
+                    next_record.warning_count <- 0
+                    persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
+                    return false if not durable(persisted)
+                    queue.journals[index.usize()] <- next_record
+                StudioExportBatchQueue::retry(&queue.queue, index, preflight)
 
         def resume(queue: mutable BoundQueue&, lock_descriptor: i32) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
             requires valid(queue)
             ensure valid(queue)
-            return false if not StudioExportBatchQueue::cancelled(queue.queue) and not StudioExportBatchQueue::paused(queue.queue)
-            return false if StudioExportBatchQueue::worker_count(queue.queue) != 0
-            return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            if queue.durable:
-                for index in 0..<queue.journals.count.i64() |index, queue|:
-                    next_record: StudioExportBatchJournal::Record = queue.journals[index.usize()]
-                    next_record.cancel_requested <- 0
-                    persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
-                    return false if not durable(persisted)
-                    queue.journals[index.usize()] <- next_record
-            StudioExportBatchQueue::resume(&queue.queue)
+            can Global{Read, Write}:
+                return false if not StudioExportBatchQueue::cancelled(queue.queue) and not StudioExportBatchQueue::paused(queue.queue)
+                return false if StudioExportBatchQueue::worker_count(queue.queue) != 0
+                return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                if queue.durable:
+                    for index in 0..<queue.journals.count.i64() |index, queue|:
+                        next_record: StudioExportBatchJournal::Record = queue.journals[index.usize()]
+                        next_record.cancel_requested <- 0
+                        persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
+                        return false if not durable(persisted)
+                        queue.journals[index.usize()] <- next_record
+                StudioExportBatchQueue::resume(&queue.queue)
 
         # Reopen an existing batch by identity. Invalid or unreadable recovery
         # entries fail the whole open so corruption is never mistaken for an
@@ -350,74 +357,75 @@ module StudioExportBatchReviewBinding:
             requires StudioExportBatchRootIdentity::valid(build_identity)
             ensure not result or valid(out)
             ensure not result or worker_count(out) == 0
-            mutable root_path: darray[u8] @r = nul_terminated(build_directory)
-            return false if not StudioExportBatchQueueStore::context_valid(build_directory, build_identity, batch_id, lock_descriptor)
-            inventory: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan((&root_path[0]).cast[cstr])
-            match inventory:
-                StudioExportRecoveryInventory::Scan.Rejected(reason):
-                    return false
-                StudioExportRecoveryInventory::Scan.Verified(records, bytes):
-                    records >= 0 and bytes >= 0
-            mutable names: darray[darray[u8]] @r = []
-            root_path_facts: i64 = FilePanel::path_facts((&root_path[0]).cast[cstr])
-            return false if root_path_facts < 0 or (root_path_facts & FilePanel::PATH_DIRECTORY) == 0 or (root_path_facts & FilePanel::PATH_SYMLINK) != 0
-            return false if not Folder::entries_checked((&root_path[0]).cast[cstr], FolderScanPolicy::Capacity::NAMES, &names)
-            mutable directories: darray[darray[u8]] @r = []
-            mutable records: darray[StudioExportBatchJournal::Record] @r = []
-            for name in names |name, build_directory, batch_id, directories, records, root_path|:
-                continue if not StudioExportBatchQueueStore::is_recovery_directory(name)
-                mutable directory: darray[u8] @r = []
-                directory.extend(build_directory)
-                directory.push(47)
-                directory.extend(name)
-                directory_path: darray[u8] @r = nul_terminated(directory)
-                facts: i64 = FilePanel::path_facts((&directory_path[0]).cast[cstr])
-                return false if facts < 0 or (facts & FilePanel::PATH_DIRECTORY) == 0 or (facts & FilePanel::PATH_SYMLINK) != 0
-                mutable record: StudioExportBatchJournal::Record @r = zeroed
-                return false if not StudioExportBatchQueueStore::read_journal(build_directory, build_identity, directory, lock_descriptor, &record)
-                continue if not StudioExportBatchIdentity::bytes_equal(record.batch_id, batch_id)
-                return false if records.count >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
-                directories.push(directory)
-                records.push(record)
-            return false if records.count == 0
-            for expected in 0..<records.count.i64() |records, expected|:
-                mutable found: bool = false
-                for index in 0..<records.count.i64() |records, expected, index, found|:
-                    return false if records[index.usize()].ordinal == expected and found
-                    found <- true if records[index.usize()].ordinal == expected
-                return false if not found
-            worker_limit: i64 = records[0].worker_limit
-            mutable queue: BoundQueue = create_durable(worker_limit, build_directory, build_identity, batch_id)
-            mutable cancelled: bool = false
-            for ordinal in 0..<records.count.i64() |records, directories, queue, ordinal, cancelled|:
-                mutable selected: i64 = -1
-                for index in 0..<records.count.i64() |records, ordinal, selected|:
-                    selected <- index if records[index.usize()].ordinal == ordinal
-                return false if selected < 0
-                mutable record: StudioExportBatchJournal::Record @r = records[selected.usize()]
-                return false if record.worker_limit != worker_limit
-                mutable identity: StudioExportBatchIdentity::Identity @r = zeroed
-                mutable item: StudioExportBatchQueue::Item @r = zeroed
-                return false if not StudioExportBatchQueueStore::recover_item(build_directory, build_identity, directories[selected.usize()], lock_descriptor, record, &identity, &item)
-                return false if not StudioExportBatchQueue::restore_item(&queue.queue, item)
-                queue.identities.push(identity)
-                queue.attempts.push(record.attempt)
-                queue.review_attempts.push(0)
-                queue.review_issued.push(false)
-                queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.NotInspected})
-                queue.recovery_directories.push(directories[selected.usize()])
-                if record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64():
-                    next_record: StudioExportBatchJournal::Record @r = record
-                    next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Recoverable.i64()
-                    next_record.warning_count <- 0
-                    persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[ordinal.usize()], lock_descriptor, next_record)
-                    return false if not durable(persisted)
-                    record <- next_record
-                queue.journals.push(record)
-                cancelled <- true if record.cancel_requested == 1
-            StudioExportBatchQueue::restore_cancelled(&queue.queue) if cancelled
-            out <- queue
-            true
+            can Global{Read, Write}:
+                mutable root_path: darray[u8] @r = nul_terminated(build_directory)
+                return false if not StudioExportBatchQueueStore::context_valid(build_directory, build_identity, batch_id, lock_descriptor)
+                inventory: StudioExportRecoveryInventory::Scan = StudioExportRecoveryInventory::scan((&root_path[0]).cast[cstr])
+                match inventory:
+                    StudioExportRecoveryInventory::Scan.Rejected(reason):
+                        return false
+                    StudioExportRecoveryInventory::Scan.Verified(records, bytes):
+                        records >= 0 and bytes >= 0
+                mutable names: darray[darray[u8]] @r = []
+                root_path_facts: i64 = FilePanel::path_facts((&root_path[0]).cast[cstr])
+                return false if root_path_facts < 0 or (root_path_facts & FilePanel::PATH_DIRECTORY) == 0 or (root_path_facts & FilePanel::PATH_SYMLINK) != 0
+                return false if not Folder::entries_checked((&root_path[0]).cast[cstr], FolderScanPolicy::Capacity::NAMES, &names)
+                mutable directories: darray[darray[u8]] @r = []
+                mutable records: darray[StudioExportBatchJournal::Record] @r = []
+                for name in names |name, build_directory, batch_id, directories, records, root_path|:
+                    continue if not StudioExportBatchQueueStore::is_recovery_directory(name)
+                    mutable directory: darray[u8] @r = []
+                    directory.extend(build_directory)
+                    directory.push(47)
+                    directory.extend(name)
+                    directory_path: darray[u8] @r = nul_terminated(directory)
+                    facts: i64 = FilePanel::path_facts((&directory_path[0]).cast[cstr])
+                    return false if facts < 0 or (facts & FilePanel::PATH_DIRECTORY) == 0 or (facts & FilePanel::PATH_SYMLINK) != 0
+                    mutable record: StudioExportBatchJournal::Record @r = zeroed
+                    return false if not StudioExportBatchQueueStore::read_journal(build_directory, build_identity, directory, lock_descriptor, &record)
+                    continue if not StudioExportBatchIdentity::bytes_equal(record.batch_id, batch_id)
+                    return false if records.count >= StudioExportBatchQueuePolicy::Capacity::MAX_ITEMS.usize()
+                    directories.push(directory)
+                    records.push(record)
+                return false if records.count == 0
+                for expected in 0..<records.count.i64() |records, expected|:
+                    mutable found: bool = false
+                    for index in 0..<records.count.i64() |records, expected, index, found|:
+                        return false if records[index.usize()].ordinal == expected and found
+                        found <- true if records[index.usize()].ordinal == expected
+                    return false if not found
+                worker_limit: i64 = records[0].worker_limit
+                mutable queue: BoundQueue = create_durable(worker_limit, build_directory, build_identity, batch_id)
+                mutable cancelled: bool = false
+                for ordinal in 0..<records.count.i64() |records, directories, queue, ordinal, cancelled|:
+                    mutable selected: i64 = -1
+                    for index in 0..<records.count.i64() |records, ordinal, selected|:
+                        selected <- index if records[index.usize()].ordinal == ordinal
+                    return false if selected < 0
+                    mutable record: StudioExportBatchJournal::Record @r = records[selected.usize()]
+                    return false if record.worker_limit != worker_limit
+                    mutable identity: StudioExportBatchIdentity::Identity @r = zeroed
+                    mutable item: StudioExportBatchQueue::Item @r = zeroed
+                    return false if not StudioExportBatchQueueStore::recover_item(build_directory, build_identity, directories[selected.usize()], lock_descriptor, record, &identity, &item)
+                    return false if not StudioExportBatchQueue::restore_item(&queue.queue, item)
+                    queue.identities.push(identity)
+                    queue.attempts.push(record.attempt)
+                    queue.review_attempts.push(0)
+                    queue.review_issued.push(false)
+                    queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.NotInspected})
+                    queue.recovery_directories.push(directories[selected.usize()])
+                    if record.state_hint == StudioExportBatchQueuePolicy::ItemState.Running.i64():
+                        next_record: StudioExportBatchJournal::Record @r = record
+                        next_record.state_hint <- StudioExportBatchQueuePolicy::ItemState.Recoverable.i64()
+                        next_record.warning_count <- 0
+                        persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[ordinal.usize()], lock_descriptor, next_record)
+                        return false if not durable(persisted)
+                        record <- next_record
+                    queue.journals.push(record)
+                    cancelled <- true if record.cancel_requested == 1
+                StudioExportBatchQueue::restore_cancelled(&queue.queue) if cancelled
+                out <- queue
+                true
 
         # Recovered warnings require a new explicit acknowledgement. Reopen
         # never restores approval or the private review marker.
@@ -427,23 +435,24 @@ module StudioExportBatchReviewBinding:
             requires index >= 0 and index < queue.identities.count.i64()
             ensure valid(queue)
             ensure not result or StudioExportBatchQueue::item(queue.queue, index).approved or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
-            current_state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueue::item(queue.queue, index).state
-            recovered_warning: bool = current_state == StudioExportBatchQueuePolicy::ItemState.Warning or current_state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
-            return false if not queue.durable or not StudioExportBatchIdentity::valid(queue.identities[index.usize()]) or queue.attempts[index.usize()] <= 0 or not explicit_review or not recovered_warning
-            return false if not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            mutable checked_identity: StudioExportBatchIdentity::Identity = zeroed
-            mutable checked_item: StudioExportBatchQueue::Item = zeroed
-            return false if not StudioExportBatchQueueStore::recover_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, queue.journals[index.usize()], &checked_identity, &checked_item)
-            return false if (checked_item.state != StudioExportBatchQueuePolicy::ItemState.Warning and checked_item.state != StudioExportBatchQueuePolicy::ItemState.AwaitingReview) or checked_item.approved
-            return false if checked_item.state != current_state
-            identity_matches: bool = StudioExportBatchIdentity::equal(checked_identity, queue.identities[index.usize()])
-            return false if not review_ack_admitted(queue.attempts[index.usize()], identity_matches, explicit_review, recovered_warning)
-            return false if not source_still_matches(queue.identities[index.usize()])
-            approved: bool = true if current_state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview else StudioExportBatchQueue::approve_warning(&queue.queue, index, true)
-            if approved:
-                queue.review_attempts[index.usize()] <- queue.attempts[index.usize()]
-                queue.review_issued[index.usize()] <- true
-            approved
+            can Global{Read, Write}:
+                current_state: StudioExportBatchQueuePolicy::ItemState = StudioExportBatchQueue::item(queue.queue, index).state
+                recovered_warning: bool = current_state == StudioExportBatchQueuePolicy::ItemState.Warning or current_state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+                return false if not queue.durable or not StudioExportBatchIdentity::valid(queue.identities[index.usize()]) or queue.attempts[index.usize()] <= 0 or not explicit_review or not recovered_warning
+                return false if not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                mutable checked_identity: StudioExportBatchIdentity::Identity = zeroed
+                mutable checked_item: StudioExportBatchQueue::Item = zeroed
+                return false if not StudioExportBatchQueueStore::recover_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, queue.journals[index.usize()], &checked_identity, &checked_item)
+                return false if (checked_item.state != StudioExportBatchQueuePolicy::ItemState.Warning and checked_item.state != StudioExportBatchQueuePolicy::ItemState.AwaitingReview) or checked_item.approved
+                return false if checked_item.state != current_state
+                identity_matches: bool = StudioExportBatchIdentity::equal(checked_identity, queue.identities[index.usize()])
+                return false if not review_ack_admitted(queue.attempts[index.usize()], identity_matches, explicit_review, recovered_warning)
+                return false if not source_still_matches(queue.identities[index.usize()])
+                approved: bool = true if current_state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview else StudioExportBatchQueue::approve_warning(&queue.queue, index, true)
+                if approved:
+                    queue.review_attempts[index.usize()] <- queue.attempts[index.usize()]
+                    queue.review_issued[index.usize()] <- true
+                approved
 
         # Publishes a prepared result with review captured during enqueue or
         # freshly acknowledged after recovery. The marker stays inside the
@@ -455,23 +464,24 @@ module StudioExportBatchReviewBinding:
             requires index >= 0 and index < queue.identities.count.i64()
             ensure StudioExportBatchQueue::valid(queue.queue)
             ensure not result or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Warning or StudioExportBatchQueue::item(queue.queue, index).state == StudioExportBatchQueuePolicy::ItemState.Passed
-            return false if StudioExportBatchQueue::cancelled(queue.queue)
-            return false if StudioExportBatchQueue::paused(queue.queue)
-            return false if not queue.durable or not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            current: StudioExportBatchQueue::Item = StudioExportBatchQueue::item(queue.queue, index)
-            warning_result: bool = current.state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
-            return false if current.state != StudioExportBatchQueuePolicy::ItemState.Staged and not warning_result
-            return false if not paths_valid(queue.identities[index.usize()])
-            identity: StudioExportBatchIdentity::Identity = queue.identities[index.usize()]
-            mutable checked_identity: StudioExportBatchIdentity::Identity = zeroed
-            mutable checked_item: StudioExportBatchQueue::Item = zeroed
-            return false if not StudioExportBatchQueueStore::recover_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, queue.journals[index.usize()], &checked_identity, &checked_item)
-            identity_matches: bool = StudioExportBatchIdentity::equal(identity, checked_identity)
-            return false if not identity_matches or checked_item.state != current.state
-            return false if checked_item.warning_count != current.warning_count
-            return false if not prepared_publish_admitted(current.state, current.warning_count, queue.review_issued[index.usize()], queue.review_attempts[index.usize()], queue.attempts[index.usize()], identity_matches)
-            return false if not source_still_matches(identity)
-            publish_item_outputs(queue, index, identity, warning_result, lock_descriptor)
+            can Global{Read, Write}:
+                return false if StudioExportBatchQueue::cancelled(queue.queue)
+                return false if StudioExportBatchQueue::paused(queue.queue)
+                return false if not queue.durable or not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                current: StudioExportBatchQueue::Item = StudioExportBatchQueue::item(queue.queue, index)
+                warning_result: bool = current.state == StudioExportBatchQueuePolicy::ItemState.AwaitingReview
+                return false if current.state != StudioExportBatchQueuePolicy::ItemState.Staged and not warning_result
+                return false if not paths_valid(queue.identities[index.usize()])
+                identity: StudioExportBatchIdentity::Identity = queue.identities[index.usize()]
+                mutable checked_identity: StudioExportBatchIdentity::Identity = zeroed
+                mutable checked_item: StudioExportBatchQueue::Item = zeroed
+                return false if not StudioExportBatchQueueStore::recover_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, queue.journals[index.usize()], &checked_identity, &checked_item)
+                identity_matches: bool = StudioExportBatchIdentity::equal(identity, checked_identity)
+                return false if not identity_matches or checked_item.state != current.state
+                return false if checked_item.warning_count != current.warning_count
+                return false if not prepared_publish_admitted(current.state, current.warning_count, queue.review_issued[index.usize()], queue.review_attempts[index.usize()], queue.attempts[index.usize()], identity_matches)
+                return false if not source_still_matches(identity)
+                publish_item_outputs(queue, index, identity, warning_result, lock_descriptor)
 
         # Clean staged results do not require a warning-review token. They use
         # the same exact identity and create-only publisher boundary.
@@ -481,13 +491,14 @@ module StudioExportBatchReviewBinding:
             requires valid(queue)
             ensure valid(queue)
             requires index >= 0 and index < queue.identities.count.i64()
-            return false if StudioExportBatchQueue::cancelled(queue.queue)
-            return false if StudioExportBatchQueue::item(queue.queue, index).state != StudioExportBatchQueuePolicy::ItemState.Staged
-            return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
-            item_identity: StudioExportBatchIdentity::Identity = queue.identities[index.usize()]
-            return false if not StudioExportBatchIdentity::equal(item_identity, current)
-            return false if not paths_valid(item_identity) or not source_still_matches(item_identity)
-            publish_item_outputs(queue, index, item_identity, false, lock_descriptor)
+            can Global{Read, Write}:
+                return false if StudioExportBatchQueue::cancelled(queue.queue)
+                return false if StudioExportBatchQueue::item(queue.queue, index).state != StudioExportBatchQueuePolicy::ItemState.Staged
+                return false if queue.durable and not StudioExportBatchQueueStore::context_valid(queue.build_directory, queue.build_identity, queue.batch_id, lock_descriptor)
+                item_identity: StudioExportBatchIdentity::Identity = queue.identities[index.usize()]
+                return false if not StudioExportBatchIdentity::equal(item_identity, current)
+                return false if not paths_valid(item_identity) or not source_still_matches(item_identity)
+                publish_item_outputs(queue, index, item_identity, false, lock_descriptor)
 
     private:
         def publish_item_outputs(queue: mutable BoundQueue&, index: i64,
