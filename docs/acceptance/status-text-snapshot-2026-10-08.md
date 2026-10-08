@@ -3,7 +3,8 @@
 Formatted feedback previously retained a view into StudioText's 96 rotating
 128-byte slots. Rendering can reuse that slot and overwrite the status. The
 snapshot source change copies formatted status into an independent fixed
-128-byte buffer, guarded by an extent/readability policy. It adds no heap
+128-byte buffer, guarded by a count/non-null policy. The borrowed view supplies the input
+storage lifetime; the policy does not prove a foreign pointer span. It adds no heap
 allocation. Literal messages remain literal-backed; the snapshot stays readable
 until another explicit captured message replaces it.
 
@@ -50,7 +51,7 @@ open; this source binding alone does not qualify the full recovery workflow.
 
 
 The three pure extent laws now execute through a focused O2 driver over counts
--2 through 130, both readability states, and maximum i64 refusal; compile/run
+-2 through 130, both data-presence states, and maximum i64 refusal; compile/run
 exit 0 on source-matched installed `b26659e2`. The maintained regression is
 `test/studio_status_text_extent.elisa`. This closes the pure admission runtime
 check only. The separate snapshot, formatter and formal source/replay acceptance
