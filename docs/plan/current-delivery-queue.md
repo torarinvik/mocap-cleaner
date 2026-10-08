@@ -114,6 +114,14 @@ take. Companion laws and exhaustive small-domain controls cover this predicate;
 execution, independent proof replay and whole-handler runtime qualification
 remain open on the repaired current compiler.
 
+Empty-view failure explanations are now retained separately from transient
+status messages. Current FBX refusals and rebuild failures capture their literal
+policy feedback; a newly accepted FBX request or successful candidate publication
+clears it. The guide selects retained text through a contracted predicate with
+companion laws. Focused clean Stage0 semantic checking passes; full UI lifetime,
+layout, accessibility and paired-proof qualification remain open. Loaded-take
+failure details and explicit acknowledgement/retry controls still require work.
+
 Finish the status-message presentation. Commit `061ec40` replaces the fixed
 560-pixel message offset with bounded, responsive summary/message regions and
 viewport clips. Its focused layout runtime check passes on installed `b26659e2`;
