@@ -34,237 +34,245 @@ extend Studio:
             return "Confirm no source impact events" if action == StudioPanels::SuggestionAction.ConfirmNoImpacts
             "Clear source impact review"
 
-        def suggestion_accessibility_enabled(action: StudioPanels::SuggestionAction) -> bool:
-            suggestion_focusable(action)
+        def suggestion_accessibility_enabled(action: StudioPanels::SuggestionAction) -> bool can[Global.Read]:
+            can Global.Read:
+                return suggestion_focusable(action)
 
-        def suggestion_accessibility_visible_actions() -> darray[StudioPanels::SuggestionAction]:
-            mutable actions: darray[StudioPanels::SuggestionAction] = [
-                StudioPanels::SuggestionAction.Cancel,
-                StudioPanels::SuggestionAction.ShowCurrent,
-                StudioPanels::SuggestionAction.ShowSuggested,
-                StudioPanels::SuggestionAction.MarkImpact,
-                StudioPanels::SuggestionAction.ConfirmNoImpacts,
-                StudioPanels::SuggestionAction.ClearImpactReview]
-            if suggestion_adjustment == StudioPanels::SuggestionAdjustment.Review:
-                actions.push(StudioPanels::SuggestionAction.Adjust)
-            else:
-                actions.push(StudioPanels::SuggestionAction.Back)
-                actions.push(StudioPanels::SuggestionAction.ToggleFeet)
-                actions.push(StudioPanels::SuggestionAction.ToggleHands)
-            actions.push(StudioPanels::SuggestionAction.Apply)
-            actions
+        def suggestion_accessibility_visible_actions() -> darray[StudioPanels::SuggestionAction] can[Global.Read]:
+            can Global.Read:
+                mutable actions: darray[StudioPanels::SuggestionAction] = [
+                    StudioPanels::SuggestionAction.Cancel,
+                    StudioPanels::SuggestionAction.ShowCurrent,
+                    StudioPanels::SuggestionAction.ShowSuggested,
+                    StudioPanels::SuggestionAction.MarkImpact,
+                    StudioPanels::SuggestionAction.ConfirmNoImpacts,
+                    StudioPanels::SuggestionAction.ClearImpactReview]
+                if suggestion_adjustment == StudioPanels::SuggestionAdjustment.Review:
+                    actions.push(StudioPanels::SuggestionAction.Adjust)
+                else:
+                    actions.push(StudioPanels::SuggestionAction.Back)
+                    actions.push(StudioPanels::SuggestionAction.ToggleFeet)
+                    actions.push(StudioPanels::SuggestionAction.ToggleHands)
+                actions.push(StudioPanels::SuggestionAction.Apply)
+                return actions
 
         def suggestion_accessibility_id(action: StudioPanels::SuggestionAction) -> usize:
             StudioAccessibility::Range::SUGGESTION_ACTION_FIRST + suggestion_accessibility_index(action)
 
-        def suggestion_accessibility_first_id() -> usize:
-            actions: darray[StudioPanels::SuggestionAction] = suggestion_accessibility_visible_actions()
-            suggestion_accessibility_id(actions[0])
+        def suggestion_accessibility_first_id() -> usize can[Global.Read]:
+            can Global.Read:
+                actions: darray[StudioPanels::SuggestionAction] = suggestion_accessibility_visible_actions()
+                return suggestion_accessibility_id(actions[0])
 
-        def suggestion_accessibility_action(widget: usize, event: i32) -> bool:
-            return false if suggestion_state != StudioSuggestionPolicy::State.Open or event != UiConst::WidgetEvent.Click.i32()
-            for action in suggestion_accessibility_actions() |action, widget|:
-                if widget == accessibility_suggestion_widgets[suggestion_accessibility_index(action)]:
-                    suggestion_action(action) if suggestion_accessibility_enabled(action)
-                    return true
-            false
+        def suggestion_accessibility_action(widget: usize, event: i32) -> bool can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return false if suggestion_state != StudioSuggestionPolicy::State.Open or event != UiConst::WidgetEvent.Click.i32()
+                for action in suggestion_accessibility_actions() |action, widget|:
+                    if widget == accessibility_suggestion_widgets[suggestion_accessibility_index(action)]:
+                        suggestion_action(action) if suggestion_accessibility_enabled(action)
+                        return true
+                return false
 
-        def publish_suggestion_accessibility(w: f32, h: f32) -> void:
-            return if not accessibility_suggestion_ready or suggestion_state != StudioSuggestionPolicy::State.Open
-            none: usize = StudioAccessibility::SemanticId::NO_NODE
-            dialog: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
-            UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Dialog,
-                "Suggested cleanup review",
-                "Switch poses while scrubbing or playing. Contact timing, hinge angles, boundary pose and end-effector velocity are compared. Mark impacts at the playhead or explicitly confirm no source events; annotations include the take fingerprint and source frame.",
-                UiCore::Rect(dialog.x, dialog.y, dialog.w, dialog.h),
-                StudioAccessibility::SemanticId::SUGGESTION_GROUP, none, true, false, false,
-                0.0, "", "", revision.usize(), 0, 0,
-                StudioAccessibility::SemanticId::SIDEBAR,
-                StudioAccessibility::Range::SUGGESTION_ACTION_FIRST, none, 0.0, 1.0, false)
-            visible_actions: darray[StudioPanels::SuggestionAction] = suggestion_accessibility_visible_actions()
-            for action in visible_actions |action, w, h, visible_actions|:
-                idx: usize = suggestion_accessibility_index(action)
-                widget: usize = accessibility_suggestion_widgets[idx]
-                enabled: bool = suggestion_accessibility_enabled(action)
-                UiFlat::set_enabled(widget, enabled)
-                id: usize = suggestion_accessibility_id(action)
-                mutable next: usize = none
-                for position in 0..<visible_actions.count |position, visible_actions, idx, id, next, none|:
-                    if visible_actions[position] == action and position + 1 < visible_actions.count:
-                        next <- suggestion_accessibility_id(visible_actions[position + 1])
-                mutable role: UiCore::AccessibilityRole = UiCore::AccessibilityRole.Button
-                role <- UiCore::AccessibilityRole.CheckBox if action == StudioPanels::SuggestionAction.ToggleFeet or action == StudioPanels::SuggestionAction.ToggleHands
-                mutable selected: bool = false
-                mutable value: sview = ""
-                if action == StudioPanels::SuggestionAction.ShowCurrent:
-                    selected <- suggestion_view == StudioPanels::SuggestionView.Current
-                    value <- "Current pose shown" if selected else "Current pose hidden"
-                elif action == StudioPanels::SuggestionAction.ShowSuggested:
-                    selected <- suggestion_view == StudioPanels::SuggestionView.Candidate
-                    value <- "Suggested pose shown" if selected else "Suggested pose hidden"
-                elif action == StudioPanels::SuggestionAction.ToggleFeet:
-                    selected <- suggestion_foot_lock
-                    value <- "Enabled" if selected else "Disabled"
-                elif action == StudioPanels::SuggestionAction.ToggleHands:
-                    selected <- suggestion_hand_lock
-                    value <- "Enabled" if selected else "Disabled"
-                elif action == StudioPanels::SuggestionAction.MarkImpact or action == StudioPanels::SuggestionAction.ConfirmNoImpacts or action == StudioPanels::SuggestionAction.ClearImpactReview:
-                    selected <- suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed
-                    value <- suggestion_impact_status()
-                mutable b: StudioPanels::Box = StudioPanels::suggestion_button_box(w, h, action)
-                b <- StudioPanels::suggestion_pose_box(w, h, action) if action == StudioPanels::SuggestionAction.ShowCurrent or action == StudioPanels::SuggestionAction.ShowSuggested
-                b <- StudioPanels::suggestion_toggle_box(w, h, action) if action == StudioPanels::SuggestionAction.ToggleFeet or action == StudioPanels::SuggestionAction.ToggleHands
-                b <- StudioPanels::suggestion_impact_button_box(w, h, action) if action == StudioPanels::SuggestionAction.MarkImpact or action == StudioPanels::SuggestionAction.ConfirmNoImpacts or action == StudioPanels::SuggestionAction.ClearImpactReview
-                if action == StudioPanels::SuggestionAction.Back:
-                    b <- StudioPanels::suggestion_button_box(w, h, action)
-                UiCore::accessibility_with_metadata(role, suggestion_accessibility_label(action),
-                    "Activates the same review action as the visible control.",
-                    UiCore::Rect(b.x, b.y, b.w, b.h), id,
-                    widget, enabled, suggestion_focus == action,
-                    selected, 0.0, value, "", revision.usize(), 0, 0,
-                    StudioAccessibility::SemanticId::SUGGESTION_GROUP, none, next, 0.0, 1.0, false)
+        def publish_suggestion_accessibility(w: f32, h: f32) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not accessibility_suggestion_ready or suggestion_state != StudioSuggestionPolicy::State.Open
+                none: usize = StudioAccessibility::SemanticId::NO_NODE
+                dialog: StudioPanels::Box = StudioPanels::sidebar_box(w, h)
+                UiCore::accessibility_with_metadata(UiCore::AccessibilityRole.Dialog,
+                    "Suggested cleanup review",
+                    "Switch poses while scrubbing or playing. Contact timing, hinge angles, boundary pose and end-effector velocity are compared. Mark impacts at the playhead or explicitly confirm no source events; annotations include the take fingerprint and source frame.",
+                    UiCore::Rect(dialog.x, dialog.y, dialog.w, dialog.h),
+                    StudioAccessibility::SemanticId::SUGGESTION_GROUP, none, true, false, false,
+                    0.0, "", "", revision.usize(), 0, 0,
+                    StudioAccessibility::SemanticId::SIDEBAR,
+                    StudioAccessibility::Range::SUGGESTION_ACTION_FIRST, none, 0.0, 1.0, false)
+                visible_actions: darray[StudioPanels::SuggestionAction] = suggestion_accessibility_visible_actions()
+                for action in visible_actions |action, w, h, visible_actions|:
+                    idx: usize = suggestion_accessibility_index(action)
+                    widget: usize = accessibility_suggestion_widgets[idx]
+                    enabled: bool = suggestion_accessibility_enabled(action)
+                    UiFlat::set_enabled(widget, enabled)
+                    id: usize = suggestion_accessibility_id(action)
+                    mutable next: usize = none
+                    for position in 0..<visible_actions.count |position, visible_actions, idx, id, next, none|:
+                        if visible_actions[position] == action and position + 1 < visible_actions.count:
+                            next <- suggestion_accessibility_id(visible_actions[position + 1])
+                    mutable role: UiCore::AccessibilityRole = UiCore::AccessibilityRole.Button
+                    role <- UiCore::AccessibilityRole.CheckBox if action == StudioPanels::SuggestionAction.ToggleFeet or action == StudioPanels::SuggestionAction.ToggleHands
+                    mutable selected: bool = false
+                    mutable value: sview = ""
+                    if action == StudioPanels::SuggestionAction.ShowCurrent:
+                        selected <- suggestion_view == StudioPanels::SuggestionView.Current
+                        value <- "Current pose shown" if selected else "Current pose hidden"
+                    elif action == StudioPanels::SuggestionAction.ShowSuggested:
+                        selected <- suggestion_view == StudioPanels::SuggestionView.Candidate
+                        value <- "Suggested pose shown" if selected else "Suggested pose hidden"
+                    elif action == StudioPanels::SuggestionAction.ToggleFeet:
+                        selected <- suggestion_foot_lock
+                        value <- "Enabled" if selected else "Disabled"
+                    elif action == StudioPanels::SuggestionAction.ToggleHands:
+                        selected <- suggestion_hand_lock
+                        value <- "Enabled" if selected else "Disabled"
+                    elif action == StudioPanels::SuggestionAction.MarkImpact or action == StudioPanels::SuggestionAction.ConfirmNoImpacts or action == StudioPanels::SuggestionAction.ClearImpactReview:
+                        selected <- suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed
+                        value <- suggestion_impact_status()
+                    mutable b: StudioPanels::Box = StudioPanels::suggestion_button_box(w, h, action)
+                    b <- StudioPanels::suggestion_pose_box(w, h, action) if action == StudioPanels::SuggestionAction.ShowCurrent or action == StudioPanels::SuggestionAction.ShowSuggested
+                    b <- StudioPanels::suggestion_toggle_box(w, h, action) if action == StudioPanels::SuggestionAction.ToggleFeet or action == StudioPanels::SuggestionAction.ToggleHands
+                    b <- StudioPanels::suggestion_impact_button_box(w, h, action) if action == StudioPanels::SuggestionAction.MarkImpact or action == StudioPanels::SuggestionAction.ConfirmNoImpacts or action == StudioPanels::SuggestionAction.ClearImpactReview
+                    if action == StudioPanels::SuggestionAction.Back:
+                        b <- StudioPanels::suggestion_button_box(w, h, action)
+                    UiCore::accessibility_with_metadata(role, suggestion_accessibility_label(action),
+                        "Activates the same review action as the visible control.",
+                        UiCore::Rect(b.x, b.y, b.w, b.h), id,
+                        widget, enabled, suggestion_focus == action,
+                        selected, 0.0, value, "", revision.usize(), 0, 0,
+                        StudioAccessibility::SemanticId::SUGGESTION_GROUP, none, next, 0.0, 1.0, false)
 
-        def init_accessibility_toolbar() -> void:
-            UiFlat::reset()
-            transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
-            for action in 0..<StudioPanels::PanelLimit::BUTTONS:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
-                    transparent, transparent, transparent)
-                return if widget == UiFlat::NONE or widget != action.usize()
-                accessibility_toolbar_widgets[action.usize()] <- widget
-            accessibility_toolbar_ready <- true
-            accessibility_goto_apply_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_goto_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_goto_field_widget <- UiFlat::text_field(UiFlat::NONE,
-                "Frame number", "1-based frame", "", 1.0, 1.0, 1.0, transparent, transparent)
-            _ = UiFlat::set_text_purpose(accessibility_goto_field_widget, UiTextInput::Purpose.Number)
-            UiFlat::set_enabled(accessibility_goto_field_widget, false)
-            UiFlat::set_visible(accessibility_goto_field_widget, false)
-            accessibility_goto_ready <- accessibility_goto_apply_widget != UiFlat::NONE and accessibility_goto_cancel_widget != UiFlat::NONE and accessibility_goto_field_widget != UiFlat::NONE
-            goto_show_controls(false)
-            accessibility_file_trigger_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            mutable file_widgets_ready: bool = accessibility_file_trigger_widget != UiFlat::NONE
-            for row in 0..<StudioFilePolicy::Count::MAX_ROWS |row, file_widgets_ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                accessibility_file_menu_widgets[row.usize()] <- widget
-                file_widgets_ready <- false if widget == UiFlat::NONE
-            accessibility_file_ready <- file_widgets_ready
-            accessibility_recovery_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            mutable recovery_widgets_ready: bool = accessibility_recovery_open_widget != UiFlat::NONE
-            for action in [StudioExportRecoveryUiPolicy::Focus.Close,
-                           StudioExportRecoveryUiPolicy::Focus.Previous,
-                           StudioExportRecoveryUiPolicy::Focus.Next,
-                           StudioExportRecoveryUiPolicy::Focus.Retry,
-                           StudioExportRecoveryUiPolicy::Focus.OpenOutput,
-                           StudioExportRecoveryUiPolicy::Focus.OpenRecovery,
-                           StudioExportRecoveryUiPolicy::Focus.Refresh] |action, recovery_widgets_ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                accessibility_recovery_action_widgets[action.i64().usize()] <- widget
-                recovery_widgets_ready <- false if widget == UiFlat::NONE
-            accessibility_recovery_ready <- recovery_widgets_ready
-            mutable storage_widgets_ready: bool = true
-            for action in 0..<StudioPanels::StorageAction::COUNT |action, storage_widgets_ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                accessibility_storage_action_widgets[action.usize()] <- widget
-                storage_widgets_ready <- false if widget == UiFlat::NONE
-            for row in 0..<StudioStorageAccessibilityPolicy::Node::ROW_COUNT |row, storage_widgets_ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                accessibility_storage_row_widgets[row.usize()] <- widget
-                accessibility_storage_row_indices[row.usize()] <- -1
-                storage_widgets_ready <- false if widget == UiFlat::NONE
-            accessibility_storage_ready <- storage_widgets_ready
-            accessibility_review_ack_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_review_destination_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_review_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_review_export_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_review_queue_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            mutable warning_widgets_ready: bool = true
-            for index in 0..<StudioExportReview::Limit::MAX_WARNINGS |index, warning_widgets_ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                accessibility_review_warning_widgets[index.usize()] <- widget
-                warning_widgets_ready <- false if widget == UiFlat::NONE
-            accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_destination_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE and accessibility_review_queue_widget != UiFlat::NONE and warning_widgets_ready
-            accessibility_batch_queue_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_warning_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_warning_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_warning_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_warning_ready <- accessibility_warning_previous_widget != UiFlat::NONE and accessibility_warning_next_widget != UiFlat::NONE and accessibility_warning_done_widget != UiFlat::NONE
-            accessibility_path_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_path_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_path_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_path_ready <- accessibility_path_previous_widget != UiFlat::NONE and accessibility_path_next_widget != UiFlat::NONE and accessibility_path_done_widget != UiFlat::NONE
-            accessibility_result_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_result_folder_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_result_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_result_ready <- accessibility_result_open_widget != UiFlat::NONE and accessibility_result_folder_widget != UiFlat::NONE and accessibility_result_done_widget != UiFlat::NONE
-            accessibility_contact_plant_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_lift_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_delete_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_merge_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_split_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_first_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_last_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE and accessibility_contact_delete_widget != UiFlat::NONE and accessibility_contact_merge_widget != UiFlat::NONE and accessibility_contact_split_widget != UiFlat::NONE and accessibility_contact_first_widget != UiFlat::NONE and accessibility_contact_last_widget != UiFlat::NONE
-            accessibility_reset_trigger_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_reset_contacts_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_reset_corrections_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_reset_source_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_reset_ready <- accessibility_reset_trigger_widget != UiFlat::NONE and accessibility_reset_contacts_widget != UiFlat::NONE and accessibility_reset_corrections_widget != UiFlat::NONE and accessibility_reset_source_widget != UiFlat::NONE
-            accessibility_stack_duplicate_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_stack_ready <- accessibility_stack_duplicate_widget != UiFlat::NONE
-            accessibility_issue_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_issue_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_issue_worst_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            mutable issue_widgets_ready: bool = accessibility_issue_previous_widget != UiFlat::NONE and accessibility_issue_next_widget != UiFlat::NONE and accessibility_issue_worst_widget != UiFlat::NONE
-            mutable issue_filter_widgets_ready: bool = true
-            for index in 0..<4 |index, issue_filter_widgets_ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                accessibility_issue_filter_widgets[index.usize()] <- widget
-                issue_filter_widgets_ready <- false if widget == UiFlat::NONE
-            accessibility_issue_filter_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_issue_intent_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-            accessibility_issue_filter_ready <- issue_filter_widgets_ready and accessibility_issue_filter_reset_widget != UiFlat::NONE and accessibility_issue_intent_widget != UiFlat::NONE
-            for index in 0..<StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS |index, issue_widgets_ready, transparent|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
-                accessibility_issue_row_widgets[index.usize()] <- widget
-                issue_widgets_ready <- false if widget == UiFlat::NONE
-            accessibility_issue_ready <- issue_widgets_ready
-            mutable suggestion_ready: bool = true
-            for action in suggestion_accessibility_actions() |action, transparent, suggestion_ready|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
-                    transparent, transparent, transparent)
-                accessibility_suggestion_widgets[suggestion_accessibility_index(action)] <- widget
-                suggestion_ready <- false if widget == UiFlat::NONE
-            accessibility_suggestion_ready <- suggestion_ready
-            mutable locate_widgets_ready: bool = true
-            for choice in [StudioSessionLocatePolicy::Choice.Locate,
-                           StudioSessionLocatePolicy::Choice.RestoreSession,
-                           StudioSessionLocatePolicy::Choice.OpenAsNewTake,
-                           StudioSessionLocatePolicy::Choice.Cancel] |choice, transparent, locate_widgets_ready|:
-                widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
-                    transparent, transparent, transparent)
-                accessibility_session_locate_widgets[(choice.i64() - 1).usize()] <- widget
-                locate_widgets_ready <- false if widget == UiFlat::NONE
-            accessibility_session_locate_ready <- locate_widgets_ready
-            init_generation_review_accessibility()
+        def init_accessibility_toolbar() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                UiFlat::reset()
+                transparent: UiCore::Color = UiCore::Color{r: 0, g: 0, b: 0, a: 0}
+                for action in 0..<StudioPanels::PanelLimit::BUTTONS:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
+                        transparent, transparent, transparent)
+                    return if widget == UiFlat::NONE or widget != action.usize()
+                    accessibility_toolbar_widgets[action.usize()] <- widget
+                accessibility_toolbar_ready <- true
+                accessibility_goto_apply_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_goto_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_goto_field_widget <- UiFlat::text_field(UiFlat::NONE,
+                    "Frame number", "1-based frame", "", 1.0, 1.0, 1.0, transparent, transparent)
+                _ = UiFlat::set_text_purpose(accessibility_goto_field_widget, UiTextInput::Purpose.Number)
+                UiFlat::set_enabled(accessibility_goto_field_widget, false)
+                UiFlat::set_visible(accessibility_goto_field_widget, false)
+                accessibility_goto_ready <- accessibility_goto_apply_widget != UiFlat::NONE and accessibility_goto_cancel_widget != UiFlat::NONE and accessibility_goto_field_widget != UiFlat::NONE
+                goto_show_controls(false)
+                accessibility_file_trigger_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                mutable file_widgets_ready: bool = accessibility_file_trigger_widget != UiFlat::NONE
+                for row in 0..<StudioFilePolicy::Count::MAX_ROWS |row, file_widgets_ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    accessibility_file_menu_widgets[row.usize()] <- widget
+                    file_widgets_ready <- false if widget == UiFlat::NONE
+                accessibility_file_ready <- file_widgets_ready
+                accessibility_recovery_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                mutable recovery_widgets_ready: bool = accessibility_recovery_open_widget != UiFlat::NONE
+                for action in [StudioExportRecoveryUiPolicy::Focus.Close,
+                               StudioExportRecoveryUiPolicy::Focus.Previous,
+                               StudioExportRecoveryUiPolicy::Focus.Next,
+                               StudioExportRecoveryUiPolicy::Focus.Retry,
+                               StudioExportRecoveryUiPolicy::Focus.OpenOutput,
+                               StudioExportRecoveryUiPolicy::Focus.OpenRecovery,
+                               StudioExportRecoveryUiPolicy::Focus.Refresh] |action, recovery_widgets_ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    accessibility_recovery_action_widgets[action.i64().usize()] <- widget
+                    recovery_widgets_ready <- false if widget == UiFlat::NONE
+                accessibility_recovery_ready <- recovery_widgets_ready
+                mutable storage_widgets_ready: bool = true
+                for action in 0..<StudioPanels::StorageAction::COUNT |action, storage_widgets_ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    accessibility_storage_action_widgets[action.usize()] <- widget
+                    storage_widgets_ready <- false if widget == UiFlat::NONE
+                for row in 0..<StudioStorageAccessibilityPolicy::Node::ROW_COUNT |row, storage_widgets_ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    accessibility_storage_row_widgets[row.usize()] <- widget
+                    accessibility_storage_row_indices[row.usize()] <- -1
+                    storage_widgets_ready <- false if widget == UiFlat::NONE
+                accessibility_storage_ready <- storage_widgets_ready
+                accessibility_review_ack_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_review_destination_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_review_cancel_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_review_export_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_review_queue_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                mutable warning_widgets_ready: bool = true
+                for index in 0..<StudioExportReview::Limit::MAX_WARNINGS |index, warning_widgets_ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    accessibility_review_warning_widgets[index.usize()] <- widget
+                    warning_widgets_ready <- false if widget == UiFlat::NONE
+                accessibility_review_ready <- accessibility_review_ack_widget != UiFlat::NONE and accessibility_review_destination_widget != UiFlat::NONE and accessibility_review_cancel_widget != UiFlat::NONE and accessibility_review_export_widget != UiFlat::NONE and accessibility_review_queue_widget != UiFlat::NONE and warning_widgets_ready
+                accessibility_batch_queue_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_warning_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_warning_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_warning_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_warning_ready <- accessibility_warning_previous_widget != UiFlat::NONE and accessibility_warning_next_widget != UiFlat::NONE and accessibility_warning_done_widget != UiFlat::NONE
+                accessibility_path_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_path_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_path_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_path_ready <- accessibility_path_previous_widget != UiFlat::NONE and accessibility_path_next_widget != UiFlat::NONE and accessibility_path_done_widget != UiFlat::NONE
+                accessibility_result_open_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_result_folder_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_result_done_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_result_ready <- accessibility_result_open_widget != UiFlat::NONE and accessibility_result_folder_widget != UiFlat::NONE and accessibility_result_done_widget != UiFlat::NONE
+                accessibility_contact_plant_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_lift_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_delete_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_merge_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_split_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_first_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_last_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_contact_ready <- accessibility_contact_plant_widget != UiFlat::NONE and accessibility_contact_lift_widget != UiFlat::NONE and accessibility_contact_reset_widget != UiFlat::NONE and accessibility_contact_delete_widget != UiFlat::NONE and accessibility_contact_merge_widget != UiFlat::NONE and accessibility_contact_split_widget != UiFlat::NONE and accessibility_contact_first_widget != UiFlat::NONE and accessibility_contact_last_widget != UiFlat::NONE
+                accessibility_reset_trigger_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_reset_contacts_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_reset_corrections_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_reset_source_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_reset_ready <- accessibility_reset_trigger_widget != UiFlat::NONE and accessibility_reset_contacts_widget != UiFlat::NONE and accessibility_reset_corrections_widget != UiFlat::NONE and accessibility_reset_source_widget != UiFlat::NONE
+                accessibility_stack_duplicate_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_stack_ready <- accessibility_stack_duplicate_widget != UiFlat::NONE
+                accessibility_issue_previous_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_issue_next_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_issue_worst_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                mutable issue_widgets_ready: bool = accessibility_issue_previous_widget != UiFlat::NONE and accessibility_issue_next_widget != UiFlat::NONE and accessibility_issue_worst_widget != UiFlat::NONE
+                mutable issue_filter_widgets_ready: bool = true
+                for index in 0..<4 |index, issue_filter_widgets_ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    accessibility_issue_filter_widgets[index.usize()] <- widget
+                    issue_filter_widgets_ready <- false if widget == UiFlat::NONE
+                accessibility_issue_filter_reset_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_issue_intent_widget <- UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                accessibility_issue_filter_ready <- issue_filter_widgets_ready and accessibility_issue_filter_reset_widget != UiFlat::NONE and accessibility_issue_intent_widget != UiFlat::NONE
+                for index in 0..<StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS |index, issue_widgets_ready, transparent|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0, transparent, transparent, transparent)
+                    accessibility_issue_row_widgets[index.usize()] <- widget
+                    issue_widgets_ready <- false if widget == UiFlat::NONE
+                accessibility_issue_ready <- issue_widgets_ready
+                mutable suggestion_ready: bool = true
+                for action in suggestion_accessibility_actions() |action, transparent, suggestion_ready|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
+                        transparent, transparent, transparent)
+                    accessibility_suggestion_widgets[suggestion_accessibility_index(action)] <- widget
+                    suggestion_ready <- false if widget == UiFlat::NONE
+                accessibility_suggestion_ready <- suggestion_ready
+                mutable locate_widgets_ready: bool = true
+                for choice in [StudioSessionLocatePolicy::Choice.Locate,
+                               StudioSessionLocatePolicy::Choice.RestoreSession,
+                               StudioSessionLocatePolicy::Choice.OpenAsNewTake,
+                               StudioSessionLocatePolicy::Choice.Cancel] |choice, transparent, locate_widgets_ready|:
+                    widget: usize = UiFlat::button(UiFlat::NONE, 1.0, 1.0,
+                        transparent, transparent, transparent)
+                    accessibility_session_locate_widgets[(choice.i64() - 1).usize()] <- widget
+                    locate_widgets_ready <- false if widget == UiFlat::NONE
+                accessibility_session_locate_ready <- locate_widgets_ready
+                init_generation_review_accessibility()
 
         def toolbar_accessibility_role(action: i64) -> UiCore::AccessibilityRole:
             return UiCore::AccessibilityRole.CheckBox if action == StudioPanels::ToolbarAction.Loop.i64() or action == StudioPanels::ToolbarAction.Trails.i64() or action == StudioPanels::ToolbarAction.Contacts.i64() or action == StudioPanels::ToolbarAction.Heat.i64() or action == StudioPanels::ToolbarAction.Onion.i64() or action == StudioPanels::ToolbarAction.Ghost.i64() or action == StudioPanels::ToolbarAction.Xray.i64() or action == StudioPanels::ToolbarAction.Mesh.i64() or action == StudioPanels::ToolbarAction.Balance.i64()
             UiCore::AccessibilityRole.Button
 
-        def toolbar_accessibility_enabled(action: i64, can_undo: bool, can_redo: bool) -> bool:
-            return playback_available() if action == StudioPanels::ToolbarAction.Play.i64()
-            return can_undo if action == StudioPanels::ToolbarAction.Undo.i64()
-            return can_redo if action == StudioPanels::ToolbarAction.Redo.i64()
-            return workspace_available() if action == StudioPanels::ToolbarAction.Export.i64()
-            return character_surface_available() if action == StudioPanels::ToolbarAction.Mesh.i64()
-            true
+        def toolbar_accessibility_enabled(action: i64, can_undo: bool, can_redo: bool) -> bool can[Global.Read]:
+            can Global.Read:
+                return playback_available() if action == StudioPanels::ToolbarAction.Play.i64()
+                return can_undo if action == StudioPanels::ToolbarAction.Undo.i64()
+                return can_redo if action == StudioPanels::ToolbarAction.Redo.i64()
+                return workspace_available() if action == StudioPanels::ToolbarAction.Export.i64()
+                return character_surface_available() if action == StudioPanels::ToolbarAction.Mesh.i64()
+                return true
 
-        def toolbar_accessibility_help(action: i64) -> sview:
-            return character_unavailable_message() if action == StudioPanels::ToolbarAction.Mesh.i64() and not character_surface_available()
-            return "Toggle the character surface. Load a character GLB from File or press Shift-M." if action == StudioPanels::ToolbarAction.Mesh.i64()
-            "Activate this toolbar action."
+        def toolbar_accessibility_help(action: i64) -> sview can[Global.Read]:
+            can Global.Read:
+                return character_unavailable_message() if action == StudioPanels::ToolbarAction.Mesh.i64() and not character_surface_available()
+                return "Toggle the character surface. Load a character GLB from File or press Shift-M." if action == StudioPanels::ToolbarAction.Mesh.i64()
+                return "Activate this toolbar action."
 
         def toolbar_accessibility_value(action: i64, t: TimelineState::State&) -> sview:
             return TimelineState::speed_label(t.divisor) if action == StudioPanels::ToolbarAction.Speed.i64()
@@ -272,190 +280,192 @@ extend Studio:
             return "Paused" if action == StudioPanels::ToolbarAction.Play.i64()
             ""
 
-        def toolbar_accessibility_selected(action: i64, flags: i64, t: TimelineState::State&) -> bool:
-            return StudioPanels::lit(action, flags, t) and character_surface_available() if action == StudioPanels::ToolbarAction.Mesh.i64()
-            return StudioPanels::lit(action, flags, t) if toolbar_accessibility_role(action) == UiCore::AccessibilityRole.CheckBox
-            false
+        def toolbar_accessibility_selected(action: i64, flags: i64, t: TimelineState::State&) -> bool can[Global.Read]:
+            can Global.Read:
+                return StudioPanels::lit(action, flags, t) and character_surface_available() if action == StudioPanels::ToolbarAction.Mesh.i64()
+                return StudioPanels::lit(action, flags, t) if toolbar_accessibility_role(action) == UiCore::AccessibilityRole.CheckBox
+                return false
 
     public:
-        def toolbar_accessibility_action(widget: usize, event: i32) -> void:
-            return if prepared_batch_modal_open()
-            if suggestion_accessibility_action(widget, event):
-                return
-            if event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_batch_queue_open_widget and prepared_queue_entry_available():
-                open_prepared_sheet()
-                return
-            if event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_recovery_open_widget and export_recovery_entry_available():
-                export_recovery_open_view()
-                return
-            if export_recovery_open:
-                if event == UiConst::WidgetEvent.Click.i32() and accessibility_recovery_ready:
-                    for action in [StudioExportRecoveryUiPolicy::Focus.Close,
-                                   StudioExportRecoveryUiPolicy::Focus.Previous,
-                                   StudioExportRecoveryUiPolicy::Focus.Next,
-                                   StudioExportRecoveryUiPolicy::Focus.Retry,
-                                   StudioExportRecoveryUiPolicy::Focus.OpenOutput,
-                                   StudioExportRecoveryUiPolicy::Focus.OpenRecovery,
-                                   StudioExportRecoveryUiPolicy::Focus.Refresh] |action, widget|:
-                        if widget == accessibility_recovery_action_widgets[action.i64().usize()] and export_recovery_action_enabled(action):
-                            export_recovery_action(action)
-                            return
-                return
-            if storage_path_inspector and export_path_inspector_open:
-                if event == UiConst::WidgetEvent.Click.i32() and accessibility_path_ready:
-                    activate_export_path_inspector(StudioExportPathReview::Control.Previous.i64()) if widget == accessibility_path_previous_widget
-                    activate_export_path_inspector(StudioExportPathReview::Control.Next.i64()) if widget == accessibility_path_next_widget
-                    activate_export_path_inspector(StudioExportPathReview::Control.Done.i64()) if widget == accessibility_path_done_widget
-                return
-            if event == UiConst::WidgetEvent.Click.i32() and accessibility_file_ready:
-                if widget == accessibility_file_trigger_widget:
-                    file_menu_open <- not file_menu_open
-                    file_menu_focus <- 0 if file_menu_open
-                    file_menu_hover <- -1
-                    touch()
+        def toolbar_accessibility_action(widget: usize, event: i32) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if prepared_batch_modal_open()
+                if suggestion_accessibility_action(widget, event):
                     return
-                if file_menu_open:
-                    for row in 0..<StudioFilePolicy::row_count(workspace_needs_build_confirmation()) |row, widget|:
-                        if widget == accessibility_file_menu_widgets[row.usize()]:
-                            activate_file_menu(row)
-                            return
-            if event == UiConst::WidgetEvent.Click.i32() and storage_screen_open and not storage_path_inspector and accessibility_storage_ready:
-                for slot in 0..<StudioStorageAccessibilityPolicy::Node::ROW_COUNT |slot, widget, storage_selected, storage_focus|:
-                    if widget == accessibility_storage_row_widgets[slot.usize()] and accessibility_storage_row_indices[slot.usize()] >= 0:
-                        storage_selected <- accessibility_storage_row_indices[slot.usize()]
-                        storage_restore_review <- false
-                        storage_move_review <- false
-                        storage_focus <- -1
-                        toggle_storage_cleanup_row(storage_selected)
+                if event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_batch_queue_open_widget and prepared_queue_entry_available():
+                    open_prepared_sheet()
+                    return
+                if event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_recovery_open_widget and export_recovery_entry_available():
+                    export_recovery_open_view()
+                    return
+                if export_recovery_open:
+                    if event == UiConst::WidgetEvent.Click.i32() and accessibility_recovery_ready:
+                        for action in [StudioExportRecoveryUiPolicy::Focus.Close,
+                                       StudioExportRecoveryUiPolicy::Focus.Previous,
+                                       StudioExportRecoveryUiPolicy::Focus.Next,
+                                       StudioExportRecoveryUiPolicy::Focus.Retry,
+                                       StudioExportRecoveryUiPolicy::Focus.OpenOutput,
+                                       StudioExportRecoveryUiPolicy::Focus.OpenRecovery,
+                                       StudioExportRecoveryUiPolicy::Focus.Refresh] |action, widget|:
+                            if widget == accessibility_recovery_action_widgets[action.i64().usize()] and export_recovery_action_enabled(action):
+                                export_recovery_action(action)
+                                return
+                    return
+                if storage_path_inspector and export_path_inspector_open:
+                    if event == UiConst::WidgetEvent.Click.i32() and accessibility_path_ready:
+                        activate_export_path_inspector(StudioExportPathReview::Control.Previous.i64()) if widget == accessibility_path_previous_widget
+                        activate_export_path_inspector(StudioExportPathReview::Control.Next.i64()) if widget == accessibility_path_next_widget
+                        activate_export_path_inspector(StudioExportPathReview::Control.Done.i64()) if widget == accessibility_path_done_widget
+                    return
+                if event == UiConst::WidgetEvent.Click.i32() and accessibility_file_ready:
+                    if widget == accessibility_file_trigger_widget:
+                        file_menu_open <- not file_menu_open
+                        file_menu_focus <- 0 if file_menu_open
+                        file_menu_hover <- -1
                         touch()
                         return
-                for action in 0..<StudioPanels::StorageAction::COUNT |action, widget, storage_focus|:
-                    if widget == accessibility_storage_action_widgets[action.usize()]:
-                        storage_focus <- action
-                        storage_action(action)
-                        return
-            if accessibility_stack_ready and event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_stack_duplicate_widget:
-                reset_menu_open <- false
-                duplicate_selected()
-                return
-            if accessibility_reset_ready and event == UiConst::WidgetEvent.Click.i32():
-                if widget == accessibility_reset_trigger_widget:
-                    reset_menu_open <- not reset_menu_open
-                    touch()
-                    return
-                if reset_menu_open:
+                    if file_menu_open:
+                        for row in 0..<StudioFilePolicy::row_count(workspace_needs_build_confirmation()) |row, widget|:
+                            if widget == accessibility_file_menu_widgets[row.usize()]:
+                                activate_file_menu(row)
+                                return
+                if event == UiConst::WidgetEvent.Click.i32() and storage_screen_open and not storage_path_inspector and accessibility_storage_ready:
+                    for slot in 0..<StudioStorageAccessibilityPolicy::Node::ROW_COUNT |slot, widget, storage_selected, storage_focus|:
+                        if widget == accessibility_storage_row_widgets[slot.usize()] and accessibility_storage_row_indices[slot.usize()] >= 0:
+                            storage_selected <- accessibility_storage_row_indices[slot.usize()]
+                            storage_restore_review <- false
+                            storage_move_review <- false
+                            storage_focus <- -1
+                            toggle_storage_cleanup_row(storage_selected)
+                            touch()
+                            return
+                    for action in 0..<StudioPanels::StorageAction::COUNT |action, widget, storage_focus|:
+                        if widget == accessibility_storage_action_widgets[action.usize()]:
+                            storage_focus <- action
+                            storage_action(action)
+                            return
+                if accessibility_stack_ready and event == UiConst::WidgetEvent.Click.i32() and widget == accessibility_stack_duplicate_widget:
                     reset_menu_open <- false
-                    if widget == accessibility_reset_contacts_widget:
-                        reset_cleanup(StudioResetScope::Action.CLEAR_CONTACTS.i64())
-                    elif widget == accessibility_reset_corrections_widget:
-                        reset_cleanup(StudioResetScope::Action.CLEAR_CORRECTIONS.i64())
-                    elif widget == accessibility_reset_source_widget:
-                        reset_cleanup(StudioResetScope::Action.RESTORE_SOURCE.i64())
-                    else:
+                    duplicate_selected()
+                    return
+                if accessibility_reset_ready and event == UiConst::WidgetEvent.Click.i32():
+                    if widget == accessibility_reset_trigger_widget:
+                        reset_menu_open <- not reset_menu_open
                         touch()
-                    return
-            if accessibility_issue_ready and event == UiConst::WidgetEvent.Click.i32():
-                if accessibility_issue_filter_ready:
-                    for field in 0..<4 |field, widget|:
-                        if widget == accessibility_issue_filter_widgets[field.usize()]:
-                            cycle_issue_filter(field)
+                        return
+                    if reset_menu_open:
+                        reset_menu_open <- false
+                        if widget == accessibility_reset_contacts_widget:
+                            reset_cleanup(StudioResetScope::Action.CLEAR_CONTACTS.i64())
+                        elif widget == accessibility_reset_corrections_widget:
+                            reset_cleanup(StudioResetScope::Action.CLEAR_CORRECTIONS.i64())
+                        elif widget == accessibility_reset_source_widget:
+                            reset_cleanup(StudioResetScope::Action.RESTORE_SOURCE.i64())
+                        else:
+                            touch()
+                        return
+                if accessibility_issue_ready and event == UiConst::WidgetEvent.Click.i32():
+                    if accessibility_issue_filter_ready:
+                        for field in 0..<4 |field, widget|:
+                            if widget == accessibility_issue_filter_widgets[field.usize()]:
+                                cycle_issue_filter(field)
+                                return
+                        if widget == accessibility_issue_filter_reset_widget:
+                            reset_issue_filters()
                             return
-                    if widget == accessibility_issue_filter_reset_widget:
-                        reset_issue_filters()
+                        elif widget == accessibility_issue_intent_widget:
+                            toggle_issue_intent()
+                            return
+                    if widget == accessibility_issue_previous_widget:
+                        issue_navigation(StudioPanels::IssueAction::ISSUE_PREVIOUS)
                         return
-                    elif widget == accessibility_issue_intent_widget:
-                        toggle_issue_intent()
+                    elif widget == accessibility_issue_next_widget:
+                        issue_navigation(StudioPanels::IssueAction::ISSUE_NEXT)
                         return
-                if widget == accessibility_issue_previous_widget:
-                    issue_navigation(StudioPanels::IssueAction::ISSUE_PREVIOUS)
-                    return
-                elif widget == accessibility_issue_next_widget:
-                    issue_navigation(StudioPanels::IssueAction::ISSUE_NEXT)
-                    return
-                elif widget == accessibility_issue_worst_widget:
-                    issue_navigation(StudioPanels::IssueAction::ISSUE_WORST)
-                    return
-                for index in 0..<StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS |index, widget|:
-                    if widget == accessibility_issue_row_widgets[index.usize()] and StudioPanels::issue_row_route_enabled(index, StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS, issues_revision == built):
-                        navigate_issue(visible_issue_first() + index)
+                    elif widget == accessibility_issue_worst_widget:
+                        issue_navigation(StudioPanels::IssueAction::ISSUE_WORST)
                         return
-            if accessibility_contact_ready and event == UiConst::WidgetEvent.Click.i32():
-                if widget == accessibility_contact_first_widget:
-                    contact_begin_frame_draft(StudioContactEditor::NudgeTarget.First.i64())
-                    return
-                elif widget == accessibility_contact_last_widget:
-                    contact_begin_frame_draft(StudioContactEditor::NudgeTarget.Last.i64())
-                    return
-                if widget == accessibility_contact_plant_widget:
-                    contact_apply(StudioContactEditor::Action.Plant.i64())
-                    return
-                elif widget == accessibility_contact_lift_widget:
-                    contact_apply(StudioContactEditor::Action.Lift.i64())
-                    return
-                elif widget == accessibility_contact_reset_widget:
-                    contact_apply(StudioContactEditor::Action.Reset.i64())
-                    return
-                elif widget == accessibility_contact_delete_widget:
-                    contact_apply(StudioContactEditor::Action.Delete.i64())
-                    return
-                elif widget == accessibility_contact_merge_widget:
-                    contact_apply(StudioContactEditor::Action.Merge.i64())
-                    return
-                elif widget == accessibility_contact_split_widget:
-                    contact_apply(StudioContactEditor::Action.Split.i64())
-                    return
-            if accessibility_warning_ready and export_warning_detail_open and event == UiConst::WidgetEvent.Click.i32():
-                if widget == accessibility_warning_previous_widget:
-                    activate_export_warning_detail(StudioExportPathReview::Control.Previous.i64())
-                    return
-                elif widget == accessibility_warning_next_widget:
-                    activate_export_warning_detail(StudioExportPathReview::Control.Next.i64())
-                    return
-                elif widget == accessibility_warning_done_widget:
-                    activate_export_warning_detail(StudioExportPathReview::Control.Done.i64())
-                    return
-            if accessibility_path_ready and export_path_inspector_open and event == UiConst::WidgetEvent.Click.i32():
-                if widget == accessibility_path_previous_widget:
-                    activate_export_path_inspector(StudioExportPathReview::Control.Previous.i64())
-                    return
-                elif widget == accessibility_path_next_widget:
-                    activate_export_path_inspector(StudioExportPathReview::Control.Next.i64())
-                    return
-                elif widget == accessibility_path_done_widget:
-                    activate_export_path_inspector(StudioExportPathReview::Control.Done.i64())
-                    return
-            if accessibility_result_ready and export_result_open and event == UiConst::WidgetEvent.Click.i32():
-                if widget == accessibility_result_open_widget:
-                    activate_export_result(StudioExportResult::Action::OPEN)
-                    return
-                elif widget == accessibility_result_folder_widget:
-                    activate_export_result(StudioExportResult::Action::SHOW_IN_FOLDER)
-                    return
-                elif widget == accessibility_result_done_widget:
-                    activate_export_result(StudioExportResult::Action::DONE)
-                    return
-            if accessibility_review_ready and export_review_open and event == UiConst::WidgetEvent.Click.i32():
-                if widget == accessibility_review_ack_widget:
-                    activate_export_review(StudioExportReview::Control.ACKNOWLEDGE.i64())
-                    return
-                elif widget == accessibility_review_destination_widget:
-                    activate_export_review(StudioExportReview::Control.DESTINATION.i64())
-                    return
-                elif widget == accessibility_review_cancel_widget:
-                    activate_export_review(StudioExportReview::Control.CANCEL.i64())
-                    return
-                elif widget == accessibility_review_export_widget:
-                    activate_export_review(StudioExportReview::Control.EXPORT.i64())
-                    return
-                elif widget == accessibility_review_queue_widget:
-                    activate_export_review(StudioExportReview::Control.QUEUE.i64()) if StudioExportReview::export_enabled(current_export_warnings(), export_review_acknowledged) and prepared_workspace_writable()
-                    return
-                for index in 0..<current_export_warnings() |index, widget|:
-                    if widget == accessibility_review_warning_widgets[index.usize()]:
-                        open_export_warning_detail(index)
+                    for index in 0..<StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS |index, widget|:
+                        if widget == accessibility_issue_row_widgets[index.usize()] and StudioPanels::issue_row_route_enabled(index, StudioPanels::PanelLimit::ISSUE_FILTERED_ROWS, issues_revision == built):
+                            navigate_issue(visible_issue_first() + index)
+                            return
+                if accessibility_contact_ready and event == UiConst::WidgetEvent.Click.i32():
+                    if widget == accessibility_contact_first_widget:
+                        contact_begin_frame_draft(StudioContactEditor::NudgeTarget.First.i64())
                         return
-            return if not accessibility_toolbar_ready or event != UiConst::WidgetEvent.Click.i32()
-            action: i64 = StudioAccessibility::toolbar_action_for_widget(widget)
-            toolbar_action(action) if action >= 0
+                    elif widget == accessibility_contact_last_widget:
+                        contact_begin_frame_draft(StudioContactEditor::NudgeTarget.Last.i64())
+                        return
+                    if widget == accessibility_contact_plant_widget:
+                        contact_apply(StudioContactEditor::Action.Plant.i64())
+                        return
+                    elif widget == accessibility_contact_lift_widget:
+                        contact_apply(StudioContactEditor::Action.Lift.i64())
+                        return
+                    elif widget == accessibility_contact_reset_widget:
+                        contact_apply(StudioContactEditor::Action.Reset.i64())
+                        return
+                    elif widget == accessibility_contact_delete_widget:
+                        contact_apply(StudioContactEditor::Action.Delete.i64())
+                        return
+                    elif widget == accessibility_contact_merge_widget:
+                        contact_apply(StudioContactEditor::Action.Merge.i64())
+                        return
+                    elif widget == accessibility_contact_split_widget:
+                        contact_apply(StudioContactEditor::Action.Split.i64())
+                        return
+                if accessibility_warning_ready and export_warning_detail_open and event == UiConst::WidgetEvent.Click.i32():
+                    if widget == accessibility_warning_previous_widget:
+                        activate_export_warning_detail(StudioExportPathReview::Control.Previous.i64())
+                        return
+                    elif widget == accessibility_warning_next_widget:
+                        activate_export_warning_detail(StudioExportPathReview::Control.Next.i64())
+                        return
+                    elif widget == accessibility_warning_done_widget:
+                        activate_export_warning_detail(StudioExportPathReview::Control.Done.i64())
+                        return
+                if accessibility_path_ready and export_path_inspector_open and event == UiConst::WidgetEvent.Click.i32():
+                    if widget == accessibility_path_previous_widget:
+                        activate_export_path_inspector(StudioExportPathReview::Control.Previous.i64())
+                        return
+                    elif widget == accessibility_path_next_widget:
+                        activate_export_path_inspector(StudioExportPathReview::Control.Next.i64())
+                        return
+                    elif widget == accessibility_path_done_widget:
+                        activate_export_path_inspector(StudioExportPathReview::Control.Done.i64())
+                        return
+                if accessibility_result_ready and export_result_open and event == UiConst::WidgetEvent.Click.i32():
+                    if widget == accessibility_result_open_widget:
+                        activate_export_result(StudioExportResult::Action::OPEN)
+                        return
+                    elif widget == accessibility_result_folder_widget:
+                        activate_export_result(StudioExportResult::Action::SHOW_IN_FOLDER)
+                        return
+                    elif widget == accessibility_result_done_widget:
+                        activate_export_result(StudioExportResult::Action::DONE)
+                        return
+                if accessibility_review_ready and export_review_open and event == UiConst::WidgetEvent.Click.i32():
+                    if widget == accessibility_review_ack_widget:
+                        activate_export_review(StudioExportReview::Control.ACKNOWLEDGE.i64())
+                        return
+                    elif widget == accessibility_review_destination_widget:
+                        activate_export_review(StudioExportReview::Control.DESTINATION.i64())
+                        return
+                    elif widget == accessibility_review_cancel_widget:
+                        activate_export_review(StudioExportReview::Control.CANCEL.i64())
+                        return
+                    elif widget == accessibility_review_export_widget:
+                        activate_export_review(StudioExportReview::Control.EXPORT.i64())
+                        return
+                    elif widget == accessibility_review_queue_widget:
+                        activate_export_review(StudioExportReview::Control.QUEUE.i64()) if StudioExportReview::export_enabled(current_export_warnings(), export_review_acknowledged) and prepared_workspace_writable()
+                        return
+                    for index in 0..<current_export_warnings() |index, widget|:
+                        if widget == accessibility_review_warning_widgets[index.usize()]:
+                            open_export_warning_detail(index)
+                            return
+                return if not accessibility_toolbar_ready or event != UiConst::WidgetEvent.Click.i32()
+                action: i64 = StudioAccessibility::toolbar_action_for_widget(widget)
+                toolbar_action(action) if action >= 0
 
         # Publish stable region landmarks and actionable toolbar controls.
