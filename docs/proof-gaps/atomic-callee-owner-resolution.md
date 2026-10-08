@@ -51,3 +51,11 @@ lexical `module` field. Scoped import resolution therefore misses
 assert each expected diagnostic's line and message individually; unrelated
 ancestor errors must not make a missing imported mismatch appear to pass.
 Rebuild the changed compiler before qualification.
+
+The shared `function_parameter_type_at_firm` accessor in
+`check_firm_call_resolution.elisa` remains outside the declaration-qualified
+FirmArgTypeMismatch path. Its row guard checks owner and next-link counts but
+then reads `function_param_type[row]` without checking that vector's count.
+Validate all indexed metadata before use and enumerate sibling consumers;
+name-only shared lookup must not be described as resolved-owner qualification.
+Keep the indexed lookup rather than introducing whole-table argument scans.
