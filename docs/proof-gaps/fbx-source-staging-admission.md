@@ -225,3 +225,11 @@ Keep `Unsafe.RawExtern` propagation visible until the deliberately reviewed
 adapter boundary; a type-state or affine envelope alone cannot establish the
 native observations. Until correspondence is established, report the pure
 admission proofs and native import results as separate evidence.
+
+The production output validator now also checks source-path termination itself,
+with an explicit success contract and `malformed_source_is_refused` companion
+law. The adapter already checks that input before the foreign call; the added
+predicate makes standalone validator admission reject malformed sources as well.
+Fresh semantic, source-authenticated proof/replay and native qualification of
+this change remain pending. Path termination establishes neither filesystem
+identity nor the native copying/durability observations above.
