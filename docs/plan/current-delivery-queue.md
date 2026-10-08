@@ -85,8 +85,10 @@ single-file diagnostic, screenshot or live process is insufficient.
 `85eef9ff` compiler repair also passed focused strict native Unsafe-member
 refusal controls and has a matched rebuilt Stage1 product. Project-wide strict
 Unsafe acceptance remains pending. The latest retained full-graph capture
-(`build/studio-build.c9f-navigation-session/`) has 217 diagnostic lines and still
-fails semantic and LLVM checks; subsequent source changes need a new capture.
+(`build/studio-build.c9f-export-closure/`) has 12 diagnostic lines and still fails
+semantic and LLVM checks. Six involve UI dependency grants; six concern local
+publication-status pattern bindings being resolved as the Studio global status.
+The local bindings have since been renamed; both changes need a new capture.
 Diagnostic counts identify work, not correctness or user acceptance. The
 user-visible crash remains open, and no current replacement app is qualified.
 See [compiler qualification](compiler-qualification.md),
