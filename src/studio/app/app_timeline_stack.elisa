@@ -2,140 +2,155 @@ include "app_state.elisa"
 
 extend Studio:
     private:
-        def set_timeline(t: TimelineState::State) -> void:
-            timeline <- t
-            touch()
+        def set_timeline(t: TimelineState::State) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                timeline <- t
+                touch()
 
-        def scrub_to(f: i64) -> void:
-            if timeline is t:
-                set_timeline(TimelineState::scrub(t, f))
+        def scrub_to(f: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if timeline is t:
+                    set_timeline(TimelineState::scrub(t, f))
 
-        def step_frames(d: i64) -> void:
-            if timeline is t:
-                set_timeline(TimelineState::step_by(t, d))
+        def step_frames(d: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if timeline is t:
+                    set_timeline(TimelineState::step_by(t, d))
 
-        def playback_available() -> bool:
-            if timeline is t and clip is c:
-                return StudioSampleTimePolicy::playback_allowed(t.playing,
-                    StudioSampleClock::ready(c.sample_clock),
-                    StudioSampleClock::count(c.sample_clock) == t.count)
-            false
+        def playback_available() -> bool can[Global.Read]:
+            can Global.Read:
+                if timeline is t and clip is c:
+                    return StudioSampleTimePolicy::playback_allowed(t.playing,
+                        StudioSampleClock::ready(c.sample_clock),
+                        StudioSampleClock::count(c.sample_clock) == t.count)
+                return false
 
-        def toggle_play() -> void:
-            if timeline is t:
-                if not t.playing and clip is c:
-                    if not playback_available():
-                        status <- StudioSampleClock::explanation(c.sample_clock)
-                        status_file <- null
-                        touch()
-                        return
-                last_time <- UiAppKitCanvas::monotonic_time()
-                set_timeline(TimelineState::toggle_play(t))
+        def toggle_play() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if timeline is t:
+                    if not t.playing and clip is c:
+                        if not playback_available():
+                            status <- StudioSampleClock::explanation(c.sample_clock)
+                            status_file <- null
+                            touch()
+                            return
+                    last_time <- UiAppKitCanvas::monotonic_time()
+                    set_timeline(TimelineState::toggle_play(t))
 
-        def cycle_speed() -> void:
-            if timeline is t:
-                set_timeline(TimelineState::cycle_speed(t))
+        def cycle_speed() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if timeline is t:
+                    set_timeline(TimelineState::cycle_speed(t))
 
-        def toggle_loop() -> void:
-            if timeline is t:
-                mutable n: TimelineState::State = t
-                n.looping <- not n.looping
-                set_timeline(n)
+        def toggle_loop() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if timeline is t:
+                    mutable n: TimelineState::State = t
+                    n.looping <- not n.looping
+                    set_timeline(n)
 
-        def toggle_flag(bit: i64) -> void:
-            flags <- StudioScene::toggle(flags, bit)
-            touch()
+        def toggle_flag(bit: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                flags <- StudioScene::toggle(flags, bit)
+                touch()
 
         # ---- stack edits -----------------------------------------------
-        def add_op(k: i64) -> void:
-            mutable s: StackState::Stack = current_stack()
-            if StackState::add(&s, StudioModel::new_operation(k, frames())):
-                StackState::select(&s, s.count - 1)
+        def add_op(k: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                mutable s: StackState::Stack = current_stack()
+                if StackState::add(&s, StudioModel::new_operation(k, frames())):
+                    StackState::select(&s, s.count - 1)
+                    return if not commit(s, true)
+                    show_edit_completion("operation added")
+                    nudged_row <- -1
+                    status_file <- null
+
+        def reset_cleanup(action: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                mutable s: StackState::Stack = current_stack()
+                return if not StudioResetScope::enabled(action, StackState::valid(s, s.selected), s.edit_count, s.fix_count, StackState::has_cleanup(s))
+                mutable changed: bool = false
+                if action == StudioResetScope::Action.CLEAR_CONTACTS.i64():
+                    changed <- StackState::clear_edits(&s)
+                elif action == StudioResetScope::Action.CLEAR_CORRECTIONS.i64():
+                    changed <- StackState::clear_fixes(&s)
+                elif action == StudioResetScope::Action.RESTORE_SOURCE.i64():
+                    changed <- StackState::reset_to_source(&s)
+                return if not changed
                 return if not commit(s, true)
-                show_edit_completion("operation added")
+                reset_menu_open <- false
                 nudged_row <- -1
                 status_file <- null
+                show_edit_completion("All contact overrides cleared (Cmd-Z)") if action == StudioResetScope::Action.CLEAR_CONTACTS.i64()
+                show_edit_completion("All local corrections cleared (Cmd-Z)") if action == StudioResetScope::Action.CLEAR_CORRECTIONS.i64()
+                show_edit_completion("Source restored; all cleanup removed (Cmd-Z)") if action == StudioResetScope::Action.RESTORE_SOURCE.i64()
 
-        def reset_cleanup(action: i64) -> void:
-            mutable s: StackState::Stack = current_stack()
-            return if not StudioResetScope::enabled(action, StackState::valid(s, s.selected), s.edit_count, s.fix_count, StackState::has_cleanup(s))
-            mutable changed: bool = false
-            if action == StudioResetScope::Action.CLEAR_CONTACTS.i64():
-                changed <- StackState::clear_edits(&s)
-            elif action == StudioResetScope::Action.CLEAR_CORRECTIONS.i64():
-                changed <- StackState::clear_fixes(&s)
-            elif action == StudioResetScope::Action.RESTORE_SOURCE.i64():
-                changed <- StackState::reset_to_source(&s)
-            return if not changed
-            return if not commit(s, true)
-            reset_menu_open <- false
-            nudged_row <- -1
-            status_file <- null
-            show_edit_completion("All contact overrides cleared (Cmd-Z)") if action == StudioResetScope::Action.CLEAR_CONTACTS.i64()
-            show_edit_completion("All local corrections cleared (Cmd-Z)") if action == StudioResetScope::Action.CLEAR_CORRECTIONS.i64()
-            show_edit_completion("Source restored; all cleanup removed (Cmd-Z)") if action == StudioResetScope::Action.RESTORE_SOURCE.i64()
+        def duplicate_selected() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                mutable s: StackState::Stack = current_stack()
+                if not StudioOperationDuplicatePolicy::available(s.count, s.selected):
+                    status <- "Stack is full (16 of 16)" if s.count >= StudioOperationDuplicatePolicy::MAX_OPS else "Select an operation to duplicate"
+                    nudged_row <- -1
+                    status_file <- null
+                    touch()
+                    return
+                if StackState::duplicate_selected(&s):
+                    return if not commit(s, true)
+                    show_edit_completion("Operation duplicated; copy selected (Cmd-Z to undo)")
+                    nudged_row <- -1
+                    status_file <- null
 
-        def duplicate_selected() -> void:
-            mutable s: StackState::Stack = current_stack()
-            if not StudioOperationDuplicatePolicy::available(s.count, s.selected):
-                status <- "Stack is full (16 of 16)" if s.count >= StudioOperationDuplicatePolicy::MAX_OPS else "Select an operation to duplicate"
-                nudged_row <- -1
-                status_file <- null
-                touch()
-                return
-            if StackState::duplicate_selected(&s):
-                return if not commit(s, true)
-                show_edit_completion("Operation duplicated; copy selected (Cmd-Z to undo)")
-                nudged_row <- -1
-                status_file <- null
+        def edit_selected(kind: i64, amount: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                mutable s: StackState::Stack = current_stack()
+                at: i64 = s.selected
+                return if not StackState::valid(s, at)
+                mutable ok: bool = false
+                if kind == StudioPanels::StackHit.Toggle.i64():
+                    ok <- StackState::toggle(&s, at)
+                elif kind == StudioPanels::StackHit.Remove.i64():
+                    ok <- StackState::remove(&s, at)
+                elif kind == StudioPanels::StackHit.Up.i64():
+                    ok <- StackState::move(&s, at, -1)
+                elif kind == StudioPanels::StackHit.Down.i64():
+                    ok <- StackState::move(&s, at, 1)
+                elif kind == 7:
+                    ok <- StudioModel::nudge(&s, at, amount)
+                elif kind == 8:
+                    ok <- StackState::cycle_bones(&s, at)
+                elif kind == 9:
+                    op: Ops::Operation = s.ops[at]
+                    ok <- StackState::set_scope(&s, at, frame_now(), op.last, frames())
+                elif kind == 10:
+                    op: Ops::Operation = s.ops[at]
+                    ok <- StackState::set_scope(&s, at, op.first, frame_now(), frames())
+                if ok:
+                    return if not commit(s, true)
+                    nudged_row <- at if kind == 7 else -1
 
-        def edit_selected(kind: i64, amount: i64) -> void:
-            mutable s: StackState::Stack = current_stack()
-            at: i64 = s.selected
-            return if not StackState::valid(s, at)
-            mutable ok: bool = false
-            if kind == StudioPanels::StackHit.Toggle.i64():
-                ok <- StackState::toggle(&s, at)
-            elif kind == StudioPanels::StackHit.Remove.i64():
-                ok <- StackState::remove(&s, at)
-            elif kind == StudioPanels::StackHit.Up.i64():
-                ok <- StackState::move(&s, at, -1)
-            elif kind == StudioPanels::StackHit.Down.i64():
-                ok <- StackState::move(&s, at, 1)
-            elif kind == 7:
-                ok <- StudioModel::nudge(&s, at, amount)
-            elif kind == 8:
-                ok <- StackState::cycle_bones(&s, at)
-            elif kind == 9:
-                op: Ops::Operation = s.ops[at]
-                ok <- StackState::set_scope(&s, at, frame_now(), op.last, frames())
-            elif kind == 10:
-                op: Ops::Operation = s.ops[at]
-                ok <- StackState::set_scope(&s, at, op.first, frame_now(), frames())
-            if ok:
-                return if not commit(s, true)
-                nudged_row <- at if kind == 7 else -1
+        def select_row(i: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                mutable s: StackState::Stack = current_stack()
+                StackState::select(&s, i)
+                commit(s, false)
 
-        def select_row(i: i64) -> void:
-            mutable s: StackState::Stack = current_stack()
-            StackState::select(&s, i)
-            commit(s, false)
-
-        def row_action(hit: i64) -> void:
-            kind: i64 = hit / 100
-            row: i64 = hit % 100
-            if kind == StudioPanels::StackHit.Add.i64():
-                add_op(row)
-                return
-            if kind == StudioPanels::StackHit.Duplicate.i64():
-                duplicate_selected()
-                return
-            select_row(row)
-            edit_selected(kind, 0) if kind != StudioPanels::StackHit.Select.i64()
+        def row_action(hit: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                kind: i64 = hit / 100
+                row: i64 = hit % 100
+                if kind == StudioPanels::StackHit.Add.i64():
+                    add_op(row)
+                    return
+                if kind == StudioPanels::StackHit.Duplicate.i64():
+                    duplicate_selected()
+                    return
+                select_row(row)
+                edit_selected(kind, 0) if kind != StudioPanels::StackHit.Select.i64()
 
         # The preset opens as a revision-bound suggestion for pose review.
-        def clean_with_preset() -> void:
-            suggestion_begin()
+        def clean_with_preset() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                suggestion_begin()
 
         def gain(before: i64, after: i64) -> i64:
             return 0 if before < 0 or after < 0 or before > StudioChrome::Gain::MAX_MAGNITUDE or after > StudioChrome::Gain::MAX_MAGNITUDE
