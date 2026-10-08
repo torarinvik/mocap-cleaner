@@ -253,8 +253,11 @@ fixed storage, so the per-frame slot ring cannot overwrite the message. A
 change. Semantic checking passes on installed `b26659e2`, but native emission
 declines the fixed-array generic UI view helper (also used by existing
 StudioText); runtime and final paired-proof qualification remain open. Preserve
-this regression through compiler repair integration. This does not replace the
-full-details view, UTF-8 formatting audit or complete error persistence policy.
+this regression through compiler repair integration. The formatter now exposes
+only complete UTF-8 scalar prefixes, with two-/four-byte boundary tests and
+non-vacuous helper proof obligations. Their semantic checks pass; native and
+source/replay qualification remain open. This does not replace the full-details
+view, grapheme/translation review or complete error persistence policy.
 
 Partial implementation: empty-document import failures now select the failure
 guide through a contracted ticket/loaded/cancelled/closing policy. The guide uses
