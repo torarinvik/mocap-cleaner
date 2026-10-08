@@ -32,25 +32,27 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 
 ## Highest-return execution focus
 
-The next outcome is a **current runnable Studio**, followed by reliable FBX
-import and animated Character/Skeleton viewing on the user's reported asset.
-Complete one existing cleanup with preview, apply/cancel, undo and a GLB export
-that reopens correctly before expanding the toolset.
+The retained 2026-10-08 crash report belongs to project revision `31459ca3` and
+does not include a frame or playback position. The later launched package was
+built from `e3698f7b`; the checked-out source is now at `69d28c69`, so the crash
+report does not establish a failure in the current source and the latest source
+has not yet been packaged. Rebuild a current, source-matched package, then verify
+the reported FBX through playback near frame 202 of 337, Character/Skeleton
+switching and camera controls. After that, deliver one existing cleanup with
+preview, apply/cancel, undo and a GLB export that reopens.
 
 Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
 
-1. Launch the sealed Studio package and reproduce FBX opening on the user's
-   asset; resolve workspace setup, failure details, cancellation and retry in
-   that same journey.
-2. Verify Character/Skeleton switching, mesh deformation, camera controls and
-   playback on the imported character, then fix any crash or asset-specific
-   display failure.
-3. Refresh proof/replay evidence against current sources, then complete one
-   cleanup/export journey with contracts, source correspondence and independent
-   proof replay.
-4. Protect that journey against interruption and stale publication, then fix
-   measured interaction bottlenecks. Finish broader storage, batch work and
-   release; activate research after the earlier acceptance gates pass.
+1. Qualify the latest source on the reported FBX: build from the current compiler
+   and dependency sources, test playback near frame 202, framing/orbit/zoom,
+   repeated redraw, workspace setup, cancellation, retry and malformed-input
+   recovery. Keep the source hash unchanged.
+2. Complete one existing cleanup/export journey with preview, apply/cancel, undo,
+   contracts, source correspondence and independent proof replay; reopen the GLB.
+3. Refresh remaining proof/replay evidence against current sources and qualify
+   interruption recovery and stale-publication handling before release. Then fix
+   measured interaction bottlenecks; resume broader storage, batch and research
+   work only after the first useful result passes.
 
 Keep one integrated product slice active, with only the compiler/prover/native
 repairs necessary to unlock it. Prioritize observed failures, user data at risk
@@ -108,8 +110,11 @@ priority changes do not waive acceptance or the mandatory engineering rules.
 - Apply the shared evidence and dependency requirements before closing any
   milestone; distinguish implementation from native and user acceptance.
 
-## Current user priority: FBX and character review
+## Current user priority: finish FBX review and deliver a cleaned result
 
 Deliver [FBX opening and Character/Skeleton review](docs/plan/fbx-character-import.md)
-with source-preserving import and editable posed surfaces. This remains part of
-the full roadmap and precedes further cleanup expansion.
+with source-preserving import and editable posed surfaces. Earlier runtime
+checks reported core import, playback and keyboard view switching on a prior
+package; those checks and the retained crash trace do not qualify the current
+checkout. Build and verify current sources on the reported asset, then complete
+one reviewed cleanup/export before expanding the feature set.
