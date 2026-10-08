@@ -32,144 +32,152 @@ extend Studio:
             out.hands <- hands
             out
 
-        def suggestion_baseline_ready() -> bool:
-            return false if load_failed or built <= 0
-            if built_stack is prior:
-                return StackState::same(prior, current_stack())
-            false
+        def suggestion_baseline_ready() -> bool can[Global.Read]:
+            can Global.Read:
+                return false if load_failed or built <= 0
+                if built_stack is prior:
+                    return StackState::same(prior, current_stack())
+                return false
 
-        def suggestion_candidate_of(s: StackState::Stack) -> StudioModel::Clip?:
-            return null if memo == null
-            if memo is held:
-                mutable m: StudioModel::Memo = held
-                memo <- null
-                if clip is c:
-                    previous_points: darray[Geometry::Vec3] = c.points
-                    previous_problems: darray[i64] = c.problems
-                    previous_peaks: darray[i64] = c.peaks
-                    window: mutable StudioPerf::Window = StudioPerf::full(c.frames)
-                    result: StudioModel::Clip? = StudioModel::build_with(&m, s, previous_points, previous_problems, previous_peaks, window, rig_source_revision)
+        def suggestion_candidate_of(s: StackState::Stack) -> StudioModel::Clip? can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return null if memo == null
+                if memo is held:
+                    mutable m: StudioModel::Memo = held
+                    memo <- null
+                    if clip is c:
+                        previous_points: darray[Geometry::Vec3] = c.points
+                        previous_problems: darray[i64] = c.problems
+                        previous_peaks: darray[i64] = c.peaks
+                        window: mutable StudioPerf::Window = StudioPerf::full(c.frames)
+                        result: StudioModel::Clip? = StudioModel::build_with(&m, s, previous_points, previous_problems, previous_peaks, window, rig_source_revision)
+                        memo <- move m
+                        return move result
                     memo <- move m
-                    return move result
-                memo <- move m
-            null
+                return null
 
-        def suggestion_begin() -> void:
-            return if suggestion_state == StudioSuggestionPolicy::State.Open
-            if clip is c:
-                return if contact_preview_active or FootState::active(&foot_press) or contact_draft_target >= 0 or gizmo_drag != null
-                return if storage_screen_open or help_open or replacement_prompt_open or export_review_open or export_warning_detail_open or export_result_open
-                if not suggestion_baseline_ready():
-                    status <- "Suggestion unavailable: current edits need a valid evaluated preview first."
-                    status_file <- null
-                    touch()
-                    return
-                base: StackState::Stack = current_stack()
-                candidate_stack: StackState::Stack? = suggestion_stack_of(base, base.feet, base.hands)
-                if candidate_stack == null:
-                    status <- "suggestion unavailable: stack is full"
-                    touch()
-                    return
-                if candidate_stack is proposed:
-                    candidate: StudioModel::Clip? = suggestion_candidate_of(proposed)
-                    if candidate == null:
-                        status <- "Could not evaluate suggested cleanup. Current result and edits retained; retry after resolving preview errors."
+        def suggestion_begin() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return if suggestion_state == StudioSuggestionPolicy::State.Open
+                if clip is c:
+                    return if contact_preview_active or FootState::active(&foot_press) or contact_draft_target >= 0 or gizmo_drag != null
+                    return if storage_screen_open or help_open or replacement_prompt_open or export_review_open or export_warning_detail_open or export_result_open
+                    if not suggestion_baseline_ready():
+                        status <- "Suggestion unavailable: current edits need a valid evaluated preview first."
                         status_file <- null
                         touch()
                         return
-                    if candidate is built_candidate:
-                        opened: StudioSuggestionPolicy::Decision = StudioSuggestionPolicy::open_decision(
-                            suggestion_state, true, built, stack_generation)
-                        return if opened != StudioSuggestionPolicy::Decision.Opened
-                        suggestion_impact_prepare(c)
+                    base: StackState::Stack = current_stack()
+                    candidate_stack: StackState::Stack? = suggestion_stack_of(base, base.feet, base.hands)
+                    if candidate_stack == null:
+                        status <- "suggestion unavailable: stack is full"
+                        touch()
+                        return
+                    if candidate_stack is proposed:
+                        candidate: StudioModel::Clip? = suggestion_candidate_of(proposed)
+                        if candidate == null:
+                            status <- "Could not evaluate suggested cleanup. Current result and edits retained; retry after resolving preview errors."
+                            status_file <- null
+                            touch()
+                            return
+                        if candidate is built_candidate:
+                            opened: StudioSuggestionPolicy::Decision = StudioSuggestionPolicy::open_decision(
+                                suggestion_state, true, built, stack_generation)
+                            return if opened != StudioSuggestionPolicy::Decision.Opened
+                            suggestion_impact_prepare(c)
+                            suggestion_stack <- proposed
+                            suggestion_candidate <- move built_candidate
+                            suggestion_foot_lock <- proposed.feet
+                            suggestion_hand_lock <- proposed.hands
+                            suggestion_foot_opt_in <- false
+                            suggestion_hand_opt_in <- false
+                            suggestion_document_generation <- built
+                            suggestion_stack_generation <- stack_generation
+                            suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
+                            suggestion_focus <- StudioPanels::SuggestionAction.Cancel
+                            suggestion_view <- StudioPanels::SuggestionView.Current
+                            suggestion_state <- StudioSuggestionPolicy::State.Open
+                            status <- "cleanup candidate ready; review measured preservation and impact timing"
+                            touch()
+
+        def suggestion_close() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                _ = StudioSuggestionPolicy::cancel_decision(suggestion_state)
+                suggestion_state <- StudioSuggestionPolicy::State.Closed
+                suggestion_candidate <- null
+                suggestion_document_generation <- -1
+                suggestion_stack_generation <- -1
+                suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
+                touch()
+
+        def suggestion_regenerate(feet: bool, hands: bool) -> bool can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return false if not suggestion_baseline_ready()
+                candidate_stack: StackState::Stack? = suggestion_stack_of(current_stack(), feet, hands)
+                if candidate_stack is proposed:
+                    candidate: StudioModel::Clip? = suggestion_candidate_of(proposed)
+                    if candidate is ready:
                         suggestion_stack <- proposed
-                        suggestion_candidate <- move built_candidate
-                        suggestion_foot_lock <- proposed.feet
-                        suggestion_hand_lock <- proposed.hands
-                        suggestion_foot_opt_in <- false
-                        suggestion_hand_opt_in <- false
+                        suggestion_candidate <- move ready
+                        suggestion_foot_lock <- feet
+                        suggestion_hand_lock <- hands
                         suggestion_document_generation <- built
                         suggestion_stack_generation <- stack_generation
-                        suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
-                        suggestion_focus <- StudioPanels::SuggestionAction.Cancel
-                        suggestion_view <- StudioPanels::SuggestionView.Current
-                        suggestion_state <- StudioSuggestionPolicy::State.Open
-                        status <- "cleanup candidate ready; review measured preservation and impact timing"
+                        suggestion_view <- StudioPanels::SuggestionView.Candidate
                         touch()
+                        return true
+                return false
 
-        def suggestion_close() -> void:
-            _ = StudioSuggestionPolicy::cancel_decision(suggestion_state)
-            suggestion_state <- StudioSuggestionPolicy::State.Closed
-            suggestion_candidate <- null
-            suggestion_document_generation <- -1
-            suggestion_stack_generation <- -1
-            suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
-            touch()
-
-        def suggestion_regenerate(feet: bool, hands: bool) -> bool:
-            return false if not suggestion_baseline_ready()
-            candidate_stack: StackState::Stack? = suggestion_stack_of(current_stack(), feet, hands)
-            if candidate_stack is proposed:
-                candidate: StudioModel::Clip? = suggestion_candidate_of(proposed)
-                if candidate is ready:
-                    suggestion_stack <- proposed
-                    suggestion_candidate <- move ready
-                    suggestion_foot_lock <- feet
-                    suggestion_hand_lock <- hands
-                    suggestion_document_generation <- built
-                    suggestion_stack_generation <- stack_generation
-                    suggestion_view <- StudioPanels::SuggestionView.Candidate
-                    touch()
-                    return true
-            false
-
-        def suggestion_toggle_lock(hands: bool) -> void:
-            if clip is c:
-                if suggestion_stale():
-                    status <- "suggestion stale; cancel and rebuild from current result"
-                    touch()
-                    return
-                enabled: bool = suggestion_hand_lock if hands else suggestion_foot_lock
-                validated: bool = suggestion_contacts_valid(c, hands)
-                opted: bool = StudioSuggestionPolicy::may_enable_contact_lock(validated, true)
-                return if not enabled and not opted
-                next_hands: bool = suggestion_hand_lock if not hands else not enabled
-                next_feet: bool = suggestion_foot_lock if hands else not enabled
-                if suggestion_regenerate(next_feet, next_hands):
-                    suggestion_hand_opt_in <- not enabled if hands else suggestion_hand_opt_in
-                    suggestion_foot_opt_in <- not enabled if not hands else suggestion_foot_opt_in
-                else:
-                    status <- "could not rebuild suggestion; previous candidate retained"
-                    touch()
+        def suggestion_toggle_lock(hands: bool) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if clip is c:
+                    if suggestion_stale():
+                        status <- "suggestion stale; cancel and rebuild from current result"
+                        touch()
+                        return
+                    enabled: bool = suggestion_hand_lock if hands else suggestion_foot_lock
+                    validated: bool = suggestion_contacts_valid(c, hands)
+                    opted: bool = StudioSuggestionPolicy::may_enable_contact_lock(validated, true)
+                    return if not enabled and not opted
+                    next_hands: bool = suggestion_hand_lock if not hands else not enabled
+                    next_feet: bool = suggestion_foot_lock if hands else not enabled
+                    if suggestion_regenerate(next_feet, next_hands):
+                        suggestion_hand_opt_in <- not enabled if hands else suggestion_hand_opt_in
+                        suggestion_foot_opt_in <- not enabled if not hands else suggestion_foot_opt_in
+                    else:
+                        status <- "could not rebuild suggestion; previous candidate retained"
+                        touch()
 
         def suggestion_unknown_evidence() -> StudioMetricEvidencePolicy::State:
             StudioMetricEvidencePolicy::classify(true, false, 0, 0)
 
-        def suggestion_sample_domain_ready() -> bool:
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    return StudioPanels::suggestion_sample_domains_match(current, candidate)
-            false
+        def suggestion_sample_domain_ready() -> bool can[Global.Read]:
+            can Global.Read:
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        return StudioPanels::suggestion_sample_domains_match(current, candidate)
+                return false
 
         def suggestion_contact_difference(lhs: darray[bool]&, rhs: darray[bool]&, frames: i64) -> i64:
             return -1 if frames <= 0 or lhs.count.i64() != frames or rhs.count.i64() != frames
             for frame in 0..<frames |differences: i64 = 0| -> differences:
                 differences <- differences + 1 if lhs[frame.usize()] != rhs[frame.usize()]
 
-        def suggestion_contacts_evidence() -> StudioMetricEvidencePolicy::State:
-            return suggestion_unknown_evidence() if suggestion_stale()
-            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    mutable valid: bool = current.frames > 0 and candidate.frames == current.frames and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
-                    left_foot: i64 = suggestion_contact_difference(current.left_contact, candidate.left_contact, current.frames) if valid else -1
-                    right_foot: i64 = suggestion_contact_difference(current.right_contact, candidate.right_contact, current.frames) if valid else -1
-                    left_hand: i64 = suggestion_contact_difference(current.left_hand_contact, candidate.left_hand_contact, current.frames) if valid else -1
-                    right_hand: i64 = suggestion_contact_difference(current.right_hand_contact, candidate.right_hand_contact, current.frames) if valid else -1
-                    valid <- valid and left_foot >= 0 and right_foot >= 0 and left_hand >= 0 and right_hand >= 0
-                    failures: i64 = left_foot + right_foot + left_hand + right_hand
-                    return StudioMetricEvidencePolicy::classify(true, valid, current.frames * 4, failures)
-            suggestion_unknown_evidence()
+        def suggestion_contacts_evidence() -> StudioMetricEvidencePolicy::State can[Global.Read]:
+            can Global.Read:
+                return suggestion_unknown_evidence() if suggestion_stale()
+                return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        mutable valid: bool = current.frames > 0 and candidate.frames == current.frames and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
+                        left_foot: i64 = suggestion_contact_difference(current.left_contact, candidate.left_contact, current.frames) if valid else -1
+                        right_foot: i64 = suggestion_contact_difference(current.right_contact, candidate.right_contact, current.frames) if valid else -1
+                        left_hand: i64 = suggestion_contact_difference(current.left_hand_contact, candidate.left_hand_contact, current.frames) if valid else -1
+                        right_hand: i64 = suggestion_contact_difference(current.right_hand_contact, candidate.right_hand_contact, current.frames) if valid else -1
+                        valid <- valid and left_foot >= 0 and right_foot >= 0 and left_hand >= 0 and right_hand >= 0
+                        failures: i64 = left_foot + right_foot + left_hand + right_hand
+                        return StudioMetricEvidencePolicy::classify(true, valid, current.frames * 4, failures)
+                return suggestion_unknown_evidence()
 
         def suggestion_track_point(c: StudioModel::Clip&, track: i64, frame: i64) -> Geometry::Vec3:
             return c.left_hand[frame.usize()] if track == 0
@@ -177,203 +185,217 @@ extend Studio:
             return c.left_foot[frame.usize()] if track == 2
             c.right_foot[frame.usize()]
 
-        def suggestion_boundary_evidence() -> StudioMetricEvidencePolicy::State:
-            return suggestion_unknown_evidence() if suggestion_stale()
-            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    tracks_valid: bool = current.frames > 0 and candidate.frames > 0 and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
-                    return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not tracks_valid
-                    mutable failures: i64 = 0
-                    mutable available: bool = true
-                    for track in 0..<4 |track, failures, available, current, candidate|:
-                        for edge in [0, 1] |edge, failures, available, track, current, candidate|:
-                            a_frame: i64 = current.frames - 1 if edge == 1 else 0
-                            b_frame: i64 = candidate.frames - 1 if edge == 1 else 0
-                            a: Geometry::Vec3 = suggestion_track_point(current, track, a_frame)
-                            b: Geometry::Vec3 = suggestion_track_point(candidate, track, b_frame)
-                            if not Geometry::vec3_is_finite(a) or not Geometry::vec3_is_finite(b):
-                                available <- false
-                            else:
-                                scaled_delta: f64 = Geometry::vec3_distance(a, b).f64() * 1000000.0
-                                if not StudioSuggestionMetricPolicy::scaled_admitted(scaled_delta):
+        def suggestion_boundary_evidence() -> StudioMetricEvidencePolicy::State can[Global.Read]:
+            can Global.Read:
+                return suggestion_unknown_evidence() if suggestion_stale()
+                return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        tracks_valid: bool = current.frames > 0 and candidate.frames > 0 and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
+                        return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not tracks_valid
+                        mutable failures: i64 = 0
+                        mutable available: bool = true
+                        for track in 0..<4 |track, failures, available, current, candidate|:
+                            for edge in [0, 1] |edge, failures, available, track, current, candidate|:
+                                a_frame: i64 = current.frames - 1 if edge == 1 else 0
+                                b_frame: i64 = candidate.frames - 1 if edge == 1 else 0
+                                a: Geometry::Vec3 = suggestion_track_point(current, track, a_frame)
+                                b: Geometry::Vec3 = suggestion_track_point(candidate, track, b_frame)
+                                if not Geometry::vec3_is_finite(a) or not Geometry::vec3_is_finite(b):
                                     available <- false
                                 else:
-                                    delta_um: i64 = StudioSuggestionMetricPolicy::rounded_scaled(scaled_delta)
-                                    failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta_um, StudioSuggestionMetricPolicy::Tolerance::BOUNDARY_MICROMETERS)
-                    return StudioMetricEvidencePolicy::classify(true, available, 8, failures)
-            suggestion_unknown_evidence()
+                                    scaled_delta: f64 = Geometry::vec3_distance(a, b).f64() * 1000000.0
+                                    if not StudioSuggestionMetricPolicy::scaled_admitted(scaled_delta):
+                                        available <- false
+                                    else:
+                                        delta_um: i64 = StudioSuggestionMetricPolicy::rounded_scaled(scaled_delta)
+                                        failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta_um, StudioSuggestionMetricPolicy::Tolerance::BOUNDARY_MICROMETERS)
+                        return StudioMetricEvidencePolicy::classify(true, available, 8, failures)
+                return suggestion_unknown_evidence()
 
-        def suggestion_joint_evidence() -> StudioMetricEvidencePolicy::State:
-            return suggestion_unknown_evidence() if suggestion_stale()
-            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    samples: i64 = current.hinge_angles.count.i64()
-                    valid: bool = current.hinge_angles_valid and candidate.hinge_angles_valid and samples > 0 and candidate.hinge_angles.count.i64() == samples
-                    return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not valid
-                    failures: i64 = for i in 0..<samples |total: i64 = 0| -> total:
-                        a: i64 = current.hinge_angles[i.usize()]
-                        b: i64 = candidate.hinge_angles[i.usize()]
-                        mutable delta: i64 = b - a
-                        delta <- 0 - delta if delta < 0
-                        total <- total + 1 if StudioSuggestionMetricPolicy::exceeds(delta, StudioSuggestionMetricPolicy::Tolerance::ANGLE_MILLI_DEGREES)
-                    return StudioMetricEvidencePolicy::classify(true, true, samples, failures)
-            suggestion_unknown_evidence()
+        def suggestion_joint_evidence() -> StudioMetricEvidencePolicy::State can[Global.Read]:
+            can Global.Read:
+                return suggestion_unknown_evidence() if suggestion_stale()
+                return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        samples: i64 = current.hinge_angles.count.i64()
+                        valid: bool = current.hinge_angles_valid and candidate.hinge_angles_valid and samples > 0 and candidate.hinge_angles.count.i64() == samples
+                        return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not valid
+                        failures: i64 = for i in 0..<samples |total: i64 = 0| -> total:
+                            a: i64 = current.hinge_angles[i.usize()]
+                            b: i64 = candidate.hinge_angles[i.usize()]
+                            mutable delta: i64 = b - a
+                            delta <- 0 - delta if delta < 0
+                            total <- total + 1 if StudioSuggestionMetricPolicy::exceeds(delta, StudioSuggestionMetricPolicy::Tolerance::ANGLE_MILLI_DEGREES)
+                        return StudioMetricEvidencePolicy::classify(true, true, samples, failures)
+                return suggestion_unknown_evidence()
 
-        def suggestion_velocity_evidence() -> StudioMetricEvidencePolicy::State:
-            return suggestion_unknown_evidence() if suggestion_stale()
-            return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    valid: bool = current.frames >= 2 and current.frames == candidate.frames and current.rate > 0 and candidate.rate == current.rate and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
-                    return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not valid
-                    mutable failures: i64 = 0
-                    mutable available: bool = true
-                    for track in 0..<4 |track, failures, available, current, candidate|:
-                        for frame in 1..<current.frames |frame, track, failures, available, current, candidate|:
-                            p0: Geometry::Vec3 = suggestion_track_point(current, track, frame - 1)
-                            p1: Geometry::Vec3 = suggestion_track_point(current, track, frame)
-                            q0: Geometry::Vec3 = suggestion_track_point(candidate, track, frame - 1)
-                            q1: Geometry::Vec3 = suggestion_track_point(candidate, track, frame)
-                            if not Geometry::vec3_is_finite(p0) or not Geometry::vec3_is_finite(p1) or not Geometry::vec3_is_finite(q0) or not Geometry::vec3_is_finite(q1):
-                                available <- false
-                            else:
-                                current_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(p1, p0), current.rate.f32())
-                                candidate_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(q1, q0), candidate.rate.f32())
-                                scaled_delta: f64 = Geometry::vec3_distance(current_velocity, candidate_velocity).f64() * 1000000.0
-                                if not StudioSuggestionMetricPolicy::scaled_admitted(scaled_delta):
+        def suggestion_velocity_evidence() -> StudioMetricEvidencePolicy::State can[Global.Read]:
+            can Global.Read:
+                return suggestion_unknown_evidence() if suggestion_stale()
+                return suggestion_unknown_evidence() if not suggestion_sample_domain_ready()
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        valid: bool = current.frames >= 2 and current.frames == candidate.frames and current.rate > 0 and candidate.rate == current.rate and suggestion_pose_tracks_valid(current) and suggestion_pose_tracks_valid(candidate)
+                        return StudioMetricEvidencePolicy::classify(true, false, 0, 0) if not valid
+                        mutable failures: i64 = 0
+                        mutable available: bool = true
+                        for track in 0..<4 |track, failures, available, current, candidate|:
+                            for frame in 1..<current.frames |frame, track, failures, available, current, candidate|:
+                                p0: Geometry::Vec3 = suggestion_track_point(current, track, frame - 1)
+                                p1: Geometry::Vec3 = suggestion_track_point(current, track, frame)
+                                q0: Geometry::Vec3 = suggestion_track_point(candidate, track, frame - 1)
+                                q1: Geometry::Vec3 = suggestion_track_point(candidate, track, frame)
+                                if not Geometry::vec3_is_finite(p0) or not Geometry::vec3_is_finite(p1) or not Geometry::vec3_is_finite(q0) or not Geometry::vec3_is_finite(q1):
                                     available <- false
                                 else:
-                                    delta: i64 = StudioSuggestionMetricPolicy::rounded_scaled(scaled_delta)
-                                    failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta, StudioSuggestionMetricPolicy::Tolerance::VELOCITY_MICROMETERS_PER_SECOND)
-                    return StudioMetricEvidencePolicy::classify(true, available, 4 * (current.frames - 1), failures)
-            suggestion_unknown_evidence()
+                                    current_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(p1, p0), current.rate.f32())
+                                    candidate_velocity: Geometry::Vec3 = Geometry::vec3_scale(Geometry::vec3_sub(q1, q0), candidate.rate.f32())
+                                    scaled_delta: f64 = Geometry::vec3_distance(current_velocity, candidate_velocity).f64() * 1000000.0
+                                    if not StudioSuggestionMetricPolicy::scaled_admitted(scaled_delta):
+                                        available <- false
+                                    else:
+                                        delta: i64 = StudioSuggestionMetricPolicy::rounded_scaled(scaled_delta)
+                                        failures <- failures + 1 if StudioSuggestionMetricPolicy::exceeds(delta, StudioSuggestionMetricPolicy::Tolerance::VELOCITY_MICROMETERS_PER_SECOND)
+                        return StudioMetricEvidencePolicy::classify(true, available, 4 * (current.frames - 1), failures)
+                return suggestion_unknown_evidence()
 
-        def suggestion_impact_source_matches(c: StudioModel::Clip&) -> bool:
-            c.source_fingerprint.first == suggestion_impact_source_first and c.source_fingerprint.second == suggestion_impact_source_second and c.anim.i64() == suggestion_impact_animation and c.source_frames == suggestion_impact_source_frames and GlbDocument::node_count(&c.source).i64() == suggestion_impact_nodes
+        def suggestion_impact_source_matches(c: StudioModel::Clip&) -> bool can[Global.Read]:
+            can Global.Read:
+                return c.source_fingerprint.first == suggestion_impact_source_first and c.source_fingerprint.second == suggestion_impact_source_second and c.anim.i64() == suggestion_impact_animation and c.source_frames == suggestion_impact_source_frames and GlbDocument::node_count(&c.source).i64() == suggestion_impact_nodes
 
-        def suggestion_impact_prepare(c: StudioModel::Clip&) -> void:
-            if not suggestion_impact_source_matches(c):
-                suggestion_impact_source_first <- c.source_fingerprint.first
-                suggestion_impact_source_second <- c.source_fingerprint.second
-                suggestion_impact_animation <- c.anim.i64()
-                suggestion_impact_source_frames <- c.source_frames
-                suggestion_impact_nodes <- GlbDocument::node_count(&c.source).i64()
-                suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed
-                suggestion_impact_annotation_count <- 0
+        def suggestion_impact_prepare(c: StudioModel::Clip&) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if not suggestion_impact_source_matches(c):
+                    suggestion_impact_source_first <- c.source_fingerprint.first
+                    suggestion_impact_source_second <- c.source_fingerprint.second
+                    suggestion_impact_animation <- c.anim.i64()
+                    suggestion_impact_source_frames <- c.source_frames
+                    suggestion_impact_nodes <- GlbDocument::node_count(&c.source).i64()
+                    suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed
+                    suggestion_impact_annotation_count <- 0
 
-        def suggestion_impact_snapshot_valid(c: StudioModel::Clip&) -> bool:
-            return false if not suggestion_impact_source_matches(c)
-            return false if suggestion_impact_annotation_count < 0 or suggestion_impact_annotation_count > StudioImpactAnnotationPolicy::MAX_ANNOTATIONS
-            return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.Unreviewed and suggestion_impact_annotation_count != 0
-            return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and suggestion_impact_annotation_count != 0
-            return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked and suggestion_impact_annotation_count == 0
-            return false if suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.EventsMarked
-            mutable valid: bool = true
-            for index in 0..<suggestion_impact_annotation_count |index, valid, c|:
-                annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index.usize()]
-                valid <- false if annotation.source_first != c.source_fingerprint.first or annotation.source_second != c.source_fingerprint.second or not StudioImpactAnnotationPolicy::source_frame_valid(annotation.source_frame, c.source_frames)
-                for prior in 0..<index |prior, valid, index|:
-                    valid <- false if suggestion_impact_annotations[prior.usize()].source_frame == annotation.source_frame
-            valid
-
-        def suggestion_impact_session_records(c: StudioModel::Clip&) -> darray[SessionImpactAnnotationPolicy::Stored]:
-            mutable records: darray[SessionImpactAnnotationPolicy::Stored] = []
-            identity: SessionState::SourceIdentity = session_identity(c)
-            if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed:
-                records.push(SessionImpactAnnotationPolicy::Stored{schema: SessionImpactAnnotationPolicy::Schema::VERSION, review: SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed, source_first: identity.first, source_second: identity.second, animation: identity.animation, source_frames: identity.frames, nodes: identity.nodes, record_count: 0, source_frame: -1})
-            elif suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked:
-                for index in 0..<suggestion_impact_annotation_count |index, records, identity|:
+        def suggestion_impact_snapshot_valid(c: StudioModel::Clip&) -> bool can[Global.Read]:
+            can Global.Read:
+                return false if not suggestion_impact_source_matches(c)
+                return false if suggestion_impact_annotation_count < 0 or suggestion_impact_annotation_count > StudioImpactAnnotationPolicy::MAX_ANNOTATIONS
+                return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.Unreviewed and suggestion_impact_annotation_count != 0
+                return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and suggestion_impact_annotation_count != 0
+                return false if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked and suggestion_impact_annotation_count == 0
+                return false if suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.EventsMarked
+                mutable valid: bool = true
+                for index in 0..<suggestion_impact_annotation_count |index, valid, c|:
                     annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index.usize()]
-                    records.push(SessionImpactAnnotationPolicy::Stored{schema: SessionImpactAnnotationPolicy::Schema::VERSION, review: SessionImpactAnnotationPolicy::ReviewState.EventsMarked, source_first: identity.first, source_second: identity.second, animation: identity.animation, source_frames: identity.frames, nodes: identity.nodes, record_count: suggestion_impact_annotation_count, source_frame: annotation.source_frame})
-            records
+                    valid <- false if annotation.source_first != c.source_fingerprint.first or annotation.source_second != c.source_fingerprint.second or not StudioImpactAnnotationPolicy::source_frame_valid(annotation.source_frame, c.source_frames)
+                    for prior in 0..<index |prior, valid, index|:
+                        valid <- false if suggestion_impact_annotations[prior.usize()].source_frame == annotation.source_frame
+                return valid
 
-        def suggestion_impact_session_state() -> SessionImpactAnnotationPolicy::ReviewState:
-            return SessionImpactAnnotationPolicy::ReviewState.EventsMarked if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked
-            return SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
-            SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+        def suggestion_impact_session_records(c: StudioModel::Clip&) -> darray[SessionImpactAnnotationPolicy::Stored] can[Global.Read]:
+            can Global.Read:
+                mutable records: darray[SessionImpactAnnotationPolicy::Stored] = []
+                identity: SessionState::SourceIdentity = session_identity(c)
+                if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed:
+                    records.push(SessionImpactAnnotationPolicy::Stored{schema: SessionImpactAnnotationPolicy::Schema::VERSION, review: SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed, source_first: identity.first, source_second: identity.second, animation: identity.animation, source_frames: identity.frames, nodes: identity.nodes, record_count: 0, source_frame: -1})
+                elif suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked:
+                    for index in 0..<suggestion_impact_annotation_count |index, records, identity|:
+                        annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index.usize()]
+                        records.push(SessionImpactAnnotationPolicy::Stored{schema: SessionImpactAnnotationPolicy::Schema::VERSION, review: SessionImpactAnnotationPolicy::ReviewState.EventsMarked, source_first: identity.first, source_second: identity.second, animation: identity.animation, source_frames: identity.frames, nodes: identity.nodes, record_count: suggestion_impact_annotation_count, source_frame: annotation.source_frame})
+                return records
 
-        def suggestion_impact_has_frame(frame: i64) -> bool:
-            for i in 0..<suggestion_impact_annotation_count |i, frame|:
-                if suggestion_impact_annotations[i].source_frame == frame:
-                    return true
-            false
+        def suggestion_impact_session_state() -> SessionImpactAnnotationPolicy::ReviewState can[Global.Read]:
+            can Global.Read:
+                return SessionImpactAnnotationPolicy::ReviewState.EventsMarked if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.EventsMarked
+                return SessionImpactAnnotationPolicy::ReviewState.NoEventsReviewed if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+                return SessionImpactAnnotationPolicy::ReviewState.Unreviewed
 
-        def suggestion_impact_mark_playhead() -> void:
-            if clip is c and timeline is t:
-                return if suggestion_stale()
-                suggestion_impact_prepare(c)
-                source_frame: i64 = StudioModel::source_frame(c, t.frame)
-                can_mark: bool = StudioImpactAnnotationPolicy::may_mark(
-                    suggestion_impact_review_state, suggestion_impact_source_matches(c),
-                    StudioImpactAnnotationPolicy::source_frame_valid(source_frame, c.source_frames),
-                    suggestion_impact_annotation_count)
-                if can_mark and not suggestion_impact_has_frame(source_frame):
-                    suggestion_impact_annotations[suggestion_impact_annotation_count.usize()] <- StudioImpactAnnotationPolicy::Annotation{
-                        source_first: c.source_fingerprint.first,
-                        source_second: c.source_fingerprint.second,
-                        source_frame: source_frame}
-                    suggestion_impact_annotation_count <- suggestion_impact_annotation_count + 1
-                if can_mark:
-                    suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.EventsMarked
-                    StudioText::begin()
-                    StudioText::put("Source impact marked at frame ")
-                    StudioText::put_i(source_frame)
-                    can Global.Read, Global.Write:
-                        status <- StudioStatusText::capture(StudioText::view())
+        def suggestion_impact_has_frame(frame: i64) -> bool can[Global.Read]:
+            can Global.Read:
+                for i in 0..<suggestion_impact_annotation_count |i, frame|:
+                    if suggestion_impact_annotations[i].source_frame == frame:
+                        return true
+                return false
+
+        def suggestion_impact_mark_playhead() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if clip is c and timeline is t:
+                    return if suggestion_stale()
+                    suggestion_impact_prepare(c)
+                    source_frame: i64 = StudioModel::source_frame(c, t.frame)
+                    can_mark: bool = StudioImpactAnnotationPolicy::may_mark(
+                        suggestion_impact_review_state, suggestion_impact_source_matches(c),
+                        StudioImpactAnnotationPolicy::source_frame_valid(source_frame, c.source_frames),
+                        suggestion_impact_annotation_count)
+                    if can_mark and not suggestion_impact_has_frame(source_frame):
+                        suggestion_impact_annotations[suggestion_impact_annotation_count.usize()] <- StudioImpactAnnotationPolicy::Annotation{
+                            source_first: c.source_fingerprint.first,
+                            source_second: c.source_fingerprint.second,
+                            source_frame: source_frame}
+                        suggestion_impact_annotation_count <- suggestion_impact_annotation_count + 1
+                    if can_mark:
+                        suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.EventsMarked
+                        StudioText::begin()
+                        StudioText::put("Source impact marked at frame ")
+                        StudioText::put_i(source_frame)
+                        can Global.Read, Global.Write:
+                            status <- StudioStatusText::capture(StudioText::view())
+                        touch()
+
+        def suggestion_impact_confirm_none() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if clip is c:
+                    suggestion_impact_prepare(c)
+                    allowed: bool = StudioImpactAnnotationPolicy::may_confirm_no_events(
+                        suggestion_impact_review_state, suggestion_impact_source_matches(c),
+                        suggestion_impact_annotation_count)
+                    if allowed:
+                        suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+                        status <- "reviewed source: no impact events"
+                        touch()
+
+        def suggestion_impact_clear() -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                if clip is c:
+                    suggestion_impact_prepare(c)
+                    suggestion_impact_annotation_count <- 0
+                    suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed
+                    status <- "source impact review cleared"
                     touch()
 
-        def suggestion_impact_confirm_none() -> void:
-            if clip is c:
-                suggestion_impact_prepare(c)
-                allowed: bool = StudioImpactAnnotationPolicy::may_confirm_no_events(
-                    suggestion_impact_review_state, suggestion_impact_source_matches(c),
-                    suggestion_impact_annotation_count)
-                if allowed:
-                    suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
-                    status <- "reviewed source: no impact events"
-                    touch()
+        def suggestion_impact_evidence() -> StudioMetricEvidencePolicy::State can[Global.Read]:
+            can Global.Read:
+                return suggestion_unknown_evidence() if suggestion_stale()
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        same_source: bool = suggestion_impact_source_matches(current) and suggestion_impact_source_matches(candidate)
+                        count: i64 = suggestion_impact_annotation_count
+                        if not same_source:
+                            return suggestion_unknown_evidence()
+                        if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed:
+                            return StudioMetricEvidencePolicy::State.Inapplicable if count == 0 else suggestion_unknown_evidence()
+                        return suggestion_unknown_evidence() if suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.EventsMarked or count <= 0
+                        mutable failures: i64 = 0
+                        mutable valid: bool = true
+                        for index in 0..<count |index, failures, valid, current, candidate|:
+                            annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index]
+                            valid <- false if not StudioImpactAnnotationPolicy::source_matches(annotation, current.source_fingerprint.first, current.source_fingerprint.second)
+                            valid <- false if not StudioImpactAnnotationPolicy::source_frame_valid(annotation.source_frame, current.source_frames)
+                            if valid:
+                                current_output: i64 = StudioModel::output_frame(current, annotation.source_frame)
+                                candidate_output: i64 = StudioModel::output_frame(candidate, annotation.source_frame)
+                                valid <- false if current_output < 0 or candidate_output < 0
+                                failures <- failures + 1 if current_output >= 0 and candidate_output >= 0 and not StudioImpactAnnotationPolicy::mapping_preserved(current_output, candidate_output)
+                        StudioMetricEvidencePolicy::classify(true, valid, count, failures)
+                return suggestion_unknown_evidence()
 
-        def suggestion_impact_clear() -> void:
-            if clip is c:
-                suggestion_impact_prepare(c)
-                suggestion_impact_annotation_count <- 0
-                suggestion_impact_review_state <- StudioImpactAnnotationPolicy::ReviewState.Unreviewed
-                status <- "source impact review cleared"
-                touch()
-
-        def suggestion_impact_evidence() -> StudioMetricEvidencePolicy::State:
-            return suggestion_unknown_evidence() if suggestion_stale()
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    same_source: bool = suggestion_impact_source_matches(current) and suggestion_impact_source_matches(candidate)
-                    count: i64 = suggestion_impact_annotation_count
-                    if not same_source:
-                        return suggestion_unknown_evidence()
-                    if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed:
-                        return StudioMetricEvidencePolicy::State.Inapplicable if count == 0 else suggestion_unknown_evidence()
-                    return suggestion_unknown_evidence() if suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.EventsMarked or count <= 0
-                    mutable failures: i64 = 0
-                    mutable valid: bool = true
-                    for index in 0..<count |index, failures, valid, current, candidate|:
-                        annotation: StudioImpactAnnotationPolicy::Annotation = suggestion_impact_annotations[index]
-                        valid <- false if not StudioImpactAnnotationPolicy::source_matches(annotation, current.source_fingerprint.first, current.source_fingerprint.second)
-                        valid <- false if not StudioImpactAnnotationPolicy::source_frame_valid(annotation.source_frame, current.source_frames)
-                        if valid:
-                            current_output: i64 = StudioModel::output_frame(current, annotation.source_frame)
-                            candidate_output: i64 = StudioModel::output_frame(candidate, annotation.source_frame)
-                            valid <- false if current_output < 0 or candidate_output < 0
-                            failures <- failures + 1 if current_output >= 0 and candidate_output >= 0 and not StudioImpactAnnotationPolicy::mapping_preserved(current_output, candidate_output)
-                    StudioMetricEvidencePolicy::classify(true, valid, count, failures)
-            suggestion_unknown_evidence()
-
-        def suggestion_impact_status() -> sview:
-            return "NOT REVIEWED" if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.Unreviewed
-            return "REVIEWED: NO EVENTS" if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
-            return "EVENTS PRESERVED" if suggestion_impact_evidence() == StudioMetricEvidencePolicy::State.Pass
-            return "TIMING CHANGED" if suggestion_impact_evidence() == StudioMetricEvidencePolicy::State.Fail
-            "EVENT MAPPING UNKNOWN"
+        def suggestion_impact_status() -> sview can[Global.Read]:
+            can Global.Read:
+                return "NOT REVIEWED" if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.Unreviewed
+                return "REVIEWED: NO EVENTS" if suggestion_impact_review_state == StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+                return "EVENTS PRESERVED" if suggestion_impact_evidence() == StudioMetricEvidencePolicy::State.Pass
+                return "TIMING CHANGED" if suggestion_impact_evidence() == StudioMetricEvidencePolicy::State.Fail
+                return "EVENT MAPPING UNKNOWN"
 
         def suggestion_evidence_label(state: StudioMetricEvidencePolicy::State) -> sview:
             return "PASS" if state == StudioMetricEvidencePolicy::State.Pass
@@ -381,126 +403,135 @@ extend Studio:
             return "NOT MEASURED" if state == StudioMetricEvidencePolicy::State.Unknown
             "NOT APPLICABLE"
 
-        def suggestion_evidence_admits() -> bool:
-            mutable balance_measured: bool = false
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    balance_measured <- StudioBalanceStatusPolicy::comparison_admitted(current.balance_availability, candidate.balance_availability, StudioPanels::suggestion_sample_domains_match(current, candidate))
-            balance_measured and StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_impact_evidence())
+        def suggestion_evidence_admits() -> bool can[Global.Read]:
+            can Global.Read:
+                mutable balance_measured: bool = false
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        balance_measured <- StudioBalanceStatusPolicy::comparison_admitted(current.balance_availability, candidate.balance_availability, StudioPanels::suggestion_sample_domains_match(current, candidate))
+                return balance_measured and StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()) and StudioMetricEvidencePolicy::admits(suggestion_impact_evidence())
 
-        def suggestion_evidence_measured() -> bool:
-            mutable balance_measured: bool = false
-            if clip is current:
-                if suggestion_candidate is candidate:
-                    balance_measured <- StudioBalanceStatusPolicy::comparison_admitted(current.balance_availability, candidate.balance_availability, StudioPanels::suggestion_sample_domains_match(current, candidate))
-            balance_measured and suggestion_contacts_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_joint_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_boundary_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_velocity_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_impact_evidence() != StudioMetricEvidencePolicy::State.Unknown
+        def suggestion_evidence_measured() -> bool can[Global.Read]:
+            can Global.Read:
+                mutable balance_measured: bool = false
+                if clip is current:
+                    if suggestion_candidate is candidate:
+                        balance_measured <- StudioBalanceStatusPolicy::comparison_admitted(current.balance_availability, candidate.balance_availability, StudioPanels::suggestion_sample_domains_match(current, candidate))
+                return balance_measured and suggestion_contacts_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_joint_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_boundary_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_velocity_evidence() != StudioMetricEvidencePolicy::State.Unknown and suggestion_impact_evidence() != StudioMetricEvidencePolicy::State.Unknown
 
-        def suggestion_stale() -> bool:
-            suggestion_state == StudioSuggestionPolicy::State.Open and (suggestion_document_generation != built or suggestion_stack_generation != stack_generation)
+        def suggestion_stale() -> bool can[Global.Read]:
+            can Global.Read:
+                return suggestion_state == StudioSuggestionPolicy::State.Open and (suggestion_document_generation != built or suggestion_stack_generation != stack_generation)
 
-        def suggestion_candidate_visible() -> bool:
-            StudioSuggestionPolicy::may_preview_candidate(suggestion_state,
-                suggestion_candidate != null, not suggestion_stale(),
-                suggestion_view == StudioPanels::SuggestionView.Candidate)
+        def suggestion_candidate_visible() -> bool can[Global.Read]:
+            can Global.Read:
+                return StudioSuggestionPolicy::may_preview_candidate(suggestion_state,
+                    suggestion_candidate != null, not suggestion_stale(),
+                    suggestion_view == StudioPanels::SuggestionView.Candidate)
 
-        def suggestion_apply_enabled() -> bool:
-            candidate: bool = suggestion_candidate != null and suggestion_document_generation == built and suggestion_stack_generation == stack_generation
-            candidate and suggestion_evidence_admits() and suggestion_stack.count > 0 and not StackState::same(suggestion_stack, current_stack())
+        def suggestion_apply_enabled() -> bool can[Global.Read]:
+            can Global.Read:
+                candidate: bool = suggestion_candidate != null and suggestion_document_generation == built and suggestion_stack_generation == stack_generation
+                return candidate and suggestion_evidence_admits() and suggestion_stack.count > 0 and not StackState::same(suggestion_stack, current_stack())
 
-        def suggestion_focusable(action: StudioPanels::SuggestionAction) -> bool:
-            return true if action == StudioPanels::SuggestionAction.Cancel or action == StudioPanels::SuggestionAction.ShowCurrent
-            return suggestion_candidate != null and not suggestion_stale() if action == StudioPanels::SuggestionAction.ShowSuggested
-            return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Review if action == StudioPanels::SuggestionAction.Adjust
-            return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting if action == StudioPanels::SuggestionAction.Back
-            if action == StudioPanels::SuggestionAction.ToggleFeet:
-                return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_foot_lock or suggestion_lock_available(false))
-            if action == StudioPanels::SuggestionAction.ToggleHands:
-                return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_hand_lock or suggestion_lock_available(true))
-            return action == StudioPanels::SuggestionAction.Apply and suggestion_apply_enabled() if action == StudioPanels::SuggestionAction.Apply
-            if action == StudioPanels::SuggestionAction.MarkImpact:
-                if clip is c and timeline is t:
-                    frame: i64 = StudioModel::source_frame(c, t.frame)
-                    return not suggestion_stale() and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and StudioImpactAnnotationPolicy::source_frame_valid(frame, c.source_frames) and suggestion_impact_annotation_count < StudioImpactAnnotationPolicy::MAX_ANNOTATIONS
+        def suggestion_focusable(action: StudioPanels::SuggestionAction) -> bool can[Global.Read]:
+            can Global.Read:
+                return true if action == StudioPanels::SuggestionAction.Cancel or action == StudioPanels::SuggestionAction.ShowCurrent
+                return suggestion_candidate != null and not suggestion_stale() if action == StudioPanels::SuggestionAction.ShowSuggested
+                return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Review if action == StudioPanels::SuggestionAction.Adjust
+                return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting if action == StudioPanels::SuggestionAction.Back
+                if action == StudioPanels::SuggestionAction.ToggleFeet:
+                    return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_foot_lock or suggestion_lock_available(false))
+                if action == StudioPanels::SuggestionAction.ToggleHands:
+                    return suggestion_adjustment == StudioPanels::SuggestionAdjustment.Adjusting and (suggestion_hand_lock or suggestion_lock_available(true))
+                return action == StudioPanels::SuggestionAction.Apply and suggestion_apply_enabled() if action == StudioPanels::SuggestionAction.Apply
+                if action == StudioPanels::SuggestionAction.MarkImpact:
+                    if clip is c and timeline is t:
+                        frame: i64 = StudioModel::source_frame(c, t.frame)
+                        return not suggestion_stale() and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed and StudioImpactAnnotationPolicy::source_frame_valid(frame, c.source_frames) and suggestion_impact_annotation_count < StudioImpactAnnotationPolicy::MAX_ANNOTATIONS
+                    return false
+                if action == StudioPanels::SuggestionAction.ConfirmNoImpacts:
+                    return suggestion_impact_annotation_count == 0 and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
+                return action == StudioPanels::SuggestionAction.ClearImpactReview and (suggestion_impact_annotation_count > 0 or suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed)
+
+        def suggestion_lock_available(hands: bool) -> bool can[Global.Read]:
+            can Global.Read:
+                if clip is c:
+                    return suggestion_contacts_valid(c, hands)
                 return false
-            if action == StudioPanels::SuggestionAction.ConfirmNoImpacts:
-                return suggestion_impact_annotation_count == 0 and suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.NoEventsReviewed
-            action == StudioPanels::SuggestionAction.ClearImpactReview and (suggestion_impact_annotation_count > 0 or suggestion_impact_review_state != StudioImpactAnnotationPolicy::ReviewState.Unreviewed)
 
-        def suggestion_lock_available(hands: bool) -> bool:
-            if clip is c:
-                return suggestion_contacts_valid(c, hands)
-            false
+        def suggestion_focus_move(direction: i64) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                actions: darray[StudioPanels::SuggestionAction] = [
+                    StudioPanels::SuggestionAction.Cancel,
+                    StudioPanels::SuggestionAction.ShowCurrent,
+                    StudioPanels::SuggestionAction.ShowSuggested,
+                    StudioPanels::SuggestionAction.Adjust,
+                    StudioPanels::SuggestionAction.Back,
+                    StudioPanels::SuggestionAction.ToggleFeet,
+                    StudioPanels::SuggestionAction.ToggleHands,
+                    StudioPanels::SuggestionAction.Apply,
+                    StudioPanels::SuggestionAction.MarkImpact,
+                    StudioPanels::SuggestionAction.ConfirmNoImpacts,
+                    StudioPanels::SuggestionAction.ClearImpactReview]
+                mutable current: i64 = 0
+                for i in 0..<actions.count |i, actions|:
+                    current <- i if actions[i] == suggestion_focus
+                count: i64 = actions.count.i64()
+                for step in 1..<(count + 1) |step, actions, current, count, direction|:
+                    mutable at: i64 = (current + direction * step) % count
+                    at <- at + count if at < 0
+                    if suggestion_focusable(actions[at.usize()]):
+                        suggestion_focus <- actions[at.usize()]
+                        touch()
+                        return
 
-        def suggestion_focus_move(direction: i64) -> void:
-            actions: darray[StudioPanels::SuggestionAction] = [
-                StudioPanels::SuggestionAction.Cancel,
-                StudioPanels::SuggestionAction.ShowCurrent,
-                StudioPanels::SuggestionAction.ShowSuggested,
-                StudioPanels::SuggestionAction.Adjust,
-                StudioPanels::SuggestionAction.Back,
-                StudioPanels::SuggestionAction.ToggleFeet,
-                StudioPanels::SuggestionAction.ToggleHands,
-                StudioPanels::SuggestionAction.Apply,
-                StudioPanels::SuggestionAction.MarkImpact,
-                StudioPanels::SuggestionAction.ConfirmNoImpacts,
-                StudioPanels::SuggestionAction.ClearImpactReview]
-            mutable current: i64 = 0
-            for i in 0..<actions.count |i, actions|:
-                current <- i if actions[i] == suggestion_focus
-            count: i64 = actions.count.i64()
-            for step in 1..<(count + 1) |step, actions, current, count, direction|:
-                mutable at: i64 = (current + direction * step) % count
-                at <- at + count if at < 0
-                if suggestion_focusable(actions[at.usize()]):
-                    suggestion_focus <- actions[at.usize()]
-                    touch()
-                    return
-
-        def suggestion_action(action: StudioPanels::SuggestionAction) -> void:
-            return if suggestion_state != StudioSuggestionPolicy::State.Open
-            return if not suggestion_focusable(action)
-            suggestion_focus <- action
-            if action == StudioPanels::SuggestionAction.Cancel:
-                suggestion_close()
-            elif action == StudioPanels::SuggestionAction.ShowCurrent:
-                suggestion_view <- StudioPanels::SuggestionView.Current
-                touch()
-            elif action == StudioPanels::SuggestionAction.ShowSuggested:
-                suggestion_view <- StudioPanels::SuggestionView.Candidate
-                touch()
-            elif action == StudioPanels::SuggestionAction.Adjust:
-                suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Adjusting
-                touch()
-            elif action == StudioPanels::SuggestionAction.Back:
-                suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
-                touch()
-            elif action == StudioPanels::SuggestionAction.ToggleFeet:
-                suggestion_toggle_lock(false)
-            elif action == StudioPanels::SuggestionAction.ToggleHands:
-                suggestion_toggle_lock(true)
-            elif action == StudioPanels::SuggestionAction.MarkImpact:
-                suggestion_impact_mark_playhead()
-            elif action == StudioPanels::SuggestionAction.ConfirmNoImpacts:
-                suggestion_impact_confirm_none()
-            elif action == StudioPanels::SuggestionAction.ClearImpactReview:
-                suggestion_impact_clear()
-            elif action == StudioPanels::SuggestionAction.Apply:
-                return if not suggestion_apply_enabled() or suggestion_candidate == null
-                apply: StudioSuggestionPolicy::Decision = StudioSuggestionPolicy::apply_decision(
-                    StudioSuggestionPolicy::State.Open, suggestion_document_generation,
-                    suggestion_stack_generation, built, stack_generation,
-                    suggestion_evidence_measured(),
-                    StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()),
-                    StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()),
-                    StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()),
-                    StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()),
-                    StudioMetricEvidencePolicy::admits(suggestion_impact_evidence()))
-                if StudioSuggestionPolicy::may_commit_candidate(
-                    not StackState::same(suggestion_stack, current_stack()), apply):
-                    accepted: StackState::Stack = suggestion_stack
-                    return if not commit(accepted, true)
+        def suggestion_action(action: StudioPanels::SuggestionAction) -> void can[Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                return if suggestion_state != StudioSuggestionPolicy::State.Open
+                return if not suggestion_focusable(action)
+                suggestion_focus <- action
+                if action == StudioPanels::SuggestionAction.Cancel:
                     suggestion_close()
-                    show_edit_completion("Suggestion applied; result updated")
-                else:
-                    status <- "suggestion cannot apply: preservation checks are unmeasured"
+                elif action == StudioPanels::SuggestionAction.ShowCurrent:
+                    suggestion_view <- StudioPanels::SuggestionView.Current
                     touch()
+                elif action == StudioPanels::SuggestionAction.ShowSuggested:
+                    suggestion_view <- StudioPanels::SuggestionView.Candidate
+                    touch()
+                elif action == StudioPanels::SuggestionAction.Adjust:
+                    suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Adjusting
+                    touch()
+                elif action == StudioPanels::SuggestionAction.Back:
+                    suggestion_adjustment <- StudioPanels::SuggestionAdjustment.Review
+                    touch()
+                elif action == StudioPanels::SuggestionAction.ToggleFeet:
+                    suggestion_toggle_lock(false)
+                elif action == StudioPanels::SuggestionAction.ToggleHands:
+                    suggestion_toggle_lock(true)
+                elif action == StudioPanels::SuggestionAction.MarkImpact:
+                    suggestion_impact_mark_playhead()
+                elif action == StudioPanels::SuggestionAction.ConfirmNoImpacts:
+                    suggestion_impact_confirm_none()
+                elif action == StudioPanels::SuggestionAction.ClearImpactReview:
+                    suggestion_impact_clear()
+                elif action == StudioPanels::SuggestionAction.Apply:
+                    return if not suggestion_apply_enabled() or suggestion_candidate == null
+                    apply: StudioSuggestionPolicy::Decision = StudioSuggestionPolicy::apply_decision(
+                        StudioSuggestionPolicy::State.Open, suggestion_document_generation,
+                        suggestion_stack_generation, built, stack_generation,
+                        suggestion_evidence_measured(),
+                        StudioMetricEvidencePolicy::admits(suggestion_contacts_evidence()),
+                        StudioMetricEvidencePolicy::admits(suggestion_joint_evidence()),
+                        StudioMetricEvidencePolicy::admits(suggestion_boundary_evidence()),
+                        StudioMetricEvidencePolicy::admits(suggestion_velocity_evidence()),
+                        StudioMetricEvidencePolicy::admits(suggestion_impact_evidence()))
+                    if StudioSuggestionPolicy::may_commit_candidate(
+                        not StackState::same(suggestion_stack, current_stack()), apply):
+                        accepted: StackState::Stack = suggestion_stack
+                        return if not commit(accepted, true)
+                        suggestion_close()
+                        show_edit_completion("Suggestion applied; result updated")
+                    else:
+                        status <- "suggestion cannot apply: preservation checks are unmeasured"
+                        touch()
