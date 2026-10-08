@@ -17,54 +17,55 @@ module StudioSuggestionTracks:
         # degenerate limbs or failed pose evaluation make the whole track
         # unavailable; sentinel values are never treated as measurements.
         def hinges(doc: GlbDocument::Document&, anim: usize, frames: i64,
-                   nodes: darray[i64]&, slot: darray[i64]&) -> HingeAngles can[Global{Read, Write}]:
-            mutable angles: darray[i64] = []
-            return HingeAngles{values: angles, valid: false} if frames <= 0
-            roles: i64[4] = [Roles::Joint.LeftForearm.i64(), Roles::Joint.RightForearm.i64(), Roles::Joint.LeftLeg.i64(), Roles::Joint.RightLeg.i64()]
-            mutable hinge_slots: i64[4] = zeroed
-            mutable upper_slots: i64[4] = zeroed
-            mutable end_slots: i64[4] = zeroed
-            for i in 0..<Domain::HINGE_COUNT |i, roles, hinge_slots, upper_slots, end_slots, doc, slot|:
-                hinge_slots[i] <- StudioClip::slot_of_role(doc, slot, roles[i])
-                upper_slots[i] <- StudioClip::slot_of_role(doc, slot, Roles::hinge_upper(roles[i]))
-                end_slots[i] <- StudioClip::slot_of_role(doc, slot, Roles::hinge_end(roles[i]))
-                return HingeAngles{values: angles, valid: false} if hinge_slots[i] < 0 or upper_slots[i] < 0 or end_slots[i] < 0
-            rig: PoseOverride::Rig = StudioClip::rig(doc, nodes, slot)
-            mutable valid: bool = true
-            for frame in 0..<frames |frame, angles, valid, rig, doc, anim, nodes, slot, hinge_slots, upper_slots, end_slots|:
-                models: darray[Geometry::Transform] = StudioClip::models_at(rig, doc, anim, frame, nodes, slot)
-                for i in 0..<Domain::HINGE_COUNT |i, angles, valid, models, hinge_slots, upper_slots, end_slots|:
-                    if hinge_slots[i] >= models.count.i64() or upper_slots[i] >= models.count.i64() or end_slots[i] >= models.count.i64():
-                        valid <- false
-                        angles.push(0)
-                    else:
-                        pivot: Geometry::Vec3 = models[hinge_slots[i].usize()].position
-                        upper: Geometry::Vec3 = Geometry::vec3_sub(models[upper_slots[i].usize()].position, pivot)
-                        lower: Geometry::Vec3 = Geometry::vec3_sub(models[end_slots[i].usize()].position, pivot)
-                        upper_length: f32 = Geometry::vec3_length(upper)
-                        lower_length: f32 = Geometry::vec3_length(lower)
-                        if not Geometry::vec3_is_finite(upper) or not Geometry::vec3_is_finite(lower) or not StudioSuggestionAnglePolicy::length_admitted(upper_length) or not StudioSuggestionAnglePolicy::length_admitted(lower_length):
+            can Global{Read, Write}:
+                       nodes: darray[i64]&, slot: darray[i64]&) -> HingeAngles can[Global{Read, Write}]:
+                mutable angles: darray[i64] = []
+                return HingeAngles{values: angles, valid: false} if frames <= 0
+                roles: i64[4] = [Roles::Joint.LeftForearm.i64(), Roles::Joint.RightForearm.i64(), Roles::Joint.LeftLeg.i64(), Roles::Joint.RightLeg.i64()]
+                mutable hinge_slots: i64[4] = zeroed
+                mutable upper_slots: i64[4] = zeroed
+                mutable end_slots: i64[4] = zeroed
+                for i in 0..<Domain::HINGE_COUNT |i, roles, hinge_slots, upper_slots, end_slots, doc, slot|:
+                    hinge_slots[i] <- StudioClip::slot_of_role(doc, slot, roles[i])
+                    upper_slots[i] <- StudioClip::slot_of_role(doc, slot, Roles::hinge_upper(roles[i]))
+                    end_slots[i] <- StudioClip::slot_of_role(doc, slot, Roles::hinge_end(roles[i]))
+                    return HingeAngles{values: angles, valid: false} if hinge_slots[i] < 0 or upper_slots[i] < 0 or end_slots[i] < 0
+                rig: PoseOverride::Rig = StudioClip::rig(doc, nodes, slot)
+                mutable valid: bool = true
+                for frame in 0..<frames |frame, angles, valid, rig, doc, anim, nodes, slot, hinge_slots, upper_slots, end_slots|:
+                    models: darray[Geometry::Transform] = StudioClip::models_at(rig, doc, anim, frame, nodes, slot)
+                    for i in 0..<Domain::HINGE_COUNT |i, angles, valid, models, hinge_slots, upper_slots, end_slots|:
+                        if hinge_slots[i] >= models.count.i64() or upper_slots[i] >= models.count.i64() or end_slots[i] >= models.count.i64():
                             valid <- false
                             angles.push(0)
                         else:
-                            dot: f32 = Geometry::vec3_dot(upper, lower)
-                            denominator: f32 = upper_length * lower_length
-                            if not StudioSuggestionAnglePolicy::cosine_admitted(dot) or not StudioSuggestionAnglePolicy::denominator_admitted(denominator):
+                            pivot: Geometry::Vec3 = models[hinge_slots[i].usize()].position
+                            upper: Geometry::Vec3 = Geometry::vec3_sub(models[upper_slots[i].usize()].position, pivot)
+                            lower: Geometry::Vec3 = Geometry::vec3_sub(models[end_slots[i].usize()].position, pivot)
+                            upper_length: f32 = Geometry::vec3_length(upper)
+                            lower_length: f32 = Geometry::vec3_length(lower)
+                            if not Geometry::vec3_is_finite(upper) or not Geometry::vec3_is_finite(lower) or not StudioSuggestionAnglePolicy::length_admitted(upper_length) or not StudioSuggestionAnglePolicy::length_admitted(lower_length):
                                 valid <- false
                                 angles.push(0)
-                                continue
-                            mutable cosine: f32 = dot / denominator
-                            if not StudioSuggestionAnglePolicy::cosine_admitted(cosine):
-                                valid <- false
-                                angles.push(0)
-                                continue
-                            cosine <- -1.0 if cosine < -1.0 else (1.0 if cosine > 1.0 else cosine)
-                            radians: f64 = ElisaMath::acos(cosine.f64())
-                            scaled_angle: f64 = ElisaMath::radians_to_degrees(radians) * Domain::ANGLE_SCALE.f64()
-                            if not StudioSuggestionAnglePolicy::angle_admitted(scaled_angle):
-                                valid <- false
-                                angles.push(0)
-                                continue
-                            milli_degrees: i64 = StudioSuggestionAnglePolicy::rounded_angle(scaled_angle)
-                            angles.push(milli_degrees)
-            return HingeAngles{values: move angles, valid: valid}
+                            else:
+                                dot: f32 = Geometry::vec3_dot(upper, lower)
+                                denominator: f32 = upper_length * lower_length
+                                if not StudioSuggestionAnglePolicy::cosine_admitted(dot) or not StudioSuggestionAnglePolicy::denominator_admitted(denominator):
+                                    valid <- false
+                                    angles.push(0)
+                                    continue
+                                mutable cosine: f32 = dot / denominator
+                                if not StudioSuggestionAnglePolicy::cosine_admitted(cosine):
+                                    valid <- false
+                                    angles.push(0)
+                                    continue
+                                cosine <- -1.0 if cosine < -1.0 else (1.0 if cosine > 1.0 else cosine)
+                                radians: f64 = ElisaMath::acos(cosine.f64())
+                                scaled_angle: f64 = ElisaMath::radians_to_degrees(radians) * Domain::ANGLE_SCALE.f64()
+                                if not StudioSuggestionAnglePolicy::angle_admitted(scaled_angle):
+                                    valid <- false
+                                    angles.push(0)
+                                    continue
+                                milli_degrees: i64 = StudioSuggestionAnglePolicy::rounded_angle(scaled_angle)
+                                angles.push(milli_degrees)
+                return HingeAngles{values: move angles, valid: valid}

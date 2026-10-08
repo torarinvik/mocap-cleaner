@@ -268,55 +268,56 @@ module RetimeApply:
         # `ops`. Returns the new document (a copy when nothing changes) and
         # fills `rep`.
         def apply(doc: GlbDocument::Document&, animation: usize, ops: darray[RigOps::RigOp]&, rep: mutable Report&) -> GlbDocument::Document can[Global{Read, Write}]:
-            c: Rig::Clip = Rig::load(doc, animation)
-            frames: i64 = c.frames
-            mutable ranges: darray[Range] = []
-            ranges_of(ops, frames, &ranges)
-            mutable times: darray[i64] = []
-            source_times(frames, &ranges, &times)
-            rep <- report_of(&ranges, &times, frames)
-            return GlbDocument::copy(doc) if ranges.count == 0 or identity(&times, frames)
-            channels: usize = GlbDocument::channel_count(doc, animation)
-            for ch in 0..<channels:
-                held: GlbDocument::Channel = GlbDocument::channel(doc, animation, ch)
-                if held.interpolation == GlbDocument::Interpolation.CubicSpline or held.path == GlbDocument::TargetPath.Weights:
-                    rep.status <- 2
-                    return GlbDocument::copy(doc)
-            # Source time in seconds of every output frame.
-            mutable seconds: darray[f64] = []
-            for t in times:
-                f: i64 = Retime::frame_of(t)
-                u: f64 = Retime::fraction_of(t).f64() / 1000.0
-                a: f64 = c.times[f.usize()]
-                b: f64 = c.times[f.usize() + 1] if f + 1 < frames else a
-                seconds.push(a + (b - a) * u)
-            t0: f64 = c.times[0]
-            dt: f64 = (c.times[frames.usize() - 1] - t0) / (frames - 1).f64()
-            mutable slots: darray[usize] = []
-            mutable starts: darray[usize] = []
-            mutable values: darray[f32] = []
-            for ch in 0..<channels:
-                held: GlbDocument::Channel = GlbDocument::channel(doc, animation, ch)
-                continue if GlbDocument::key_count(doc, held.input) < 2
-                if push_slot(&slots, held.input):
+            can Global{Read, Write}:
+                c: Rig::Clip = Rig::load(doc, animation)
+                frames: i64 = c.frames
+                mutable ranges: darray[Range] = []
+                ranges_of(ops, frames, &ranges)
+                mutable times: darray[i64] = []
+                source_times(frames, &ranges, &times)
+                rep <- report_of(&ranges, &times, frames)
+                return GlbDocument::copy(doc) if ranges.count == 0 or identity(&times, frames)
+                channels: usize = GlbDocument::channel_count(doc, animation)
+                for ch in 0..<channels:
+                    held: GlbDocument::Channel = GlbDocument::channel(doc, animation, ch)
+                    if held.interpolation == GlbDocument::Interpolation.CubicSpline or held.path == GlbDocument::TargetPath.Weights:
+                        rep.status <- 2
+                        return GlbDocument::copy(doc)
+                # Source time in seconds of every output frame.
+                mutable seconds: darray[f64] = []
+                for t in times:
+                    f: i64 = Retime::frame_of(t)
+                    u: f64 = Retime::fraction_of(t).f64() / 1000.0
+                    a: f64 = c.times[f.usize()]
+                    b: f64 = c.times[f.usize() + 1] if f + 1 < frames else a
+                    seconds.push(a + (b - a) * u)
+                t0: f64 = c.times[0]
+                dt: f64 = (c.times[frames.usize() - 1] - t0) / (frames - 1).f64()
+                mutable slots: darray[usize] = []
+                mutable starts: darray[usize] = []
+                mutable values: darray[f32] = []
+                for ch in 0..<channels:
+                    held: GlbDocument::Channel = GlbDocument::channel(doc, animation, ch)
+                    continue if GlbDocument::key_count(doc, held.input) < 2
+                    if push_slot(&slots, held.input):
+                        starts.push(values.count)
+                        for k in 0..<times.count:
+                            values.push((t0 + dt * k.f64()).f32())
+                    continue if not push_slot(&slots, held.output)
                     starts.push(values.count)
-                    for k in 0..<times.count:
-                        values.push((t0 + dt * k.f64()).f32())
-                continue if not push_slot(&slots, held.output)
+                    step: bool = held.interpolation == GlbDocument::Interpolation.Step
+                    for s in seconds:
+                        hit: (key: usize, u: f64) = Rig::locate(doc, held.input, s)
+                        if held.path == GlbDocument::TargetPath.Rotation:
+                            a: MotionQuat::Q = Rig::key_q(doc, held.output, hit.key)
+                            q: MotionQuat::Q = a if step or hit.key + 1 >= GlbDocument::key_count(doc, held.output) else MotionQuat::slerp(a, Rig::key_q(doc, held.output, hit.key + 1), hit.u)
+                            n: MotionQuat::Q = MotionQuat::normalize(q)
+                            values.extend([n.x.f32(), n.y.f32(), n.z.f32(), n.w.f32()])
+                        else:
+                            p: MotionQuat::V = key_v(doc, held.output, hit.key) if step else hermite(doc, held.output, hit.key, hit.u)
+                            values.extend([p.x.f32(), p.y.f32(), p.z.f32()])
                 starts.push(values.count)
-                step: bool = held.interpolation == GlbDocument::Interpolation.Step
-                for s in seconds:
-                    hit: (key: usize, u: f64) = Rig::locate(doc, held.input, s)
-                    if held.path == GlbDocument::TargetPath.Rotation:
-                        a: MotionQuat::Q = Rig::key_q(doc, held.output, hit.key)
-                        q: MotionQuat::Q = a if step or hit.key + 1 >= GlbDocument::key_count(doc, held.output) else MotionQuat::slerp(a, Rig::key_q(doc, held.output, hit.key + 1), hit.u)
-                        n: MotionQuat::Q = MotionQuat::normalize(q)
-                        values.extend([n.x.f32(), n.y.f32(), n.z.f32(), n.w.f32()])
-                    else:
-                        p: MotionQuat::V = key_v(doc, held.output, hit.key) if step else hermite(doc, held.output, hit.key, hit.u)
-                        values.extend([p.x.f32(), p.y.f32(), p.z.f32()])
-            starts.push(values.count)
-            code: i64 = failure(doc, animation, &slots, &starts, &values)
-            rep.applied <- code == 0
-            rep.status <- 0 if code == 0 else 10 + code
-            return copied(doc, animation, &slots, &starts, &values)
+                code: i64 = failure(doc, animation, &slots, &starts, &values)
+                rep.applied <- code == 0
+                rep.status <- 0 if code == 0 else 10 + code
+                return copied(doc, animation, &slots, &starts, &values)
