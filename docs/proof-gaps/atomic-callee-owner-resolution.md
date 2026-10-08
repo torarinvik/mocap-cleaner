@@ -43,3 +43,11 @@ expected mismatch; resolve fixture validity before using it as evidence of
 lexical lookup. Retain the failed log rather than relabeling it as passing:
 `build/regressions-b8256d31-rerun.log` in the compiler worktree, SHA-256
 `83e93b5f5b2ee3324c5ab41881e6f2206e6fb1eb5f4484c0621415a358abe67b`.
+
+Follow-up source inspection identifies an additional real gap:
+`parser_decl_module.elisa` constructs the `__using` annotation without its
+lexical `module` field. Scoped import resolution therefore misses
+`using Provider` inside `Outer::Inner`. Repair the annotation producer and
+assert each expected diagnostic's line and message individually; unrelated
+ancestor errors must not make a missing imported mismatch appear to pass.
+Rebuild the changed compiler before qualification.
