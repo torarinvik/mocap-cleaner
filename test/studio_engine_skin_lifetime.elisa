@@ -1,0 +1,62 @@
+# Exercise the real engine skin/draw error ABI across a returned pose and cache.
+# Uses the existing read-only boxer fixture; no source file is rewritten.
+include "../../elisa-engine-mocap/src/viewport/mesh_overlay.elisa"
+
+module EngineSkinLifetime:
+    private:
+        const module Fixture:
+            PATH: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+    public:
+        global mutable points: darray[Geometry::Vec3]? = null
+        global mutable cached_frame: i64 = -1
+
+        def pose(mesh: GlbSkinMesh::Mesh&) -> darray[Geometry::Vec3]:
+            mutable joints: darray[Geometry::Transform] = []
+            for index in 0..<GlbSkinMesh::joint_count(mesh) |index, joints|:
+                joints.push(Geometry::transform_identity())
+            mutable out: darray[Geometry::Vec3] = []
+            _ = catch MeshOverlay::skin(mesh, &joints, &out):
+                value: value
+                error failure: 0
+            return out
+
+        def refresh(mesh: GlbSkinMesh::Mesh&, frame: i64) -> void:
+            return if cached_frame == frame
+            posed: darray[Geometry::Vec3] = pose(mesh)
+            points <- posed
+            cached_frame <- frame
+
+        def draw(mesh: GlbSkinMesh::Mesh&) -> bool:
+            if points is vertices:
+                return false if vertices.count == 0 or vertices.count != mesh.positions.count
+                for index in 0..<vertices.count |index, vertices|:
+                    return false if not Geometry::vec3_is_finite(vertices[index])
+                mutable list: ViewportDraw::List = ViewportDraw::create()
+                drawn: usize = catch MeshOverlay::draw(&list, mesh, vertices,
+                    Geometry::Vec3{x: 0.4, y: 0.8, z: 0.6}, MeshOverlay::default_style()):
+                    value: value
+                    error failure: 0
+                return drawn > 0
+            return false
+
+        def churn(seed: i64) -> i64:
+            mutable junk: darray[i64] = []
+            for index in 0..<4096 |index, seed, junk|:
+                junk.push(seed + index.i64())
+            return junk[4095]
+
+        def run() -> i32:
+            mesh: GlbSkinMesh::Mesh = catch GlbSkinMesh::load(Fixture::PATH):
+                value: value
+                error failure: GlbSkinMesh::empty()
+            return 2 if mesh.positions.count == 0
+            for frame in 0..<16 |frame, mesh|:
+                refresh(&mesh, frame.i64())
+                for redraw in 0..<8 |redraw, frame, mesh|:
+                    _ = churn(redraw.i64())
+                    refresh(&mesh, frame.i64())
+                    return 1 if not draw(&mesh)
+            return 0
+
+def main() -> i32:
+    EngineSkinLifetime::run()
