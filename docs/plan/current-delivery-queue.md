@@ -118,7 +118,10 @@ Empty-view failure explanations are now retained separately from transient
 status messages. Current FBX refusals and rebuild failures capture their literal
 policy feedback; a newly accepted FBX request or successful candidate publication
 clears it. The guide selects retained text through a contracted predicate with
-companion laws. Focused clean Stage0 semantic checking passes; full UI lifetime,
+companion laws. The guide, ordinary status bar and workspace accessibility status
+node now select the same feedback, so transient actions cannot leave the visible
+failure explanation different from its accessible text. Focused clean Stage0
+semantic checking passes for the predicate; full UI lifetime,
 layout, accessibility and paired-proof qualification remain open. Loaded-take
 failure details and explicit acknowledgement/retry controls still require work.
 
