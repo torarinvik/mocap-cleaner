@@ -273,3 +273,21 @@ owner, rehome before arena release, and preserve module identity, recursive-call
 handling and scalar-result carrier behavior. Confirm post-return contents and
 growth, then repeat the original Studio journey; this evidence identifies a
 lifetime defect and does not yet establish a runtime fix.
+
+## Newly pulled compiler installation trial
+
+At the user's request, fetched current Stage0 `778c8281` and Stage1 `b26659e2`.
+Stage0 was rebuilt and installed through its official hook; three pre-existing
+Stage0 test-file edits were preserved. Stage1's content provenance check passed
+and its official installer replaced the older global snapshot with `b26659e2`.
+Both freshness checks pass. Installed Stage1 product SHA-256 is
+`94f11e3051d3edbb2fb7c9f909dc6b911aed972c53e2bb4c33056c27b2b1d820`;
+runtime SHA-256 remains `ca40ba1db8a74110936ad5cdaf808707020c5c74ebb6e491bda2198696d13b8a`.
+
+The callback-shaped regression compiles at O2 but still exits 1 on this new main.
+The actual engine mesh cache control compiles and runs at O2 with exit 0 through
+the installed wrapper. Updating the installation therefore does not fix the
+reproduced transitive global lifetime defect. Preserve the isolated ownership
+repair and earlier project repairs when rebasing onto this newer main; neither
+this focused passing control nor installation freshness qualifies the full app.
+Exact installation/test record: `build/studio-runtime-e24-20261008/installed-current-compiler-record.json`.
