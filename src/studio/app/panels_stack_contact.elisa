@@ -2,104 +2,112 @@ include "panels_geometry.elisa"
 
 extend StudioPanels:
     public:
-        def set_rate(r: i64) -> void:
-            shown_rate <- r
+        def set_rate(r: i64) -> void can[Global.Write]:
+            can Global.Write:
+                shown_rate <- r
 
         # "<n> fr (<ms> ms)" for a frame count at the clip rate.
-        def frames_put(n: i64) -> void:
-            StudioText::put_i(n)
-            StudioText::put(" fr (")
-            StudioText::put_i(StudioChrome::clip_millis(n, shown_rate) if n >= 0 and n <= StudioChrome::Frame::MAX_FRAMES and shown_rate >= 1 and shown_rate <= StudioChrome::Frame::MAX_RATE else 0)
-            StudioText::put(" ms)")
+        def frames_put(n: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::put_i(n)
+                StudioText::put(" fr (")
+                StudioText::put_i(StudioChrome::clip_millis(n, shown_rate) if n >= 0 and n <= StudioChrome::Frame::MAX_FRAMES and shown_rate >= 1 and shown_rate <= StudioChrome::Frame::MAX_RATE else 0)
+                StudioText::put(" ms)")
 
         # An operation's strength with its unit (StudioChrome::param_unit).
-        def param_put(op: Ops::Operation) -> void:
-            unit: StudioChrome::ParameterUnit = StudioChrome::param_unit(SessionState::kind_code(op.kind))
-            if unit == StudioChrome::ParameterUnit.Passes:
-                StudioText::put_i(op.strength)
-                StudioText::put("\u00d7 passes")
-            elif unit == StudioChrome::ParameterUnit.Frames:
-                StudioText::put("radius " if op.kind == Ops::Kind.Median else "window ")
-                frames_put(op.strength)
-            elif unit == StudioChrome::ParameterUnit.ChannelMillionths:
-                StudioText::put("limit \u00b1")
-                StudioText::put_i(op.strength)
-                StudioText::put(" (10⁻⁶)")
-            else:
-                StudioText::put("auto")
+        def param_put(op: Ops::Operation) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                unit: StudioChrome::ParameterUnit = StudioChrome::param_unit(SessionState::kind_code(op.kind))
+                if unit == StudioChrome::ParameterUnit.Passes:
+                    StudioText::put_i(op.strength)
+                    StudioText::put("\u00d7 passes")
+                elif unit == StudioChrome::ParameterUnit.Frames:
+                    StudioText::put("radius " if op.kind == Ops::Kind.Median else "window ")
+                    frames_put(op.strength)
+                elif unit == StudioChrome::ParameterUnit.ChannelMillionths:
+                    StudioText::put("limit \u00b1")
+                    StudioText::put_i(op.strength)
+                    StudioText::put(" (10⁻⁶)")
+                else:
+                    StudioText::put("auto")
 
     private:
-        def param_text(op: Ops::Operation) -> sview:
-            StudioText::begin()
-            param_put(op)
-            return StudioText::view()
+        def param_text(op: Ops::Operation) -> sview can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::begin()
+                param_put(op)
+                return StudioText::view()
 
         # Micro-units (micrometres) as millimetres with three decimals.
         # Last path component of `path` (the status line has no room for
         # folders; StudioText cuts anything past its slot width).
     public:
-        def file_name_put(path: cstr) -> void:
-            # Check the scan budget before dereferencing the next byte.
-            n, cut =
-                while n < 4096 and path[n] != 0 |n: usize = 0, cut: usize = 0| -> (n, cut):
-                    cut <- n + 1 if path[n] == 47 else cut
-                    n <- n + 1
-            for i in cut..<n |i, path|:
-                StudioText::byte(path[i])
+        def file_name_put(path: cstr) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                # Check the scan budget before dereferencing the next byte.
+                n, cut =
+                    while n < 4096 and path[n] != 0 |n: usize = 0, cut: usize = 0| -> (n, cut):
+                        cut <- n + 1 if path[n] == 47 else cut
+                        n <- n + 1
+                for i in cut..<n |i, path|:
+                    StudioText::byte(path[i])
 
     private:
-        def mm_put(micro: i64) -> void:
-            StudioText::put_fixed3(micro * 1000 if micro >= 0 - 1000000000 and micro <= 1000000000 else 0)
-            StudioText::put(" mm")
+        def mm_put(micro: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::put_fixed3(micro * 1000 if micro >= 0 - 1000000000 and micro <= 1000000000 else 0)
+                StudioText::put(" mm")
 
-        def scope_text(op: Ops::Operation, frames: i64) -> sview:
-            last: i64 = op.last if op.last < frames else frames - 1
-            return StudioText::pair("frames ", op.first, "-", last)
+        def scope_text(op: Ops::Operation, frames: i64) -> sview can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                last: i64 = op.last if op.last < frames else frames - 1
+                return StudioText::pair("frames ", op.first, "-", last)
 
     public:
-        def stack_panel(sb: Box, s: StackState::Stack&, c: StudioModel::Clip&, history_cursor: i64, history_count: i64) -> void:
-            StudioDraw::rect(sb.x, sb.y, sb.w, sb.h, StudioDraw::color(24, 27, 35))
-            StudioDraw::bold(sb.x + 12.0, sb.y + 12.0, 18.0, "Mocap Studio", StudioDraw::ink())
-            balance: StudioBalanceStatusPolicy::Availability = c.balance_availability
-            badge: Box = balance_status_box(sb)
-            mutable badge_fill: UiCore::Color = StudioDraw::color(77, 47, 46)
-            badge_fill <- StudioDraw::color(35, 68, 54) if balance == StudioBalanceStatusPolicy::Availability.Available
-            badge_fill <- StudioDraw::color(76, 62, 38) if balance == StudioBalanceStatusPolicy::Availability.Inapplicable
-            mutable badge_ink: UiCore::Color = StudioDraw::color(242, 157, 146)
-            badge_ink <- StudioDraw::color(152, 230, 182) if balance == StudioBalanceStatusPolicy::Availability.Available
-            badge_ink <- StudioDraw::color(245, 204, 126) if balance == StudioBalanceStatusPolicy::Availability.Inapplicable
-            StudioDraw::rect(badge.x, badge.y, badge.w, badge.h, badge_fill)
-            StudioDraw::text(badge.x + 6.0, badge.y + 12.0, 10.0, StudioBalanceStatusPolicy::label(balance), badge_ink)
-            StudioDraw::text(badge.x + 6.0, badge.y + 25.0, 8.0, StudioBalanceStatusPolicy::detail(balance), StudioDraw::ink())
-            StudioDraw::text(sb.x + 12.0, sb.y + 38.0, 12.0, StudioText::pair("frames ", c.frames, "   bones ", c.nodes.count.i64()), StudioDraw::muted())
-            StudioDraw::text(sb.x + 12.0, sb.y + 56.0, 12.0, StudioText::pair("spikes source ", c.spikes_before, "  cleaned ", c.spikes_after), StudioDraw::muted())
-            StudioDraw::text(sb.x + 12.0, sb.y + 74.0, 12.0, StudioText::pair("history ", history_cursor + 1, " / ", history_count), StudioDraw::muted())
-            StudioDraw::bold(sb.x + 12.0, sb.y + StudioSidebarLayout::Geometry::STACK_HEADING_TOP.f32(), 14.0, "Operation stack", StudioDraw::ink())
-            duplicate: Box = duplicate_button_box(sb)
-            duplicate_enabled: bool = StudioOperationDuplicatePolicy::available(s.count, s.selected)
-            StudioDraw::rect(duplicate.x, duplicate.y, duplicate.w, duplicate.h, StudioDraw::color(48, 57, 70) if duplicate_enabled else StudioDraw::color(31, 34, 41))
-            StudioDraw::text(duplicate.x + 8.0, duplicate.y + 5.0, 10.0, "Duplicate", StudioDraw::ink() if duplicate_enabled else StudioDraw::muted())
-            for k in 0..<Capacity::ADD_KINDS |k, sb|:
-                b: Box = add_box(sb, k)
-                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())
-                StudioIcons::draw(StudioIcons::Icon.Plus, b.x + 2.0, b.y + 4.0, 16.0, StudioDraw::accent())
-                StudioDraw::text(b.x + 20.0, b.y + 5.0, 12.0, add_label(k), StudioDraw::ink())
-            for i in 0..<s.count |i, sb, s, c|:
-                r: Box = row_box(sb, i)
-                op: Ops::Operation = s.ops[i]
-                selected: bool = i == s.selected
-                StudioDraw::rect(r.x, r.y, r.w, r.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
-                col: UiCore::Color = StudioDraw::ink() if op.enabled else StudioDraw::color(96, 100, 112)
-                # Title, then bones and scope, then the parameter: each
-                # line stays left of the icon column (r.w - 90).
-                StudioIcons::draw(StudioIcons::Icon.Eye if op.enabled else StudioIcons::Icon.EyeOff, r.x + 6.0, r.y + 19.0, 20.0, col)
-                StudioDraw::bold(r.x + 36.0, r.y + 5.0, 13.0, StackState::kind_label(op.kind), col)
-                StudioDraw::text(r.x + 36.0, r.y + 23.0, 11.0, StackState::bones_label(op.bones), StudioDraw::muted())
-                StudioDraw::text(r.x + 100.0, r.y + 23.0, 11.0, scope_text(op, c.frames), StudioDraw::muted())
-                StudioDraw::text(r.x + 36.0, r.y + 39.0, 11.0, param_text(op), StudioDraw::muted())
-                StudioIcons::draw(StudioIcons::Icon.Up, r.x + r.w - 84.0, r.y + 19.0, 20.0, col)
-                StudioIcons::draw(StudioIcons::Icon.Down, r.x + r.w - 56.0, r.y + 19.0, 20.0, col)
-                StudioIcons::draw(StudioIcons::Icon.Trash, r.x + r.w - 28.0, r.y + 19.0, 20.0, StudioDraw::color(230, 110, 100))
+        def stack_panel(sb: Box, s: StackState::Stack&, c: StudioModel::Clip&, history_cursor: i64, history_count: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioDraw::rect(sb.x, sb.y, sb.w, sb.h, StudioDraw::color(24, 27, 35))
+                StudioDraw::bold(sb.x + 12.0, sb.y + 12.0, 18.0, "Mocap Studio", StudioDraw::ink())
+                balance: StudioBalanceStatusPolicy::Availability = c.balance_availability
+                badge: Box = balance_status_box(sb)
+                mutable badge_fill: UiCore::Color = StudioDraw::color(77, 47, 46)
+                badge_fill <- StudioDraw::color(35, 68, 54) if balance == StudioBalanceStatusPolicy::Availability.Available
+                badge_fill <- StudioDraw::color(76, 62, 38) if balance == StudioBalanceStatusPolicy::Availability.Inapplicable
+                mutable badge_ink: UiCore::Color = StudioDraw::color(242, 157, 146)
+                badge_ink <- StudioDraw::color(152, 230, 182) if balance == StudioBalanceStatusPolicy::Availability.Available
+                badge_ink <- StudioDraw::color(245, 204, 126) if balance == StudioBalanceStatusPolicy::Availability.Inapplicable
+                StudioDraw::rect(badge.x, badge.y, badge.w, badge.h, badge_fill)
+                StudioDraw::text(badge.x + 6.0, badge.y + 12.0, 10.0, StudioBalanceStatusPolicy::label(balance), badge_ink)
+                StudioDraw::text(badge.x + 6.0, badge.y + 25.0, 8.0, StudioBalanceStatusPolicy::detail(balance), StudioDraw::ink())
+                StudioDraw::text(sb.x + 12.0, sb.y + 38.0, 12.0, StudioText::pair("frames ", c.frames, "   bones ", c.nodes.count.i64()), StudioDraw::muted())
+                StudioDraw::text(sb.x + 12.0, sb.y + 56.0, 12.0, StudioText::pair("spikes source ", c.spikes_before, "  cleaned ", c.spikes_after), StudioDraw::muted())
+                StudioDraw::text(sb.x + 12.0, sb.y + 74.0, 12.0, StudioText::pair("history ", history_cursor + 1, " / ", history_count), StudioDraw::muted())
+                StudioDraw::bold(sb.x + 12.0, sb.y + StudioSidebarLayout::Geometry::STACK_HEADING_TOP.f32(), 14.0, "Operation stack", StudioDraw::ink())
+                duplicate: Box = duplicate_button_box(sb)
+                duplicate_enabled: bool = StudioOperationDuplicatePolicy::available(s.count, s.selected)
+                StudioDraw::rect(duplicate.x, duplicate.y, duplicate.w, duplicate.h, StudioDraw::color(48, 57, 70) if duplicate_enabled else StudioDraw::color(31, 34, 41))
+                StudioDraw::text(duplicate.x + 8.0, duplicate.y + 5.0, 10.0, "Duplicate", StudioDraw::ink() if duplicate_enabled else StudioDraw::muted())
+                for k in 0..<Capacity::ADD_KINDS |k, sb|:
+                    b: Box = add_box(sb, k)
+                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())
+                    StudioIcons::draw(StudioIcons::Icon.Plus, b.x + 2.0, b.y + 4.0, 16.0, StudioDraw::accent())
+                    StudioDraw::text(b.x + 20.0, b.y + 5.0, 12.0, add_label(k), StudioDraw::ink())
+                for i in 0..<s.count |i, sb, s, c|:
+                    r: Box = row_box(sb, i)
+                    op: Ops::Operation = s.ops[i]
+                    selected: bool = i == s.selected
+                    StudioDraw::rect(r.x, r.y, r.w, r.h, StudioDraw::color(58, 52, 40) if selected else StudioDraw::panel())
+                    col: UiCore::Color = StudioDraw::ink() if op.enabled else StudioDraw::color(96, 100, 112)
+                    # Title, then bones and scope, then the parameter: each
+                    # line stays left of the icon column (r.w - 90).
+                    StudioIcons::draw(StudioIcons::Icon.Eye if op.enabled else StudioIcons::Icon.EyeOff, r.x + 6.0, r.y + 19.0, 20.0, col)
+                    StudioDraw::bold(r.x + 36.0, r.y + 5.0, 13.0, StackState::kind_label(op.kind), col)
+                    StudioDraw::text(r.x + 36.0, r.y + 23.0, 11.0, StackState::bones_label(op.bones), StudioDraw::muted())
+                    StudioDraw::text(r.x + 100.0, r.y + 23.0, 11.0, scope_text(op, c.frames), StudioDraw::muted())
+                    StudioDraw::text(r.x + 36.0, r.y + 39.0, 11.0, param_text(op), StudioDraw::muted())
+                    StudioIcons::draw(StudioIcons::Icon.Up, r.x + r.w - 84.0, r.y + 19.0, 20.0, col)
+                    StudioIcons::draw(StudioIcons::Icon.Down, r.x + r.w - 56.0, r.y + 19.0, 20.0, col)
+                    StudioIcons::draw(StudioIcons::Icon.Trash, r.x + r.w - 28.0, r.y + 19.0, 20.0, StudioDraw::color(230, 110, 100))
 
         # ---- foot cleanup ------------------------------------------------
         # Rows of the timeline strip a press on a contact bar lands in:
@@ -140,56 +148,58 @@ extend StudioPanels:
             panel: Box = box(tb.x + tb.w - 264.0, tb.y + 2.0, 256.0, 90.0)
             inside(panel, px, py)
 
-        def contact_editor_panel(tb: Box, side: i64, frame: i64, frames: i64, reset_available: bool, edit_first: i64, edit_last: i64, merge_available: bool, split_available: bool, draft_target: i64, draft_value: i64) -> void:
-            valid: bool = StudioContactEditor::selection_valid(side, frame, frames)
-            x: f32 = tb.x + tb.w - 264.0
-            StudioDraw::rect(x, tb.y + 2.0, 256.0, 90.0, StudioDraw::color(31, 35, 44))
-            StudioDraw::bold(x + 8.0, tb.y + 6.0, 11.0, "Contact edit", StudioDraw::ink())
-            if valid:
-                StudioText::begin()
-                StudioText::put(contact_side_label(side))
-                StudioText::put(" · frame ")
-                StudioText::put_i(frame + 1)
-                StudioDraw::text(x + 8.0, tb.y + 28.0, 10.0, StudioText::view(), StudioDraw::muted())
-                StudioDraw::text(x + 8.0, tb.y + 43.0, 9.0, "edit the authored interval below" if reset_available else "follows detection", StudioDraw::muted())
-            else:
-                StudioDraw::text(x + 8.0, tb.y + 28.0, 9.0, "Click a row/frame first;", StudioDraw::muted())
-                StudioDraw::text(x + 8.0, tb.y + 40.0, 9.0, "selection does not edit it.", StudioDraw::muted())
-            if reset_available:
-                for target in 0..<2 |target, tb, edit_first, edit_last, draft_target, draft_value|:
-                    field_target: i64 = StudioContactEditor::NudgeTarget.First.i64() if target == 0 else StudioContactEditor::NudgeTarget.Last.i64()
-                    b: Box = contact_editor_frame_box(tb, field_target)
-                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(48, 54, 66))
+        def contact_editor_panel(tb: Box, side: i64, frame: i64, frames: i64, reset_available: bool, edit_first: i64, edit_last: i64, merge_available: bool, split_available: bool, draft_target: i64, draft_value: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                valid: bool = StudioContactEditor::selection_valid(side, frame, frames)
+                x: f32 = tb.x + tb.w - 264.0
+                StudioDraw::rect(x, tb.y + 2.0, 256.0, 90.0, StudioDraw::color(31, 35, 44))
+                StudioDraw::bold(x + 8.0, tb.y + 6.0, 11.0, "Contact edit", StudioDraw::ink())
+                if valid:
                     StudioText::begin()
-                    StudioText::put("First: " if target == 0 else "Last: ")
-                    if draft_target == field_target:
-                        StudioText::put_i(draft_value) if draft_value >= 0 else StudioText::put("_")
-                    else:
-                        StudioText::put_i((edit_first if target == 0 else edit_last) + 1)
-                    StudioDraw::text(b.x + 4.0, b.y + 3.0, 9.0, StudioText::view(), StudioDraw::ink())
-            for action in 0..<StudioContactEditor::Capacity::ACTION_COUNT |action, tb, valid|:
-                b: Box = contact_editor_button_box(tb, action)
-                label: sview = "Plant" if action == StudioContactEditor::Action.Plant.i64() else "Lift" if action == StudioContactEditor::Action.Lift.i64() else "Reset" if action == StudioContactEditor::Action.Reset.i64() else "Delete" if action == StudioContactEditor::Action.Delete.i64() else "Merge" if action == StudioContactEditor::Action.Merge.i64() else "Split"
-                mutable enabled: bool = valid
-                enabled <- reset_available if action == StudioContactEditor::Action.Reset.i64() or action == StudioContactEditor::Action.Delete.i64()
-                enabled <- merge_available if action == StudioContactEditor::Action.Merge.i64()
-                enabled <- split_available if action == StudioContactEditor::Action.Split.i64()
-                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel() if enabled else StudioDraw::color(34, 37, 44))
-                StudioDraw::text(b.x + 7.0, b.y + 7.0, 10.0, label,
-                    StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117))
+                    StudioText::put(contact_side_label(side))
+                    StudioText::put(" · frame ")
+                    StudioText::put_i(frame + 1)
+                    StudioDraw::text(x + 8.0, tb.y + 28.0, 10.0, StudioText::view(), StudioDraw::muted())
+                    StudioDraw::text(x + 8.0, tb.y + 43.0, 9.0, "edit the authored interval below" if reset_available else "follows detection", StudioDraw::muted())
+                else:
+                    StudioDraw::text(x + 8.0, tb.y + 28.0, 9.0, "Click a row/frame first;", StudioDraw::muted())
+                    StudioDraw::text(x + 8.0, tb.y + 40.0, 9.0, "selection does not edit it.", StudioDraw::muted())
+                if reset_available:
+                    for target in 0..<2 |target, tb, edit_first, edit_last, draft_target, draft_value|:
+                        field_target: i64 = StudioContactEditor::NudgeTarget.First.i64() if target == 0 else StudioContactEditor::NudgeTarget.Last.i64()
+                        b: Box = contact_editor_frame_box(tb, field_target)
+                        StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(48, 54, 66))
+                        StudioText::begin()
+                        StudioText::put("First: " if target == 0 else "Last: ")
+                        if draft_target == field_target:
+                            StudioText::put_i(draft_value) if draft_value >= 0 else StudioText::put("_")
+                        else:
+                            StudioText::put_i((edit_first if target == 0 else edit_last) + 1)
+                        StudioDraw::text(b.x + 4.0, b.y + 3.0, 9.0, StudioText::view(), StudioDraw::ink())
+                for action in 0..<StudioContactEditor::Capacity::ACTION_COUNT |action, tb, valid|:
+                    b: Box = contact_editor_button_box(tb, action)
+                    label: sview = "Plant" if action == StudioContactEditor::Action.Plant.i64() else "Lift" if action == StudioContactEditor::Action.Lift.i64() else "Reset" if action == StudioContactEditor::Action.Reset.i64() else "Delete" if action == StudioContactEditor::Action.Delete.i64() else "Merge" if action == StudioContactEditor::Action.Merge.i64() else "Split"
+                    mutable enabled: bool = valid
+                    enabled <- reset_available if action == StudioContactEditor::Action.Reset.i64() or action == StudioContactEditor::Action.Delete.i64()
+                    enabled <- merge_available if action == StudioContactEditor::Action.Merge.i64()
+                    enabled <- split_available if action == StudioContactEditor::Action.Split.i64()
+                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel() if enabled else StudioDraw::color(34, 37, 44))
+                    StudioDraw::text(b.x + 7.0, b.y + 7.0, 10.0, label,
+                        StudioDraw::ink() if enabled else StudioDraw::color(100, 105, 117))
 
-        def contact_selection_marker(tb: Box, side: i64, frame: i64, frames: i64) -> void:
-            return if not StudioContactEditor::selection_valid(side, frame, frames)
-            s: Box = strip(tb)
-            mutable y: f32 = s.y + 45.0
-            if side == StackState::ContactSide.RightFoot.i64():
-                y <- s.y + 57.0
-            elif side == StackState::ContactSide.LeftHand.i64():
-                y <- s.y + 69.0
-            elif side == StackState::ContactSide.RightHand.i64():
-                y <- s.y + 81.0
-            x: f32 = frame_x(s, frame, frames)
-            StudioDraw::rect(x - 2.0, y - 2.0, 4.0, 12.0, StudioDraw::ink())
+        def contact_selection_marker(tb: Box, side: i64, frame: i64, frames: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not StudioContactEditor::selection_valid(side, frame, frames)
+                s: Box = strip(tb)
+                mutable y: f32 = s.y + 45.0
+                if side == StackState::ContactSide.RightFoot.i64():
+                    y <- s.y + 57.0
+                elif side == StackState::ContactSide.LeftHand.i64():
+                    y <- s.y + 69.0
+                elif side == StackState::ContactSide.RightHand.i64():
+                    y <- s.y + 81.0
+                x: f32 = frame_x(s, frame, frames)
+                StudioDraw::rect(x - 2.0, y - 2.0, 4.0, 12.0, StudioDraw::ink())
 
     private:
         def cue_color(cue: i64) -> UiCore::Color:
@@ -201,88 +211,90 @@ extend StudioPanels:
         # slide earns a marker, the worst frame ringed, and the hovered
         # contact row outlined.
     public:
-        def foot_marks(tb: Box, c: StudioModel::Clip&, hover: i64) -> void:
-            s: Box = strip(tb)
-            n: i64 = c.foot_slide.count.i64()
-            return if n < 1
-            # Binned like the problem markers (draw-command budget).
-            bins: i64 = Capacity::MARKER_BINS if n > Capacity::MARKER_BINS else n
-            for b in 0..<bins |b, bins, n, s, c|:
-                first: i64 = b * n / bins
-                last: i64 = (b + 1) * n / bins
-                mutable hit: bool = false
-                for f in first..<last |f, c, hit|:
-                    hit <- hit or StudioFoot::marked(c.foot_slide[f.usize()])
-                if hit:
-                    x0: f32 = frame_x(s, first, n)
-                    x1: f32 = frame_x(s, last, n)
-                    StudioDraw::rect(x0, s.y + 10.0, x1 - x0 if x1 - x0 > 2.0 else 2.0, 4.0, StudioDraw::color(240, 70, 70))
-            if c.worst_frame >= 0 and c.worst_frame < n and StudioFoot::marked(c.worst_slide):
-                StudioDraw::tri(frame_x(s, c.worst_frame, n) - 4.0, s.y + 2.0, frame_x(s, c.worst_frame, n) + 4.0, s.y + 2.0, frame_x(s, c.worst_frame, n), s.y + 10.0, StudioDraw::color(255, 90, 90))
-            if hover >= StackState::ContactSide.LeftFoot.i64() and hover <= StackState::ContactSide.RightHand.i64():
-                mutable y: f32 = s.y + 45.0
-                y <- s.y + 57.0 if hover == StackState::ContactSide.RightFoot.i64()
-                y <- s.y + 69.0 if hover == StackState::ContactSide.LeftHand.i64()
-                y <- s.y + 81.0 if hover == StackState::ContactSide.RightHand.i64()
-                mutable flags: darray[bool] = c.left_contact
-                flags <- c.right_contact if hover == StackState::ContactSide.RightFoot.i64()
-                flags <- c.left_hand_contact if hover == StackState::ContactSide.LeftHand.i64()
-                flags <- c.right_hand_contact if hover == StackState::ContactSide.RightHand.i64()
-                mutable col: UiCore::Color = StudioDraw::color(150, 255, 170)
-                col <- StudioDraw::color(255, 240, 130) if hover == StackState::ContactSide.RightFoot.i64()
-                col <- StudioDraw::color(140, 210, 255) if hover == StackState::ContactSide.LeftHand.i64()
-                col <- StudioDraw::color(255, 180, 130) if hover == StackState::ContactSide.RightHand.i64()
-                StudioDraw::rect(s.x, y, s.w, 10.0, StudioDraw::color(60, 66, 90))
-                contact_bar(s, flags, y + 1.0, col)
+        def foot_marks(tb: Box, c: StudioModel::Clip&, hover: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                s: Box = strip(tb)
+                n: i64 = c.foot_slide.count.i64()
+                return if n < 1
+                # Binned like the problem markers (draw-command budget).
+                bins: i64 = Capacity::MARKER_BINS if n > Capacity::MARKER_BINS else n
+                for b in 0..<bins |b, bins, n, s, c|:
+                    first: i64 = b * n / bins
+                    last: i64 = (b + 1) * n / bins
+                    mutable hit: bool = false
+                    for f in first..<last |f, c, hit|:
+                        hit <- hit or StudioFoot::marked(c.foot_slide[f.usize()])
+                    if hit:
+                        x0: f32 = frame_x(s, first, n)
+                        x1: f32 = frame_x(s, last, n)
+                        StudioDraw::rect(x0, s.y + 10.0, x1 - x0 if x1 - x0 > 2.0 else 2.0, 4.0, StudioDraw::color(240, 70, 70))
+                if c.worst_frame >= 0 and c.worst_frame < n and StudioFoot::marked(c.worst_slide):
+                    StudioDraw::tri(frame_x(s, c.worst_frame, n) - 4.0, s.y + 2.0, frame_x(s, c.worst_frame, n) + 4.0, s.y + 2.0, frame_x(s, c.worst_frame, n), s.y + 10.0, StudioDraw::color(255, 90, 90))
+                if hover >= StackState::ContactSide.LeftFoot.i64() and hover <= StackState::ContactSide.RightHand.i64():
+                    mutable y: f32 = s.y + 45.0
+                    y <- s.y + 57.0 if hover == StackState::ContactSide.RightFoot.i64()
+                    y <- s.y + 69.0 if hover == StackState::ContactSide.LeftHand.i64()
+                    y <- s.y + 81.0 if hover == StackState::ContactSide.RightHand.i64()
+                    mutable flags: darray[bool] = c.left_contact
+                    flags <- c.right_contact if hover == StackState::ContactSide.RightFoot.i64()
+                    flags <- c.left_hand_contact if hover == StackState::ContactSide.LeftHand.i64()
+                    flags <- c.right_hand_contact if hover == StackState::ContactSide.RightHand.i64()
+                    mutable col: UiCore::Color = StudioDraw::color(150, 255, 170)
+                    col <- StudioDraw::color(255, 240, 130) if hover == StackState::ContactSide.RightFoot.i64()
+                    col <- StudioDraw::color(140, 210, 255) if hover == StackState::ContactSide.LeftHand.i64()
+                    col <- StudioDraw::color(255, 180, 130) if hover == StackState::ContactSide.RightHand.i64()
+                    StudioDraw::rect(s.x, y, s.w, 10.0, StudioDraw::color(60, 66, 90))
+                    contact_bar(s, flags, y + 1.0, col)
 
         # Before/after metrics for each enabled detector. Distances use
         # micro-units and ease from the previous build's values.
-        def cleanup_readout(sb: Box, c: StudioModel::Clip&, shown_slide: i64, shown_sink: i64, shown_hand_slide: i64, blend: i64) -> void:
-            y: f32 = sb.y + 126.0
-            StudioText::begin()
-            StudioText::put("feet ")
-            StudioText::put("on" if c.feet else "off")
-            StudioText::put("  hands ")
-            StudioText::put("on" if c.hands else "off")
-            StudioText::put("  blend ")
-            frames_put(blend)
-            StudioDraw::text(sb.x + 12.0, y - 30.0, 10.0, StudioText::view(), StudioDraw::muted())
-            StudioText::begin()
-            StudioText::put("spikes ")
-            StudioText::put_i(c.spikes_before)
-            StudioText::put(" -> ")
-            StudioText::put_i(c.spikes_after)
-            StudioDraw::text(sb.x + 12.0, y - 16.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.spikes_before, c.spikes_after)))
-            StudioText::begin()
-            source_cleaned_domain: bool = not c.retimed and c.source_frames == c.frames
-            balance_comparable: bool = StudioBalanceStatusPolicy::comparison_admitted(c.source_balance_availability, c.balance_availability, source_cleaned_domain)
-            if balance_comparable:
-                StudioText::put("balance impossible ")
-                StudioText::put_i(c.source_impossible_frames)
+        def cleanup_readout(sb: Box, c: StudioModel::Clip&, shown_slide: i64, shown_sink: i64, shown_hand_slide: i64, blend: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                y: f32 = sb.y + 126.0
+                StudioText::begin()
+                StudioText::put("feet ")
+                StudioText::put("on" if c.feet else "off")
+                StudioText::put("  hands ")
+                StudioText::put("on" if c.hands else "off")
+                StudioText::put("  blend ")
+                frames_put(blend)
+                StudioDraw::text(sb.x + 12.0, y - 30.0, 10.0, StudioText::view(), StudioDraw::muted())
+                StudioText::begin()
+                StudioText::put("spikes ")
+                StudioText::put_i(c.spikes_before)
                 StudioText::put(" -> ")
-                StudioText::put_i(c.impossible_frames)
-            else:
-                StudioText::put("balance evidence source ")
-                StudioText::put(StudioBalanceStatusPolicy::short_label(c.source_balance_availability))
-                StudioText::put(" -> cleaned ")
-                StudioText::put(StudioBalanceStatusPolicy::short_label(c.balance_availability))
-            balance_color: UiCore::Color = cue_color(StudioFoot::cue(c.source_impossible_frames, c.impossible_frames)) if balance_comparable else StudioDraw::color(245, 175, 95)
-            StudioDraw::text(sb.x + 12.0, y - 2.0, 10.0, StudioText::view(), balance_color)
-            StudioText::begin()
-            StudioText::put("foot slide ")
-            mm_put(c.slide_before)
-            StudioText::put(" -> ")
-            mm_put(shown_slide)
-            StudioDraw::text(sb.x + 12.0, y + 12.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.slide_before, c.slide_after)))
-            StudioText::begin()
-            StudioText::put("foot sink ")
-            mm_put(c.sink_before)
-            StudioText::put(" -> ")
-            mm_put(shown_sink)
-            StudioDraw::text(sb.x + 12.0, y + 26.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.sink_before, c.sink_after)))
-            StudioText::begin()
-            StudioText::put("hand slide ")
-            mm_put(c.hand_slide_before)
-            StudioText::put(" -> ")
-            mm_put(shown_hand_slide)
-            StudioDraw::text(sb.x + 12.0, y + 40.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.hand_slide_before, c.hand_slide_after)))
+                StudioText::put_i(c.spikes_after)
+                StudioDraw::text(sb.x + 12.0, y - 16.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.spikes_before, c.spikes_after)))
+                StudioText::begin()
+                source_cleaned_domain: bool = not c.retimed and c.source_frames == c.frames
+                balance_comparable: bool = StudioBalanceStatusPolicy::comparison_admitted(c.source_balance_availability, c.balance_availability, source_cleaned_domain)
+                if balance_comparable:
+                    StudioText::put("balance impossible ")
+                    StudioText::put_i(c.source_impossible_frames)
+                    StudioText::put(" -> ")
+                    StudioText::put_i(c.impossible_frames)
+                else:
+                    StudioText::put("balance evidence source ")
+                    StudioText::put(StudioBalanceStatusPolicy::short_label(c.source_balance_availability))
+                    StudioText::put(" -> cleaned ")
+                    StudioText::put(StudioBalanceStatusPolicy::short_label(c.balance_availability))
+                balance_color: UiCore::Color = cue_color(StudioFoot::cue(c.source_impossible_frames, c.impossible_frames)) if balance_comparable else StudioDraw::color(245, 175, 95)
+                StudioDraw::text(sb.x + 12.0, y - 2.0, 10.0, StudioText::view(), balance_color)
+                StudioText::begin()
+                StudioText::put("foot slide ")
+                mm_put(c.slide_before)
+                StudioText::put(" -> ")
+                mm_put(shown_slide)
+                StudioDraw::text(sb.x + 12.0, y + 12.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.slide_before, c.slide_after)))
+                StudioText::begin()
+                StudioText::put("foot sink ")
+                mm_put(c.sink_before)
+                StudioText::put(" -> ")
+                mm_put(shown_sink)
+                StudioDraw::text(sb.x + 12.0, y + 26.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.sink_before, c.sink_after)))
+                StudioText::begin()
+                StudioText::put("hand slide ")
+                mm_put(c.hand_slide_before)
+                StudioText::put(" -> ")
+                mm_put(shown_hand_slide)
+                StudioDraw::text(sb.x + 12.0, y + 40.0, 10.0, StudioText::view(), cue_color(StudioFoot::cue(c.hand_slide_before, c.hand_slide_after)))
