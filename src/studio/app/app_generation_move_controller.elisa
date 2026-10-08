@@ -18,142 +18,152 @@ extend Studio:
         global mutable generation_move_ticket: i64 = 0
         global mutable generation_move_resolution: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome = StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
 
-        def generation_move_release_retry_enabled() -> bool:
-            if generation_move_reply is retained:
-                jobs_idle: bool = StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
-                modal_busy: bool = storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
-                return StudioGenerationHandleDrainPolicy::may_offer_retry(retained.remaining_handle, jobs_idle, storage_screen_open and generation_review_open, storage_close_requested, modal_busy)
-            false
-
-        def generation_move_action_label() -> sview:
-            if generation_move_reply is retained:
-                return "Retry Release" if retained.remaining_handle > 0
-                return "Resolve Review"
-            match generation_move_state:
-                StudioGenerationMoveConfirmationPolicy::State.Reviewing(key): return "Confirm Move"
-                StudioGenerationMoveConfirmationPolicy::State.Inspecting: return "Review Move"
-                StudioGenerationMoveConfirmationPolicy::State.Confirmed(key): return "Confirm Move"
-                StudioGenerationMoveConfirmationPolicy::State.Running(key, job_ticket): return "Moving…"
-                StudioGenerationMoveConfirmationPolicy::State.Draining(key, job_ticket): return "Finishing…"
-                StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket): return "Releasing…" if generation_move_task != null else "Review Move" if StudioGenerationReplyResolutionPolicy::terminal(generation_move_resolution) else "Recovery pending"
-                StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket): return "Review Move"
-
-        def generation_move_action_help() -> sview:
-            if generation_move_reply is retained:
-                return "Retry releasing the retained native handle. Operation details remain available for recovery review." if retained.remaining_handle > 0
-                return "Select this operation in Recovery Operations and reconcile it, then acknowledge the exact verified review. The operation identity stays retained."
-            "Review one verified older generation, then confirm moving it to recoverable storage. Files remain on disk."
-
-        def generation_move_current_key() -> StudioGenerationMoveConfirmationPolicy::ReviewKey:
-            StudioGenerationMoveConfirmationPolicy::ReviewKey{scan_ticket: generation_scan_ticket, row_index: generation_inspected_row, retention_days: StudioStorageSelectionPolicy::retention_days(storage_retention_preset)}
-
-        def generation_move_action_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            if generation_move_reply is retained:
-                return generation_move_release_retry_enabled() if retained.remaining_handle > 0
-                return generation_move_resolution_enabled()
-            return false if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
-            return false if not generation_recovery_has_capacity()
-            return false if generation_move_task != null or generation_move_reply != null or generation_scan_task != null or generation_scan_requested or storage_release_uncertain
-            return false if storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
-            if generation_inventory is snapshot:
-                return false if snapshot.outcome != StudioBuildGenerationCandidateProvider::Outcome.Complete or snapshot.retention_days != StudioStorageSelectionPolicy::retention_days(storage_retention_preset)
-                return false if generation_inspected_row < 0 or generation_inspected_row >= snapshot.rows.count.i64()
-                row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
-                return StudioBuildGenerationCandidateProvider::row_valid(row) and row.protection == StudioBuildGenerationCandidateProvider::Protection.Eligible and StudioBuildGenerationMoveWire::age_admitted(row.age, row.retention_days)
-            false
-
-        def generation_move_source_current() -> bool can[Unsafe.PointerCast, Memory.Allocate]:
-            return false if not generation_move_action_enabled()
-            current_root: darray[u8] = path_bytes(workspace_build_directory())
-            StudioBuildGenerationCandidateProvider::bytes_equal(generation_scan_root, current_root)
-
-        def generation_move_review_action() -> void can[Threads, Unsafe{PointerCast, RawExtern}, Memory{Allocate, Release}]:
-            if generation_move_resolution_enabled():
-                generation_move_resolve_review()
-                return
-            if generation_move_release_retry_enabled():
+        def generation_move_release_retry_enabled() -> bool can[Global.Read]:
+            can Global.Read:
                 if generation_move_reply is retained:
-                    ticket: i64 = retained.ticket
-                    generation_move_reply <- null
-                    job: StudioBuildGenerationHandleDrainWorker::MoveJob = StudioBuildGenerationHandleDrainWorker::MoveJob{reply: move retained}
-                    generation_move_task <- task(generation_move_handle_drain_job, move job)
-                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: ticket)
-                    UiCore::request_frame_after(0.016)
-                    touch()
-                return
-            return if generation_move_task != null or generation_move_reply != null
-            if not generation_move_source_current():
-                generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Inspecting
-                generation_move_wire <- null
-                touch()
-                return
-            current: StudioGenerationMoveConfirmationPolicy::ReviewKey = generation_move_current_key()
-            if StudioGenerationMoveConfirmationPolicy::may_confirm(generation_move_state, current, true, true, false):
-                return if generation_move_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
-                if generation_move_wire is captured:
-                    generation_move_ticket <- generation_move_ticket + 1
-                    if generation_restore_capture_root(generation_move_ticket):
-                        review: StudioGenerationReviewBindingPolicy::Review = StudioGenerationReviewBindingPolicy::Review{selected: true, reviewed: true, confirmed: true, inventory_revision: current.scan_ticket, confirmed_revision: current.scan_ticket, reviewed_retention_days: current.retention_days, current_retention_days: current.retention_days}
-                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Confirmed(key: current)
-                        if StudioGenerationMoveConfirmationPolicy::may_start(generation_move_state, current, true, true, false):
-                            job: StudioBuildGenerationMoveWorker::Job = StudioBuildGenerationMoveWorker::Job{ticket: generation_move_ticket, review: review, wire: captured}
-                            generation_move_task <- StudioBuildGenerationMoveWorker::start(move job)
-                            generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Running(key: current, job_ticket: generation_move_ticket)
-                            UiCore::request_frame_after(0.016)
-                    else:
-                        generation_move_wire <- null
-                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Inspecting
-            elif generation_inventory is snapshot:
-                row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
-                root: darray[u8] = path_bytes(workspace_build_directory())
-                captured: StudioBuildGenerationMoveWire::Wire = StudioBuildGenerationMoveWire::capture(row, root)
-                if captured.valid:
-                    generation_move_resolution <- StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
-                    generation_move_wire <- captured
-                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Reviewing(key: current)
-            touch()
+                    jobs_idle: bool = StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
+                    modal_busy: bool = storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
+                    return StudioGenerationHandleDrainPolicy::may_offer_retry(retained.remaining_handle, jobs_idle, storage_screen_open and generation_review_open, storage_close_requested, modal_busy)
+                return false
 
-        def cancel_generation_move_review() -> void:
-            generation_move_state <- StudioGenerationMoveConfirmationPolicy::cancel(generation_move_state)
-            generation_move_wire <- null if generation_move_task == null and generation_move_reply == null
+        def generation_move_action_label() -> sview can[Global.Read]:
+            can Global.Read:
+                if generation_move_reply is retained:
+                    return "Retry Release" if retained.remaining_handle > 0
+                    return "Resolve Review"
+                match generation_move_state:
+                    StudioGenerationMoveConfirmationPolicy::State.Reviewing(key): return "Confirm Move"
+                    StudioGenerationMoveConfirmationPolicy::State.Inspecting: return "Review Move"
+                    StudioGenerationMoveConfirmationPolicy::State.Confirmed(key): return "Confirm Move"
+                    StudioGenerationMoveConfirmationPolicy::State.Running(key, job_ticket): return "Moving…"
+                    StudioGenerationMoveConfirmationPolicy::State.Draining(key, job_ticket): return "Finishing…"
+                    StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket): return "Releasing…" if generation_move_task != null else "Review Move" if StudioGenerationReplyResolutionPolicy::terminal(generation_move_resolution) else "Recovery pending"
+                    StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket): return "Review Move"
 
-        def poll_generation_move() -> void can[Threads, Unsafe.RawExtern, Memory{Allocate, Release}]:
-            if generation_move_task is active:
-                generation_move_task <- null
-                readiness: ThreadReadiness[StudioBuildGenerationMoveWorker::Result] = poll_ready(move active)
-                if not readiness.complete:
-                    generation_move_task <- move readiness.thread
-                    UiCore::request_frame_after(0.016)
+        def generation_move_action_help() -> sview can[Global.Read]:
+            can Global.Read:
+                if generation_move_reply is retained:
+                    return "Retry releasing the retained native handle. Operation details remain available for recovery review." if retained.remaining_handle > 0
+                    return "Select this operation in Recovery Operations and reconcile it, then acknowledge the exact verified review. The operation identity stays retained."
+                return "Review one verified older generation, then confirm moving it to recoverable storage. Files remain on disk."
+
+        def generation_move_current_key() -> StudioGenerationMoveConfirmationPolicy::ReviewKey can[Global.Read]:
+            can Global.Read:
+                return StudioGenerationMoveConfirmationPolicy::ReviewKey{scan_ticket: generation_scan_ticket, row_index: generation_inspected_row, retention_days: StudioStorageSelectionPolicy::retention_days(storage_retention_preset)}
+
+        def generation_move_action_enabled() -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                if generation_move_reply is retained:
+                    return generation_move_release_retry_enabled() if retained.remaining_handle > 0
+                    return generation_move_resolution_enabled()
+                return false if not StudioGenerationStorageDrainPolicy::may_start_job(generation_move_task != null, generation_restore_task != null, generation_recovery_discovery_task != null, generation_recovery_scan_task != null, generation_scan_task != null)
+                return false if not generation_recovery_has_capacity()
+                return false if generation_move_task != null or generation_move_reply != null or generation_scan_task != null or generation_scan_requested or storage_release_uncertain
+                return false if storage_move_review or storage_restore_review or storage_batch_state == StudioStorageBatchPolicy::State.Running.i64()
+                if generation_inventory is snapshot:
+                    return false if snapshot.outcome != StudioBuildGenerationCandidateProvider::Outcome.Complete or snapshot.retention_days != StudioStorageSelectionPolicy::retention_days(storage_retention_preset)
+                    return false if generation_inspected_row < 0 or generation_inspected_row >= snapshot.rows.count.i64()
+                    row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
+                    return StudioBuildGenerationCandidateProvider::row_valid(row) and row.protection == StudioBuildGenerationCandidateProvider::Protection.Eligible and StudioBuildGenerationMoveWire::age_admitted(row.age, row.retention_days)
+                return false
+
+        def generation_move_source_current() -> bool can[Unsafe.PointerCast, Memory.Allocate, Global.Read]:
+            can Global.Read:
+                return false if not generation_move_action_enabled()
+                current_root: darray[u8] = path_bytes(workspace_build_directory())
+                return StudioBuildGenerationCandidateProvider::bytes_equal(generation_scan_root, current_root)
+
+        def generation_move_review_action() -> void can[Threads, Unsafe{PointerCast, RawExtern}, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if generation_move_resolution_enabled():
+                    generation_move_resolve_review()
                     return
-                mutable reply: StudioBuildGenerationMoveWorker::Result = join(move readiness.thread)
-                completed_ticket: i64 = reply.ticket
-                recovered: bool = reply.recoverable
-                recorded: bool = record_generation_move_identity(reply.operation_id, reply.operation_id_bytes)
-                publish: bool = StudioGenerationMoveConfirmationPolicy::may_publish_success(generation_move_state, completed_ticket, recovered, recorded, reply.remaining_handle)
-                discard: bool = StudioGenerationMoveReplyDisposalPolicy::may_discard(publish, recorded, reply.remaining_handle, reply.release_status)
-                if discard:
-                    generation_move_reply <- null
+                if generation_move_release_retry_enabled():
+                    if generation_move_reply is retained:
+                        ticket: i64 = retained.ticket
+                        generation_move_reply <- null
+                        job: StudioBuildGenerationHandleDrainWorker::MoveJob = StudioBuildGenerationHandleDrainWorker::MoveJob{reply: move retained}
+                        generation_move_task <- task(generation_move_handle_drain_job, move job)
+                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: ticket)
+                        UiCore::request_frame_after(0.016)
+                        touch()
+                    return
+                return if generation_move_task != null or generation_move_reply != null
+                if not generation_move_source_current():
+                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Inspecting
                     generation_move_wire <- null
-                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket: completed_ticket)
-                else:
-                    # Keep the full reply, including any handle or uncertain
-                    # release evidence, when publication or ledger capture fails.
-                    generation_move_reply <- move reply
-                    generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: completed_ticket)
-                request_generation_inventory()
+                    touch()
+                    return
+                current: StudioGenerationMoveConfirmationPolicy::ReviewKey = generation_move_current_key()
+                if StudioGenerationMoveConfirmationPolicy::may_confirm(generation_move_state, current, true, true, false):
+                    return if generation_move_ticket == StudioGenerationCandidateScanWorkerPolicy::Ticket::MAX
+                    if generation_move_wire is captured:
+                        generation_move_ticket <- generation_move_ticket + 1
+                        if generation_restore_capture_root(generation_move_ticket):
+                            review: StudioGenerationReviewBindingPolicy::Review = StudioGenerationReviewBindingPolicy::Review{selected: true, reviewed: true, confirmed: true, inventory_revision: current.scan_ticket, confirmed_revision: current.scan_ticket, reviewed_retention_days: current.retention_days, current_retention_days: current.retention_days}
+                            generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Confirmed(key: current)
+                            if StudioGenerationMoveConfirmationPolicy::may_start(generation_move_state, current, true, true, false):
+                                job: StudioBuildGenerationMoveWorker::Job = StudioBuildGenerationMoveWorker::Job{ticket: generation_move_ticket, review: review, wire: captured}
+                                generation_move_task <- StudioBuildGenerationMoveWorker::start(move job)
+                                generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Running(key: current, job_ticket: generation_move_ticket)
+                                UiCore::request_frame_after(0.016)
+                        else:
+                            generation_move_wire <- null
+                            generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Inspecting
+                elif generation_inventory is snapshot:
+                    row: StudioBuildGenerationCandidateProvider::Row = snapshot.rows[generation_inspected_row]
+                    root: darray[u8] = path_bytes(workspace_build_directory())
+                    captured: StudioBuildGenerationMoveWire::Wire = StudioBuildGenerationMoveWire::capture(row, root)
+                    if captured.valid:
+                        generation_move_resolution <- StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
+                        generation_move_wire <- captured
+                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Reviewing(key: current)
                 touch()
 
-        def generation_move_message() -> sview:
-            return "Recovery reviewed; the operation identity remains retained. No new move was performed." if generation_move_reply == null and StudioGenerationReplyResolutionPolicy::terminal(generation_move_resolution)
-            return "Retrying native handle release; recovery details remain retained." if generation_move_task != null and generation_move_state == StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: generation_move_ticket)
-            if generation_move_reply is reply:
-                outcome: StudioGenerationMoveResultPolicy::Outcome = StudioGenerationMoveResultPolicy::classify_result(reply.remaining_handle, reply.recoverable, reply.operation_id_bytes, reply.release_status, reply.recovery)
-                return StudioGenerationMoveResultPolicy::message(outcome)
-            match generation_move_state:
-                StudioGenerationMoveConfirmationPolicy::State.Running(key, job_ticket): return "Moving generation; recovery evidence is retained."
-                StudioGenerationMoveConfirmationPolicy::State.Draining(key, job_ticket): return "Cancellation requested; finishing the owned filesystem operation."
-                StudioGenerationMoveConfirmationPolicy::State.Reviewing(key): return "Review the selected generation and retention, then choose Confirm Move."
-                StudioGenerationMoveConfirmationPolicy::State.Confirmed(key): return "Starting the confirmed generation move."
-                StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket): return "Moved to recoverable storage. Files remain on disk."
-                StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket): return "Recovery evidence retained. Further generation moves are paused."
-                StudioGenerationMoveConfirmationPolicy::State.Inspecting: return generation_inventory_message()
+        def cancel_generation_move_review() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                generation_move_state <- StudioGenerationMoveConfirmationPolicy::cancel(generation_move_state)
+                generation_move_wire <- null if generation_move_task == null and generation_move_reply == null
+
+        def poll_generation_move() -> void can[Threads, Unsafe.RawExtern, Memory{Allocate, Release}, Global{Read, Write}]:
+            can Global{Read, Write}:
+                if generation_move_task is active:
+                    generation_move_task <- null
+                    readiness: ThreadReadiness[StudioBuildGenerationMoveWorker::Result] = poll_ready(move active)
+                    if not readiness.complete:
+                        generation_move_task <- move readiness.thread
+                        UiCore::request_frame_after(0.016)
+                        return
+                    mutable reply: StudioBuildGenerationMoveWorker::Result = join(move readiness.thread)
+                    completed_ticket: i64 = reply.ticket
+                    recovered: bool = reply.recoverable
+                    recorded: bool = record_generation_move_identity(reply.operation_id, reply.operation_id_bytes)
+                    publish: bool = StudioGenerationMoveConfirmationPolicy::may_publish_success(generation_move_state, completed_ticket, recovered, recorded, reply.remaining_handle)
+                    discard: bool = StudioGenerationMoveReplyDisposalPolicy::may_discard(publish, recorded, reply.remaining_handle, reply.release_status)
+                    if discard:
+                        generation_move_reply <- null
+                        generation_move_wire <- null
+                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket: completed_ticket)
+                    else:
+                        # Keep the full reply, including any handle or uncertain
+                        # release evidence, when publication or ledger capture fails.
+                        generation_move_reply <- move reply
+                        generation_move_state <- StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: completed_ticket)
+                    request_generation_inventory()
+                    touch()
+
+        def generation_move_message() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Recovery reviewed; the operation identity remains retained. No new move was performed." if generation_move_reply == null and StudioGenerationReplyResolutionPolicy::terminal(generation_move_resolution)
+                return "Retrying native handle release; recovery details remain retained." if generation_move_task != null and generation_move_state == StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket: generation_move_ticket)
+                if generation_move_reply is reply:
+                    outcome: StudioGenerationMoveResultPolicy::Outcome = StudioGenerationMoveResultPolicy::classify_result(reply.remaining_handle, reply.recoverable, reply.operation_id_bytes, reply.release_status, reply.recovery)
+                    return StudioGenerationMoveResultPolicy::message(outcome)
+                match generation_move_state:
+                    StudioGenerationMoveConfirmationPolicy::State.Running(key, job_ticket): return "Moving generation; recovery evidence is retained."
+                    StudioGenerationMoveConfirmationPolicy::State.Draining(key, job_ticket): return "Cancellation requested; finishing the owned filesystem operation."
+                    StudioGenerationMoveConfirmationPolicy::State.Reviewing(key): return "Review the selected generation and retention, then choose Confirm Move."
+                    StudioGenerationMoveConfirmationPolicy::State.Confirmed(key): return "Starting the confirmed generation move."
+                    StudioGenerationMoveConfirmationPolicy::State.Resolved(job_ticket): return "Moved to recoverable storage. Files remain on disk."
+                    StudioGenerationMoveConfirmationPolicy::State.RecoveryPending(job_ticket): return "Recovery evidence retained. Further generation moves are paused."
+                    StudioGenerationMoveConfirmationPolicy::State.Inspecting: return generation_inventory_message()
