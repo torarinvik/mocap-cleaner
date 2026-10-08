@@ -37,7 +37,8 @@ module StudioBuildGenerationTrashTransaction:
 
         affine struct ReconcileIdentityResult:
             observation: ReconcileResult
-            identity: StudioGenerationReconcileIdentityPolicy::Facts
+            identity_state: StudioGenerationReconcileIdentityPolicy::State
+            identity_details: StudioGenerationReconcileIdentityPolicy::Details
 
         struct BeginMoveResult:
             status: StudioBuildGenerationTrashBindingPolicy::DecodedStatus
@@ -300,8 +301,8 @@ module StudioBuildGenerationTrashTransaction:
         # only with exact bounded output extents and valid reconciliation rows.
         def reconcile_with_identity[@r](build_root: cstr, operation_id: cstr,
                                     error_bytes: mutable darray[u8]& @r) -> ReconcileIdentityResult @r can[Blocking.IO, Memory.Allocate, Unsafe.PointerCast, Unsafe.RawExtern]:
-            ensure result.identity.state != StudioGenerationReconcileIdentityPolicy::State.Verified or (result.observation.output_details_valid and reconcile_identity_status_valid(result.observation.status, result.observation.phase, result.observation.location, result.observation.output_details_valid))
-            ensure result.observation.status.status != StudioBuildGenerationTrashNative::Status.ReleaseUncertain or result.identity.state != StudioGenerationReconcileIdentityPolicy::State.Verified
+            ensure result.identity_state != StudioGenerationReconcileIdentityPolicy::State.Verified or (result.observation.output_details_valid and reconcile_identity_status_valid(result.observation.status, result.observation.phase, result.observation.location, result.observation.output_details_valid))
+            ensure result.observation.status.status != StudioBuildGenerationTrashNative::Status.ReleaseUncertain or result.identity_state != StudioGenerationReconcileIdentityPolicy::State.Verified
             error_bytes.clear()
             mutable location_raw: i32 = StudioBuildGenerationTrashNative::Location.Unknown.i32()
             mutable phase_raw: i32 = StudioBuildGenerationTrashNative::Phase.Unknown.i32()
@@ -342,20 +343,16 @@ module StudioBuildGenerationTrashTransaction:
             if not (id_valid and path_valid):
                 outcome <- StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
             observation: ReconcileResult = ReconcileResult{status: decoded_status, phase: decoded_phase, location: decoded_location, outcome: outcome, artifact_id: artifact_id, relative_path: relative_path, output_details_valid: id_valid and path_valid}
-            mutable digest: darray[u8] @r = []
             mutable digest_extent_valid: bool = receipt_digest_buffer[StudioBuildGenerationTrashNative::Limit::DIGEST_CAPACITY.usize() - 1] == 0
             mutable digest_index: usize = 0
             while digest_index < StudioGenerationReconcileIdentityPolicy::Limit::SHA256_BYTES.usize() and receipt_digest_buffer[digest_index] != 0:
-                digest.push(receipt_digest_buffer[digest_index])
                 digest_index <- digest_index + 1
             digest_extent_valid <- digest_extent_valid and digest_index == StudioGenerationReconcileIdentityPolicy::Limit::SHA256_BYTES.usize()
-            mutable effective_identity_valid: i32 = identity_valid_raw
-            if identity_valid_raw == 0 and not reconcile_identity_outputs_zero(root_device, root_inode, receipt_device, receipt_inode, receipt_bytes, receipt_digest_buffer):
-                effective_identity_valid <- 2
-            if identity_valid_raw == 1 and (not digest_extent_valid or not reconcile_identity_status_valid(observation.status, observation.phase, observation.location, observation.output_details_valid)):
-                effective_identity_valid <- 2
-            identity: StudioGenerationReconcileIdentityPolicy::Facts = StudioGenerationReconcileIdentityPolicy::decode(effective_identity_valid, root_device, root_inode, receipt_device, receipt_inode, receipt_bytes, digest)
-            ReconcileIdentityResult{observation: observation, identity: identity}
+            context_valid: bool = reconcile_identity_status_valid(observation.status, observation.phase, observation.location, observation.output_details_valid)
+            details_valid: bool = digest_extent_valid and StudioGenerationReconcileIdentityPolicy::verified(root_device, root_inode, receipt_device, receipt_inode, receipt_bytes, receipt_digest_buffer)
+            identity_state: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(identity_valid_raw, reconcile_identity_outputs_zero(root_device, root_inode, receipt_device, receipt_inode, receipt_bytes, receipt_digest_buffer), context_valid, details_valid)
+            identity_details: StudioGenerationReconcileIdentityPolicy::Details = StudioGenerationReconcileIdentityPolicy::decode_details(identity_state, root_device, root_inode, receipt_device, receipt_inode, receipt_bytes, receipt_digest_buffer)
+            ReconcileIdentityResult{observation: move observation, identity_state: identity_state, identity_details: identity_details}
 
         def query_receipt_scope(handle: i64) -> StudioGenerationReceiptControlPolicy::Evidence can[Blocking.IO, Unsafe.RawExtern]:
             mutable raw_scope: i32 = 0

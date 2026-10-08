@@ -1,4 +1,4 @@
-# Strict decoding for descriptor identities returned by recovery reconciliation.
+# Strict adapter policy for identity details returned by native reconciliation.
 module StudioGenerationReconcileIdentityPolicy:
     public:
         const enum State of i64:
@@ -6,51 +6,53 @@ module StudioGenerationReconcileIdentityPolicy:
             Verified = 1
             Refused = 2
 
-        affine struct Facts:
-            state: State
+        const module Limit:
+            SHA256_BYTES: i64 = 64
+            MAX_RECEIPT_BYTES: i64 = 1048576
+
+        struct Details:
             root_device: u64
             root_inode: u64
             receipt_device: u64
             receipt_inode: u64
             receipt_bytes: i64
-            receipt_sha256: darray[u8]
+            receipt_sha256: u8[65]
 
-        const module Limit:
-            SHA256_BYTES: i64 = 64
-            MAX_RECEIPT_BYTES: i64 = 1048576
-
-        def digest_valid(digest: darray[u8]&) -> bool:
-            return false if digest.count.i64() != Limit::SHA256_BYTES
-            for byte in digest:
+        def digest_valid(buffer: u8[65]&) -> bool:
+            return false if buffer[64] != 0
+            for index in 0 ..< 64:
+                byte: u8 = buffer[index]
                 return false if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102))
             true
 
-        def verified(root_inode: u64, receipt_inode: u64, receipt_bytes: i64,
-                      digest: darray[u8]&) -> bool:
+        def verified(root_device: u64, root_inode: u64,
+                     receipt_device: u64, receipt_inode: u64,
+                     receipt_bytes: i64, digest: u8[65]&) -> bool:
             root_inode > 0 and receipt_inode > 0 and receipt_bytes > 0 and receipt_bytes <= Limit::MAX_RECEIPT_BYTES and digest_valid(digest)
 
-        def unavailable[@r]() -> Facts @r can Memory.Allocate:
-            Facts{state: State.Unavailable, root_device: 0, root_inode: 0,
-                receipt_device: 0, receipt_inode: 0, receipt_bytes: 0,
-                receipt_sha256: []}
+        def digest_equal(copied: u8[65], digest: u8[65]&) -> bool:
+            for index in 0 ..< 65:
+                return false if copied[index] != digest[index]
+            true
 
-        def refused[@r]() -> Facts @r can Memory.Allocate:
-            Facts{state: State.Refused, root_device: 0, root_inode: 0,
-                receipt_device: 0, receipt_inode: 0, receipt_bytes: 0,
-                receipt_sha256: []}
+        def decode_state(raw_valid: i32, outputs_zero: bool,
+                         context_valid: bool, details_valid: bool) -> State:
+            if raw_valid == 0:
+                if outputs_zero:
+                    return State.Unavailable
+                return State.Refused
+            if raw_valid != 1 or not context_valid or not details_valid:
+                return State.Refused
+            State.Verified
 
-        def decode[@r](raw_valid: i32, root_device: u64, root_inode: u64,
-                   receipt_device: u64, receipt_inode: u64, receipt_bytes: i64,
-                   digest: darray[u8]& @r) -> Facts @r can Memory.Allocate:
-            ensure result.state != State.Verified or verified(result.root_inode,
-                result.receipt_inode, result.receipt_bytes, result.receipt_sha256)
-            ensure result.state == State.Unavailable implies (result.root_inode == 0 and result.receipt_inode == 0 and result.receipt_bytes == 0 and result.receipt_sha256.count == 0)
-            ensure result.state == State.Refused implies (result.root_inode == 0 and result.receipt_inode == 0 and result.receipt_bytes == 0 and result.receipt_sha256.count == 0)
-            return unavailable() if raw_valid == 0
-            return refused() if raw_valid != 1 or not verified(root_inode, receipt_inode, receipt_bytes, digest)
-            mutable owned_digest: darray[u8] @r = []
-            owned_digest.extend(digest)
-            Facts{state: State.Verified, root_device: root_device,
-                root_inode: root_inode, receipt_device: receipt_device,
-                receipt_inode: receipt_inode, receipt_bytes: receipt_bytes,
-                receipt_sha256: owned_digest}
+        def decode_details(state: State, root_device: u64, root_inode: u64,
+                           receipt_device: u64, receipt_inode: u64,
+                           receipt_bytes: i64, digest: u8[65]&) -> Details:
+            if state != State.Verified:
+                return Details{root_device: 0, root_inode: 0, receipt_device: 0, receipt_inode: 0, receipt_bytes: 0, receipt_sha256: zeroed}
+            mutable copied_digest: u8[65] = zeroed
+            for index in 0 ..< 65:
+                copied_digest[index] <- digest[index]
+            Details{root_device: root_device, root_inode: root_inode,
+                receipt_device: receipt_device, receipt_inode: receipt_inode,
+                receipt_bytes: receipt_bytes, receipt_sha256: copied_digest}

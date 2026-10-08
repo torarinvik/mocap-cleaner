@@ -2,47 +2,53 @@ include "../src/studio/state/generation_reconcile_identity_policy.elisa"
 
 module StudioGenerationReconcileIdentityLaws:
     public:
-        def unavailable_flag_clears_native_identity(root_device: u64,
-            root_inode: u64, receipt_device: u64, receipt_inode: u64,
-            receipt_bytes: i64, digest: darray[u8]&) -> bool can[Memory.Allocate]:
-            facts: StudioGenerationReconcileIdentityPolicy::Facts =
-                StudioGenerationReconcileIdentityPolicy::decode(0, root_device,
-                    root_inode, receipt_device, receipt_inode, receipt_bytes, digest)
-            ensure result
-            facts.state == StudioGenerationReconcileIdentityPolicy::State.Unavailable and facts.root_device == 0 and facts.root_inode == 0 and facts.receipt_device == 0 and facts.receipt_inode == 0 and facts.receipt_bytes == 0 and facts.receipt_sha256.count == 0
+        def valid_digest() -> u8[65]:
+            mutable digest: u8[65] = zeroed
+            for index in 0 ..< 64:
+                digest[index] <- 48
+            digest
 
-        def malformed_validity_flag_refuses_without_leaking_identity(
-            root_device: u64, root_inode: u64, receipt_device: u64,
-            receipt_inode: u64, receipt_bytes: i64,
-            digest: darray[u8]&) -> bool can[Memory.Allocate]:
-            requires StudioGenerationReconcileIdentityPolicy::verified(root_inode,
-                receipt_inode, receipt_bytes, digest)
-            facts: StudioGenerationReconcileIdentityPolicy::Facts =
-                StudioGenerationReconcileIdentityPolicy::decode(2, root_device,
-                    root_inode, receipt_device, receipt_inode, receipt_bytes, digest)
-            ensure result
-            facts.state == StudioGenerationReconcileIdentityPolicy::State.Refused and facts.root_inode == 0 and facts.receipt_inode == 0 and facts.receipt_bytes == 0 and facts.receipt_sha256.count == 0
+        def digest_matches(details: StudioGenerationReconcileIdentityPolicy::Details,
+                           digest: u8[65]&) -> bool:
+            for index in 0 ..< 65:
+                return false if details.receipt_sha256[index] != digest[index]
+            true
 
-        def invalid_receipt_facts_refuse_without_leaking_identity(
-            root_device: u64, root_inode: u64, receipt_device: u64,
-            receipt_inode: u64, receipt_bytes: i64,
-            digest: darray[u8]&) -> bool can[Memory.Allocate]:
-            requires not StudioGenerationReconcileIdentityPolicy::verified(root_inode,
-                receipt_inode, receipt_bytes, digest)
-            facts: StudioGenerationReconcileIdentityPolicy::Facts =
-                StudioGenerationReconcileIdentityPolicy::decode(1, root_device,
-                    root_inode, receipt_device, receipt_inode, receipt_bytes, digest)
+        def unavailable_flag_requires_zero_outputs() -> bool:
             ensure result
-            facts.state == StudioGenerationReconcileIdentityPolicy::State.Refused and facts.root_device == 0 and facts.root_inode == 0 and facts.receipt_device == 0 and facts.receipt_inode == 0 and facts.receipt_bytes == 0 and facts.receipt_sha256.count == 0
+            mutable digest: u8[65] = zeroed
+            state: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(0, true, false, false)
+            refused: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(0, false, true, true)
+            details: StudioGenerationReconcileIdentityPolicy::Details = StudioGenerationReconcileIdentityPolicy::decode_details(state, 0, 0, 0, 0, 0, digest)
+            state == StudioGenerationReconcileIdentityPolicy::State.Unavailable and refused == StudioGenerationReconcileIdentityPolicy::State.Refused and details.root_inode == 0
 
-        def verified_facts_preserve_exact_descriptor_and_receipt(
-            root_device: u64, root_inode: u64, receipt_device: u64,
-            receipt_inode: u64, receipt_bytes: i64,
-            digest: darray[u8]&) -> bool can[Memory.Allocate]:
-            requires StudioGenerationReconcileIdentityPolicy::verified(root_inode,
-                receipt_inode, receipt_bytes, digest)
-            facts: StudioGenerationReconcileIdentityPolicy::Facts =
-                StudioGenerationReconcileIdentityPolicy::decode(1, root_device,
-                    root_inode, receipt_device, receipt_inode, receipt_bytes, digest)
+        def unknown_validity_flag_refuses() -> bool:
             ensure result
-            facts.state == StudioGenerationReconcileIdentityPolicy::State.Verified and facts.root_device == root_device and facts.root_inode == root_inode and facts.receipt_device == receipt_device and facts.receipt_inode == receipt_inode and facts.receipt_bytes == receipt_bytes and bytes_equal(facts.receipt_sha256, digest)
+            state: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(2, true, true, true)
+            state == StudioGenerationReconcileIdentityPolicy::State.Refused
+
+        def invalid_context_refuses_verification() -> bool:
+            ensure result
+            state: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(1, false, false, true)
+            state == StudioGenerationReconcileIdentityPolicy::State.Refused
+
+        def invalid_receipt_facts_refuse_verification() -> bool:
+            ensure result
+            mutable digest: u8[65] = valid_digest()
+            facts_valid: bool = StudioGenerationReconcileIdentityPolicy::verified(8, 0, 9, 13, 4096, digest)
+            state: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(1, false, true, facts_valid)
+            not facts_valid and state == StudioGenerationReconcileIdentityPolicy::State.Refused
+
+        def verified_identity_preserves_exact_receipt() -> bool:
+            ensure result
+            mutable digest: u8[65] = valid_digest()
+            state: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(1, false, true, true)
+            details: StudioGenerationReconcileIdentityPolicy::Details = StudioGenerationReconcileIdentityPolicy::decode_details(state, 8, 11, 9, 13, 4096, digest)
+            state == StudioGenerationReconcileIdentityPolicy::State.Verified and details.root_device == 8 and details.root_inode == 11 and details.receipt_device == 9 and details.receipt_inode == 13 and details.receipt_bytes == 4096 and digest_matches(details, digest)
+
+        def receipt_over_limit_refuses_verification() -> bool:
+            ensure result
+            mutable digest: u8[65] = valid_digest()
+            facts_valid: bool = StudioGenerationReconcileIdentityPolicy::verified(8, 11, 9, 13, StudioGenerationReconcileIdentityPolicy::Limit::MAX_RECEIPT_BYTES + 1, digest)
+            state: StudioGenerationReconcileIdentityPolicy::State = StudioGenerationReconcileIdentityPolicy::decode_state(1, false, true, facts_valid)
+            not facts_valid and state == StudioGenerationReconcileIdentityPolicy::State.Refused
