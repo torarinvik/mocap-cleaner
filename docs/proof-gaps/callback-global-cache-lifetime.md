@@ -97,3 +97,16 @@ build succeeds but this nested repair remains ineffective. Correct the owner
 selector and declaration collection, retain all three positives, then rebuild
 and rerun the same controls. The separate atomic-loader error and Studio runtime
 qualification also remain open.
+
+Follow-up `5d17a2c0` builds and its focused diagnostics run finishes with
+781/787 fixtures. Full nested and relative owning returns now fire at lines
+17 and 37; the owning alias at line 20 is still missed. Collision negatives
+remain silent. Logs are under
+`/tmp/Elisa-compiler-gsr-nested/build/seed-5d17a2c0/`.
+The symbol collector retains the alias's AST target and declaration identity in
+`type_alias_declarations`; its separate `type_alias_target` string projection
+uses `bare_type_name`, which intentionally loses non-bare targets. Ownership
+analysis must resolve the AST declaration target, including qualified names and
+container parameters, while preserving reference/view exclusions, lexical
+shadowing, unique declaration identity and bounded cycle refusal. A missing
+string projection is not evidence that an alias has no owning storage.
