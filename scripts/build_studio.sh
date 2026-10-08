@@ -88,6 +88,11 @@ trap record_studio_generation_failure EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 python3 "$ROOT/tools/studio_build_identity.py" --snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
+# Refuse semantic/effect failures before compiling the native dependency set.
+# Keep this log in the same captured generation as the eventual object build.
+bash "$STAGE1/scripts/elisac_stage1.sh" -emit check "$ROOT/src/studio/app/main.elisa" \
+  2>&1 | tee "$pending_directory/semantic.log"
+python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 
 clang -c -fobjc-arc -O2 -o "$pending_directory/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"
 clang -c -fobjc-arc -O2 -o "$pending_directory/studio_viewport_metal.o" "$ENGINE/native/viewport_metal.m"
@@ -121,8 +126,8 @@ clang -std=c99 -O2 -I "$ENGINE/dependencies/ufbx" \
 clang++ -c -std=c++17 -O2 -o "$pending_directory/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
 bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$pending_object" "$ROOT/src/studio/app/main.elisa" \
   2>&1 | tee "$pending_directory/compiler.log"
-# Stage1's # globals dial reports missing grants as warnings. Studio treats
-# those diagnostics as build failures, including dependency call sites.
+# Also refuse compatibility-mode Global warnings if a selected compiler emits
+# them without a failing exit status, including dependency call sites.
 if rg -q 'warning:.*requires can\[[^]]*Global' "$pending_directory/compiler.log"; then
   echo "Studio requires explicit Global.Read/Global.Write grants; see compiler.log" >&2
   exit 1
