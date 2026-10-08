@@ -328,8 +328,10 @@ negative controls, meaningful history entries and session/export parity.
   bounded in-memory identity retention are implemented (`5882dbe`, `021a276`,
   `80eb81c`, `5e2af2e`, `d644106`, `13f1245`). Recording uses owned root and
   operation bytes, detects exact duplicates and refuses capacity overflow;
-  completion retains its reply if recording fails. Ledger browsing, earlier
-  operation selection and background reconciliation are now connected.
+  completion retains its reply if recording fails.
+  Admission now explicitly contracts valid identities and available capacity for
+  new records, with two companion laws; current proof/replay qualification remains open.
+  Ledger browsing, earlier operation selection and background reconciliation are now connected.
   Qualify exact root/operation binding, stale replies, cancellation, capacity
   overflow and repeated moves. Qualify implemented exact resolution of retained
   replies; uncertain release continues to refuse acknowledgment. Exact Move/Restore Resolve Review source is connected to current
