@@ -5,15 +5,18 @@
 Current fetched compiler main is `7ec9def9`, including sized AST record
 performance work; installed Stage0 source remains `778c8281`. Rebase the project
 repairs onto this main or newer and rebuild before qualification or installation.
-The latest built repair candidate is `5d17a2c0`, based on earlier main
-`b26659e2`: its full/relative nested owning-return controls pass, but its owning
-alias control fails. Resolve aliases from the authoritative AST declaration,
-including lexical parents and qualified targets; retain scalar collision,
+The latest built repair candidate is `b8256d31`, based on `7ec9def9`, with
+combined alias-owner and atomic-callee repairs. Its focused regression log
+reports 12 cases and one failure: the collision fixture itself declares
+`Joinable` twice. Correct that fixture without weakening its collision assertion
+and rerun. Nested owning-return and qualified/parent alias controls produce the
+expected refusals; scalar collision controls produce none. Retain separate
 reference/view, ambiguous-owner and cyclic-alias refusal controls.
 
-The full Studio semantic check on this exact candidate reports only the atomic
-`load` selection error. Resolve the actual callee declaration rather than a
-same-spelled function in another module. Named constant value specialization,
+The historical `5d17a2c0` full Studio semantic check reports only the atomic
+`load` selection error. The new candidate's full Studio check remains pending;
+prove that it selects the actual callee rather than a same-spelled function in
+another module. Named constant value specialization,
 prior project-repair integration, production ownership IR, all compiler/prover
 gates and native Studio acceptance remain open. Earlier callback cache-content
 and sanitizer results are retained comparison evidence in the ownership gap
@@ -29,9 +32,9 @@ nested constant-owner source correspondence repair is still undergoing controls.
 See [retained FBX evidence](../acceptance/fbx-request-proof-2026-10-07.md).
 
 Latest fetched proof main is `e27b11bc`, UI main `dc6cd397` and engine main
-`e89aa30d`. UI `f33e439b` already contains its fetched main. The clean compiler
+`2d052b44`. UI `f33e439b` already contains its fetched main. The clean compiler
 checkout was fast-forwarded to `7ec9def9`; the mocap engine branch merged its
-new main without conflicts at `7255ef20`, preserving project repairs. Preserve
+new main without conflicts at `6a6aced2`, preserving project repairs. Preserve
 the dirty UI work and qualify its exact native-link snapshot. The proof checkout
 is rebased onto `e27b11bc`, with owner/call repairs preserved at `9fddab1a`;
 its matching producer/replay rebuild remains open. Captured

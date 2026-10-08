@@ -34,5 +34,12 @@ This is a compiler diagnostic, not evidence that the FBX file is malformed.
   and runtime performance against that main. A successful parser preflight does
   not prove the semantic repair or removal of the production blocker.
 
-The repair is isolated in `/tmp/Elisa-compiler-atomic-load`; no repaired-product
-or native Studio success is claimed yet.
+The repair is isolated in `/tmp/Elisa-compiler-atomic-load`. The source-matched
+`b8256d31` seed succeeds; native Studio success remains unproved. Its focused
+regression rerun reports 12 cases and one failure: the intended negative atomic
+collision fixture has an unrelated duplicate `Joinable` declaration. The ancestor
+mismatch fixture also emits undefined/non-function diagnostics alongside its
+expected mismatch; resolve fixture validity before using it as evidence of
+lexical lookup. Retain the failed log rather than relabeling it as passing:
+`build/regressions-b8256d31-rerun.log` in the compiler worktree, SHA-256
+`83e93b5f5b2ee3324c5ab41881e6f2206e6fb1eb5f4484c0621415a358abe67b`.
