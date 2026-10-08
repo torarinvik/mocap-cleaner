@@ -205,3 +205,23 @@ read or hashed the original FBX, resolved a canonical path, compared descriptor
 and directory-entry identities, synced the snapshot, or left the original
 unchanged. Native-to-policy correspondence remains a separate qualification
 gate and is not established by the reports above.
+
+## Production binding still required
+
+The production `StudioFbxImportNative::stage` adapter checks terminated inputs,
+bounded foreign spans, returned paths and digest through
+`StudioFbxImportNativePolicy::staging_output_valid`. It does not construct the
+composed `Evidence` value or call `StudioFbxStagingEvidencePolicy::stage_admitted`.
+The native success status remains the boundary authority for descriptor identity,
+stable copying, private staging, sync and source-write exclusion. Proofs over
+`Evidence` therefore do not currently guard this production handoff.
+
+Close this binding explicitly when qualifying the final importer: retain the
+exact native implementation/link identity and its runtime refusal controls,
+then connect the foreign success contract or verifiable returned observations
+to the Elisa admission conditions. Do not populate evidence booleans from
+`status == 0` and present them as independently checked filesystem facts.
+Keep `Unsafe.RawExtern` propagation visible until the deliberately reviewed
+adapter boundary; a type-state or affine envelope alone cannot establish the
+native observations. Until correspondence is established, report the pure
+admission proofs and native import results as separate evidence.
