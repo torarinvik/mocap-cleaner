@@ -191,7 +191,7 @@ module StudioExportBatchReviewBinding:
                 queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.NotInspected})
                 queue.recovery_directories.push(recovery_directory)
                 queue.journals.push(durable_record)
-                true
+                return true
 
         # Capture an already prepared, explicitly reviewed export without
         # routing it through a not-yet-existing multi-take evaluation worker.
@@ -231,7 +231,7 @@ module StudioExportBatchReviewBinding:
                 queue.publication.push(StudioExportBatchPublication::Receipt{glb: StudioExportBatchPublication::ArtifactStage.Pending, glb_bytes_verified: false, json: StudioExportBatchPublication::ArtifactStage.Pending, json_bytes_verified: false, text: StudioExportBatchPublication::ArtifactStage.Pending, text_bytes_verified: false, staging: StudioExportBatchPublication::StagingDisposition.StillPresent})
                 queue.recovery_directories.push(recovery_directory)
                 queue.journals.push(durable_record)
-                true
+                return true
 
         # Claims bind worker output to both the retained input identity and a
         # monotonically increasing per-item attempt number.
@@ -253,7 +253,7 @@ module StudioExportBatchReviewBinding:
                 claimed_index: i64 = StudioExportBatchQueue::launch_next(&queue.queue)
                 return WorkerClaim{identity: zeroed, index: -1, attempt: 0, issued: false} if claimed_index < 0
                 queue.attempts[claimed_index.usize()] <- queue.attempts[claimed_index.usize()] + 1
-                WorkerClaim{identity: queue.identities[claimed_index.usize()], index: claimed_index, attempt: queue.attempts[claimed_index.usize()], issued: true}
+                return WorkerClaim{identity: queue.identities[claimed_index.usize()], index: claimed_index, attempt: queue.attempts[claimed_index.usize()], issued: true}
 
         def complete_claim(queue: mutable BoundQueue&, claim: WorkerClaim,
                            succeeded: bool, staged_outputs_valid: bool,
@@ -278,7 +278,7 @@ module StudioExportBatchReviewBinding:
                     if not durable(persisted):
                         return StudioExportBatchQueue::mark_recoverable(&queue.queue, claim.index, warning_count)
                     queue.journals[claim.index.usize()] <- next_record
-                StudioExportBatchQueue::complete(&queue.queue, claim.index, succeeded and current_source, staged_outputs_valid and current_source, warning_count)
+                return StudioExportBatchQueue::complete(&queue.queue, claim.index, succeeded and current_source, staged_outputs_valid and current_source, warning_count)
 
         def cancel(queue: mutable BoundQueue&, lock_descriptor: i32) -> i64 can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
             requires valid(queue)
@@ -293,7 +293,7 @@ module StudioExportBatchReviewBinding:
                         persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
                         return -1 if not durable(persisted)
                         queue.journals[index.usize()] <- next_record
-                StudioExportBatchQueue::cancel(&queue.queue)
+                return StudioExportBatchQueue::cancel(&queue.queue)
 
         def pause(queue: mutable BoundQueue&) -> bool:
             requires valid(queue)
@@ -324,7 +324,7 @@ module StudioExportBatchReviewBinding:
                     persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
                     return false if not durable(persisted)
                     queue.journals[index.usize()] <- next_record
-                StudioExportBatchQueue::retry(&queue.queue, index, preflight)
+                return StudioExportBatchQueue::retry(&queue.queue, index, preflight)
 
         def resume(queue: mutable BoundQueue&, lock_descriptor: i32) -> bool can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
             requires valid(queue)
@@ -340,7 +340,7 @@ module StudioExportBatchReviewBinding:
                         persisted: StudioPublicationDurabilityPolicy::Result = StudioExportBatchQueueStore::update_item(queue.build_directory, queue.build_identity, queue.recovery_directories[index.usize()], lock_descriptor, next_record)
                         return false if not durable(persisted)
                         queue.journals[index.usize()] <- next_record
-                StudioExportBatchQueue::resume(&queue.queue)
+                return StudioExportBatchQueue::resume(&queue.queue)
 
         # Reopen an existing batch by identity. Invalid or unreadable recovery
         # entries fail the whole open so corruption is never mistaken for an
@@ -425,7 +425,7 @@ module StudioExportBatchReviewBinding:
                     cancelled <- true if record.cancel_requested == 1
                 StudioExportBatchQueue::restore_cancelled(&queue.queue) if cancelled
                 out <- queue
-                true
+                return true
 
         # Recovered warnings require a new explicit acknowledgement. Reopen
         # never restores approval or the private review marker.
@@ -452,7 +452,7 @@ module StudioExportBatchReviewBinding:
                 if approved:
                     queue.review_attempts[index.usize()] <- queue.attempts[index.usize()]
                     queue.review_issued[index.usize()] <- true
-                approved
+                return approved
 
         # Publishes a prepared result with review captured during enqueue or
         # freshly acknowledged after recovery. The marker stays inside the
@@ -481,7 +481,7 @@ module StudioExportBatchReviewBinding:
                 return false if checked_item.warning_count != current.warning_count
                 return false if not prepared_publish_admitted(current.state, current.warning_count, queue.review_issued[index.usize()], queue.review_attempts[index.usize()], queue.attempts[index.usize()], identity_matches)
                 return false if not source_still_matches(identity)
-                publish_item_outputs(queue, index, identity, warning_result, lock_descriptor)
+                return publish_item_outputs(queue, index, identity, warning_result, lock_descriptor)
 
         # Clean staged results do not require a warning-review token. They use
         # the same exact identity and create-only publisher boundary.
@@ -498,7 +498,7 @@ module StudioExportBatchReviewBinding:
                 item_identity: StudioExportBatchIdentity::Identity = queue.identities[index.usize()]
                 return false if not StudioExportBatchIdentity::equal(item_identity, current)
                 return false if not paths_valid(item_identity) or not source_still_matches(item_identity)
-                publish_item_outputs(queue, index, item_identity, false, lock_descriptor)
+                return publish_item_outputs(queue, index, item_identity, false, lock_descriptor)
 
     private:
         def publish_item_outputs(queue: mutable BoundQueue&, index: i64,
