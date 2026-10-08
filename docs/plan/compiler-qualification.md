@@ -26,8 +26,12 @@ record. Recheck them on the final source/product/runtime closure. Measure
 cache-hit rehome allocation cost; unresolved-call static lifetime fallback does
 not qualify cleanup.
 
-The `1482a808` baseline gate remains a captured historical comparison while it
-finishes. It cannot qualify promotion against newer main. Preserve the upstream
+The `1482a808` historical baseline is terminal: the 32-check fast profile has
+24 passes and eight failures; the five separately run oracle lanes have one
+pass and four failures. All 37 checks are accounted for. Retain its manifest
+and logs under `/tmp/elisa-compiler-baseline-current-1482/build/current-main-1482-baseline/`.
+It cannot qualify promotion against newer main, and overlapping work invalidates
+performance comparisons from its durations. Preserve the upstream
 counted-fill geometric-growth and NaN-diagnostic ownership fixes when integrating
 project repairs. Rebuild the paired prover on the final compiler tuple; its
 nested constant-owner source correspondence repair is still undergoing controls.
