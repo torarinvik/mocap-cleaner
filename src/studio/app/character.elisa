@@ -65,6 +65,7 @@ module StudioCharacter:
             mutable bytes: darray[u8] = []
             for j in 0..<joints |j, mesh, doc, bytes, names, name_start, name_length, roles, parent, rest|:
                 node: i64 = GlbSkinMesh::joint_node(&mesh, j)
+                return null if not StudioCharacterBind::slot_ok(node, GlbDocument::node_count(&doc).i64())
                 _ = GlbDocument::node_name(&doc, node.usize(), &bytes)
                 start: usize = RigMap::bare_start(&bytes)
                 name_start.push(names.count.i64())
@@ -79,6 +80,8 @@ module StudioCharacter:
         # Match `m`'s skin joints against clip `c`'s rig.
         def bind(m: Model&, c: StudioModel::Clip&) -> Binding:
             joints: usize = GlbSkinMesh::joint_count(&m.mesh)
+            if m.name_start.count != joints or m.name_length.count != joints or m.roles.count != joints or m.parent.count != joints or m.rest.count != joints:
+                return Binding{slot: [], mode: [], anchor: [], offset: [], bound: 0, coverage: 0}
             count: i64 = c.nodes.count.i64()
             mutable slot: darray[i64] = []
             mutable bytes: darray[u8] = []
@@ -143,9 +146,11 @@ module StudioCharacter:
         # Nearest ancestor of skin joint `j` (through Model::parent) that has
         # a slot, or -1. Bounded by the joint count, so a cyclic file ends.
         def bound_ancestor(m: Model&, slot: darray[i64]&, j: i64, joints: i64) -> i64:
+            return -1 if not StudioCharacterBind::slot_ok(j, m.parent.count.i64())
             mutable at: i64 = m.parent[j.usize()]
             mutable steps: i64 = 0
             while at >= 0 and steps < joints:
+                return -1 if not StudioCharacterBind::slot_ok(at, m.parent.count.i64()) or not StudioCharacterBind::slot_ok(at, slot.count.i64())
                 return at if slot[at.usize()] >= 0
                 at <- m.parent[at.usize()]
                 steps <- steps + 1
@@ -156,7 +161,9 @@ module StudioCharacter:
             start: usize = RigMap::bare_start(bytes)
             length: i64 = m.name_length[j]
             return false if length <= 0 or start >= bytes.count or (bytes.count - start).i64() != length
+            return false if m.name_start[j] < 0
             base: usize = m.name_start[j].usize()
+            return false if base > m.names.count or length.usize() > m.names.count - base
             for k in 0..<length.usize() |k, m, bytes, start, base|:
                 return false if m.names[base + k] != bytes[start + k]
             return true
