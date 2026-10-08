@@ -3,9 +3,10 @@ include "../../core/bounded_path_policy.elisa"
 
 extend Studio:
     private:
-        def spare_path_slot() -> i64:
-            return 0 if path_slot == 1
-            1
+        def spare_path_slot() -> i64 can[Global.Read]:
+            can Global.Read:
+                return 0 if path_slot == 1
+                return 1
 
         # Validate without touching any retained destination buffer.
         def bounded_path_length(p: cstr) -> i64:
@@ -15,64 +16,72 @@ extend Studio:
                 i <- i + 1
             -1
 
-        def copy_path(p: cstr, slot: i64) -> bool can Unsafe.PointerCast:
-            return false if slot != 0 and slot != 1
-            length: i64 = bounded_path_length(p)
-            return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
-            # Clear borrowed feedback before an owned path slot can be reused.
-            load_failure_feedback.message <- ""
-            load_failure_feedback.source <- null
-            mutable i: usize = 0
-            while i <= length.usize():
-                if slot == 0:
-                    path_bytes0[i] <- p[i]
-                else:
-                    path_bytes1[i] <- p[i]
-                i <- i + 1
-            true
+        def copy_path(p: cstr, slot: i64) -> bool can[Unsafe.PointerCast, Global.Write]:
+            can Global.Write:
+                return false if slot != 0 and slot != 1
+                length: i64 = bounded_path_length(p)
+                return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
+                # Clear borrowed feedback before an owned path slot can be reused.
+                load_failure_feedback.message <- ""
+                load_failure_feedback.source <- null
+                mutable i: usize = 0
+                while i <= length.usize():
+                    if slot == 0:
+                        path_bytes0[i] <- p[i]
+                    else:
+                        path_bytes1[i] <- p[i]
+                    i <- i + 1
+                return true
 
-        def stored_path(slot: i64) -> cstr can Unsafe.PointerCast:
-            return (&path_bytes0[0]).cast[cstr] if slot == 0
-            (&path_bytes1[0]).cast[cstr]
+        def stored_path(slot: i64) -> cstr can[Unsafe.PointerCast, Global.Read]:
+            can Global.Read:
+                return (&path_bytes0[0]).cast[cstr] if slot == 0
+                return (&path_bytes1[0]).cast[cstr]
 
-        def stage_pending_path(p: cstr) -> bool can Unsafe.PointerCast:
-            length: i64 = bounded_path_length(p)
-            return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
-            mutable i: usize = 0
-            while i <= length.usize():
-                pending_path_bytes[i] <- p[i]
-                i <- i + 1
-            true
+        def stage_pending_path(p: cstr) -> bool can[Unsafe.PointerCast, Global.Write]:
+            can Global.Write:
+                length: i64 = bounded_path_length(p)
+                return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
+                mutable i: usize = 0
+                while i <= length.usize():
+                    pending_path_bytes[i] <- p[i]
+                    i <- i + 1
+                return true
 
-        def pending_path() -> cstr can Unsafe.PointerCast:
-            (&pending_path_bytes[0]).cast[cstr]
+        def pending_path() -> cstr can[Unsafe.PointerCast, Global.Read]:
+            can Global.Read:
+                return (&pending_path_bytes[0]).cast[cstr]
 
-        def set_session_path(p: cstr) -> bool can Unsafe.PointerCast:
-            length: i64 = bounded_path_length(p)
-            return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
-            mutable copied: usize = 0
-            while copied <= length.usize():
-                session_path_bytes[copied] <- p[copied]
-                copied <- copied + 1
-            session_path <- (&session_path_bytes[0]).cast[cstr]
-            true
+        def set_session_path(p: cstr) -> bool can[Unsafe.PointerCast, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                length: i64 = bounded_path_length(p)
+                return false if not BoundedPathPolicy::admitted(length, PathCapacity::BYTES.i64())
+                mutable copied: usize = 0
+                while copied <= length.usize():
+                    session_path_bytes[copied] <- p[copied]
+                    copied <- copied + 1
+                session_path <- (&session_path_bytes[0]).cast[cstr]
+                return true
 
     public:
-        def set_path(p: cstr) -> void can Unsafe.PointerCast:
-            slot: i64 = spare_path_slot()
-            if copy_path(p, slot):
-                path_slot <- slot
-                path <- stored_path(slot)
-            else:
-                status <- "take path exceeds 4095 bytes"
-                status_file <- null
+        def set_path(p: cstr) -> void can[Unsafe.PointerCast, Global.Read, Global.Write]:
+            can Global.Read, Global.Write:
+                slot: i64 = spare_path_slot()
+                if copy_path(p, slot):
+                    path_slot <- slot
+                    path <- stored_path(slot)
+                else:
+                    status <- "take path exceeds 4095 bytes"
+                    status_file <- null
 
-        def set_anim(a: cstr) -> void:
-            anim_name <- a
+        def set_anim(a: cstr) -> void can[Global.Write]:
+            can Global.Write:
+                anim_name <- a
 
-        def set_model(p: cstr) -> void:
-            model_path <- p
-            model_requested <- true
+        def set_model(p: cstr) -> void can[Global.Write]:
+            can Global.Write:
+                model_path <- p
+                model_requested <- true
 
         # Load the character model in `p`; the current one stays when `p`
         # holds no skinned mesh. Turns the mesh view on.
