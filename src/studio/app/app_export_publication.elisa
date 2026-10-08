@@ -19,140 +19,141 @@ extend Studio:
             summary: darray[u8]
 
         def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool can Global{Read, Write}:
-            if not export_result_current():
-                say_file("Export blocked: current edits have not produced a ready result. Wait for rebuilding, or use Undo after a failed edit, then review again.", destination)
-                touch()
-                return false
-            if not export_report_paths_fit(destination):
-                say_file("Export blocked: destination is too long for report filenames. Choose a shorter filename or folder.", destination)
-                touch()
-                return false
-            if not artifact_destination_allowed(destination):
-                say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
-                touch()
-                return false
-            if clip is c:
-                captured_generation: i64 = built
-                mutable allows_overwrite: bool = overwrite_confirmed
-                mutable reason: i64 = export_reason(destination, allows_overwrite)
-                if reason == StudioExportPolicy::Reason.OVERWRITE_UNCONFIRMED.i64():
-                    if FilePanel::confirm_replace(destination):
-                        allows_overwrite <- true
-                        reason <- export_reason(destination, true)
-                    else:
-                        say_file("Export cancelled; existing file kept", destination)
-                        touch()
-                        return false
-                if reason != StudioExportPolicy::Reason.ALLOW.i64():
-                    say_file(export_error(reason), destination)
+            can Global{Read, Write}:
+                if not export_result_current():
+                    say_file("Export blocked: current edits have not produced a ready result. Wait for rebuilding, or use Undo after a failed edit, then review again.", destination)
                     touch()
                     return false
-
-                if not StudioExportSnapshotPolicy::current(captured_generation, built):
-                    say_file("Export cancelled: displayed result changed; review it before exporting.", destination)
+                if not export_report_paths_fit(destination):
+                    say_file("Export blocked: destination is too long for report filenames. Choose a shorter filename or folder.", destination)
                     touch()
                     return false
-                # Freeze settings before publication; fingerprint serialized
-                # staging bytes while their private path still exists.
-                mutable report_stack: StackState::Stack = current_stack()
-                if built_stack is evaluated_stack:
-                    if not StackState::same(report_stack, evaluated_stack) or load_failed:
-                        say_file("Export blocked: current edits have not produced the displayed result. Resolve evaluation first.", destination)
-                        touch()
-                        return false
-                    report_stack <- evaluated_stack
-                else:
-                    say_file("Export blocked: evaluated stack provenance is unavailable.", destination)
+                if not artifact_destination_allowed(destination):
+                    say_file("Export blocked: reserved Storage metadata or identity could not be verified. Choose another file inside build/.", destination)
                     touch()
                     return false
-                report_animation: sview = anim_name
-                mutable prepare_error: StudioExportValidation::Result = StudioExportValidation::Result.WRITE_FAILED
-                if StudioExportPublisher::prepare(c.cleaned, destination, &prepare_error) is temporary:
-                    output_identity: StudioSourceFingerprint::Fingerprint? = export_staged_identity(temporary)
-                    mutable report_snapshot: ExportReportSnapshot? = null
-                    mutable identity_captured: bool = false
-                    mutable reports_captured: bool = false
-                    if output_identity is output_fp:
-                        identity_captured <- true
-                        report_snapshot <- prepare_export_report_for(c, report_stack, report_animation, output_fp)
-                    if report_snapshot is frozen:
-                        reports_captured <- frozen.json.count > 0 and frozen.summary.count > 0 and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.json.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES) and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.summary.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
-                    if not StudioExportSnapshotPolicy::reports_ready(identity_captured, reports_captured):
-                        StudioExportPublisher::discard(temporary)
-                        FilePanel::release_path(temporary)
-                        if not identity_captured:
-                            say_file("Export blocked: the prepared output identity could not be verified. Check storage access and retry; existing destination kept.", destination)
-                        else:
-                            say_file("Export blocked: the complete report snapshot could not be prepared. Check the source path and report limits before retrying; existing destination kept.", destination)
-                        touch()
-                        return false
-                    # Recheck after writing and validating the temporary so a
-                    # destination that changed during export cannot be silently
-                    # replaced. Publication is a single same-directory rename.
-                    reason <- export_reason(destination, allows_overwrite)
+                if clip is c:
+                    captured_generation: i64 = built
+                    mutable allows_overwrite: bool = overwrite_confirmed
+                    mutable reason: i64 = export_reason(destination, allows_overwrite)
                     if reason == StudioExportPolicy::Reason.OVERWRITE_UNCONFIRMED.i64():
                         if FilePanel::confirm_replace(destination):
                             allows_overwrite <- true
                             reason <- export_reason(destination, true)
                         else:
-                            StudioExportPublisher::discard(temporary)
-                            FilePanel::release_path(temporary)
                             say_file("Export cancelled; existing file kept", destination)
                             touch()
                             return false
                     if reason != StudioExportPolicy::Reason.ALLOW.i64():
-                        StudioExportPublisher::discard(temporary)
-                        FilePanel::release_path(temporary)
                         say_file(export_error(reason), destination)
                         touch()
                         return false
-                    if not artifact_destination_allowed(destination):
-                        StudioExportPublisher::discard(temporary)
-                        FilePanel::release_path(temporary)
-                        say_file("Export blocked: destination conflicts with Storage metadata or cannot be verified.", destination)
-                        touch()
-                        return false
+
                     if not StudioExportSnapshotPolicy::current(captured_generation, built):
-                        StudioExportPublisher::discard(temporary)
-                        FilePanel::release_path(temporary)
-                        say_file("Export cancelled: displayed result changed; existing destination kept.", destination)
+                        say_file("Export cancelled: displayed result changed; review it before exporting.", destination)
                         touch()
                         return false
-                    mutable recovery: RecoveryExportResult = zeroed
-                    if report_snapshot is frozen_reports:
-                        recovery <- publish_with_recovery(destination, temporary, allows_overwrite, captured_generation, c.anim.i64(), frozen_reports.json, frozen_reports.summary)
-                    if recovery.published:
-                        export_durability_unknown <- recovery.durability_unknown
-                        storage_tracking_failed <- recovery.tracking_failed
-                        export_publication_outcome <- recovery.report_outcome
-                        report_saved: bool = StudioExportPublicationPolicy::reports_complete(export_publication_outcome)
-                        export_path <- destination
-                        say_file("GLB exported and validated; report saved, but Storage tracking could not be saved", destination) if report_saved and storage_tracking_failed
-                        say_file("GLB exported and validated; report sidecars and Storage tracking could not be saved", destination) if not report_saved and storage_tracking_failed
-                        say_file("exported and validated; report saved", destination) if report_saved and not storage_tracking_failed
-                        say_file(StudioExportPublicationPolicy::message(export_publication_outcome), destination) if not report_saved and not storage_tracking_failed
-                        say_file("GLB published; directory durability is unconfirmed. The result exists; do not repeat export over it.", destination) if export_durability_unknown
-                        say_file("GLB published; its staging file remains and the bounded recovery path list is full. Keep this file and inspect build/ recovery folders.", temporary) if recovery.keep_staging and recovery.recovery_path_unavailable
-                        say_file("GLB was published, but its staging file could not be removed. Keep this file for recovery review.", temporary) if recovery.keep_staging and not recovery.recovery_path_unavailable
-                        FilePanel::release_path(temporary)
-                        FilePanel::note_recent(destination)
-                        _ = puts(destination)
-                        export_result_path <- destination
-                        export_result_focus <- StudioExportResult::Action::OPEN
-                        export_result_open <- true
+                    # Freeze settings before publication; fingerprint serialized
+                    # staging bytes while their private path still exists.
+                    mutable report_stack: StackState::Stack = current_stack()
+                    if built_stack is evaluated_stack:
+                        if not StackState::same(report_stack, evaluated_stack) or load_failed:
+                            say_file("Export blocked: current edits have not produced the displayed result. Resolve evaluation first.", destination)
+                            touch()
+                            return false
+                        report_stack <- evaluated_stack
+                    else:
+                        say_file("Export blocked: evaluated stack provenance is unavailable.", destination)
                         touch()
-                        return true
-                    if not recovery.keep_staging:
-                        StudioExportPublisher::discard(temporary)
-                    say_file(recovery_failure_message(recovery.failure), destination)
-                    say_file("No GLB was published. Recovery path diagnostics could not be retained; keep the staging file and inspect build/ recovery folders.", temporary) if recovery.recovery_path_unavailable and not recovery.tracking_failed
-                    say_file("No GLB was published. Storage lock release is uncertain; restart Studio before retrying workspace writes.", destination) if recovery.tracking_failed and not recovery.recovery_path_unavailable
-                    say_file("No GLB was published. Recovery path diagnostics could not be retained, and Storage lock release is uncertain. Keep staging; restart Studio before retrying.", temporary) if recovery.tracking_failed and recovery.recovery_path_unavailable
-                    FilePanel::release_path(temporary)
-                else:
-                    say_file(StudioExportValidation::message(prepare_error), destination)
-                touch()
-            return false
+                        return false
+                    report_animation: sview = anim_name
+                    mutable prepare_error: StudioExportValidation::Result = StudioExportValidation::Result.WRITE_FAILED
+                    if StudioExportPublisher::prepare(c.cleaned, destination, &prepare_error) is temporary:
+                        output_identity: StudioSourceFingerprint::Fingerprint? = export_staged_identity(temporary)
+                        mutable report_snapshot: ExportReportSnapshot? = null
+                        mutable identity_captured: bool = false
+                        mutable reports_captured: bool = false
+                        if output_identity is output_fp:
+                            identity_captured <- true
+                            report_snapshot <- prepare_export_report_for(c, report_stack, report_animation, output_fp)
+                        if report_snapshot is frozen:
+                            reports_captured <- frozen.json.count > 0 and frozen.summary.count > 0 and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.json.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES) and StudioExportRecoveryBudgetPolicy::append_admitted(0, frozen.summary.count.i64(), StudioExportRecoveryBudgetPolicy::Capacity::REPORT_BYTES)
+                        if not StudioExportSnapshotPolicy::reports_ready(identity_captured, reports_captured):
+                            StudioExportPublisher::discard(temporary)
+                            FilePanel::release_path(temporary)
+                            if not identity_captured:
+                                say_file("Export blocked: the prepared output identity could not be verified. Check storage access and retry; existing destination kept.", destination)
+                            else:
+                                say_file("Export blocked: the complete report snapshot could not be prepared. Check the source path and report limits before retrying; existing destination kept.", destination)
+                            touch()
+                            return false
+                        # Recheck after writing and validating the temporary so a
+                        # destination that changed during export cannot be silently
+                        # replaced. Publication is a single same-directory rename.
+                        reason <- export_reason(destination, allows_overwrite)
+                        if reason == StudioExportPolicy::Reason.OVERWRITE_UNCONFIRMED.i64():
+                            if FilePanel::confirm_replace(destination):
+                                allows_overwrite <- true
+                                reason <- export_reason(destination, true)
+                            else:
+                                StudioExportPublisher::discard(temporary)
+                                FilePanel::release_path(temporary)
+                                say_file("Export cancelled; existing file kept", destination)
+                                touch()
+                                return false
+                        if reason != StudioExportPolicy::Reason.ALLOW.i64():
+                            StudioExportPublisher::discard(temporary)
+                            FilePanel::release_path(temporary)
+                            say_file(export_error(reason), destination)
+                            touch()
+                            return false
+                        if not artifact_destination_allowed(destination):
+                            StudioExportPublisher::discard(temporary)
+                            FilePanel::release_path(temporary)
+                            say_file("Export blocked: destination conflicts with Storage metadata or cannot be verified.", destination)
+                            touch()
+                            return false
+                        if not StudioExportSnapshotPolicy::current(captured_generation, built):
+                            StudioExportPublisher::discard(temporary)
+                            FilePanel::release_path(temporary)
+                            say_file("Export cancelled: displayed result changed; existing destination kept.", destination)
+                            touch()
+                            return false
+                        mutable recovery: RecoveryExportResult = zeroed
+                        if report_snapshot is frozen_reports:
+                            recovery <- publish_with_recovery(destination, temporary, allows_overwrite, captured_generation, c.anim.i64(), frozen_reports.json, frozen_reports.summary)
+                        if recovery.published:
+                            export_durability_unknown <- recovery.durability_unknown
+                            storage_tracking_failed <- recovery.tracking_failed
+                            export_publication_outcome <- recovery.report_outcome
+                            report_saved: bool = StudioExportPublicationPolicy::reports_complete(export_publication_outcome)
+                            export_path <- destination
+                            say_file("GLB exported and validated; report saved, but Storage tracking could not be saved", destination) if report_saved and storage_tracking_failed
+                            say_file("GLB exported and validated; report sidecars and Storage tracking could not be saved", destination) if not report_saved and storage_tracking_failed
+                            say_file("exported and validated; report saved", destination) if report_saved and not storage_tracking_failed
+                            say_file(StudioExportPublicationPolicy::message(export_publication_outcome), destination) if not report_saved and not storage_tracking_failed
+                            say_file("GLB published; directory durability is unconfirmed. The result exists; do not repeat export over it.", destination) if export_durability_unknown
+                            say_file("GLB published; its staging file remains and the bounded recovery path list is full. Keep this file and inspect build/ recovery folders.", temporary) if recovery.keep_staging and recovery.recovery_path_unavailable
+                            say_file("GLB was published, but its staging file could not be removed. Keep this file for recovery review.", temporary) if recovery.keep_staging and not recovery.recovery_path_unavailable
+                            FilePanel::release_path(temporary)
+                            FilePanel::note_recent(destination)
+                            _ = puts(destination)
+                            export_result_path <- destination
+                            export_result_focus <- StudioExportResult::Action::OPEN
+                            export_result_open <- true
+                            touch()
+                            return true
+                        if not recovery.keep_staging:
+                            StudioExportPublisher::discard(temporary)
+                        say_file(recovery_failure_message(recovery.failure), destination)
+                        say_file("No GLB was published. Recovery path diagnostics could not be retained; keep the staging file and inspect build/ recovery folders.", temporary) if recovery.recovery_path_unavailable and not recovery.tracking_failed
+                        say_file("No GLB was published. Storage lock release is uncertain; restart Studio before retrying workspace writes.", destination) if recovery.tracking_failed and not recovery.recovery_path_unavailable
+                        say_file("No GLB was published. Recovery path diagnostics could not be retained, and Storage lock release is uncertain. Keep staging; restart Studio before retrying.", temporary) if recovery.tracking_failed and recovery.recovery_path_unavailable
+                        FilePanel::release_path(temporary)
+                    else:
+                        say_file(StudioExportValidation::message(prepare_error), destination)
+                    touch()
+                return false
 
         def recovery_failure_message(failure: RecoveryFailure) -> sview:
             return "Export blocked: GLB and report destinations changed or conflict. Choose new names; nothing was published." if failure == RecoveryFailure.Destinations
@@ -178,103 +179,109 @@ extend Studio:
             StudioModel::fingerprint(&staged)
 
         def report_integer(value: i64) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
-            StudioReportText::begin()
-            StudioReportText::put_i(value)
-            return StudioReportText::view()
+            can Global{Read, Write}:
+                StudioReportText::begin()
+                StudioReportText::put_i(value)
+                return StudioReportText::view()
 
         def report_indexed_name(prefix: sview, index: i64) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
-            StudioReportText::begin()
-            StudioReportText::put(prefix)
-            StudioReportText::put_i(index)
-            return StudioReportText::view()
+            can Global{Read, Write}:
+                StudioReportText::begin()
+                StudioReportText::put(prefix)
+                StudioReportText::put_i(index)
+                return StudioReportText::view()
 
         def report_operation(operation: Ops::Operation) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
-            StudioReportText::begin()
-            match operation.kind:
-                Ops::Kind.Despike:
-                    StudioReportText::put("despike")
-                Ops::Kind.PinContacts:
-                    StudioReportText::put("pin_contacts")
-                Ops::Kind.CloseSeam:
-                    StudioReportText::put("close_seam")
-                Ops::Kind.SmoothPath:
-                    StudioReportText::put("smooth_path")
-                Ops::Kind.LimitWring:
-                    StudioReportText::put("limit_wring")
-                Ops::Kind.Median:
-                    StudioReportText::put("median")
-            StudioReportText::put(";enabled=")
-            StudioReportText::put("true") if operation.enabled
-            StudioReportText::put("false") if not operation.enabled
-            StudioReportText::put(";frames=")
-            StudioReportText::put_i(operation.first)
-            StudioReportText::put("..")
-            StudioReportText::put_i(operation.last)
-            StudioReportText::put(";bones=")
-            StudioReportText::put_i(operation.bones)
-            StudioReportText::put(";strength=")
-            StudioReportText::put_i(operation.strength)
-            StudioReportText::put(";edge_frames=")
-            StudioReportText::put_i(operation.edge)
-            return StudioReportText::view()
+            can Global{Read, Write}:
+                StudioReportText::begin()
+                match operation.kind:
+                    Ops::Kind.Despike:
+                        StudioReportText::put("despike")
+                    Ops::Kind.PinContacts:
+                        StudioReportText::put("pin_contacts")
+                    Ops::Kind.CloseSeam:
+                        StudioReportText::put("close_seam")
+                    Ops::Kind.SmoothPath:
+                        StudioReportText::put("smooth_path")
+                    Ops::Kind.LimitWring:
+                        StudioReportText::put("limit_wring")
+                    Ops::Kind.Median:
+                        StudioReportText::put("median")
+                StudioReportText::put(";enabled=")
+                StudioReportText::put("true") if operation.enabled
+                StudioReportText::put("false") if not operation.enabled
+                StudioReportText::put(";frames=")
+                StudioReportText::put_i(operation.first)
+                StudioReportText::put("..")
+                StudioReportText::put_i(operation.last)
+                StudioReportText::put(";bones=")
+                StudioReportText::put_i(operation.bones)
+                StudioReportText::put(";strength=")
+                StudioReportText::put_i(operation.strength)
+                StudioReportText::put(";edge_frames=")
+                StudioReportText::put_i(operation.edge)
+                return StudioReportText::view()
 
         def report_band(band: StackState::Band) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
-            StudioReportText::begin()
-            StudioReportText::put("enabled=")
-            StudioReportText::put("true") if band.enabled
-            StudioReportText::put("false") if not band.enabled
-            StudioReportText::put(";source_frames=")
-            StudioReportText::put_i(band.first)
-            StudioReportText::put("..")
-            StudioReportText::put_i(band.last)
-            StudioReportText::put(";speed_permille=")
-            StudioReportText::put_i(band.speed)
-            StudioReportText::put(";blend_frames=")
-            StudioReportText::put_i(band.blend)
-            return StudioReportText::view()
+            can Global{Read, Write}:
+                StudioReportText::begin()
+                StudioReportText::put("enabled=")
+                StudioReportText::put("true") if band.enabled
+                StudioReportText::put("false") if not band.enabled
+                StudioReportText::put(";source_frames=")
+                StudioReportText::put_i(band.first)
+                StudioReportText::put("..")
+                StudioReportText::put_i(band.last)
+                StudioReportText::put(";speed_permille=")
+                StudioReportText::put_i(band.speed)
+                StudioReportText::put(";blend_frames=")
+                StudioReportText::put_i(band.blend)
+                return StudioReportText::view()
 
         def report_contact(edit: StackState::FootEdit) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
-            StudioReportText::begin()
-            StudioReportText::put("side=")
-            StudioReportText::put_i(edit.side)
-            StudioReportText::put(";source_frames=")
-            StudioReportText::put_i(edit.first)
-            StudioReportText::put("..")
-            StudioReportText::put_i(edit.last)
-            StudioReportText::put(";planted=")
-            StudioReportText::put("true") if edit.planted
-            StudioReportText::put("false") if not edit.planted
-            return StudioReportText::view()
+            can Global{Read, Write}:
+                StudioReportText::begin()
+                StudioReportText::put("side=")
+                StudioReportText::put_i(edit.side)
+                StudioReportText::put(";source_frames=")
+                StudioReportText::put_i(edit.first)
+                StudioReportText::put("..")
+                StudioReportText::put_i(edit.last)
+                StudioReportText::put(";planted=")
+                StudioReportText::put("true") if edit.planted
+                StudioReportText::put("false") if not edit.planted
+                return StudioReportText::view()
 
         def report_correction(correction: Corrections::Correction) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
-            StudioReportText::begin()
-            StudioReportText::put("node=")
-            StudioReportText::put_i(correction.node)
-            StudioReportText::put(";key_frame=")
-            StudioReportText::put_i(correction.key)
-            StudioReportText::put(";source_frames=")
-            StudioReportText::put_i(correction.first)
-            StudioReportText::put("..")
-            StudioReportText::put_i(correction.last)
-            StudioReportText::put(";enabled=")
-            StudioReportText::put("true") if correction.enabled
-            StudioReportText::put("false") if not correction.enabled
-            StudioReportText::put(";rotation_f32_bits=")
-            StudioReportText::put_f32_bits(correction.rotation.x)
-            StudioReportText::put(",")
-            StudioReportText::put_f32_bits(correction.rotation.y)
-            StudioReportText::put(",")
-            StudioReportText::put_f32_bits(correction.rotation.z)
-            StudioReportText::put(",")
-            StudioReportText::put_f32_bits(correction.rotation.w)
-            StudioReportText::put(";translation_f32_bits=")
-            StudioReportText::put_f32_bits(correction.translation.x)
-            StudioReportText::put(",")
-            StudioReportText::put_f32_bits(correction.translation.y)
-            StudioReportText::put(",")
-            StudioReportText::put_f32_bits(correction.translation.z)
-            StudioReportText::put(";float_encoding=ieee754-binary32")
-            return StudioReportText::view()
+            can Global{Read, Write}:
+                StudioReportText::begin()
+                StudioReportText::put("node=")
+                StudioReportText::put_i(correction.node)
+                StudioReportText::put(";key_frame=")
+                StudioReportText::put_i(correction.key)
+                StudioReportText::put(";source_frames=")
+                StudioReportText::put_i(correction.first)
+                StudioReportText::put("..")
+                StudioReportText::put_i(correction.last)
+                StudioReportText::put(";enabled=")
+                StudioReportText::put("true") if correction.enabled
+                StudioReportText::put("false") if not correction.enabled
+                StudioReportText::put(";rotation_f32_bits=")
+                StudioReportText::put_f32_bits(correction.rotation.x)
+                StudioReportText::put(",")
+                StudioReportText::put_f32_bits(correction.rotation.y)
+                StudioReportText::put(",")
+                StudioReportText::put_f32_bits(correction.rotation.z)
+                StudioReportText::put(",")
+                StudioReportText::put_f32_bits(correction.rotation.w)
+                StudioReportText::put(";translation_f32_bits=")
+                StudioReportText::put_f32_bits(correction.translation.x)
+                StudioReportText::put(",")
+                StudioReportText::put_f32_bits(correction.translation.y)
+                StudioReportText::put(",")
+                StudioReportText::put_f32_bits(correction.translation.z)
+                StudioReportText::put(";float_encoding=ieee754-binary32")
+                return StudioReportText::view()
 
         # Reports are best-effort sidecars after the GLB's atomic commit. The
         # source label is a basename, and fingerprints remain explicitly
@@ -284,142 +291,144 @@ extend Studio:
         # Serialize all report fields before publishing the GLB or opening
         # a second confirmation dialog. Later writes consume only these bytes.
         def prepare_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, output_fp: StudioSourceFingerprint::Fingerprint) -> ExportReportSnapshot? can[Unsafe.PointerCast, Global{Read, Write}]:
-            return null if not StudioReportTextPolicy::stack_counts_admitted(active_stack.count, active_stack.band_count, active_stack.edit_count, active_stack.fix_count)
-            StudioReportText::begin_snapshot()
-            # Source and destination lengths are independent. Never index a
-            # source path using offsets measured from the export destination.
-            mutable source_end: usize = 0
-            mutable source_start: usize = 0
-            while source_end < 4096 and path[source_end] != 0:
-                # Native Studio is macOS-only: backslash is a filename byte,
-                # not a separator. Preserve it for the report's JSON escaping.
-                if StudioExportSourceLabelPolicy::separator(path[source_end]):
-                    source_start <- source_end + 1
-                source_end <- source_end + 1
-            return null if source_end == 0 or source_end >= 4096 or source_start >= source_end
-            mutable source_label: u8[4096] = zeroed
-            for index in source_start..<source_end |index, path, source_label, source_start|:
-                source_label[index - source_start] <- path[index]
-            source_name: sview = UiText::fixed_bytes_view_range[4096](source_label, 0, source_end - source_start)
-            mutable settings: darray[StudioExportReport::Setting] = []
-            settings.extend([
-                StudioExportReport::Setting{name: "build_project_revision", value: StudioBuildIdentity::Inputs::PROJECT_REVISION},
-                StudioExportReport::Setting{name: "build_project_dirty", value: StudioBuildIdentity::Inputs::PROJECT_DIRTY},
-                StudioExportReport::Setting{name: "build_engine_revision", value: StudioBuildIdentity::Inputs::ENGINE_REVISION},
-                StudioExportReport::Setting{name: "build_engine_dirty", value: StudioBuildIdentity::Inputs::ENGINE_DIRTY},
-                StudioExportReport::Setting{name: "build_ui_revision", value: StudioBuildIdentity::Inputs::UI_REVISION},
-                StudioExportReport::Setting{name: "build_ui_dirty", value: StudioBuildIdentity::Inputs::UI_DIRTY},
-                StudioExportReport::Setting{name: "build_compiler_revision", value: StudioBuildIdentity::Inputs::COMPILER_REVISION},
-                StudioExportReport::Setting{name: "build_compiler_dirty", value: StudioBuildIdentity::Inputs::COMPILER_DIRTY},
-                StudioExportReport::Setting{name: "build_compiler_sha256", value: StudioBuildIdentity::Inputs::COMPILER_SHA256},
-                StudioExportReport::Setting{name: "build_runtime_sha256", value: StudioBuildIdentity::Inputs::RUNTIME_SHA256}])
-            settings.push(StudioExportReport::Setting{name: "spike_threshold_fixed_channel_units", value: report_integer(c.threshold)})
-            settings.push(StudioExportReport::Setting{name: "spike_measure", value: "absolute second difference; rounded channel components scaled by 1000000; not physical acceleration"})
-            settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "enabled"}) if active_stack.feet
-            settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "disabled"}) if not active_stack.feet
-            settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "enabled"}) if active_stack.hands
-            settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "disabled"}) if not active_stack.hands
-            settings.push(StudioExportReport::Setting{name: "cleanup_blend_frames", value: report_integer(active_stack.blend)})
-            for index in 0..<active_stack.count |settings, active_stack|:
-                operation: Ops::Operation = active_stack.ops[index]
-                settings.push(StudioExportReport::Setting{name: report_indexed_name("operation_", index), value: report_operation(operation)})
-            for index in 0..<active_stack.band_count |settings, active_stack|:
-                band: StackState::Band = active_stack.bands[index]
-                settings.push(StudioExportReport::Setting{name: report_indexed_name("retime_band_", index), value: report_band(band)})
-            for index in 0..<active_stack.edit_count |settings, active_stack|:
-                edit: StackState::FootEdit = active_stack.edits[index]
-                settings.push(StudioExportReport::Setting{name: report_indexed_name("contact_edit_", index), value: report_contact(edit)})
-            for index in 0..<active_stack.fix_count |settings, active_stack|:
-                correction: Corrections::Correction = active_stack.fixes[index]
-                settings.push(StudioExportReport::Setting{name: report_indexed_name("correction_", index), value: report_correction(correction)})
-            settings.push(StudioExportReport::Setting{name: "retime_applied", value: "true"}) if c.retimed
-            settings.push(StudioExportReport::Setting{name: "retime_applied", value: "false"}) if not c.retimed
-            assumptions: darray[sview] = [
-                "Frame rate is an integer estimate; durations are floored to milliseconds.",
-                "Fingerprints are non-cryptographic studio-residue-v1 values.",
-                "Build revisions describe compile-time inputs. Dirty revisions are not exact source identities; a complete dependency manifest is unavailable.",
-                "Operation fields, contact edits, correction scopes and binary32 offset bits, and retime bands are captured before GLB publication; validated correction replay, detailed rig settings are unavailable; the exact integer per-frame source-time map is captured."]
-            metrics: StudioExportReport::Metrics = StudioExportReport::Metrics{
-                changed_channels: c.changed,
-                spikes_before: c.spikes_before,
-                spikes_after: c.spikes_after,
-                foot_slide_before_um: c.slide_before,
-                foot_slide_after_um: c.slide_after,
-                foot_sink_before_um: c.sink_before,
-                foot_sink_after_um: c.sink_after,
-                hand_slide_before_um: c.hand_slide_before,
-                hand_slide_after_um: c.hand_slide_after,
-                balance_source_availability: c.source_balance_availability,
-                balance_source_impossible_frames: c.source_impossible_frames,
-                balance_cleaned_availability: c.balance_availability,
-                balance_cleaned_impossible_frames: c.impossible_frames,
-                balance_same_sample_domain: not c.retimed and c.source_frames == c.frames}
-            mutable warnings: darray[StudioExportReport::Warning] = []
-            if StudioExportPolicy::balance_review_required(c.source_balance_availability, c.balance_availability, c.impossible_frames, not c.retimed and c.source_frames == c.frames):
-                balance_message: sview = "Cleaned balance detector marked frames impossible." if StudioBalanceStatusPolicy::comparison_admitted(c.source_balance_availability, c.balance_availability, not c.retimed and c.source_frames == c.frames) else StudioBalanceStatusPolicy::comparison_reason(c.source_balance_availability, c.balance_availability, not c.retimed and c.source_frames == c.frames)
-                warnings.push(StudioExportReport::Warning{category: "balance", severity: StudioExportReport::Severity.WARNING, message: balance_message})
-            if c.spikes_after > c.spikes_before:
-                warnings.push(StudioExportReport::Warning{category: "spikes", severity: StudioExportReport::Severity.WARNING, message: "Detected spike frames increased after cleanup."})
-            if c.slide_after > c.slide_before:
-                warnings.push(StudioExportReport::Warning{category: "foot_slide", severity: StudioExportReport::Severity.WARNING, message: "Measured planted-foot slide increased after cleanup."})
-            if c.sink_after > c.sink_before:
-                warnings.push(StudioExportReport::Warning{category: "foot_sink", severity: StudioExportReport::Severity.WARNING, message: "Measured foot sink increased after cleanup."})
-            if c.hand_slide_after > c.hand_slide_before:
-                warnings.push(StudioExportReport::Warning{category: "hand_slide", severity: StudioExportReport::Severity.WARNING, message: "Measured hand slide increased after cleanup."})
-            data: StudioExportReport::Data = StudioExportReport::Data{
-                source_name: source_name,
-                source_fingerprint_first: c.source_fingerprint.first,
-                source_fingerprint_second: c.source_fingerprint.second,
-                output_fingerprint_first: output_fp.first,
-                output_fingerprint_second: output_fp.second,
-                animation_name: report_animation, animation_index: c.anim.i64(),
-                input_frames: c.source_frames, input_fps: c.rate,
-                output_frames: c.frames, output_fps: c.rate,
-                settings: settings, assumptions: assumptions, metrics: metrics,
-                warnings: warnings}
-            return null if not StudioReportText::snapshot_complete()
-            json: darray[u8] = StudioExportReport::json_with_time_map(&data, &c.times)
-            summary: darray[u8] = StudioExportReport::summary_with_time_map(&data, &c.times)
-            return ExportReportSnapshot{json: json, summary: summary}
+            can Global{Read, Write}:
+                return null if not StudioReportTextPolicy::stack_counts_admitted(active_stack.count, active_stack.band_count, active_stack.edit_count, active_stack.fix_count)
+                StudioReportText::begin_snapshot()
+                # Source and destination lengths are independent. Never index a
+                # source path using offsets measured from the export destination.
+                mutable source_end: usize = 0
+                mutable source_start: usize = 0
+                while source_end < 4096 and path[source_end] != 0:
+                    # Native Studio is macOS-only: backslash is a filename byte,
+                    # not a separator. Preserve it for the report's JSON escaping.
+                    if StudioExportSourceLabelPolicy::separator(path[source_end]):
+                        source_start <- source_end + 1
+                    source_end <- source_end + 1
+                return null if source_end == 0 or source_end >= 4096 or source_start >= source_end
+                mutable source_label: u8[4096] = zeroed
+                for index in source_start..<source_end |index, path, source_label, source_start|:
+                    source_label[index - source_start] <- path[index]
+                source_name: sview = UiText::fixed_bytes_view_range[4096](source_label, 0, source_end - source_start)
+                mutable settings: darray[StudioExportReport::Setting] = []
+                settings.extend([
+                    StudioExportReport::Setting{name: "build_project_revision", value: StudioBuildIdentity::Inputs::PROJECT_REVISION},
+                    StudioExportReport::Setting{name: "build_project_dirty", value: StudioBuildIdentity::Inputs::PROJECT_DIRTY},
+                    StudioExportReport::Setting{name: "build_engine_revision", value: StudioBuildIdentity::Inputs::ENGINE_REVISION},
+                    StudioExportReport::Setting{name: "build_engine_dirty", value: StudioBuildIdentity::Inputs::ENGINE_DIRTY},
+                    StudioExportReport::Setting{name: "build_ui_revision", value: StudioBuildIdentity::Inputs::UI_REVISION},
+                    StudioExportReport::Setting{name: "build_ui_dirty", value: StudioBuildIdentity::Inputs::UI_DIRTY},
+                    StudioExportReport::Setting{name: "build_compiler_revision", value: StudioBuildIdentity::Inputs::COMPILER_REVISION},
+                    StudioExportReport::Setting{name: "build_compiler_dirty", value: StudioBuildIdentity::Inputs::COMPILER_DIRTY},
+                    StudioExportReport::Setting{name: "build_compiler_sha256", value: StudioBuildIdentity::Inputs::COMPILER_SHA256},
+                    StudioExportReport::Setting{name: "build_runtime_sha256", value: StudioBuildIdentity::Inputs::RUNTIME_SHA256}])
+                settings.push(StudioExportReport::Setting{name: "spike_threshold_fixed_channel_units", value: report_integer(c.threshold)})
+                settings.push(StudioExportReport::Setting{name: "spike_measure", value: "absolute second difference; rounded channel components scaled by 1000000; not physical acceleration"})
+                settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "enabled"}) if active_stack.feet
+                settings.push(StudioExportReport::Setting{name: "foot_cleanup", value: "disabled"}) if not active_stack.feet
+                settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "enabled"}) if active_stack.hands
+                settings.push(StudioExportReport::Setting{name: "hand_cleanup", value: "disabled"}) if not active_stack.hands
+                settings.push(StudioExportReport::Setting{name: "cleanup_blend_frames", value: report_integer(active_stack.blend)})
+                for index in 0..<active_stack.count |settings, active_stack|:
+                    operation: Ops::Operation = active_stack.ops[index]
+                    settings.push(StudioExportReport::Setting{name: report_indexed_name("operation_", index), value: report_operation(operation)})
+                for index in 0..<active_stack.band_count |settings, active_stack|:
+                    band: StackState::Band = active_stack.bands[index]
+                    settings.push(StudioExportReport::Setting{name: report_indexed_name("retime_band_", index), value: report_band(band)})
+                for index in 0..<active_stack.edit_count |settings, active_stack|:
+                    edit: StackState::FootEdit = active_stack.edits[index]
+                    settings.push(StudioExportReport::Setting{name: report_indexed_name("contact_edit_", index), value: report_contact(edit)})
+                for index in 0..<active_stack.fix_count |settings, active_stack|:
+                    correction: Corrections::Correction = active_stack.fixes[index]
+                    settings.push(StudioExportReport::Setting{name: report_indexed_name("correction_", index), value: report_correction(correction)})
+                settings.push(StudioExportReport::Setting{name: "retime_applied", value: "true"}) if c.retimed
+                settings.push(StudioExportReport::Setting{name: "retime_applied", value: "false"}) if not c.retimed
+                assumptions: darray[sview] = [
+                    "Frame rate is an integer estimate; durations are floored to milliseconds.",
+                    "Fingerprints are non-cryptographic studio-residue-v1 values.",
+                    "Build revisions describe compile-time inputs. Dirty revisions are not exact source identities; a complete dependency manifest is unavailable.",
+                    "Operation fields, contact edits, correction scopes and binary32 offset bits, and retime bands are captured before GLB publication; validated correction replay, detailed rig settings are unavailable; the exact integer per-frame source-time map is captured."]
+                metrics: StudioExportReport::Metrics = StudioExportReport::Metrics{
+                    changed_channels: c.changed,
+                    spikes_before: c.spikes_before,
+                    spikes_after: c.spikes_after,
+                    foot_slide_before_um: c.slide_before,
+                    foot_slide_after_um: c.slide_after,
+                    foot_sink_before_um: c.sink_before,
+                    foot_sink_after_um: c.sink_after,
+                    hand_slide_before_um: c.hand_slide_before,
+                    hand_slide_after_um: c.hand_slide_after,
+                    balance_source_availability: c.source_balance_availability,
+                    balance_source_impossible_frames: c.source_impossible_frames,
+                    balance_cleaned_availability: c.balance_availability,
+                    balance_cleaned_impossible_frames: c.impossible_frames,
+                    balance_same_sample_domain: not c.retimed and c.source_frames == c.frames}
+                mutable warnings: darray[StudioExportReport::Warning] = []
+                if StudioExportPolicy::balance_review_required(c.source_balance_availability, c.balance_availability, c.impossible_frames, not c.retimed and c.source_frames == c.frames):
+                    balance_message: sview = "Cleaned balance detector marked frames impossible." if StudioBalanceStatusPolicy::comparison_admitted(c.source_balance_availability, c.balance_availability, not c.retimed and c.source_frames == c.frames) else StudioBalanceStatusPolicy::comparison_reason(c.source_balance_availability, c.balance_availability, not c.retimed and c.source_frames == c.frames)
+                    warnings.push(StudioExportReport::Warning{category: "balance", severity: StudioExportReport::Severity.WARNING, message: balance_message})
+                if c.spikes_after > c.spikes_before:
+                    warnings.push(StudioExportReport::Warning{category: "spikes", severity: StudioExportReport::Severity.WARNING, message: "Detected spike frames increased after cleanup."})
+                if c.slide_after > c.slide_before:
+                    warnings.push(StudioExportReport::Warning{category: "foot_slide", severity: StudioExportReport::Severity.WARNING, message: "Measured planted-foot slide increased after cleanup."})
+                if c.sink_after > c.sink_before:
+                    warnings.push(StudioExportReport::Warning{category: "foot_sink", severity: StudioExportReport::Severity.WARNING, message: "Measured foot sink increased after cleanup."})
+                if c.hand_slide_after > c.hand_slide_before:
+                    warnings.push(StudioExportReport::Warning{category: "hand_slide", severity: StudioExportReport::Severity.WARNING, message: "Measured hand slide increased after cleanup."})
+                data: StudioExportReport::Data = StudioExportReport::Data{
+                    source_name: source_name,
+                    source_fingerprint_first: c.source_fingerprint.first,
+                    source_fingerprint_second: c.source_fingerprint.second,
+                    output_fingerprint_first: output_fp.first,
+                    output_fingerprint_second: output_fp.second,
+                    animation_name: report_animation, animation_index: c.anim.i64(),
+                    input_frames: c.source_frames, input_fps: c.rate,
+                    output_frames: c.frames, output_fps: c.rate,
+                    settings: settings, assumptions: assumptions, metrics: metrics,
+                    warnings: warnings}
+                return null if not StudioReportText::snapshot_complete()
+                json: darray[u8] = StudioExportReport::json_with_time_map(&data, &c.times)
+                summary: darray[u8] = StudioExportReport::summary_with_time_map(&data, &c.times)
+                return ExportReportSnapshot{json: json, summary: summary}
 
         def publish_export_reports(destination: cstr, snapshot: ExportReportSnapshot&) -> StudioExportPublicationPolicy::Outcome can[Unsafe.PointerCast, Global{Read, Write}]:
-            mutable path_end: usize = 0
-            while path_end < 4096 and destination[path_end] != 0:
-                path_end <- path_end + 1
-            return StudioExportPublicationPolicy::Outcome.GlbOnly if not StudioExportReportPathPolicy::admitted(path_end.i64())
-            mutable json_path: u8[4128] = zeroed
-            mutable text_path: u8[4128] = zeroed
-            for index in 0..<path_end |destination, json_path, text_path|:
-                json_path[index] <- destination[index]
-                text_path[index] <- destination[index]
-            suffix_json: cstr = ".report.json"
-            suffix_text: cstr = ".report.txt"
-            mutable a: usize = 0
-            mutable b: usize = 0
-            while suffix_json[a] != 0:
-                json_path[path_end + a] <- suffix_json[a]
-                a <- a + 1
-            while suffix_text[b] != 0:
-                text_path[path_end + b] <- suffix_text[b]
-                b <- b + 1
-            json_path[path_end + a] <- 0
-            text_path[path_end + b] <- 0
-            json_cstr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
-            text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
-            mutable json_result: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
-            mutable text_result: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
-            # GLB replacement consent does not authorize replacing separate
-            # report files. Native create-only publication also closes the
-            # check-to-write window for an existing report destination.
-            if export_reason(json_cstr, false) == StudioExportPolicy::Reason.ALLOW.i64() and artifact_destination_allowed(json_cstr):
-                json_result <- StudioExportPublisher::write_new_sidecar_with_status(json_cstr, snapshot.json)
-            if export_reason(text_cstr, false) == StudioExportPolicy::Reason.ALLOW.i64() and artifact_destination_allowed(text_cstr):
-                text_result <- StudioExportPublisher::write_new_sidecar_with_status(text_cstr, snapshot.summary)
-            export_durability_unknown <- true if json_result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown or text_result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
-            json_ok: bool = StudioPublicationDurabilityPolicy::published(json_result)
-            text_ok: bool = StudioPublicationDurabilityPolicy::published(text_result)
-            storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::Kind.GeneratedReport.i64())
-            storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::Kind.GeneratedReport.i64())
-            return StudioExportPublicationPolicy::sidecar_outcome(json_ok, text_ok)
+            can Global{Read, Write}:
+                mutable path_end: usize = 0
+                while path_end < 4096 and destination[path_end] != 0:
+                    path_end <- path_end + 1
+                return StudioExportPublicationPolicy::Outcome.GlbOnly if not StudioExportReportPathPolicy::admitted(path_end.i64())
+                mutable json_path: u8[4128] = zeroed
+                mutable text_path: u8[4128] = zeroed
+                for index in 0..<path_end |destination, json_path, text_path|:
+                    json_path[index] <- destination[index]
+                    text_path[index] <- destination[index]
+                suffix_json: cstr = ".report.json"
+                suffix_text: cstr = ".report.txt"
+                mutable a: usize = 0
+                mutable b: usize = 0
+                while suffix_json[a] != 0:
+                    json_path[path_end + a] <- suffix_json[a]
+                    a <- a + 1
+                while suffix_text[b] != 0:
+                    text_path[path_end + b] <- suffix_text[b]
+                    b <- b + 1
+                json_path[path_end + a] <- 0
+                text_path[path_end + b] <- 0
+                json_cstr: cstr = (&json_path[0]).cast[cstr] can Unsafe.PointerCast
+                text_cstr: cstr = (&text_path[0]).cast[cstr] can Unsafe.PointerCast
+                mutable json_result: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
+                mutable text_result: StudioPublicationDurabilityPolicy::Result = StudioPublicationDurabilityPolicy::Result.NotPublished
+                # GLB replacement consent does not authorize replacing separate
+                # report files. Native create-only publication also closes the
+                # check-to-write window for an existing report destination.
+                if export_reason(json_cstr, false) == StudioExportPolicy::Reason.ALLOW.i64() and artifact_destination_allowed(json_cstr):
+                    json_result <- StudioExportPublisher::write_new_sidecar_with_status(json_cstr, snapshot.json)
+                if export_reason(text_cstr, false) == StudioExportPolicy::Reason.ALLOW.i64() and artifact_destination_allowed(text_cstr):
+                    text_result <- StudioExportPublisher::write_new_sidecar_with_status(text_cstr, snapshot.summary)
+                export_durability_unknown <- true if json_result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown or text_result == StudioPublicationDurabilityPolicy::Result.PublishedDurabilityUnknown
+                json_ok: bool = StudioPublicationDurabilityPolicy::published(json_result)
+                text_ok: bool = StudioPublicationDurabilityPolicy::published(text_result)
+                storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::Kind.GeneratedReport.i64())
+                storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::Kind.GeneratedReport.i64())
+                return StudioExportPublicationPolicy::sidecar_outcome(json_ok, text_ok)
 
         # ---- native file panels (modal) --------------------------------
