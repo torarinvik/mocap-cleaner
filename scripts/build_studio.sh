@@ -92,6 +92,12 @@ python3 "$ROOT/tools/studio_build_identity.py" --snapshot "$ROOT" "$ENGINE" "$UI
 # Keep this log in the same captured generation as the eventual object build.
 bash "$STAGE1/scripts/elisac_stage1.sh" -emit check "$ROOT/src/studio/app/main.elisa" \
   2>&1 | tee "$pending_directory/semantic.log"
+# Compatibility compilers may report missing Global grants as warnings.
+# Refuse them at preflight, before spending time compiling native dependencies.
+if rg -q 'warning:.*requires can\[[^]]*Global' "$pending_directory/semantic.log"; then
+  echo "Studio requires explicit Global.Read/Global.Write grants; see semantic.log" >&2
+  exit 1
+fi
 python3 "$ROOT/tools/studio_build_identity.py" --check-snapshot "$ROOT" "$ENGINE" "$UI" "$STAGE1" "$pending_inputs"
 
 clang -c -fobjc-arc -O2 -o "$pending_directory/studio_canvas_shim.o" "$UI/src/platform/appkit/appkit_canvas_shim.m"

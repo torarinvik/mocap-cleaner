@@ -29,15 +29,14 @@ until the first usable journey passes.
 
 The current app is still unqualified. Prioritize these steps in order:
 
-1. **Qualify the compiler repair that unlocks Studio.** The latest completed
-   seed attempt (`996761bf`) stopped with 183 diagnostics; `d1606fcd` adds a
-   selected-callee visibility repair whose seed qualification is pending.
-   Verify module/namesake isolation, overload and callback effect propagation,
-   no-header enforcement and member-specific refusals on the rebuilt product.
-   Resolve actual remaining access requirements without blanket grants or
-   tracking exemptions. Integrate the allocation/ownership repair into the same
-   current source/product/runtime tuple. Exit: the official seed and targeted
-   controls pass, then immediately capture the full Studio graph.
+1. **Finish qualification of the compiler repair, then integrate immediately.**
+   The `40f19f47` official seed, freshness and provenance checks now pass;
+   focused protocol and Global-grant controls are pending. Verify grouped/split
+   equivalence, exact member refusals, protocol ownership/inheritance, namesake
+   isolation, callbacks and no-header enforcement on that exact product/runtime.
+   Integrate the allocation/ownership repair into the same current tuple.
+   Exit: targeted controls and the integrated seed pass; capture Studio's full
+   graph immediately. Another passing reducer is not the next deliverable.
 2. **Advance directly to the full app.** Capture Studio's complete graph using
    that compiler; fix the first remaining semantic or emission blocker, then
    package and launch. Passing focused controls must trigger integration rather
@@ -71,6 +70,32 @@ when a current build passes or a native journey exposes a new failure.
 broad visual polish and speculative abstractions wait until the import,
 cleanup, undo and single-export journey works. Mandatory size, visibility,
 effect tracking and source-preservation rules apply to every touched file.
+
+## Highest ROI task selection
+
+The following order governs task selection within the detailed queue:
+
+| Rank | Task | Why it earns the next slot | Deliverable |
+| --- | --- | --- | --- |
+| 1 | Finish current compiler integration and launch Studio | Every user-visible check depends on a runnable current app | Qualified executable and reproducible launch |
+| 2 | Fix the reported FBX import/toggle failure | The user cannot review their character today | Their unchanged FBX opens, animates and switches views reliably |
+| 3 | Remove workspace and failure-recovery confusion | Repeated screenshots show a blocked first-use workflow | Visible setup action, readable reason, cancellation and successful retry |
+| 4 | Finish one existing cleanup through undo and export/reopen | Converts existing tools into useful user output | Reviewed motion exported and reopened with matching identity |
+| 5 | Protect that workflow against interruption and stale publication | Prevents loss of work and misleading success | Recoverable save/export with exact-result binding |
+| 6 | Measure and fix the largest observed interaction delay | Improves everyday use once correctness is established | Before/after timing and memory on the same workload |
+
+Safety-critical proofs, FFI checks and negative controls travel with each task;
+they are part of its finish gate. Avoid an independent evidence backlog that
+leaves the shipped transition unverified. Broader storage cleanup, batch,
+algorithms and polish retain their detailed requirements but wait for their
+activation gates.
+
+**Decision checkpoint:** after each delivery, record what a user can now do,
+which observed failure remains, and the smallest next change. Prefer fixing a
+shared cause over adding another policy layer. If investigation is repeating
+unchanged evidence, change the hypothesis or integrate the existing repair.
+Do not spend the next slot on a roadmap rewrite, an unrelated abstraction or a
+new tool while a higher-ranked user journey remains blocked.
 
 ## Next three deliveries
 
@@ -172,23 +197,16 @@ controls; source hash unchanged; no stale candidate publication. A seed, clean
 single-file diagnostic, screenshot or live process is insufficient.
 
 **Current status:** no current replacement app or redraw repair is accepted.
-Compiler `90637b51` fixes local references being mistaken for unrelated globals:
-two native regression controls pass and the production affine worker payload
-emits LLVM. These focused results still need a full Studio build.
+Compiler `40f19f47` has passed the official seed and source/product/runtime
+freshness checks. Its focused effect controls and integration with the backend
+allocation repair remain open. Treat those as a bounded dependency gate, then
+move to the full Studio build and the reported FBX interaction.
 
-The immediate build blocker is global-effect resolution. Direct checks have
-focused passing controls, but call summaries can leak effects between namesakes.
-Finish declaration identity for module owners, overloads and callbacks; preserve
-`can` propagation and deliberate `trusted` masks. Unresolved calls must not be
-silently omitted. Remove the legacy name-only projection, enforce mutable-global
-permissions in the actual CLI, and retain precise positive/refusal controls.
-Do not add blanket grants to silence checker false positives.
-
-The latest captured Studio graph stops at semantic checking; current source has
-also fixed its nullable path admission error. Capture again after a coherent
-checker repair. Selected engine `dc180e49` includes mesh bounds checks, but those
-checks have not established or repaired the reported native crash. Strict Unsafe
-and full dependency qualification remain open.
+The selected engine mocap branch incorporates current upstream through merge
+`e0980789`; native integration remains unqualified. Existing mesh bounds and
+worker-emission controls do not establish that the reported crash is repaired.
+Preserve exact effect members, ownership and source identity in the integrated
+build; diagnose its first actual failure rather than restarting completed fixes.
 See [compiler qualification](compiler-qualification.md),
 [responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 

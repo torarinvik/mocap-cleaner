@@ -45,8 +45,9 @@ Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
    failure details, cancellation and retry obvious in the same workflow.
 3. Complete the first useful cleanup/export journey with its required contracts,
    source correspondence and independent proof replay.
-4. Finish recoverable storage, measured responsiveness, repeat work and release;
-   activate research after the earlier acceptance gates pass.
+4. Protect the working journey against interruption and stale publication, then
+   fix measured interaction bottlenecks. Finish broader storage, repeat work and
+   release; activate research after the earlier acceptance gates pass.
 
 Keep one integrated product slice active, with only the compiler/prover/native
 repairs necessary to unlock it. Prioritize observed failures, user data at risk
