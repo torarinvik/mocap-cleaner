@@ -1,0 +1,62 @@
+# Balance sampling and support geometry for StudioModel clips.
+extend StudioModel:
+    public:
+        const module Support:
+            CORNERS: i64 = 4
+
+        def vec(p: MotionQuat::V) -> Geometry::Vec3:
+            Geometry::Vec3{x: p.x.f32(), y: p.y.f32(), z: p.z.f32()}
+
+        # The Phase 4 balance detector (Physics::balance_frames, the same one
+        # `--op balance` reports) over the cleaned document, per frame.
+        # Available results fill `frames` entries (Support::CORNERS per frame
+        # for the support); refused or inapplicable results retain no overlay.
+        def balance_of(doc: GlbDocument::Document&, anim: usize, frames: i64, out: mutable Balanced&) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                nan: f32 = 0.0 / 0.0
+                absent: Geometry::Vec3 = Geometry::Vec3{x: nan, y: nan, z: nan}
+                rc: Rig::Clip = Rig::load(doc, anim)
+                ok: bool = rc.frames == frames and frames > 0 and rc.times.count.i64() == frames
+                length: f64 = Physics::leg_length(&rc) if ok else 0.0
+                contact_ok: bool = ok and PhysicsContactInputs::admitted(&rc, length)
+                floor: i64 = Physics::floor_of(&rc) if contact_ok else 0
+                left: darray[bool] = Physics::foot_flags(&rc, 0, floor, length) if contact_ok else []
+                right: darray[bool] = Physics::foot_flags(&rc, 1, floor, length) if contact_ok else []
+                coms: darray[MotionQuat::V] = Physics::com_track(&rc) if contact_ok else []
+                mutable findings: Physics::Findings = Physics::empty_findings()
+                mutable inside: darray[bool] = []
+                mutable impossible: darray[bool] = []
+                if not contact_ok:
+                    out.ground <- nan
+                    return
+                if contact_ok:
+                    Physics::balance_frames(&rc, &coms, &left, &right, floor, length, &findings, &inside, &impossible)
+                if findings.unavailable_ops > 0 or findings.inapplicable_ops > 0:
+                    out.availability <- StudioBalanceStatusPolicy::Availability.Inapplicable if findings.inapplicable_ops > 0 and findings.unavailable_ops == 0
+                    out.ground <- nan
+                    return
+                out.availability <- StudioBalanceStatusPolicy::Availability.Available
+                out.ground <- Physics::floor_metres(floor).f32()
+                mutable w: Rig::World = Rig::empty_world()
+                for f in 0..<frames |f, out, rc, contact_ok, left, right, coms, inside, impossible, w, absent|:
+                    k: usize = f.usize()
+                    have: bool = contact_ok and k < left.count and k < right.count and k < coms.count and k < inside.count and k < impossible.count
+                    planted_l: bool = have and left[k]
+                    planted_r: bool = have and right[k]
+                    gone: bool = have and impossible[k]
+                    st: i64 = StudioOverlay::state(planted_l or planted_r, have and inside[k], gone)
+                    out.states.push(st)
+                    out.impossible <- out.impossible + 1 if gone else out.impossible
+                    out.com.push(vec(coms[k]) if have else absent)
+                    if planted_l or planted_r:
+                        Rig::solve_world(&rc, f, &w)
+                    for side in 0..<2 |side, out, rc, w, planted_l, planted_r, absent|:
+                        on: bool = planted_l if side == 0 else planted_r
+                        for role in [Roles::Joint.LeftFoot.i64() + side.i64() * 4, Roles::Joint.LeftToe.i64() + side.i64() * 4] |role, out, rc, w, on, absent|:
+                            node: i64 = Rig::node_of(&rc, role)
+                            if on and node >= 0 and node.usize() < w.pos.count:
+                                out.support.push(vec(w.pos[node.usize()]))
+                            else:
+                                out.support.push(absent)
+
+        # The support points of `frame` (empty when out of range).
