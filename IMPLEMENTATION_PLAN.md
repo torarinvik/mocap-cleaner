@@ -48,6 +48,13 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 
 ## Delivery requirements
 
+- Enforce `Global.Read` for reads and `Global.Write` for writes to `global mutable`
+  storage, including transitive callers and callbacks. Declare the effect rows and
+  grant access at the narrow owning scope; read-modify-write needs both members.
+  Preserve propagation with `can`; use `trusted` only at an explicitly reviewed
+  tracking boundary. Enable the current compiler's global permission checking
+  during qualification and refuse ungranted access. Migration is incomplete until
+  the full application and dependency call graph pass that check.
 - Commit each small improvement.
 - Extend arrays for fixed sequences of literals. The lexical
   `scripts/check_literal_push_runs.py` gate rejects consecutive integer-literal
