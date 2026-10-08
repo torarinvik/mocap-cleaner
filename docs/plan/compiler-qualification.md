@@ -14,9 +14,11 @@ expected refusals; scalar collision controls produce none. Retain separate
 reference/view, ambiguous-owner and cyclic-alias refusal controls.
 
 The historical `5d17a2c0` full Studio semantic check reports only the atomic
-`load` selection error. The new candidate's full Studio check remains pending;
-prove that it selects the actual callee rather than a same-spelled function in
-another module. Named constant value specialization,
+`load` selection error. The frozen `1beecf48` full Studio check removes that
+diagnostic but exits 1 with six codec `Token`/`u32` mismatches inside nested loops.
+The codec passes standalone; minimize and repair the context-dependent inference
+before full-graph acceptance. See the [retained diagnostic evidence](../proof-gaps/atomic-callee-owner-resolution.md).
+Named constant value specialization,
 prior project-repair integration, production ownership IR, all compiler/prover
 gates and native Studio acceptance remain open. Earlier callback cache-content
 and sanitizer results are retained comparison evidence in the ownership gap
