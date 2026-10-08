@@ -14,24 +14,24 @@ completed user journey. Update outcomes from evidence, not elapsed effort.
 
 **Priority:** P0; prerequisite for accepting subsequent source slices.
 
-Current fetched compiler main is `b26659e2`; installed Stage0 source is
-`778c8281`. Candidate `a6d52dc2` is rebased onto this main and seeded with that
-Stage0. Its 8 GiB capped build exits 0 and product/source freshness checks pass.
-Product SHA-256 is `5d31572a60dd153169f85182fd67f1dd7a998ef08ef08282c457af842656821f`;
-runtime SHA-256 is `956c9f44e4024087b63954d5abbe6620a4a2c5c78c5a4cee044e3da2bde5ce96`.
-The previously failing callback-shaped cache-content regression now compiles
-and runs with exit 0 at both O0 and O2 on this exact product. Sanitizer,
-production ownership IR, prior project-repair integration, full gates and Studio
-runtime acceptance remain open. The current O2 production IR attempt exits 1
-before emission: atomic `load` callee selection and scalar dialog-result global
-return diagnostics must be isolated and repaired with refusal controls. The
-canonical runtime bridge and include closure matched, so this attempt is not the
-earlier mixed-std check. Candidate `6b3172c0` seeds with source-matched product
-`5edd7523` and fixes the direct-owner dialog false positive in the full source
-check; the atomic-loader error remains. New nested-owner controls expose missed
-owning-global refusals, so the owner fix needs scope-chain/lexical-parent closure
-before promotion. Cache-hit rehome allocation cost must be
-measured; unresolved-call static lifetime fallback does not qualify cleanup.
+Current fetched compiler main is `7ec9def9`, including sized AST record
+performance work; installed Stage0 source remains `778c8281`. Rebase the project
+repairs onto this main or newer and rebuild before qualification or installation.
+The latest built repair candidate is `5d17a2c0`, based on earlier main
+`b26659e2`: its full/relative nested owning-return controls pass, but its owning
+alias control fails. Resolve aliases from the authoritative AST declaration,
+including lexical parents and qualified targets; retain scalar collision,
+reference/view, ambiguous-owner and cyclic-alias refusal controls.
+
+The full Studio semantic check on this exact candidate reports only the atomic
+`load` selection error. Resolve the actual callee declaration rather than a
+same-spelled function in another module. Named constant value specialization,
+prior project-repair integration, production ownership IR, all compiler/prover
+gates and native Studio acceptance remain open. Earlier callback cache-content
+and sanitizer results are retained comparison evidence in the ownership gap
+record. Recheck them on the final source/product/runtime closure. Measure
+cache-hit rehome allocation cost; unresolved-call static lifetime fallback does
+not qualify cleanup.
 
 The `1482a808` baseline gate remains a captured historical comparison while it
 finishes. It cannot qualify promotion against newer main. Preserve the upstream
@@ -40,13 +40,13 @@ project repairs. Rebuild the paired prover on the final compiler tuple; its
 nested constant-owner source correspondence repair is still undergoing controls.
 See [retained FBX evidence](../acceptance/fbx-request-proof-2026-10-07.md).
 
-Latest dependency fetch still resolves compiler main to `b26659e2`, while
-proof main is now `a98acb6c`, UI main `dc6cd397` and engine main `d4c0ad23`.
-Ancestry checks confirm UI `f33e439b` already contains `dc6cd397` and mocap
-engine `6df3212e` already contains `d4c0ad23`; this fetch requires no merge for
-those branches. Preserve the dirty UI work and qualify its exact native-link
-snapshot. The proof checkout is rebased onto `a98acb6c`, with final owner/call
-repairs committed; its matching producer/replay rebuild remains open. Captured
+Latest fetched proof main is `e27b11bc`, UI main `dc6cd397` and engine main
+`e89aa30d`. UI `f33e439b` already contains its fetched main. The clean compiler
+checkout was fast-forwarded to `7ec9def9`; the mocap engine branch merged its
+new main without conflicts at `7255ef20`, preserving project repairs. Preserve
+the dirty UI work and qualify its exact native-link snapshot. The proof checkout
+is rebased onto `e27b11bc`, with owner/call repairs preserved at `9fddab1a`;
+its matching producer/replay rebuild remains open. Captured
 earlier source/product pairs remain comparison evidence; rebuild against the
 final closure before qualification.
 
