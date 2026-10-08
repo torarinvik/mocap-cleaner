@@ -41,6 +41,14 @@ blocks the other policies. Checked numeric member provenance remains open.
 Earlier six-package results are historical source snapshots. See
 [the exact proof record](../acceptance/fbx-request-proof-2026-10-07.md).
 
+- Connect the staging-evidence laws to the production foreign handoff. The
+  adapter currently validates returned path/digest shape but does not consume
+  the composed evidence predicate. Qualify the exact native success contract
+  and refusal behavior for identity, stable copy, sync and source preservation;
+  bind observed facts or the reviewed contract to the Elisa admission conditions.
+  Do not create apparently independent evidence by copying `status == 0` into
+  booleans. See [the production binding gap](../proof-gaps/fbx-source-staging-admission.md#production-binding-still-required).
+
 - Finish exact lexical owner propagation for nested constants and function
   signatures in producer and independent replay. Preserve ordered module paths,
   validate complete owner-record shape and reject ambiguous, duplicate,
