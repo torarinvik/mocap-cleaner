@@ -21,27 +21,30 @@ module StudioBuildGenerationCandidateScanWorker:
             snapshot: StudioBuildGenerationCandidateProvider::Snapshot
 
         def scan(job: Job) -> Result can[Blocking.IO, Memory.Allocate, Unsafe{PointerCast, RawExtern}, Global{Read, Write}]:
-            ticket: i64 = job.ticket
-            retention: i64 = job.retention_days
-            mutable paths: Paths = move job.paths
-            mutable root: darray[u8] = StudioWorkerPathCapture::restore(&paths.build_root)
-            mutable snapshot: StudioBuildGenerationCandidateProvider::Snapshot =
-                StudioBuildGenerationCandidateProvider::Snapshot{
-                    outcome: StudioBuildGenerationCandidateProvider::Outcome.Refused,
-                    rows: [], refusal_code: 1, retention_days: -1}
-            if StudioGenerationCandidateScanWorkerPolicy::request_valid(
-                ticket, root.count.i64(), retention):
-                mutable has_zero: bool = false
-                for byte in root:
-                    has_zero <- has_zero or byte == 0
-                if not has_zero:
-                    root.push(0)
-                    root_pointer: cstr = (&root[0]).cast[cstr] can Unsafe.PointerCast
-                    snapshot <- StudioBuildGenerationCandidateProvider::scan(root_pointer, retention)
-            Result{ticket: ticket, snapshot: move snapshot}
+            can Global{Read, Write}:
+                ticket: i64 = job.ticket
+                retention: i64 = job.retention_days
+                mutable paths: Paths = move job.paths
+                mutable root: darray[u8] = StudioWorkerPathCapture::restore(&paths.build_root)
+                mutable snapshot: StudioBuildGenerationCandidateProvider::Snapshot =
+                    StudioBuildGenerationCandidateProvider::Snapshot{
+                        outcome: StudioBuildGenerationCandidateProvider::Outcome.Refused,
+                        rows: [], refusal_code: 1, retention_days: -1}
+                if StudioGenerationCandidateScanWorkerPolicy::request_valid(
+                    ticket, root.count.i64(), retention):
+                    mutable has_zero: bool = false
+                    for byte in root:
+                        has_zero <- has_zero or byte == 0
+                    if not has_zero:
+                        root.push(0)
+                        root_pointer: cstr = (&root[0]).cast[cstr] can Unsafe.PointerCast
+                        snapshot <- StudioBuildGenerationCandidateProvider::scan(root_pointer, retention)
+                return Result{ticket: ticket, snapshot: move snapshot}
 
-        def start(job: Job) -> Thread[Result, Joinable] can[Threads, Unsafe.RawExtern]:
-            task(scan_build_generation_candidate_scan_job, move job)
+        def start(job: Job) -> Thread[Result, Joinable] can[Threads, Unsafe.RawExtern, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return task(scan_build_generation_candidate_scan_job, move job)
 
 def scan_build_generation_candidate_scan_job(job: StudioBuildGenerationCandidateScanWorker::Job) -> StudioBuildGenerationCandidateScanWorker::Result can[Blocking.IO, Memory.Allocate, Unsafe{PointerCast, RawExtern}, Global{Read, Write}]:
-    StudioBuildGenerationCandidateScanWorker::scan(move job)
+    can Global{Read, Write}:
+        return StudioBuildGenerationCandidateScanWorker::scan(move job)

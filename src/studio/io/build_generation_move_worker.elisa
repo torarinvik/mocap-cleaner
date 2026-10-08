@@ -28,68 +28,71 @@ module StudioBuildGenerationMoveWorker:
             ensure result.operation_id_bytes >= 0 and result.operation_id_bytes <= StudioBuildGenerationTrashPolicy::Protocol::MAX_OPERATION_ID_BYTES
             ensure result.explanation_bytes >= 0 and result.explanation_bytes < StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.i64()
             ensure not result.recoverable or result.remaining_handle == 0
-            ticket: i64 = job.ticket
-            review: StudioGenerationReviewBindingPolicy::Review = job.review
-            mutable wire: StudioBuildGenerationMoveWire::Wire = move job.wire
-            mutable handle: i64 = 0
-            mutable operation: darray[u8] = []
-            mutable explanation: darray[u8] = []
-            mutable commit: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashBindingPolicy::decode_status(StudioBuildGenerationTrashNative::Status.Invalid.i32())
-            mutable release: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashBindingPolicy::decode_status(-1)
-            mutable recovery: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome = StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
-            mutable details: bool = false
-            mutable operation_valid: bool = false
-            if StudioGenerationMoveWorkerPolicy::may_start(ticket, wire.valid, review, wire.retention_days):
-                root: cstr = (&wire.root[0]).cast[cstr]
-                path: cstr = (&wire.path[0]).cast[cstr]
-                artifact_id: cstr = (&wire.artifact_id[0]).cast[cstr]
-                product: cstr = (&wire.controls.product[0]).cast[cstr]
-                manifest: cstr = (&wire.controls.manifest[0]).cast[cstr]
-                inputs: cstr = (&wire.controls.input_record[0]).cast[cstr]
-                inventory: cstr = (&wire.controls.inventory[0]).cast[cstr]
-                lease: cstr = (&wire.controls.lease[0]).cast[cstr]
-                begin: StudioBuildGenerationTrashTransaction::BeginMoveResult = StudioBuildGenerationTrashTransaction::begin_move(root, path, wire.artifact_kind, artifact_id, wire.device, wire.inode, product, &handle, &explanation)
-                commit <- begin.status
-                if StudioBuildGenerationTrashBindingPolicy::begin_evidence_admitted(begin.evidence):
-                    identity: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashTransaction::validate_reviewed(handle, manifest, inputs, inventory, lease, &explanation)
-                    commit <- identity
-                    if StudioGenerationReviewBindingPolicy::may_prepare_intent(review, begin.evidence, identity):
-                        intent: StudioBuildGenerationTrashTransaction::MoveIntentResult = StudioBuildGenerationTrashTransaction::persist_move_intent(handle, &operation, &explanation)
-                        operation_valid <- intent.operation_id_valid
-                        commit <- intent.status
-                        receipt_evidence: StudioGenerationReceiptControlPolicy::Evidence = StudioBuildGenerationTrashTransaction::query_receipt_scope(handle)
-                        facts: StudioGenerationMoveWorkerPolicy::Intent = StudioGenerationMoveWorkerPolicy::Intent{status: intent.status, phase: intent.phase, durable: intent.journal_durable, reserved: intent.operation_id_reserved, operation_id_valid: intent.operation_id_valid, operation_id_bytes: intent.operation_id_bytes, receipt_bytes: intent.receipt_bytes, scope: receipt_evidence}
-                        if StudioGenerationMoveWorkerPolicy::may_commit(facts):
-                            commit <- StudioBuildGenerationTrashTransaction::commit_move(handle, &explanation)
-                        elif intent.status.known and intent.status.status == StudioBuildGenerationTrashNative::Status.Acquired:
-                            commit <- StudioBuildGenerationTrashBindingPolicy::decode_status(StudioBuildGenerationTrashNative::Status.Unsupported.i32())
-                if handle > 0:
-                    release <- StudioBuildGenerationTrashTransaction::close_owned(&handle)
-                if operation_valid and handle == 0 and StudioGenerationHandlePolicy::release_certain(release):
-                    operation.push(0)
-                    operation_pointer: cstr = (&operation[0]).cast[cstr]
-                    mutable recovery_explanation: darray[u8] = []
-                    observed: StudioBuildGenerationTrashTransaction::ReconcileResult = StudioBuildGenerationTrashTransaction::reconcile(root, operation_pointer, &recovery_explanation)
-                    recovery <- observed.outcome
-                    details <- observed.output_details_valid
-                    operation.pop()
-                    if recovery != StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Quarantined:
-                        explanation.clear()
-                        explanation.extend(recovery_explanation)
-            success: bool = StudioGenerationMoveWorkerPolicy::recoverable(commit, release, recovery, details, handle)
-            mutable operation_buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()] = zeroed
-            operation_bytes: usize = operation.count if operation_valid else 0
-            for index in 0..<operation_bytes |index, operation_buffer, operation|:
-                operation_buffer[index] <- operation[index]
-            mutable message: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()] = zeroed
-            maximum: usize = StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize() - 1
-            count: usize = maximum if explanation.count > maximum else explanation.count
-            for index in 0..<count |index, message, explanation|:
-                message[index] <- explanation[index]
-            Result{ticket: ticket, recoverable: success, remaining_handle: handle, commit_status: commit, release_status: release, recovery: recovery, operation_id: operation_buffer, operation_id_bytes: operation_bytes.i64(), explanation: message, explanation_bytes: count.i64(), explanation_truncated: explanation.count > maximum}
+            can Global{Read, Write}:
+                ticket: i64 = job.ticket
+                review: StudioGenerationReviewBindingPolicy::Review = job.review
+                mutable wire: StudioBuildGenerationMoveWire::Wire = move job.wire
+                mutable handle: i64 = 0
+                mutable operation: darray[u8] = []
+                mutable explanation: darray[u8] = []
+                mutable commit: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashBindingPolicy::decode_status(StudioBuildGenerationTrashNative::Status.Invalid.i32())
+                mutable release: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashBindingPolicy::decode_status(-1)
+                mutable recovery: StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome = StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Unknown
+                mutable details: bool = false
+                mutable operation_valid: bool = false
+                if StudioGenerationMoveWorkerPolicy::may_start(ticket, wire.valid, review, wire.retention_days):
+                    root: cstr = (&wire.root[0]).cast[cstr]
+                    path: cstr = (&wire.path[0]).cast[cstr]
+                    artifact_id: cstr = (&wire.artifact_id[0]).cast[cstr]
+                    product: cstr = (&wire.controls.product[0]).cast[cstr]
+                    manifest: cstr = (&wire.controls.manifest[0]).cast[cstr]
+                    inputs: cstr = (&wire.controls.input_record[0]).cast[cstr]
+                    inventory: cstr = (&wire.controls.inventory[0]).cast[cstr]
+                    lease: cstr = (&wire.controls.lease[0]).cast[cstr]
+                    begin: StudioBuildGenerationTrashTransaction::BeginMoveResult = StudioBuildGenerationTrashTransaction::begin_move(root, path, wire.artifact_kind, artifact_id, wire.device, wire.inode, product, &handle, &explanation)
+                    commit <- begin.status
+                    if StudioBuildGenerationTrashBindingPolicy::begin_evidence_admitted(begin.evidence):
+                        identity: StudioBuildGenerationTrashBindingPolicy::DecodedStatus = StudioBuildGenerationTrashTransaction::validate_reviewed(handle, manifest, inputs, inventory, lease, &explanation)
+                        commit <- identity
+                        if StudioGenerationReviewBindingPolicy::may_prepare_intent(review, begin.evidence, identity):
+                            intent: StudioBuildGenerationTrashTransaction::MoveIntentResult = StudioBuildGenerationTrashTransaction::persist_move_intent(handle, &operation, &explanation)
+                            operation_valid <- intent.operation_id_valid
+                            commit <- intent.status
+                            receipt_evidence: StudioGenerationReceiptControlPolicy::Evidence = StudioBuildGenerationTrashTransaction::query_receipt_scope(handle)
+                            facts: StudioGenerationMoveWorkerPolicy::Intent = StudioGenerationMoveWorkerPolicy::Intent{status: intent.status, phase: intent.phase, durable: intent.journal_durable, reserved: intent.operation_id_reserved, operation_id_valid: intent.operation_id_valid, operation_id_bytes: intent.operation_id_bytes, receipt_bytes: intent.receipt_bytes, scope: receipt_evidence}
+                            if StudioGenerationMoveWorkerPolicy::may_commit(facts):
+                                commit <- StudioBuildGenerationTrashTransaction::commit_move(handle, &explanation)
+                            elif intent.status.known and intent.status.status == StudioBuildGenerationTrashNative::Status.Acquired:
+                                commit <- StudioBuildGenerationTrashBindingPolicy::decode_status(StudioBuildGenerationTrashNative::Status.Unsupported.i32())
+                    if handle > 0:
+                        release <- StudioBuildGenerationTrashTransaction::close_owned(&handle)
+                    if operation_valid and handle == 0 and StudioGenerationHandlePolicy::release_certain(release):
+                        operation.push(0)
+                        operation_pointer: cstr = (&operation[0]).cast[cstr]
+                        mutable recovery_explanation: darray[u8] = []
+                        observed: StudioBuildGenerationTrashTransaction::ReconcileResult = StudioBuildGenerationTrashTransaction::reconcile(root, operation_pointer, &recovery_explanation)
+                        recovery <- observed.outcome
+                        details <- observed.output_details_valid
+                        operation.pop()
+                        if recovery != StudioBuildGenerationTrashBindingPolicy::RecoveryOutcome.Quarantined:
+                            explanation.clear()
+                            explanation.extend(recovery_explanation)
+                success: bool = StudioGenerationMoveWorkerPolicy::recoverable(commit, release, recovery, details, handle)
+                mutable operation_buffer: u8[StudioBuildGenerationTrashNative::Limit::ID_CAPACITY.usize()] = zeroed
+                operation_bytes: usize = operation.count if operation_valid else 0
+                for index in 0..<operation_bytes |index, operation_buffer, operation|:
+                    operation_buffer[index] <- operation[index]
+                mutable message: u8[StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize()] = zeroed
+                maximum: usize = StudioBuildGenerationTrashNative::Limit::ERROR_CAPACITY.usize() - 1
+                count: usize = maximum if explanation.count > maximum else explanation.count
+                for index in 0..<count |index, message, explanation|:
+                    message[index] <- explanation[index]
+                return Result{ticket: ticket, recoverable: success, remaining_handle: handle, commit_status: commit, release_status: release, recovery: recovery, operation_id: operation_buffer, operation_id_bytes: operation_bytes.i64(), explanation: message, explanation_bytes: count.i64(), explanation_truncated: explanation.count > maximum}
 
-        def start(job: Job) -> Thread[Result, Joinable] can[Threads, Unsafe.RawExtern]:
-            task(move_build_generation_job, move job)
+        def start(job: Job) -> Thread[Result, Joinable] can[Threads, Unsafe.RawExtern, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return task(move_build_generation_job, move job)
 
 def move_build_generation_job(job: StudioBuildGenerationMoveWorker::Job) -> StudioBuildGenerationMoveWorker::Result can[Blocking.IO, Memory.Allocate, Unsafe{PointerCast, RawExtern}, Global{Read, Write}]:
-    StudioBuildGenerationMoveWorker::move_generation(move job)
+    can Global{Read, Write}:
+        return StudioBuildGenerationMoveWorker::move_generation(move job)
