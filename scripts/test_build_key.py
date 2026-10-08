@@ -55,7 +55,9 @@ def resolve_compiler(selection):
     elif selected_compiler.name == "elisac-stage1" and selected_compiler.parent.name == "bin":
         compiler_root = selected_compiler.parent.parent
     else:
-        compiler_root = configured_root or ROOT.parent / "Elisa-compiler"
+        raise SystemExit(
+            "test build key: cannot establish compiler checkout from this command; "
+            "select CHECKOUT/scripts/elisac_stage1.sh or CHECKOUT/bin/elisac-stage1")
     if configured_root is not None and compiler_root != configured_root:
         raise SystemExit("test build key: selected compiler differs from ELISA_STAGE1 checkout")
     return selected_compiler, compiler_root.resolve()
