@@ -80,3 +80,16 @@ refusals alongside negative scalar cases before promotion. Parser modes may
 present nested owners as leaves or already-qualified names; neither may select
 an unrelated type by its leaf name. Exact candidate evidence remains frozen
 while the paired-prover build uses its frontend/runtime tuple.
+
+The nested-owner follow-up at `8b2c25dd` builds successfully with current
+Stage0 `778c8281` (seed exit 0). It includes full and relative nested owning
+types and an owning type-alias fixture. The generated Stage1 product SHA is
+`de1e8c22c06ed37afb3f47a9d7f2306a4be4cbb72bd4dd02f55cf7dbbd1641bf`;
+runtime SHA is
+`956c9f44e4024087b63954d5abbe6620a4a2c5c78c5a4cee044e3da2bde5ce96`.
+Evidence is retained under
+`/tmp/Elisa-compiler-gsr-nested/build/seed-e23f2f90/`; the directory name
+predates the alias fixture commit, so use the recorded source revision.
+Diagnostics controls are still running. A successful seed does not yet prove
+the nested refusals, remove the separate atomic-loader error, or qualify the
+Studio runtime.
