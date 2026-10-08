@@ -37,8 +37,13 @@ current runnable build and redraw crash; clear FBX/workspace recovery;
 one complete inspect–preview–apply–undo–export journey, with required safety
 proofs alongside each transition; recoverable storage; responsiveness; repeat work and release; M8 decisions.
 The next deliverable is a current runnable Studio build and reproduction of the
-reported FBX/Character redraw crash. Semantic checking now passes; the immediate
-blocker is specialized worker-result LLVM emission in the full application graph.
+reported FBX/Character redraw crash. The refreshed compiler first needs its global
+checker resolution repaired; then validate the identified local/global shadowing
+blocker in specialized worker-result LLVM emission.
+The first useful checkpoint is FBX import, animated Character/Skeleton review,
+one existing cleanup with apply/cancel and undo, and a reviewed GLB export that
+reopens correctly. Proof and dependency work target the transitions that block
+that checkpoint.
 Use the queue’s next three delivery gates to select work and pause standalone
 feature expansion that does not unlock them. Keep one integrated product slice active;
 use full-graph diagnostics to target its remaining blockers. Critical proof

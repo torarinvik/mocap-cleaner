@@ -56,7 +56,7 @@ effect tracking and source-preservation rules apply to every touched file.
 
 | Order | User outcome | Smallest next action | Stop condition |
 | --- | --- | --- | --- |
-| 1 | Studio launches on current dependencies | Diagnose the five full-graph worker-result emission failures with a source-matched diagnostic compiler; repair the shared cause | Current app builds/packages, then the reported FBX/toggle journey runs |
+| 1 | Studio launches on current dependencies | Qualify the global-checker repair, capture the full graph, then repair the local/global worker-result shadowing if still present | Current app builds/packages, then the reported FBX/toggle journey runs |
 | 2 | Opening an FBX succeeds or explains how to recover | Exercise the reported asset and workspace chooser on that app; fix the first observed import/display failure | Open, cancel, retry and Character/Skeleton actions work with readable feedback and unchanged source |
 | 3 | A user produces a useful reviewed result | Finish one existing finding-to-preview-to-undo-to-export journey | Export reopens with the reviewed motion and required safety evidence |
 
@@ -64,6 +64,29 @@ Treat each stop condition as a delivery gate, not permission to stop investigati
 an observed defect. Recovery-location integration and broader storage controls
 follow the usable single-take journey unless they directly block it or protect
 work at risk. Proof repairs prioritize the contracts required by these deliveries.
+
+## Deliver the smallest useful release slice
+
+The first product checkpoint is one source-preserving FBX import, visible animated
+Character/Skeleton review, one existing cleanup preview with apply/cancel and
+undo, and one reviewed GLB export that reopens correctly. Complete this slice
+before broadening supported tools or production options. A checkpoint is useful
+progress; it does not close the remaining roadmap.
+
+For every delivery, record:
+
+- **User outcome:** the concrete action a user can now complete.
+- **Observed blocker:** retained failure and owning module/dependency, if any.
+- **Next change:** the smallest source repair that advances the outcome.
+- **Acceptance:** current native journey plus contracts/proofs for the affected
+  transition; passing isolated controls alone do not close the delivery.
+- **Deferred work:** what remains and the gate that will make it worth resuming.
+
+Proof and compiler work serve the active delivery. Prefer a shared root-cause
+repair when it removes several observed failures, but keep its regression scope
+explicit. Stop repeating diagnostics when unchanged inputs yield the same result;
+move to a repair or a smaller reproducer. Reassess after every delivery gate or
+new user-visible failure, rather than after an arbitrary number of commits.
 
 ## Work to pause while the app cannot run
 
@@ -108,18 +131,23 @@ record; actual native interaction on the repaired binary; focused lifetime
 controls; source hash unchanged; no stale candidate publication. A seed, clean
 single-file diagnostic, screenshot or live process is insufficient.
 
-**Current status:** the matched `85eef9ff` Stage1 product passes the focused
-strict Unsafe-member controls. Project-wide strict Unsafe acceptance remains
-pending. The latest retained full-graph capture
-(`build/studio-build.c9f-ledger-startup/`) passes semantic checking and fails
-LLVM emission with ten decline lines: five specialized worker-result reads and
-five enclosing failures. The UI grant closure, local publication-status binding
-repairs and explicit private-ledger startup removed their earlier diagnostics.
-Target the full-graph result-read failure next; isolated worker reducers already
-pass and do not explain it. A diagnostic compiler seed stopped at its aggregate
-memory cap; that is a resource refusal, not a compiler failure. Serialize the
-next bounded build with the active proof workload.
-The user-visible crash remains open, and no current replacement app is qualified.
+**Current status:** the prior matched `85eef9ff` closure passed semantic
+checking and retained five specialized worker-result LLVM failures. Diagnostics
+show correct generic/local/result ownership; static tracing identified a local
+`slot` reference falling through to the unrelated `StudioReportText.slot`
+global lookup. Validate and repair that shadowing path with a regression.
+
+The refreshed compiler repair branch includes upstream `d05f35d4`. Its current
+Studio capture (`build/studio-build.index-path-probe-d05-20261008/`) stops before
+backend emission with 862 global-grant diagnostic lines. The new checker has demonstrated pattern-binder false positives and uses
+name-only callee effect lookup that risks cross-module effect leakage. Qualify
+its enforcement mode, binder scopes and grouped callback grants, then resolve
+effect summaries by callee owner/declaration identity, including overloads and
+transitive callbacks. Preserve genuine direct/transitive Global.Read/Write refusals. Genuine entry-point
+and callback effect rows have been added; the revised source needs a fresh capture.
+Selected engine `b8dd8add` now validates mutable mesh shapes and indices; actual
+Studio redraw remains unqualified. Project-wide strict Unsafe acceptance is still
+pending. No current replacement app or crash repair is accepted.
 See [compiler qualification](compiler-qualification.md),
 [responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 
@@ -145,11 +173,13 @@ and malformed-input recovery, loaded-take refusal, focus restoration, matching
 visible/accessible feedback, and unchanged document/source on failure.
 See [M1](m1-workspace.md) and [shared interaction acceptance](acceptance-and-dependencies.md).
 
-## 3. Q02: close safety-critical proof gaps alongside the production paths
+## 3. Q02: gate the active delivery with its safety-critical proofs
 
 **Priority:** P0 for publication, ownership and data-preservation contracts.
 **Return:** gives credible guarantees for the transitions most costly to get wrong.
 
+- For each active delivery, select its blocking obligations before launching a
+  broader proof census. Proof counts are evidence, not a prioritization target.
 - Prioritize source identity, worker ownership, cancellation/stale publication,
   transactional history, FFI admission, export publication and storage mutation.
 - Qualify the actual production handoff: native status alone must not be copied
@@ -204,7 +234,8 @@ export round-trip parity. See [M2–M3](m2-m3-diagnosis-review.md),
 - Complete captured-result GLB/report staging, partial outcomes and retry.
   Preserve occupied outputs and sources; restart cannot silently publish a
   different revision. Distinguish integrity, reviewed motion and durability.
-- Finish Storage review/move/receipt/restore and generated-build cleanup with
+- After single export works, finish Storage review/move/receipt/restore and
+  generated-build cleanup with
   exact retained identity, active-product leases, durable journals and conflict
   refresh. Quarantine moves are recoverable storage, not claimed freed space.
 - Integrate typed reconciliation identity and the read-only recovery-location
