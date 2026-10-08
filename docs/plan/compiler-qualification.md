@@ -165,7 +165,14 @@ The combined GSR and atomic callee-resolution compiler candidate `b8256d31`
 passes its frozen full-driver Stage0 semantic preflight. Build its Stage1 product
 with the current Stage0, retain source/product/runtime correspondence, then qualify
 the regressions and full Studio graph. No current Stage1 runtime acceptance is
-claimed from that semantic preflight.
+claimed from that semantic preflight. The candidate seed subsequently completed
+with exit 0 and matching provenance: Stage1 product
+`ff62235c816679909a3f251939eb4ef1405cd393ad620e663e70b4454ad661d5`,
+runtime object
+`d3e7ffa90eff6a89966f9d3318a2262b2b52d0c38ec9148cc50cf6ce4a4ad7c8`.
+The retained seed log is `/tmp/Elisa-compiler-atomic-load/build/seed-b8256d31.log`.
+Focused GSR/atomic regression execution and the fixed-snapshot Studio semantic
+check remain pending. The seed alone does not qualify installation or FBX redraw.
 
 **Finish evidence:** exact input manifests and product provenance, authenticated
 current prover/replay pair, current complete graph/link closure and successful
