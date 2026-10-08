@@ -32,6 +32,7 @@ status descriptions and evidence are preserved in the linked records.
 - [Task callback allocation-region ABI and ownership](proof-gaps/function-value-region-abi.md)
 - [FBX joined-result buffer lifetime](proof-gaps/fbx-join-buffer-lifetime.md)
 - [Callback scratch ownership and global cache lifetime](proof-gaps/callback-global-cache-lifetime.md)
+- [Named constant fixed-array view specialization](proof-gaps/named-constant-array-specialization.md)
 - [Studio fixed-array clone compilation cost](proof-gaps/studio-fixed-array-clone-cost.md)
 - [Tracked FBX foreign adapter and strict extern bounds](proof-gaps/fbx-foreign-adapter.md)
 

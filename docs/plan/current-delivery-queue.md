@@ -40,6 +40,12 @@ project repairs. Rebuild the paired prover on the final compiler tuple; its
 nested constant-owner source correspondence repair is still undergoing controls.
 See [retained FBX evidence](../acceptance/fbx-request-proof-2026-10-07.md).
 
+Latest dependency fetch still resolves compiler main to `b26659e2`, while
+proof main is now `a98acb6c`, UI main `dc6cd397` and engine main `d4c0ad23`.
+Preserve project repairs and current dirty UI work when updating dependency
+checkouts. Captured earlier source/product pairs remain comparison evidence;
+rebuild against the final updated closure before qualification.
+
 Remaining work:
 
 - Finish replacing multi-source owner selectors with a source-qualified result descriptor
@@ -51,6 +57,11 @@ Remaining work:
   Stage0. Current installed Stage0 is source `778c8281`, binary `c81b66ee`.
   Record its actual toolchain, preserved dirty test files and hash; verify that
   source changes do not invalidate the selected product before each seed.
+- Repair named constant-value fixed-array specialization without duplicating
+  literal limits or weakening view lifetimes. Literal `[2]` works where
+  `[Limit::BYTES]` with value 2 declines; see
+  [specialization gap](../proof-gaps/named-constant-array-specialization.md).
+  Qualify exact owner/type resolution and ambiguous/wrong-type refusals.
 - Preserve the resolved-callee/substituted-result carrier rule and fail-closed
   unmanaged-result checks. Cover inferred, qualified and explicit generic calls,
   concrete calls, scalar/borrowed results, shadow allocators, ambiguous mappings
