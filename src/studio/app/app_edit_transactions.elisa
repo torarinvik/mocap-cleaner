@@ -6,289 +6,307 @@ include "../../core/generation_policy.elisa"
 # Owns staged edit intents, candidate evaluation and committed publication.
 extend Studio:
     private:
-        def candidate_revision_available(s: StackState::Stack&) -> bool:
-            if built_stack is prior:
-                if StackState::same_rig_source(prior, s):
-                    return rig_source_revision >= 0
-            GenerationPolicy::can_advance(rig_source_revision)
+        def candidate_revision_available(s: StackState::Stack&) -> bool can[Global.Read]:
+            can Global.Read:
+                if built_stack is prior:
+                    if StackState::same_rig_source(prior, s):
+                        return rig_source_revision >= 0
+                return GenerationPolicy::can_advance(rig_source_revision)
 
-        def candidate_generations_available(s: StackState::Stack&) -> bool:
-            GenerationPolicy::can_advance(built) and candidate_revision_available(s)
+        def candidate_generations_available(s: StackState::Stack&) -> bool can[Global.Read]:
+            can Global.Read:
+                return GenerationPolicy::can_advance(built) and candidate_revision_available(s)
 
-        def generation_refused() -> void:
-            status <- "Edit blocked: result generation capacity is exhausted or invalid. Existing edits and result kept."
-            nudged_row <- -1
-            status_file <- null
-            touch()
+        def generation_refused() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                status <- "Edit blocked: result generation capacity is exhausted or invalid. Existing edits and result kept."
+                nudged_row <- -1
+                status_file <- null
+                touch()
 
         global mutable pending_edit_stack: StackState::Stack? = null
         global mutable pending_edit_base: StudioEditTransactionPolicy::Base = zeroed
         global mutable pending_edit_intent: StudioEditTransactionPolicy::Intent = StudioEditTransactionPolicy::Intent.Record
 
-        def pending_edit_active() -> bool:
-            pending_edit_stack != null
+        def pending_edit_active() -> bool can[Global.Read]:
+            can Global.Read:
+                return pending_edit_stack != null
 
-        def show_edit_completion(message: sview) -> void:
-            if StudioCorrectionResultPolicy::completion_feedback_admitted(pending_edit_active() or contact_preview_rebuild_pending, load_failed):
-                status <- message
+        def show_edit_completion(message: sview) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if StudioCorrectionResultPolicy::completion_feedback_admitted(pending_edit_active() or contact_preview_rebuild_pending, load_failed):
+                    status <- message
 
-        def discard_pending_edit() -> void:
-            pending_edit_stack <- null
-            pending_edit_base <- zeroed
-            pending_edit_intent <- StudioEditTransactionPolicy::Intent.Record
-            contact_preview_rebuild_pending <- false
+        def discard_pending_edit() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                pending_edit_stack <- null
+                pending_edit_base <- zeroed
+                pending_edit_intent <- StudioEditTransactionPolicy::Intent.Record
+                contact_preview_rebuild_pending <- false
 
-        def stage_pending_edit(s: StackState::Stack, intent: StudioEditTransactionPolicy::Intent) -> bool:
-            observed: StudioEditTransactionPolicy::Base = edit_transaction_base()
-            if not StudioEditTransactionPolicy::stage_admitted(pending_edit_active(), pending_edit_base, observed):
-                discard_pending_edit()
-                status <- "Queued edit discarded because its source or history changed. Review the current result and try again."
-                status_file <- null
-                touch()
-                return false
-            if not pending_edit_active():
-                pending_edit_base <- observed
-            pending_edit_stack <- s
-            pending_edit_intent <- intent
-            contact_preview_rebuild_pending <- true
-            status <- "Edit queued for evaluation. Existing history and result remain unchanged until it succeeds."
-            status_file <- null
-            touch()
-            true
-
-        def finish_deferred_rebuild() -> void:
-            if pending_edit_stack is draft:
-                current: bool = StudioEditTransactionPolicy::current(pending_edit_base, edit_transaction_base())
-                intent: StudioEditTransactionPolicy::Intent = pending_edit_intent
-                discard_pending_edit()
-                if not current:
-                    status <- "Queued edit discarded because its source or history changed. Existing edits kept."
-                    nudged_row <- -1
+        def stage_pending_edit(s: StackState::Stack, intent: StudioEditTransactionPolicy::Intent) -> bool can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                observed: StudioEditTransactionPolicy::Base = edit_transaction_base()
+                if not StudioEditTransactionPolicy::stage_admitted(pending_edit_active(), pending_edit_base, observed):
+                    discard_pending_edit()
+                    status <- "Queued edit discarded because its source or history changed. Review the current result and try again."
                     status_file <- null
                     touch()
-                    return
-                mutable accepted: bool = false
-                if intent == StudioEditTransactionPolicy::Intent.Record:
-                    committed: StackState::Stack = HistoryState::current(&history)
-                    if StackState::same(draft, committed):
-                        status <- "Queued edits are unchanged. No history entry added."
+                    return false
+                if not pending_edit_active():
+                    pending_edit_base <- observed
+                pending_edit_stack <- s
+                pending_edit_intent <- intent
+                contact_preview_rebuild_pending <- true
+                status <- "Edit queued for evaluation. Existing history and result remain unchanged until it succeeds."
+                status_file <- null
+                touch()
+                return true
+
+        def finish_deferred_rebuild() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if pending_edit_stack is draft:
+                    current: bool = StudioEditTransactionPolicy::current(pending_edit_base, edit_transaction_base())
+                    intent: StudioEditTransactionPolicy::Intent = pending_edit_intent
+                    discard_pending_edit()
+                    if not current:
+                        status <- "Queued edit discarded because its source or history changed. Existing edits kept."
                         nudged_row <- -1
                         status_file <- null
                         touch()
                         return
-                    accepted <- commit(draft, true)
-                else:
-                    accepted <- apply_history_target(draft, intent == StudioEditTransactionPolicy::Intent.Redo)
-                if accepted:
+                    mutable accepted: bool = false
+                    if intent == StudioEditTransactionPolicy::Intent.Record:
+                        committed: StackState::Stack = HistoryState::current(&history)
+                        if StackState::same(draft, committed):
+                            status <- "Queued edits are unchanged. No history entry added."
+                            nudged_row <- -1
+                            status_file <- null
+                            touch()
+                            return
+                        accepted <- commit(draft, true)
+                    else:
+                        accepted <- apply_history_target(draft, intent == StudioEditTransactionPolicy::Intent.Redo)
+                    if accepted:
+                        status <- "Queued edits evaluated. The displayed result is current and ready for review."
+                        nudged_row <- -1
+                        status_file <- null
+                        touch()
+                    return
+                previous: i64 = built
+                contact_preview_rebuild_pending <- false
+                rebuild()
+                if StudioCorrectionResultPolicy::completed(previous, built, load_failed):
                     status <- "Queued edits evaluated. The displayed result is current and ready for review."
                     nudged_row <- -1
                     status_file <- null
                     touch()
-                return
-            previous: i64 = built
-            contact_preview_rebuild_pending <- false
-            rebuild()
-            if StudioCorrectionResultPolicy::completed(previous, built, load_failed):
-                status <- "Queued edits evaluated. The displayed result is current and ready for review."
-                nudged_row <- -1
-                status_file <- null
-                touch()
 
-        def candidate_admission(s: StackState::Stack&) -> StudioEditTransactionPolicy::Admission:
-            StudioEditTransactionPolicy::Admission{worker_active: contact_preview_task != null, result_generation: built, revision_available: candidate_revision_available(s)}
+        def candidate_admission(s: StackState::Stack&) -> StudioEditTransactionPolicy::Admission can[Global.Read]:
+            can Global.Read:
+                return StudioEditTransactionPolicy::Admission{worker_active: contact_preview_task != null, result_generation: built, revision_available: candidate_revision_available(s)}
 
-        def candidate_revision_for(s: StackState::Stack&, admission: StudioEditTransactionPolicy::Admission) -> i64:
+        def candidate_revision_for(s: StackState::Stack&, admission: StudioEditTransactionPolicy::Admission) -> i64 can[Global.Read]:
             requires StudioEditTransactionPolicy::admitted(admission)
-            if built_stack is prior:
-                return rig_source_revision if StackState::same_rig_source(prior, s)
-            GenerationPolicy::advance(rig_source_revision)
+            can Global.Read:
+                if built_stack is prior:
+                    return rig_source_revision if StackState::same_rig_source(prior, s)
+                return GenerationPolicy::advance(rig_source_revision)
 
         # Evaluation owns Memo temporarily but does not publish history,
         # the visible clip, readouts or generations. Exact-keyed cache entries
         # may be retained even when a candidate correction is refused.
-        def evaluate_candidate(s: StackState::Stack&, candidate_revision: i64, admission: StudioEditTransactionPolicy::Admission) -> StudioModel::Clip?:
+        def evaluate_candidate(s: StackState::Stack&, candidate_revision: i64, admission: StudioEditTransactionPolicy::Admission) -> StudioModel::Clip? can[Global{Read, Write}]:
             requires StudioEditTransactionPolicy::admitted(admission)
-            if memo == null:
-                memo <- load_current_take_memo()
-            mutable result: StudioModel::Clip? = null
-            if memo is held:
-                mutable m: StudioModel::Memo = held
-                memo <- null
-                w: mutable StudioPerf::Window = StudioPerf::full(m.frames)
-                if clip is c:
-                    if built_stack is old:
-                        w <- StudioPerf::edit_window(old, s, m.frames, m.shortest)
-                    result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w, candidate_revision)
-                else:
-                    none_p: darray[Geometry::Vec3] = []
-                    none_i: darray[i64] = []
-                    result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w, candidate_revision)
-                memo <- move m
-            return move result
+            can Global{Read, Write}:
+                if memo == null:
+                    memo <- load_current_take_memo()
+                mutable result: StudioModel::Clip? = null
+                if memo is held:
+                    mutable m: StudioModel::Memo = held
+                    memo <- null
+                    w: mutable StudioPerf::Window = StudioPerf::full(m.frames)
+                    if clip is c:
+                        if built_stack is old:
+                            w <- StudioPerf::edit_window(old, s, m.frames, m.shortest)
+                        result <- StudioModel::build_with(&m, s, c.points, c.problems, c.peaks, w, candidate_revision)
+                    else:
+                        none_p: darray[Geometry::Vec3] = []
+                        none_i: darray[i64] = []
+                        result <- StudioModel::build_with(&m, s, none_p, none_i, none_i, w, candidate_revision)
+                    memo <- move m
+                return move result
 
         # Publication accepts only a successfully evaluated owned candidate.
-        def publish_candidate(s: StackState::Stack, result: StudioModel::Clip?, candidate_revision: i64, admission: StudioEditTransactionPolicy::Admission) -> void:
+        def publish_candidate(s: StackState::Stack, result: StudioModel::Clip?, candidate_revision: i64, admission: StudioEditTransactionPolicy::Admission) -> void can[Global{Read, Write}]:
             requires result != null
             requires StudioEditTransactionPolicy::admitted(admission)
-            load_failed <- false
-            load_failure_feedback.message <- ""
-            load_failure_feedback.source <- null
-            if clip is old:
-                shown_slide <- readout_value(shown_slide, old.slide_after)
-                shown_sink <- readout_value(shown_sink, old.sink_after)
-                shown_hand_slide <- readout_value(shown_hand_slide, old.hand_slide_after)
-            readout_start <- UiAppKitCanvas::monotonic_time()
-            rig_source_revision <- candidate_revision
-            clip <- move result
-            StudioPanels::set_rate(rate())
-            sync_count()
-            built_stack <- s
-            built <- GenerationPolicy::advance(admission.result_generation)
-            if clip is c:
-                collect_issues(c)
-            touch()
+            can Global{Read, Write}:
+                load_failed <- false
+                load_failure_feedback.message <- ""
+                load_failure_feedback.source <- null
+                if clip is old:
+                    shown_slide <- readout_value(shown_slide, old.slide_after)
+                    shown_sink <- readout_value(shown_sink, old.sink_after)
+                    shown_hand_slide <- readout_value(shown_hand_slide, old.hand_slide_after)
+                readout_start <- UiAppKitCanvas::monotonic_time()
+                rig_source_revision <- candidate_revision
+                clip <- move result
+                StudioPanels::set_rate(rate())
+                sync_count()
+                built_stack <- s
+                built <- GenerationPolicy::advance(admission.result_generation)
+                if clip is c:
+                    collect_issues(c)
+                touch()
 
         # Record an edited stack and preview it; selection-only edits are
         # recorded too so undo restores the row the user was on.
-        def commit(s: StackState::Stack, preview: bool) -> bool:
-            foot_press <- FootState::idle()
-            contact_preview_active <- false
-            return false if not history_ready
-            if not GenerationPolicy::can_advance(stack_generation) or (preview and not candidate_generations_available(s)):
-                generation_refused()
+        def commit(s: StackState::Stack, preview: bool) -> bool can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                foot_press <- FootState::idle()
+                contact_preview_active <- false
+                return false if not history_ready
+                if not GenerationPolicy::can_advance(stack_generation) or (preview and not candidate_generations_available(s)):
+                    generation_refused()
+                    return false
+                if not preview and pending_edit_active():
+                    return stage_pending_edit(s, pending_edit_intent)
+                if preview and contact_preview_task != null:
+                    return stage_pending_edit(s, StudioEditTransactionPolicy::Intent.Record)
+                active: StackState::Stack = current_stack()
+                return false if StackState::same(active, s)
+                if preview and contact_preview_task == null and path_slot >= 0:
+                    base: StudioEditTransactionPolicy::Base = edit_transaction_base()
+                    admission: StudioEditTransactionPolicy::Admission = candidate_admission(s)
+                    revision: i64 = candidate_revision_for(s, admission)
+                    mutable candidate: StudioModel::Clip? = evaluate_candidate(s, revision, admission)
+                    if candidate == null:
+                        status <- "Edit not applied: the proposed result could not be evaluated. Existing edits and result kept. Try a smaller change or reopen the source."
+                        nudged_row <- -1
+                        status_file <- null
+                        touch()
+                        return false
+                    if not StudioEditTransactionPolicy::current(base, edit_transaction_base()) or not StudioEditTransactionPolicy::admission_current(admission, candidate_admission(s)):
+                        status <- "Edit not applied: its source, history or preview worker changed during evaluation. Existing edits kept. Review the current result and try again."
+                        nudged_row <- -1
+                        status_file <- null
+                        touch()
+                        return false
+                    return false if not HistoryState::record(&history, s)
+                    stack_generation <- GenerationPolicy::advance(stack_generation)
+                    publish_candidate(s, move candidate, revision, admission)
+                    return true
+                if history_ready:
+                    changed: bool = HistoryState::record(&history, s)
+                    stack_generation <- GenerationPolicy::advance(stack_generation) if changed
+                    if changed and preview:
+                        rebuild()
+                    touch()
+                    return changed
                 return false
-            if not preview and pending_edit_active():
-                return stage_pending_edit(s, pending_edit_intent)
-            if preview and contact_preview_task != null:
-                return stage_pending_edit(s, StudioEditTransactionPolicy::Intent.Record)
-            active: StackState::Stack = current_stack()
-            return false if StackState::same(active, s)
-            if preview and contact_preview_task == null and path_slot >= 0:
+
+        def edit_transaction_base() -> StudioEditTransactionPolicy::Base can[Global.Read]:
+            can Global.Read:
+                return StudioEditTransactionPolicy::Base{take: take_serial, result_generation: built,
+                    stack_generation: stack_generation, cursor: history.cursor, count: history.count}
+
+        def undo() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                foot_press <- FootState::idle()
+                contact_preview_active <- false
+                if pending_edit_active():
+                    discard_pending_edit()
+                    status <- "Queued edits cancelled. Committed history and result kept."
+                    status_file <- null
+                    touch()
+                    return
+                if history_ready:
+                    if not GenerationPolicy::can_advance(stack_generation):
+                        generation_refused()
+                        return
+                    if contact_preview_task != null:
+                        if HistoryState::undo_target(&history) is target:
+                            _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Undo)
+                        return
+                    if contact_preview_task == null and path_slot >= 0:
+                        if HistoryState::undo_target(&history) is target:
+                            if apply_history_target(target, false):
+                                history_rebuild_feedback("Undo applied. Result updated.", "Undo is waiting for evaluation.")
+                        return
+                    if HistoryState::undo(&history):
+                        stack_generation <- GenerationPolicy::advance(stack_generation)
+                        rebuild()
+                        history_rebuild_feedback("Undo applied. Result updated.", "Undo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
+
+        def redo() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                foot_press <- FootState::idle()
+                contact_preview_active <- false
+                if pending_edit_active():
+                    discard_pending_edit()
+                    status <- "Queued edits cancelled. Committed history and result kept."
+                    status_file <- null
+                    touch()
+                    return
+                if history_ready:
+                    if not GenerationPolicy::can_advance(stack_generation):
+                        generation_refused()
+                        return
+                    if contact_preview_task != null:
+                        if HistoryState::redo_target(&history) is target:
+                            _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Redo)
+                        return
+                    if contact_preview_task == null and path_slot >= 0:
+                        if HistoryState::redo_target(&history) is target:
+                            if apply_history_target(target, true):
+                                history_rebuild_feedback("Redo applied. Result updated.", "Redo is waiting for evaluation.")
+                        return
+                    if HistoryState::redo(&history):
+                        stack_generation <- GenerationPolicy::advance(stack_generation)
+                        rebuild()
+                        history_rebuild_feedback("Redo applied. Result updated.", "Redo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
+
+        def apply_history_target(target: StackState::Stack&, redo_requested: bool) -> bool can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                admission: StudioEditTransactionPolicy::Admission = candidate_admission(target)
+                if admission.worker_active:
+                    status <- "History change not applied while the preview is busy. Finish or cancel the preview, then retry; existing history and result kept."
+                    status_file <- null
+                    touch()
+                    return false
+                if not GenerationPolicy::can_advance(stack_generation) or not StudioEditTransactionPolicy::admitted(admission):
+                    generation_refused()
+                    return false
                 base: StudioEditTransactionPolicy::Base = edit_transaction_base()
-                admission: StudioEditTransactionPolicy::Admission = candidate_admission(s)
-                revision: i64 = candidate_revision_for(s, admission)
-                mutable candidate: StudioModel::Clip? = evaluate_candidate(s, revision, admission)
+                revision: i64 = candidate_revision_for(target, admission)
+                mutable candidate: StudioModel::Clip? = evaluate_candidate(target, revision, admission)
                 if candidate == null:
-                    status <- "Edit not applied: the proposed result could not be evaluated. Existing edits and result kept. Try a smaller change or reopen the source."
+                    status <- "History change not applied: its result could not be evaluated. Existing history position and result kept. Reopen the source if this continues."
                     nudged_row <- -1
                     status_file <- null
                     touch()
                     return false
-                if not StudioEditTransactionPolicy::current(base, edit_transaction_base()) or not StudioEditTransactionPolicy::admission_current(admission, candidate_admission(s)):
-                    status <- "Edit not applied: its source, history or preview worker changed during evaluation. Existing edits kept. Review the current result and try again."
+                if not StudioEditTransactionPolicy::current(base, edit_transaction_base()) or not StudioEditTransactionPolicy::admission_current(admission, candidate_admission(target)):
+                    status <- "History change not applied: source, history or preview worker changed during evaluation. Existing result kept. Try again from the current state."
                     nudged_row <- -1
                     status_file <- null
                     touch()
                     return false
-                return false if not HistoryState::record(&history, s)
+                moved: bool = HistoryState::redo(&history) if redo_requested else HistoryState::undo(&history)
+                return false if not moved
                 stack_generation <- GenerationPolicy::advance(stack_generation)
-                publish_candidate(s, move candidate, revision, admission)
+                publish_candidate(target, move candidate, revision, admission)
                 return true
-            if history_ready:
-                changed: bool = HistoryState::record(&history, s)
-                stack_generation <- GenerationPolicy::advance(stack_generation) if changed
-                if changed and preview:
-                    rebuild()
-                touch()
-                return changed
-            false
 
-        def edit_transaction_base() -> StudioEditTransactionPolicy::Base:
-            StudioEditTransactionPolicy::Base{take: take_serial, result_generation: built,
-                stack_generation: stack_generation, cursor: history.cursor, count: history.count}
-
-        def undo() -> void:
-            foot_press <- FootState::idle()
-            contact_preview_active <- false
-            if pending_edit_active():
-                discard_pending_edit()
-                status <- "Queued edits cancelled. Committed history and result kept."
-                status_file <- null
-                touch()
-                return
-            if history_ready:
-                if not GenerationPolicy::can_advance(stack_generation):
-                    generation_refused()
-                    return
-                if contact_preview_task != null:
-                    if HistoryState::undo_target(&history) is target:
-                        _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Undo)
-                    return
-                if contact_preview_task == null and path_slot >= 0:
-                    if HistoryState::undo_target(&history) is target:
-                        if apply_history_target(target, false):
-                            history_rebuild_feedback("Undo applied. Result updated.", "Undo is waiting for evaluation.")
-                    return
-                if HistoryState::undo(&history):
-                    stack_generation <- GenerationPolicy::advance(stack_generation)
-                    rebuild()
-                    history_rebuild_feedback("Undo applied. Result updated.", "Undo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
-
-        def redo() -> void:
-            foot_press <- FootState::idle()
-            contact_preview_active <- false
-            if pending_edit_active():
-                discard_pending_edit()
-                status <- "Queued edits cancelled. Committed history and result kept."
-                status_file <- null
-                touch()
-                return
-            if history_ready:
-                if not GenerationPolicy::can_advance(stack_generation):
-                    generation_refused()
-                    return
-                if contact_preview_task != null:
-                    if HistoryState::redo_target(&history) is target:
-                        _ = stage_pending_edit(target, StudioEditTransactionPolicy::Intent.Redo)
-                    return
-                if contact_preview_task == null and path_slot >= 0:
-                    if HistoryState::redo_target(&history) is target:
-                        if apply_history_target(target, true):
-                            history_rebuild_feedback("Redo applied. Result updated.", "Redo is waiting for evaluation.")
-                    return
-                if HistoryState::redo(&history):
-                    stack_generation <- GenerationPolicy::advance(stack_generation)
-                    rebuild()
-                    history_rebuild_feedback("Redo applied. Result updated.", "Redo recorded. Rebuilding after the current preview finishes; the previous result remains visible.")
-
-        def apply_history_target(target: StackState::Stack&, redo_requested: bool) -> bool:
-            admission: StudioEditTransactionPolicy::Admission = candidate_admission(target)
-            if admission.worker_active:
-                status <- "History change not applied while the preview is busy. Finish or cancel the preview, then retry; existing history and result kept."
-                status_file <- null
-                touch()
-                return false
-            if not GenerationPolicy::can_advance(stack_generation) or not StudioEditTransactionPolicy::admitted(admission):
-                generation_refused()
-                return false
-            base: StudioEditTransactionPolicy::Base = edit_transaction_base()
-            revision: i64 = candidate_revision_for(target, admission)
-            mutable candidate: StudioModel::Clip? = evaluate_candidate(target, revision, admission)
-            if candidate == null:
-                status <- "History change not applied: its result could not be evaluated. Existing history position and result kept. Reopen the source if this continues."
+        def history_rebuild_feedback(ready_text: sview, pending_text: sview) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                outcome: StudioCorrectionResultPolicy::Outcome = StudioCorrectionResultPolicy::outcome(contact_preview_rebuild_pending, load_failed)
+                if outcome == StudioCorrectionResultPolicy::Outcome.Deferred:
+                    status <- pending_text
+                elif outcome == StudioCorrectionResultPolicy::Outcome.Ready:
+                    status <- ready_text
+                # On refusal, keep rebuild's explanation and recovery guidance.
                 nudged_row <- -1
                 status_file <- null
                 touch()
-                return false
-            if not StudioEditTransactionPolicy::current(base, edit_transaction_base()) or not StudioEditTransactionPolicy::admission_current(admission, candidate_admission(target)):
-                status <- "History change not applied: source, history or preview worker changed during evaluation. Existing result kept. Try again from the current state."
-                nudged_row <- -1
-                status_file <- null
-                touch()
-                return false
-            moved: bool = HistoryState::redo(&history) if redo_requested else HistoryState::undo(&history)
-            return false if not moved
-            stack_generation <- GenerationPolicy::advance(stack_generation)
-            publish_candidate(target, move candidate, revision, admission)
-            true
-
-        def history_rebuild_feedback(ready_text: sview, pending_text: sview) -> void:
-            outcome: StudioCorrectionResultPolicy::Outcome = StudioCorrectionResultPolicy::outcome(contact_preview_rebuild_pending, load_failed)
-            if outcome == StudioCorrectionResultPolicy::Outcome.Deferred:
-                status <- pending_text
-            elif outcome == StudioCorrectionResultPolicy::Outcome.Ready:
-                status <- ready_text
-            # On refusal, keep rebuild's explanation and recovery guidance.
-            nudged_row <- -1
-            status_file <- null
-            touch()
