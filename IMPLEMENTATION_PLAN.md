@@ -37,9 +37,9 @@ current runnable build and redraw crash; clear FBX/workspace recovery;
 one complete inspect–preview–apply–undo–export journey, with required safety
 proofs alongside each transition; recoverable storage; responsiveness; repeat work and release; M8 decisions.
 The next deliverable is a current runnable Studio build and reproduction of the
-reported FBX/Character redraw crash. The refreshed compiler first needs its global
-checker resolution repaired; then validate the identified local/global shadowing
-blocker in specialized worker-result LLVM emission.
+reported FBX/Character redraw crash. The refreshed compiler first needs declaration-aware global effect resolution
+completed. Local/global worker-result shadowing now passes focused native and
+production-payload emission controls; qualify it in the next full Studio build.
 The first useful checkpoint is FBX import, animated Character/Skeleton review,
 one existing cleanup with apply/cancel and undo, and a reviewed GLB export that
 reopens correctly. Proof and dependency work target the transitions that block

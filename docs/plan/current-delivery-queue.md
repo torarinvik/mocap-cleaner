@@ -56,7 +56,7 @@ effect tracking and source-preservation rules apply to every touched file.
 
 | Order | User outcome | Smallest next action | Stop condition |
 | --- | --- | --- | --- |
-| 1 | Studio launches on current dependencies | Qualify the global-checker repair, capture the full graph, then repair the local/global worker-result shadowing if still present | Current app builds/packages, then the reported FBX/toggle journey runs |
+| 1 | Studio launches on current dependencies | Finish declaration-aware global effect propagation, capture the full graph, then address only remaining emission failures | Current app builds/packages, then the reported FBX/toggle journey runs |
 | 2 | Opening an FBX succeeds or explains how to recover | Exercise the reported asset and workspace chooser on that app; fix the first observed import/display failure | Open, cancel, retry and Character/Skeleton actions work with readable feedback and unchanged source |
 | 3 | A user produces a useful reviewed result | Finish one existing finding-to-preview-to-undo-to-export journey | Export reopens with the reviewed motion and required safety evidence |
 
@@ -64,6 +64,30 @@ Treat each stop condition as a delivery gate, not permission to stop investigati
 an observed defect. Recovery-location integration and broader storage controls
 follow the usable single-take journey unless they directly block it or protect
 work at risk. Proof repairs prioritize the contracts required by these deliveries.
+
+## Practical ROI budget
+
+Spend the next implementation effort on deliveries 1–3 above. Each change must
+unlock the build, remove a reproduced failure, or complete a missing step in the
+first useful journey. Use the smallest discriminating control first, then run
+integration when the relevant inputs change. A passing reducer is a reason to
+advance to integration, not to create more equivalent reducers.
+
+- **Build blocker:** finish the compiler effect-resolution repair before another
+  broad grant migration. Keep unresolved overload/callback cases visible.
+- **User blocker:** once packaged, reproduce the actual FBX and toggle failure
+  before designing another import policy. Capture actionable failure details.
+- **Useful result:** finish one existing cleanup and single export; measure
+  source preservation, undo and reopened motion before adding new algorithms.
+- **Proof effort:** prioritize the critical transition's source correspondence
+  and replay. Investigate prover memory only where it prevents those obligations
+  from completing under the existing resource limit; avoid a broad census.
+- **Cleanup effort:** deliver recovery needed for current work at risk first;
+  broader storage management follows the working single-take journey.
+
+Re-rank at each delivery gate using observed user failures and measured cost.
+Keep deferred requirements in their existing milestone documents; give them an
+activation gate rather than treating every open item as equally urgent.
 
 ## Deliver the smallest useful release slice
 
@@ -131,23 +155,24 @@ record; actual native interaction on the repaired binary; focused lifetime
 controls; source hash unchanged; no stale candidate publication. A seed, clean
 single-file diagnostic, screenshot or live process is insufficient.
 
-**Current status:** the prior matched `85eef9ff` closure passed semantic
-checking and retained five specialized worker-result LLVM failures. Diagnostics
-show correct generic/local/result ownership; static tracing identified a local
-`slot` reference falling through to the unrelated `StudioReportText.slot`
-global lookup. Validate and repair that shadowing path with a regression.
+**Current status:** no current replacement app or redraw repair is accepted.
+Compiler `90637b51` fixes local references being mistaken for unrelated globals:
+two native regression controls pass and the production affine worker payload
+emits LLVM. These focused results still need a full Studio build.
 
-The refreshed compiler repair branch includes upstream `d05f35d4`. Its current
-Studio capture (`build/studio-build.index-path-probe-d05-20261008/`) stops before
-backend emission with 862 global-grant diagnostic lines. The new checker has demonstrated pattern-binder false positives and uses
-name-only callee effect lookup that risks cross-module effect leakage. Qualify
-its enforcement mode, binder scopes and grouped callback grants, then resolve
-effect summaries by callee owner/declaration identity, including overloads and
-transitive callbacks. Preserve genuine direct/transitive Global.Read/Write refusals. Genuine entry-point
-and callback effect rows have been added; the revised source needs a fresh capture.
-Selected engine `b8dd8add` now validates mutable mesh shapes and indices; actual
-Studio redraw remains unqualified. Project-wide strict Unsafe acceptance is still
-pending. No current replacement app or crash repair is accepted.
+The immediate build blocker is global-effect resolution. Direct checks have
+focused passing controls, but call summaries can leak effects between namesakes.
+Finish declaration identity for module owners, overloads and callbacks; preserve
+`can` propagation and deliberate `trusted` masks. Unresolved calls must not be
+silently omitted. Remove the legacy name-only projection, enforce mutable-global
+permissions in the actual CLI, and retain precise positive/refusal controls.
+Do not add blanket grants to silence checker false positives.
+
+The latest captured Studio graph stops at semantic checking; current source has
+also fixed its nullable path admission error. Capture again after a coherent
+checker repair. Selected engine `dc180e49` includes mesh bounds checks, but those
+checks have not established or repaired the reported native crash. Strict Unsafe
+and full dependency qualification remain open.
 See [compiler qualification](compiler-qualification.md),
 [responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 
