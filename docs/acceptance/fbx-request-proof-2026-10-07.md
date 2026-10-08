@@ -250,3 +250,26 @@ A passing small fixture cannot qualify the full viewport. Acceptance requires
 reproducing and fixing the demonstrated failure, then exercising Character and
 Skeleton, playback, frame changes and repeated redraws on a matched current
 build. The earlier 337-frame skeleton display does not establish that journey.
+
+## Callback ownership reproduction
+
+The bounded e24 O0 diagnostic in
+`build/studio-runtime-e24-20261008/exact-o0-llvm-20261008/main.ll`
+shows `sync_view` supplying its automatic arena to `render_clip`, which forwards
+it through pose refresh. Refresh publishes the pose descriptor in `skinned`;
+`sync_view` frees that arena without rehoming this global. The sealed optimized
+object also lacks the corresponding rehome relocation on the rendering path.
+The diagnostic app/engine/compiler inputs match the retained crash inputs, but
+three UI source files differ; it is a controlled ownership reproduction rather
+than an identical sealed-package rebuild.
+
+The callback-shaped `nested-global-rehome` control has retained O0, O2 and ASan
+run statuses of 1 after checking cached point contents following callback exit.
+An absent ASan report does not override the failed content check: arena mapping
+and reuse can evade sanitizer poisoning. Retain exact precompile source snapshots
+when finalizing this control, as its working source changed during investigation.
+A repair must propagate resolved callee global-write effects to the releasing
+owner, rehome before arena release, and preserve module identity, recursive-call
+handling and scalar-result carrier behavior. Confirm post-return contents and
+growth, then repeat the original Studio journey; this evidence identifies a
+lifetime defect and does not yet establish a runtime fix.
