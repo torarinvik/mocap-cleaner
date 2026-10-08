@@ -42,9 +42,13 @@ See [retained FBX evidence](../acceptance/fbx-request-proof-2026-10-07.md).
 
 Latest dependency fetch still resolves compiler main to `b26659e2`, while
 proof main is now `a98acb6c`, UI main `dc6cd397` and engine main `d4c0ad23`.
-Preserve project repairs and current dirty UI work when updating dependency
-checkouts. Captured earlier source/product pairs remain comparison evidence;
-rebuild against the final updated closure before qualification.
+Ancestry checks confirm UI `f33e439b` already contains `dc6cd397` and mocap
+engine `6df3212e` already contains `d4c0ad23`; this fetch requires no merge for
+those branches. Preserve the dirty UI work and qualify its exact native-link
+snapshot. The proof checkout is rebased onto `a98acb6c`, with final owner/call
+repairs committed; its matching producer/replay rebuild remains open. Captured
+earlier source/product pairs remain comparison evidence; rebuild against the
+final closure before qualification.
 
 Remaining work:
 

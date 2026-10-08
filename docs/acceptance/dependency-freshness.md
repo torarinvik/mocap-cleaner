@@ -332,3 +332,16 @@ engine static archive here. A full Studio rebuild against this integrated
 engine and the current toolbar availability slice is underway. Source
 integration is established; current complete build/runtime/proof qualification
 must still be tied to that newly selected engine rather than older products.
+
+
+## 2026-10-08 ancestry checkpoint
+
+A fresh fetch leaves Stage0 main at `778c8281` and Stage1 main at `b26659e2`.
+Root verified `git merge-base --is-ancestor origin/main HEAD` exits 0 for UI
+`f33e439b` over `dc6cd397` and mocap engine `6df3212e` over `d4c0ad23`. Different
+branch heads therefore do not imply missing upstream changes. The shared UI
+source is dirty and its source/native-link tuple remains unqualified for Studio.
+The UI agent separately verified a private b266 compiler snapshot and 13
+value/reference code-generation pairs; those controls do not qualify Studio.
+Proof source is rebased onto fetched main `a98acb6c` with owner/call repairs;
+a new exact compiler-linked producer/replay pair remains required.
