@@ -26,7 +26,11 @@ runtime acceptance remain open. The current O2 production IR attempt exits 1
 before emission: atomic `load` callee selection and scalar dialog-result global
 return diagnostics must be isolated and repaired with refusal controls. The
 canonical runtime bridge and include closure matched, so this attempt is not the
-earlier mixed-std check. Cache-hit rehome allocation cost must be
+earlier mixed-std check. Candidate `6b3172c0` seeds with source-matched product
+`5edd7523` and fixes the direct-owner dialog false positive in the full source
+check; the atomic-loader error remains. New nested-owner controls expose missed
+owning-global refusals, so the owner fix needs scope-chain/lexical-parent closure
+before promotion. Cache-hit rehome allocation cost must be
 measured; unresolved-call static lifetime fallback does not qualify cleanup.
 
 The `1482a808` baseline gate remains a captured historical comparison while it

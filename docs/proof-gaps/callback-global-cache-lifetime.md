@@ -63,3 +63,20 @@ while continuing to refuse genuine owning global-storage copies. Qualify exact
 qualified/unqualified owner resolution, nested owners and ambiguous/shadow
 refusal; changing the UI result API or dropping tracking would hide the defect.
 The concurrent atomic-loader diagnostic remains a separate unresolved reduction.
+
+
+Candidate `6b3172c0` seeds successfully with Stage0 `778c8281`; product SHA
+`5edd75236ee5029caf85084452fcf87530c12f93bd0c9d1a645cfae3b97fad52` is source-matched.
+Its direct-owner controls admit the scalar enum and retain both bare and
+explicit `Other::Result` owning-global refusals. Root's full current Studio
+semantic check exits 1 with only the atomic `load` diagnostic; the actual dialog
+false positive is absent (`build/studio-gsr-6b-check/semantic.*`).
+
+This slice is not broadly qualified: follow-up nested-owner controls find that
+`Outer::Inner::Payload` and relative `Inner::Payload` owning-global returns are
+missed. The walker stores a leaf nested owner and does not resolve nested scope
+chains. Canonicalize lexical owner paths and preserve positive nested owning
+refusals alongside negative scalar cases before promotion. Parser modes may
+present nested owners as leaves or already-qualified names; neither may select
+an unrelated type by its leaf name. Exact candidate evidence remains frozen
+while the paired-prover build uses its frontend/runtime tuple.
