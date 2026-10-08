@@ -1,0 +1,118 @@
+# Session persistence and private decoder status belong to SessionState.
+extend SessionState:
+    public:
+        def save_session(s: StackState::Stack&, identity: SourceIdentity, path: cstr) -> bool can[Global.Write]:
+            can Global.Write:
+                mutable text: darray[u8] = []
+                encode_session(s, identity, &text)
+                return atomic_save(&text, path)
+
+        def save_session_with_annotations(s: StackState::Stack&, identity: SourceIdentity, records: darray[SessionIssueAnnotationPolicy::Stored]&, path: cstr) -> bool can[Global.Write]:
+            can Global.Write:
+                mutable impact_records: darray[SessionImpactAnnotationPolicy::Stored] = []
+                return save_session_with_reviews(s, identity, records, SessionImpactAnnotationPolicy::ReviewState.Unreviewed, impact_records, path)
+
+        def save_session_with_reviews(s: StackState::Stack&, identity: SourceIdentity,
+                                      records: darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: SessionImpactAnnotationPolicy::ReviewState,
+                                      impact_records: darray[SessionImpactAnnotationPolicy::Stored]&, path: cstr) -> bool can[Global.Write]:
+            can Global.Write:
+                mutable text: darray[u8] = []
+                if not encode_session_with_reviews(s, identity, records, impact_state, impact_records, &text):
+                    session_save_error <- SaveError.Annotations.i64()
+                    session_save_error <- SaveError.Impact.i64() if impact_records.count.i64() > 0 or impact_state != SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                    return false
+                return atomic_save(&text, path)
+
+        def save_error() -> i64 can[Global.Read]:
+            can Global.Read:
+                return session_save_error
+
+        def load_session(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool) -> StackState::Stack? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                mutable records: darray[SessionIssueAnnotationPolicy::Stored] = []
+                return load_session_with_annotations(path, frames, nodes, expected, allow_legacy, &records)
+
+        def load_session_with_annotations(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool, annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&) -> StackState::Stack? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                mutable state: SessionImpactAnnotationPolicy::ReviewState = SessionImpactAnnotationPolicy::ReviewState.Unreviewed
+                mutable impact: darray[SessionImpactAnnotationPolicy::Stored] = []
+                return load_session_with_reviews(path, frames, nodes, expected, allow_legacy, annotations, &state, &impact)
+
+        def load_session_with_reviews(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
+                                      annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                                      impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&) -> StackState::Stack? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                mutable outcome: SourceReferenceOutcome = SourceReferenceOutcome{reference: null, invalid: false}
+                return load_session_with_source_reference(path, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations, &outcome)
+
+        def load_session_with_source_reference(path: cstr, frames: i64, nodes: i64, expected: SourceIdentity, allow_legacy: bool,
+                                      annotations: mutable darray[SessionIssueAnnotationPolicy::Stored]&, impact_state: mutable SessionImpactAnnotationPolicy::ReviewState&,
+                                      impact_annotations: mutable darray[SessionImpactAnnotationPolicy::Stored]&, source_outcome: mutable SourceReferenceOutcome&) -> StackState::Stack? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                session_load_error <- LoadError.None.i64()
+                source_outcome.reference <- null
+                source_outcome.invalid <- false
+                session_source_comparison <- null
+                session_impact_invalid <- false
+                session_edits_invalid <- false
+                mutable text: darray[u8] = []
+                read_status: BoundedReadPolicy::Status = OpsFile::read_bytes_bounded(path, &text, BoundedReadPolicy::Capacity::DEFAULT_BYTES)
+                if read_status != BoundedReadPolicy::Status.Ok:
+                    session_load_error <- LoadError.TooLarge.i64() if read_status == BoundedReadPolicy::Status.TooLarge
+                    session_load_error <- LoadError.Close.i64() if read_status == BoundedReadPolicy::Status.CloseFailed
+                    session_load_error <- LoadError.Read.i64() if read_status == BoundedReadPolicy::Status.OpenFailed or read_status == BoundedReadPolicy::Status.ReadFailed
+                    session_load_error <- LoadError.Format.i64() if read_status == BoundedReadPolicy::Status.InvalidLimit
+                    return null
+                version: i64 = header_version(&text)
+                if version == 0:
+                    session_load_error <- LoadError.Format.i64()
+                    return null
+                if version < 4 and not allow_legacy:
+                    session_load_error <- LoadError.Legacy.i64()
+                    return null
+                session_annotations_invalid <- false
+                if decode_session_with_source_reference(&text, frames, nodes, expected, allow_legacy, annotations, impact_state, impact_annotations, source_outcome) is decoded:
+                    return decoded
+                session_load_error <- LoadError.Edits.i64() if session_edits_invalid
+                session_load_error <- LoadError.Impact.i64() if session_impact_invalid
+                session_load_error <- LoadError.Annotations.i64() if session_annotations_invalid and not session_impact_invalid
+                session_load_error <- LoadError.SourceReference.i64() if source_outcome.invalid
+                session_load_error <- LoadError.Source.i64() if session_load_error == LoadError.None.i64() and version == StudioChrome::Session::VERSION
+                session_load_error <- LoadError.Format.i64() if session_load_error == LoadError.None.i64()
+                return null
+
+        def load_error() -> i64 can[Global.Read]:
+            can Global.Read:
+                return session_load_error
+
+        def source_failure_message() -> sview can[Global.Read]:
+            can Global.Read:
+                if session_source_comparison is comparison:
+                    return "Session belongs to different source bytes. Open the original take and try again." if comparison == StudioSessionSourcePolicy::Comparison.ChangedBytes
+                    return "Session belongs to a different animation. Saved edits have not been applied." if comparison == StudioSessionSourcePolicy::Comparison.ChangedAnimation
+                    return "Session frame or joint counts differ. Open the original take; saved edits have not been applied." if comparison == StudioSessionSourcePolicy::Comparison.ChangedShape
+                return "Session source identity could not be validated. Saved edits have not been applied."
+
+    private:
+        global mutable session_source_comparison: StudioSessionSourcePolicy::Comparison? = null
+        global mutable session_save_error: i64 = SaveError.None.i64()
+        global mutable session_load_error: i64 = LoadError.None.i64()
+        global mutable session_annotations_invalid: bool = false
+        global mutable session_impact_invalid: bool = false
+        global mutable session_edits_invalid: bool = false
+
+        def reject_annotations() -> StackState::Stack? can[Global.Write]:
+            can Global.Write:
+                session_annotations_invalid <- true
+                return null
+
+        def reject_authored_edits() -> StackState::Stack? can[Global.Write]:
+            can Global.Write:
+                session_edits_invalid <- true
+                return null
+
+        def atomic_save(out: darray[u8]&, path: cstr) -> bool can[Global.Write]:
+            can Global.Write:
+                result: SessionStateIo::SaveError = SessionStateIo::atomic_save(out, path)
+                session_save_error <- result.i64()
+                return result == SessionStateIo::SaveError.None
