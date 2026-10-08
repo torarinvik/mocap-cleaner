@@ -283,6 +283,16 @@ source/replay qualification open: named constant specializations still decline.
 This does not replace the full-details
 view, grapheme/translation review or complete error persistence policy.
 
+Toolbar tooltips now use the platform font metric authority rather than UTF-8
+byte count. `StudioTooltipLayoutPolicy` contracts bound their extent and origin
+to the viewport; three companion laws pass semantic checking on source-matched
+compiler `8b2c25dd`. Replay and native UI qualification remain open. Review the
+first and last toolbar buttons at minimum window size, long translated labels,
+font/scale changes and unavailable metrics. Confirm clipped text has a complete
+accessible description and that hovering never obscures or traps keyboard focus.
+These checks accompany the complete empty-view guide clip and persistent retry
+instruction; they do not qualify the pending full-details view.
+
 Partial implementation: empty-document import failures now select the failure
 guide through a contracted ticket/loaded/cancelled/closing policy. The guide uses
 the UI metric planner for grapheme-safe wrapping, with six visible rows and a
