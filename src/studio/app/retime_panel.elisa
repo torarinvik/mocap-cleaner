@@ -17,15 +17,16 @@ extend StudioRetime:
 
         # "0.68x" style label of a permille speed.
         def speed_text(speed: i64) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
-            StudioText::begin()
-            StudioText::put_i(speed / 1000)
-            hundredths: i64 = (speed % 1000) / 10
-            if hundredths != 0:
-                StudioText::byte(46)
-                StudioText::byte((48 + hundredths / 10).u8())
-                StudioText::byte((48 + hundredths % 10).u8()) if hundredths % 10 != 0
-            StudioText::byte(120)
-            return StudioText::view()
+            can Global{Read, Write}:
+                StudioText::begin()
+                StudioText::put_i(speed / 1000)
+                hundredths: i64 = (speed % 1000) / 10
+                if hundredths != 0:
+                    StudioText::byte(46)
+                    StudioText::byte((48 + hundredths / 10).u8())
+                    StudioText::byte((48 + hundredths % 10).u8()) if hundredths % 10 != 0
+                StudioText::byte(120)
+                return StudioText::view()
 
         # ---- speed controls (top-right row of the curve box) -------------
         def preset_box(cb: StudioPanels::Box, k: i64) -> StudioPanels::Box:
@@ -51,21 +52,22 @@ extend StudioRetime:
             return Retime::clamp_speed((raw + 25) / 50 * 50)
 
         def controls(cb: StudioPanels::Box, ready: bool, speed: i64, typing: bool, typed: sview) -> void can[Global{Read, Write}]:
-            col: UiCore::Color = StudioDraw::ink() if ready else StudioDraw::color(96, 100, 112)
-            for k in 0..<RetimeState::PRESET_COUNT |k, cb, col|:
-                b: StudioPanels::Box = preset_box(cb, k)
-                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(52, 58, 80))
-                StudioDraw::text(b.x + 5.0, b.y + 2.0, 11.0, RetimeState::preset_label(k), col)
-            s: StudioPanels::Box = slider_box(cb)
-            StudioDraw::rect(s.x, s.y + 7.0, s.w, 4.0, StudioDraw::color(70, 76, 96))
-            if speed >= Retime::Rate::MIN_RATE:
-                u: f32 = (speed - Retime::Rate::MIN_RATE).f32() / (Retime::Rate::MAX_RATE - Retime::Rate::MIN_RATE).f32()
-                StudioDraw::disc(s.x + u * s.w, s.y + 9.0, 6.0, band_color(speed, true))
-            label_x: f32 = preset_box(cb, 0).x - 150.0
-            if typing:
-                StudioDraw::text(label_x, cb.y + 6.0, 11.0, typed, StudioDraw::accent())
-            else:
-                StudioDraw::text(label_x, cb.y + 6.0, 11.0, "speed (= type)" if ready else "Shift-drag to select", StudioDraw::muted())
+            can Global{Read, Write}:
+                col: UiCore::Color = StudioDraw::ink() if ready else StudioDraw::color(96, 100, 112)
+                for k in 0..<RetimeState::PRESET_COUNT |k, cb, col|:
+                    b: StudioPanels::Box = preset_box(cb, k)
+                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(52, 58, 80))
+                    StudioDraw::text(b.x + 5.0, b.y + 2.0, 11.0, RetimeState::preset_label(k), col)
+                s: StudioPanels::Box = slider_box(cb)
+                StudioDraw::rect(s.x, s.y + 7.0, s.w, 4.0, StudioDraw::color(70, 76, 96))
+                if speed >= Retime::Rate::MIN_RATE:
+                    u: f32 = (speed - Retime::Rate::MIN_RATE).f32() / (Retime::Rate::MAX_RATE - Retime::Rate::MIN_RATE).f32()
+                    StudioDraw::disc(s.x + u * s.w, s.y + 9.0, 6.0, band_color(speed, true))
+                label_x: f32 = preset_box(cb, 0).x - 150.0
+                if typing:
+                    StudioDraw::text(label_x, cb.y + 6.0, 11.0, typed, StudioDraw::accent())
+                else:
+                    StudioDraw::text(label_x, cb.y + 6.0, 11.0, "speed (= type)" if ready else "Shift-drag to select", StudioDraw::muted())
 
         # ---- timeline overlay -----------------------------------------------
         def band_row(tb: StudioPanels::Box, py: f32) -> bool:
@@ -75,22 +77,23 @@ extend StudioRetime:
         # Selection highlight, bands and the source/output readout. Bands are
         # in source frames; the timeline shows output frames.
         def overlay(tb: StudioPanels::Box, c: StudioModel::Clip&, st: StackState::Stack&, sel: RetimeState::Selection&, frame: i64) -> void can[Global{Read, Write}]:
-            s: StudioPanels::Box = StudioPanels::strip(tb)
-            n: i64 = c.frames
-            return if n < 1
-            if sel.active:
-                x0: f32 = StudioPanels::frame_x(s, RetimeState::lo(sel), n)
-                x1: f32 = StudioPanels::frame_x(s, RetimeState::hi(sel), n)
-                StudioDraw::rect(x0, s.y, (x1 - x0) + 2.0, s.h, StudioDraw::color(70, 90, 140))
-                StudioDraw::text(tb.x + tb.w - 190.0, tb.y + 5.0, 11.0, StudioText::pair("source frames ", RetimeState::lo(sel), "–", RetimeState::hi(sel)), StudioDraw::accent())
-            for i in 0..<st.band_count |i, st, s, n, c|:
-                b: StackState::Band = st.bands[i]
-                x0: f32 = StudioPanels::frame_x(s, StudioModel::output_frame(c, b.first), n)
-                x1: f32 = StudioPanels::frame_x(s, StudioModel::output_frame(c, b.last), n)
-                col: UiCore::Color = band_color(b.speed, b.enabled)
-                StudioDraw::rect(x0, s.y + StudioRetime::Dimensions::BAND_Y, (x1 - x0) + 1.0, StudioRetime::Dimensions::BAND_H, col)
-                StudioDraw::rect(x0, s.y, 2.0, s.h - 24.0, col)
-                StudioDraw::rect(x1 - 1.0, s.y, 2.0, s.h - 24.0, col)
-                StudioDraw::bold(x0 + 4.0, s.y + StudioRetime::Dimensions::BAND_Y - 1.0, 10.0, speed_text(b.speed), StudioDraw::color(17, 20, 27))
-            if c.retimed:
-                StudioDraw::text(tb.x + tb.w - 190.0, tb.y + tb.h - 20.0, 12.0, StudioText::pair("source ", StudioModel::source_frame(c, frame), " → output ", frame), StudioDraw::accent())
+            can Global{Read, Write}:
+                s: StudioPanels::Box = StudioPanels::strip(tb)
+                n: i64 = c.frames
+                return if n < 1
+                if sel.active:
+                    x0: f32 = StudioPanels::frame_x(s, RetimeState::lo(sel), n)
+                    x1: f32 = StudioPanels::frame_x(s, RetimeState::hi(sel), n)
+                    StudioDraw::rect(x0, s.y, (x1 - x0) + 2.0, s.h, StudioDraw::color(70, 90, 140))
+                    StudioDraw::text(tb.x + tb.w - 190.0, tb.y + 5.0, 11.0, StudioText::pair("source frames ", RetimeState::lo(sel), "–", RetimeState::hi(sel)), StudioDraw::accent())
+                for i in 0..<st.band_count |i, st, s, n, c|:
+                    b: StackState::Band = st.bands[i]
+                    x0: f32 = StudioPanels::frame_x(s, StudioModel::output_frame(c, b.first), n)
+                    x1: f32 = StudioPanels::frame_x(s, StudioModel::output_frame(c, b.last), n)
+                    col: UiCore::Color = band_color(b.speed, b.enabled)
+                    StudioDraw::rect(x0, s.y + StudioRetime::Dimensions::BAND_Y, (x1 - x0) + 1.0, StudioRetime::Dimensions::BAND_H, col)
+                    StudioDraw::rect(x0, s.y, 2.0, s.h - 24.0, col)
+                    StudioDraw::rect(x1 - 1.0, s.y, 2.0, s.h - 24.0, col)
+                    StudioDraw::bold(x0 + 4.0, s.y + StudioRetime::Dimensions::BAND_Y - 1.0, 10.0, speed_text(b.speed), StudioDraw::color(17, 20, 27))
+                if c.retimed:
+                    StudioDraw::text(tb.x + tb.w - 190.0, tb.y + tb.h - 20.0, 12.0, StudioText::pair("source ", StudioModel::source_frame(c, frame), " → output ", frame), StudioDraw::accent())
