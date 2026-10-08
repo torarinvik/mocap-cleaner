@@ -94,20 +94,21 @@ extend RigCache:
         # Run step `at` exactly as run_clip does (contact edits stay visible
         # to foot lock through the full list).
         def run_step(c: mutable Rig::Clip&, ops: darray[RigOps::RigOp]&, at: i64, threshold: i64, s: mutable RigOps::Summary&) -> void can[Global{Read, Write}]:
-            op: RigOps::RigOp = ops[at.usize()]
-            if op.kind == RigOps::RigKind.FootLock:
-                s.ops <- s.ops + 1
-                RigOps::lock_leg(c, op, ops, 0, s) if RigOps::role_selected(op, Roles::Joint.LeftFoot.i64())
-                RigOps::lock_leg(c, op, ops, 1, s) if RigOps::role_selected(op, Roles::Joint.RightFoot.i64())
-                return
-            if op.kind == RigOps::RigKind.HandLock:
-                s.ops <- s.ops + 1
-                RigOps::lock_arm(c, op, ops, 0, s) if RigOps::role_selected(op, Roles::Joint.LeftHand.i64())
-                RigOps::lock_arm(c, op, ops, 1, s) if RigOps::role_selected(op, Roles::Joint.RightHand.i64())
-                return
-            single: darray[RigOps::RigOp] = one(ops, at)
-            part: RigOps::Summary = RigOps::run_clip(c, single, threshold)
-            add(s, &part)
+            can Global{Read, Write}:
+                op: RigOps::RigOp = ops[at.usize()]
+                if op.kind == RigOps::RigKind.FootLock:
+                    s.ops <- s.ops + 1
+                    RigOps::lock_leg(c, op, ops, 0, s) if RigOps::role_selected(op, Roles::Joint.LeftFoot.i64())
+                    RigOps::lock_leg(c, op, ops, 1, s) if RigOps::role_selected(op, Roles::Joint.RightFoot.i64())
+                    return
+                if op.kind == RigOps::RigKind.HandLock:
+                    s.ops <- s.ops + 1
+                    RigOps::lock_arm(c, op, ops, 0, s) if RigOps::role_selected(op, Roles::Joint.LeftHand.i64())
+                    RigOps::lock_arm(c, op, ops, 1, s) if RigOps::role_selected(op, Roles::Joint.RightHand.i64())
+                    return
+                single: darray[RigOps::RigOp] = one(ops, at)
+                part: RigOps::Summary = RigOps::run_clip(c, single, threshold)
+                add(s, &part)
 
         def add(total: mutable RigOps::Summary&, p: RigOps::Summary&) -> void:
             total.ops <- total.ops + p.ops
@@ -127,67 +128,68 @@ extend RigCache:
         # run_clip with the boundary cache. `source` fingerprints the input
         # clip (callers key it by what produced the clip).
         def run_clip_cached(c: mutable Rig::Clip&, ops: darray[RigOps::RigOp]&, threshold: i64, source: i64, cache: mutable Cache&) -> RigOps::Summary can[Global{Read, Write}]:
-            if not budget_admitted(c, ops.count.i64()):
-                cache.valid <- false
-                cache.final_valid <- false
-                cache.input_valid <- false
-                cache.snapshot <- Rig::empty_clip()
-                cache.result <- Rig::empty_clip()
-                cache.input_snapshot <- Rig::empty_clip()
+            can Global{Read, Write}:
+                if not budget_admitted(c, ops.count.i64()):
+                    cache.valid <- false
+                    cache.final_valid <- false
+                    cache.input_valid <- false
+                    cache.snapshot <- Rig::empty_clip()
+                    cache.result <- Rig::empty_clip()
+                    cache.input_snapshot <- Rig::empty_clip()
+                    cache.operations.clear()
+                    cache.step_order.clear()
+                    full: RigOps::Summary = RigOps::run_clip(c, ops, threshold)
+                    cache.evaluations <- cache.evaluations + full.ops
+                    return full
+                order: darray[i64] = schedule(ops)
+                boundary: mutable i64 = order.count.i64()
+                for k in 0..<order.count |k, order, ops, boundary|:
+                    boundary <- k.i64() if boundary == order.count.i64() and reads_contacts(ops[order[k].usize()])
+                key: mutable i64 = StackCache::mix(StackCache::Fingerprint::SEED, source)
+                for k in 0..<order.count |k, order, ops, key, boundary|:
+                    key <- PerfCache::plain_key(key, params_key(ops[order[k].usize()])) if k.i64() < boundary
+                key <- StackCache::mix(key, boundary)
+                whole: mutable i64 = key
+                for k in 0..<order.count |k, order, ops, whole, boundary|:
+                    whole <- PerfCache::plain_key(whole, params_key(ops[order[k].usize()])) if k.i64() >= boundary
+                final: i64 = PerfCache::step_key(whole, true, contacts_key(ops))
+                exact_input: bool = cache.input_valid and cache.input_source == source and cache.input_threshold == threshold and input_matches(&cache.input_snapshot, c)
+                exact_prefix: bool = prefix_matches(cache, ops, order, boundary)
+                exact_operations: bool = operations_match(&cache.operations, ops)
+                if CacheIdentityPolicy::reuse_admitted(cache.final_key == final, exact_input, exact_operations, cache.final_valid):
+                    c <- copy_clip(&cache.result)
+                    return cache.final_summary
+                mutable next_input: Rig::Clip = copy_clip(c)
+                mutable s: RigOps::Summary = RigOps::empty_summary()
+                if CacheIdentityPolicy::reuse_admitted(cache.prefix_key == key, exact_input, exact_prefix, cache.valid and cache.prefix_steps == boundary):
+                    c <- copy_clip(&cache.snapshot)
+                    s <- cache.summary
+                else:
+                    for k in 0..<order.count |k, order, ops, c, threshold, s, boundary|:
+                        run_step(c, ops, order[k], threshold, &s) if k.i64() < boundary
+                    cache.evaluations <- cache.evaluations + boundary
+                    cache.snapshot <- copy_clip(c)
+                    cache.summary <- s
+                    cache.prefix_key <- key
+                    cache.prefix_steps <- boundary
+                    cache.valid <- true
+                for k in 0..<order.count |k, order, ops, c, threshold, s, boundary, cache|:
+                    if k.i64() >= boundary:
+                        run_step(c, ops, order[k], threshold, &s)
+                        cache.evaluations <- cache.evaluations + 1
+                cache.result <- copy_clip(c)
+                cache.final_summary <- s
+                cache.final_key <- final
+                cache.final_valid <- true
+                cache.input_snapshot <- move next_input
+                cache.input_valid <- true
+                cache.input_source <- source
+                cache.input_threshold <- threshold
                 cache.operations.clear()
+                cache.operations.extend(ops)
                 cache.step_order.clear()
-                full: RigOps::Summary = RigOps::run_clip(c, ops, threshold)
-                cache.evaluations <- cache.evaluations + full.ops
-                return full
-            order: darray[i64] = schedule(ops)
-            boundary: mutable i64 = order.count.i64()
-            for k in 0..<order.count |k, order, ops, boundary|:
-                boundary <- k.i64() if boundary == order.count.i64() and reads_contacts(ops[order[k].usize()])
-            key: mutable i64 = StackCache::mix(StackCache::Fingerprint::SEED, source)
-            for k in 0..<order.count |k, order, ops, key, boundary|:
-                key <- PerfCache::plain_key(key, params_key(ops[order[k].usize()])) if k.i64() < boundary
-            key <- StackCache::mix(key, boundary)
-            whole: mutable i64 = key
-            for k in 0..<order.count |k, order, ops, whole, boundary|:
-                whole <- PerfCache::plain_key(whole, params_key(ops[order[k].usize()])) if k.i64() >= boundary
-            final: i64 = PerfCache::step_key(whole, true, contacts_key(ops))
-            exact_input: bool = cache.input_valid and cache.input_source == source and cache.input_threshold == threshold and input_matches(&cache.input_snapshot, c)
-            exact_prefix: bool = prefix_matches(cache, ops, order, boundary)
-            exact_operations: bool = operations_match(&cache.operations, ops)
-            if CacheIdentityPolicy::reuse_admitted(cache.final_key == final, exact_input, exact_operations, cache.final_valid):
-                c <- copy_clip(&cache.result)
-                return cache.final_summary
-            mutable next_input: Rig::Clip = copy_clip(c)
-            mutable s: RigOps::Summary = RigOps::empty_summary()
-            if CacheIdentityPolicy::reuse_admitted(cache.prefix_key == key, exact_input, exact_prefix, cache.valid and cache.prefix_steps == boundary):
-                c <- copy_clip(&cache.snapshot)
-                s <- cache.summary
-            else:
-                for k in 0..<order.count |k, order, ops, c, threshold, s, boundary|:
-                    run_step(c, ops, order[k], threshold, &s) if k.i64() < boundary
-                cache.evaluations <- cache.evaluations + boundary
-                cache.snapshot <- copy_clip(c)
-                cache.summary <- s
-                cache.prefix_key <- key
-                cache.prefix_steps <- boundary
-                cache.valid <- true
-            for k in 0..<order.count |k, order, ops, c, threshold, s, boundary, cache|:
-                if k.i64() >= boundary:
-                    run_step(c, ops, order[k], threshold, &s)
-                    cache.evaluations <- cache.evaluations + 1
-            cache.result <- copy_clip(c)
-            cache.final_summary <- s
-            cache.final_key <- final
-            cache.final_valid <- true
-            cache.input_snapshot <- move next_input
-            cache.input_valid <- true
-            cache.input_source <- source
-            cache.input_threshold <- threshold
-            cache.operations.clear()
-            cache.operations.extend(ops)
-            cache.step_order.clear()
-            cache.step_order.extend(order)
-            return s
+                cache.step_order.extend(order)
+                return s
 
     private:
         def budget_admitted(c: Rig::Clip&, operations: i64) -> bool:
