@@ -29,3 +29,13 @@ line wrapping, full-message persistence or readability of clipped explanations.
 The filename scanner also now checks its 4096-byte scan budget before reading
 the next byte. Full UI review, a discoverable persistent details view, complete
 paths/messages and accessible retry controls remain roadmap requirements.
+
+
+The three UTF-8 helper obligations additionally execute with O2 compile/run
+exit 0 on the source-matched installed `b26659e2` product, using a retained
+standalone driver. The helper calls specialize literal fixed-array lengths
+2 and 4; this does not close the formatter's named-constant specialization
+decline or the 300-redraw snapshot test. Exact source/executable hashes and
+terminal logs are retained in
+`build/dialog-result-reduction/text-utf8-helper-driver.record.json`.
+Formal source correspondence and proof replay remain open.
