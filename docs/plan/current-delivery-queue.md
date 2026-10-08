@@ -23,30 +23,56 @@ Serialize heavy compiler jobs and monitor aggregate descendant memory. Avoid
 unrelated style sweeps, duplicate policy implementations and new algorithms
 until the first usable journey passes.
 
+## Immediate execution contract
+
+The next deliverable is a **current runnable Studio build**, followed by the
+reported FBX/Character redraw reproduction. Work backwards from that result:
+
+1. Use the latest frozen full-graph diagnostics to fix remaining production
+   owners in descending dependency impact. Grant migrations must remove an
+   observed diagnostic or complete a required access boundary; avoid unrelated
+   repository-wide refactoring while the build is blocked.
+2. Capture the full graph again after each coherent repair batch. Separate
+   semantic permission failures from native emission failures; retain the exact
+   source/product tuple and failed diagnostics so the next action is concrete.
+3. Once semantic checking passes, repair the first remaining native emission
+   blocker, build/package, and run the actual reported import/toggle journey.
+   Do not count more policy modules or isolated smoke passes as this delivery.
+4. Keep critical proof repair on its existing parallel dependency track. Gate
+   the affected data-mutating operation on its required evidence; independent
+   read-only import, display and diagnostic work can continue.
+
+**Work in progress limit:** one integrated product slice plus its necessary
+compiler/prover/native dependency repairs. Every new task names the user-visible
+result or observed blocker it unlocks and the smallest finish check. Re-rank
+when a current build passes or a native journey exposes a new failure.
+
+**Defer expansion:** new cleanup algorithms, extra batch options, research,
+broad visual polish and speculative abstractions wait until the import,
+cleanup, undo and single-export journey works. Mandatory size, visibility,
+effect tracking and source-preservation rules apply to every touched file.
+
 ## 1. Q01 + J01: produce a current build and fix the reported redraw crash
 
 **Priority:** P0. **Return:** restores the user's ability to use the product and
 unlocks every native UI acceptance check.
 
-1. Repair grouped family grants in the compiler. Preserve exact members in
-   declaration validation, direct global access, unsafe checks and transitive
-   calls. Require positive grouped/expanded equivalence and partial-member
-   refusal controls; a family name must not accidentally grant every member.
-2. Finish mandatory global permission migration across Studio and included UI
+1. Use the qualified grouped-grant and strict Unsafe repair; retain exact-member
+   refusal controls when integrating it into Studio. Finish mandatory global permission migration across Studio and included UI
    dependencies. Read-only owners use `Global.Read`; mutation propagates write
    authority. Use grouped syntax where appropriate. Preserve unsafe tracking
    with `can`; no blanket `trusted`, permissive mode or disabled checker.
-3. Fetch current dependencies while preserving project repairs. Build and verify
+2. Fetch current dependencies while preserving project repairs. Build and verify
    source/product/runtime/link correspondence. Freeze the actual input closure
    for qualification; changed inputs invalidate the attempt.
-4. On that tuple, reduce and repair any remaining native emission failures,
+3. On that tuple, reduce and repair any remaining native emission failures,
    including private-ledger initialization and generic worker-result reads.
    Preserve privacy, affine ownership and caller-owned allocation lifetimes.
-5. Build/package Studio, identify the exact executable, then reproduce the
+4. Build/package Studio, identify the exact executable, then reproduce the
    reported FBX/redraw failure. The historical `14bdc130` binary crashed after
    importing 337 frames; it cannot qualify current source. Inspect the allocation
    and ownership boundary before choosing a fix.
-6. Qualify FBX open, Character/Skeleton switching, framing/orbit/zoom, playback,
+5. Qualify FBX open, Character/Skeleton switching, framing/orbit/zoom, playback,
    repeated redraws, edits, replacement, cancellation, close and restart on the
    reported asset and bounded controls. Preserve the original file bytes.
 
@@ -55,12 +81,14 @@ record; actual native interaction on the repaired binary; focused lifetime
 controls; source hash unchanged; no stale candidate publication. A seed, clean
 single-file diagnostic, screenshot or live process is insufficient.
 
-**Current status:** grouped-family positive controls and partial Global-member
-refusals pass on the retained `090c4121` compiler tuple. Strict native Unsafe
-member refusal remains a separate compiler repair awaiting qualification. The
-latest frozen full-graph capture has 2,106 diagnostic lines; migrated owners
-pass individually, but the complete closure still fails. The user-visible crash
-remains open. These intermediate counts are progress evidence, not acceptance.
+**Current status:** grouped-family controls passed on `090c4121`; the newer
+`85eef9ff` compiler repair also passed focused strict native Unsafe-member
+refusal controls and has a matched rebuilt Stage1 product. Project-wide strict
+Unsafe acceptance remains pending. The latest retained full-graph capture
+(`build/studio-build.c9f-navigation-session/`) has 217 diagnostic lines and still
+fails semantic and LLVM checks; subsequent source changes need a new capture.
+Diagnostic counts identify work, not correctness or user acceptance. The
+user-visible crash remains open, and no current replacement app is qualified.
 See [compiler qualification](compiler-qualification.md),
 [responsiveness](m5-responsiveness.md) and [proof gaps](../proof-gaps.md).
 
@@ -115,7 +143,8 @@ than monopolizing the first usable-build repair.
 
 ## 4. J02 + J03: finish one inspect–preview–apply–undo–export journey
 
-**Priority:** P0. **Depends on:** steps 1–3 for affected paths.
+**Priority:** P0. **Depends on:** current build and required safety evidence for
+the affected transitions.
 **Return:** demonstrates useful cleanup rather than a collection of controls.
 
 Use one labelled noise fixture and one contact fixture. Select a finding without

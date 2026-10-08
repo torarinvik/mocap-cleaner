@@ -18,7 +18,7 @@ extend Studio:
             json: darray[u8]
             summary: darray[u8]
 
-        def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool:
+        def perform_export(destination: cstr, overwrite_confirmed: bool) -> bool can Global{Read, Write}:
             if not export_result_current():
                 say_file("Export blocked: current edits have not produced a ready result. Wait for rebuilding, or use Undo after a failed edit, then review again.", destination)
                 touch()
@@ -152,7 +152,7 @@ extend Studio:
                 else:
                     say_file(StudioExportValidation::message(prepare_error), destination)
                 touch()
-            false
+            return false
 
         def recovery_failure_message(failure: RecoveryFailure) -> sview:
             return "Export blocked: GLB and report destinations changed or conflict. Choose new names; nothing was published." if failure == RecoveryFailure.Destinations
@@ -177,18 +177,18 @@ extend Studio:
                 error failure: return null
             StudioModel::fingerprint(&staged)
 
-        def report_integer(value: i64) -> sview can Unsafe.PointerCast:
+        def report_integer(value: i64) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
             StudioReportText::begin()
             StudioReportText::put_i(value)
-            StudioReportText::view()
+            return StudioReportText::view()
 
-        def report_indexed_name(prefix: sview, index: i64) -> sview can Unsafe.PointerCast:
+        def report_indexed_name(prefix: sview, index: i64) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
             StudioReportText::begin()
             StudioReportText::put(prefix)
             StudioReportText::put_i(index)
-            StudioReportText::view()
+            return StudioReportText::view()
 
-        def report_operation(operation: Ops::Operation) -> sview can Unsafe.PointerCast:
+        def report_operation(operation: Ops::Operation) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
             StudioReportText::begin()
             match operation.kind:
                 Ops::Kind.Despike:
@@ -216,9 +216,9 @@ extend Studio:
             StudioReportText::put_i(operation.strength)
             StudioReportText::put(";edge_frames=")
             StudioReportText::put_i(operation.edge)
-            StudioReportText::view()
+            return StudioReportText::view()
 
-        def report_band(band: StackState::Band) -> sview can Unsafe.PointerCast:
+        def report_band(band: StackState::Band) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
             StudioReportText::begin()
             StudioReportText::put("enabled=")
             StudioReportText::put("true") if band.enabled
@@ -231,9 +231,9 @@ extend Studio:
             StudioReportText::put_i(band.speed)
             StudioReportText::put(";blend_frames=")
             StudioReportText::put_i(band.blend)
-            StudioReportText::view()
+            return StudioReportText::view()
 
-        def report_contact(edit: StackState::FootEdit) -> sview can Unsafe.PointerCast:
+        def report_contact(edit: StackState::FootEdit) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
             StudioReportText::begin()
             StudioReportText::put("side=")
             StudioReportText::put_i(edit.side)
@@ -244,9 +244,9 @@ extend Studio:
             StudioReportText::put(";planted=")
             StudioReportText::put("true") if edit.planted
             StudioReportText::put("false") if not edit.planted
-            StudioReportText::view()
+            return StudioReportText::view()
 
-        def report_correction(correction: Corrections::Correction) -> sview can Unsafe.PointerCast:
+        def report_correction(correction: Corrections::Correction) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
             StudioReportText::begin()
             StudioReportText::put("node=")
             StudioReportText::put_i(correction.node)
@@ -274,7 +274,7 @@ extend Studio:
             StudioReportText::put(",")
             StudioReportText::put_f32_bits(correction.translation.z)
             StudioReportText::put(";float_encoding=ieee754-binary32")
-            StudioReportText::view()
+            return StudioReportText::view()
 
         # Reports are best-effort sidecars after the GLB's atomic commit. The
         # source label is a basename, and fingerprints remain explicitly
@@ -283,7 +283,7 @@ extend Studio:
         # unavailable. Compiled build-input revisions are captured explicitly.
         # Serialize all report fields before publishing the GLB or opening
         # a second confirmation dialog. Later writes consume only these bytes.
-        def prepare_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, output_fp: StudioSourceFingerprint::Fingerprint) -> ExportReportSnapshot? can Unsafe.PointerCast:
+        def prepare_export_report_for(c: StudioModel::Clip&, active_stack: StackState::Stack&, report_animation: sview, output_fp: StudioSourceFingerprint::Fingerprint) -> ExportReportSnapshot? can[Unsafe.PointerCast, Global{Read, Write}]:
             return null if not StudioReportTextPolicy::stack_counts_admitted(active_stack.count, active_stack.band_count, active_stack.edit_count, active_stack.fix_count)
             StudioReportText::begin_snapshot()
             # Source and destination lengths are independent. Never index a
@@ -380,9 +380,9 @@ extend Studio:
             return null if not StudioReportText::snapshot_complete()
             json: darray[u8] = StudioExportReport::json_with_time_map(&data, &c.times)
             summary: darray[u8] = StudioExportReport::summary_with_time_map(&data, &c.times)
-            ExportReportSnapshot{json: json, summary: summary}
+            return ExportReportSnapshot{json: json, summary: summary}
 
-        def publish_export_reports(destination: cstr, snapshot: ExportReportSnapshot&) -> StudioExportPublicationPolicy::Outcome can Unsafe.PointerCast:
+        def publish_export_reports(destination: cstr, snapshot: ExportReportSnapshot&) -> StudioExportPublicationPolicy::Outcome can[Unsafe.PointerCast, Global{Read, Write}]:
             mutable path_end: usize = 0
             while path_end < 4096 and destination[path_end] != 0:
                 path_end <- path_end + 1
@@ -420,6 +420,6 @@ extend Studio:
             text_ok: bool = StudioPublicationDurabilityPolicy::published(text_result)
             storage_tracking_failed <- true if json_ok and not register_storage_artifact(json_cstr, StudioStorageCleanupPolicy::Kind.GeneratedReport.i64())
             storage_tracking_failed <- true if text_ok and not register_storage_artifact(text_cstr, StudioStorageCleanupPolicy::Kind.GeneratedReport.i64())
-            StudioExportPublicationPolicy::sidecar_outcome(json_ok, text_ok)
+            return StudioExportPublicationPolicy::sidecar_outcome(json_ok, text_ok)
 
         # ---- native file panels (modal) --------------------------------

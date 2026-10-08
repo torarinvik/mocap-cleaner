@@ -36,7 +36,11 @@ Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
 current runnable build and redraw crash; clear FBX/workspace recovery;
 safety-critical proofs; one complete cleanup journey; single export and
 recoverable storage; responsiveness; repeat work and release; M8 decisions.
-Finish and qualify existing production paths before adding another algorithm.
+The next deliverable is a current runnable Studio build and reproduction of the
+reported FBX/Character redraw crash. Keep one integrated product slice active;
+use full-graph diagnostics to target its remaining blockers. Critical proof
+repairs proceed alongside it and gate the affected operations. Finish and
+qualify existing production paths before adding another algorithm.
 All M0–M8 requirements remain in scope; priority changes do not waive acceptance.
 
 ## Detailed roadmap
