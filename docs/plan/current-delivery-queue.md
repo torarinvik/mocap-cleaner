@@ -58,7 +58,7 @@ single-file diagnostic, screenshot or live process is insufficient.
 **Current status:** grouped-family positive controls and partial Global-member
 refusals pass on the retained `090c4121` compiler tuple. Strict native Unsafe
 member refusal remains a separate compiler repair awaiting qualification. The
-latest frozen full-graph capture has 2,445 diagnostic lines; migrated owners
+latest frozen full-graph capture has 2,106 diagnostic lines; migrated owners
 pass individually, but the complete closure still fails. The user-visible crash
 remains open. These intermediate counts are progress evidence, not acceptance.
 See [compiler qualification](compiler-qualification.md),

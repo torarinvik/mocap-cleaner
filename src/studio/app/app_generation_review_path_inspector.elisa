@@ -5,22 +5,23 @@ include "../state/generation_review_focus_policy.elisa"
 
 module StudioGenerationReviewPathInspector:
     public:
-        def line(path: darray[u8]&, page: i64, row: i64) -> sview can Unsafe.PointerCast:
+        def line(path: darray[u8]&, page: i64, row: i64) -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
             requires page >= 0 and page < StudioGenerationReviewPathPolicy::page_count(path)
             requires row >= 0 and row < StudioGenerationReviewPathPolicy::visible_lines(path, page)
-            return "" if row < 0 or row >= StudioGenerationReviewPathPolicy::visible_lines(path, page)
-            start: usize = StudioGenerationReviewPathPolicy::line_start(path, (page * StudioGenerationReviewPathPolicy::Limit::LINES_PER_PAGE + row).usize())
-            end: usize = StudioGenerationReviewPathPolicy::line_end(path, start)
-            StudioText::begin()
-            if StudioGenerationReviewPathPolicy::escaped_display(path):
-                for index in start..<end |index, path|:
-                    StudioText::put("\\x")
-                    StudioText::byte(hex_digit(path[index] / 16))
-                    StudioText::byte(hex_digit(path[index] % 16))
-            else:
-                for index in start..<end |index, path|:
-                    StudioText::byte(path[index])
-            StudioText::view()
+            can Global{Read, Write}:
+                return "" if row < 0 or row >= StudioGenerationReviewPathPolicy::visible_lines(path, page)
+                start: usize = StudioGenerationReviewPathPolicy::line_start(path, (page * StudioGenerationReviewPathPolicy::Limit::LINES_PER_PAGE + row).usize())
+                end: usize = StudioGenerationReviewPathPolicy::line_end(path, start)
+                StudioText::begin()
+                if StudioGenerationReviewPathPolicy::escaped_display(path):
+                    for index in start..<end |index, path|:
+                        StudioText::put("\\x")
+                        StudioText::byte(hex_digit(path[index] / 16))
+                        StudioText::byte(hex_digit(path[index] % 16))
+                else:
+                    for index in start..<end |index, path|:
+                        StudioText::byte(path[index])
+                return StudioText::view()
 
         def hex_digit(value: u8) -> u8:
             if value < 10:
@@ -48,43 +49,44 @@ module StudioGenerationReviewPathInspector:
 
     public:
         def drawing_panel(w: f32, h: f32, opened: bool, path: darray[u8]&,
-                          page: i64, focus: i64) -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            return if not opened
-            pages: i64 = StudioGenerationReviewPathPolicy::page_count(path)
-            visible: i64 = StudioGenerationReviewPathPolicy::visible_lines(path, page)
-            geometry: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::panel_geometry(w, h)
-            d: StudioPanels::Box = to_box(geometry)
-            StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
-            StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
-            inset: f32 = StudioGenerationReviewPathPolicy::panel_inset(geometry)
-            if not StudioGenerationReviewPathPolicy::panel_supported(geometry):
-                if d.w >= 200.0 and d.h >= 90.0:
-                    StudioDraw::bold(d.x + inset, d.y + 18.0, 10.0, "Enlarge window to inspect path", StudioDraw::ink())
-                    StudioDraw::text(d.x + inset, d.y + 36.0, 8.0, "Path retained. Done or Esc returns.", StudioDraw::muted())
-                done: StudioPanels::Box = button_box(w, h, 2)
-                if done.w >= 36.0 and done.h >= 24.0:
-                    StudioDraw::rect(done.x, done.y, done.w, done.h, StudioDraw::panel())
-                    StudioDraw::text(done.x + 6.0, done.y + 7.0, 9.0, "Done", StudioDraw::ink())
-                return
-            StudioDraw::bold(d.x + inset, d.y + 18.0, 17.0, "Build artifact path", StudioDraw::ink())
-            escaped: bool = StudioGenerationReviewPathPolicy::escaped_display(path)
-            StudioDraw::text(d.x + inset, d.y + 40.0, 9.0, "Invalid/control bytes use exact \\xHH escapes." if escaped else "Recorded build root plus artifact path; exact path continues across pages.", StudioDraw::muted())
-            for row in 0..<visible |row, d, page, path|:
-                line_box: StudioPanels::Box = to_box(StudioGenerationReviewPathPolicy::panel_row_box(geometry, row))
-                StudioDraw::rect(line_box.x, line_box.y, line_box.w, line_box.h, StudioDraw::panel())
-                StudioDraw::text(line_box.x + 6.0, line_box.y + 3.0, 9.0, line(path, page, row), StudioDraw::ink())
-            StudioText::begin()
-            StudioText::put("Page ")
-            StudioText::put_i(page + 1)
-            StudioText::put(" of ")
-            StudioText::put_i(pages)
-            StudioDraw::text(d.x + inset, d.y + d.h - 76.0, 10.0, StudioText::view(), StudioDraw::muted())
-            for action in 0..<3 |action, w, h, focus, page, pages|:
-                b: StudioPanels::Box = button_box(w, h, action)
-                enabled: bool = action == 2 or (action == 0 and page > 0) or (action == 1 and page + 1 < pages)
-                label: sview = "Prev" if action == 0 and b.w < 86.0 else "Previous" if action == 0 else "Next" if action == 1 else "Done"
-                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if focus == action else StudioDraw::panel())
-                StudioDraw::text(b.x + 6.0, b.y + 7.0, 9.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
+                          page: i64, focus: i64) -> void can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not opened
+                pages: i64 = StudioGenerationReviewPathPolicy::page_count(path)
+                visible: i64 = StudioGenerationReviewPathPolicy::visible_lines(path, page)
+                geometry: StudioGenerationReviewPathPolicy::Geometry = StudioGenerationReviewPathPolicy::panel_geometry(w, h)
+                d: StudioPanels::Box = to_box(geometry)
+                StudioDraw::rect(0.0, 0.0, w, h, StudioDraw::color(8, 10, 14))
+                StudioDraw::rect(d.x, d.y, d.w, d.h, StudioDraw::color(24, 28, 37))
+                inset: f32 = StudioGenerationReviewPathPolicy::panel_inset(geometry)
+                if not StudioGenerationReviewPathPolicy::panel_supported(geometry):
+                    if d.w >= 200.0 and d.h >= 90.0:
+                        StudioDraw::bold(d.x + inset, d.y + 18.0, 10.0, "Enlarge window to inspect path", StudioDraw::ink())
+                        StudioDraw::text(d.x + inset, d.y + 36.0, 8.0, "Path retained. Done or Esc returns.", StudioDraw::muted())
+                    done: StudioPanels::Box = button_box(w, h, 2)
+                    if done.w >= 36.0 and done.h >= 24.0:
+                        StudioDraw::rect(done.x, done.y, done.w, done.h, StudioDraw::panel())
+                        StudioDraw::text(done.x + 6.0, done.y + 7.0, 9.0, "Done", StudioDraw::ink())
+                    return
+                StudioDraw::bold(d.x + inset, d.y + 18.0, 17.0, "Build artifact path", StudioDraw::ink())
+                escaped: bool = StudioGenerationReviewPathPolicy::escaped_display(path)
+                StudioDraw::text(d.x + inset, d.y + 40.0, 9.0, "Invalid/control bytes use exact \\xHH escapes." if escaped else "Recorded build root plus artifact path; exact path continues across pages.", StudioDraw::muted())
+                for row in 0..<visible |row, d, page, path|:
+                    line_box: StudioPanels::Box = to_box(StudioGenerationReviewPathPolicy::panel_row_box(geometry, row))
+                    StudioDraw::rect(line_box.x, line_box.y, line_box.w, line_box.h, StudioDraw::panel())
+                    StudioDraw::text(line_box.x + 6.0, line_box.y + 3.0, 9.0, line(path, page, row), StudioDraw::ink())
+                StudioText::begin()
+                StudioText::put("Page ")
+                StudioText::put_i(page + 1)
+                StudioText::put(" of ")
+                StudioText::put_i(pages)
+                StudioDraw::text(d.x + inset, d.y + d.h - 76.0, 10.0, StudioText::view(), StudioDraw::muted())
+                for action in 0..<3 |action, w, h, focus, page, pages|:
+                    b: StudioPanels::Box = button_box(w, h, action)
+                    enabled: bool = action == 2 or (action == 0 and page > 0) or (action == 1 and page + 1 < pages)
+                    label: sview = "Prev" if action == 0 and b.w < 86.0 else "Previous" if action == 0 else "Next" if action == 1 else "Done"
+                    StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::color(58, 52, 40) if focus == action else StudioDraw::panel())
+                    StudioDraw::text(b.x + 6.0, b.y + 7.0, 9.0, label, StudioDraw::ink() if enabled else StudioDraw::muted())
 
 extend Studio:
     private:
@@ -100,58 +102,64 @@ extend Studio:
                 copied.push(byte)
             copied
 
-        def generation_path_open_with(path: darray[u8]&, trigger_focus: i64) -> void can Memory.Allocate:
-            return if not StudioGenerationReviewPathPolicy::path_valid(path)
-            saved_focus: i64 = StudioGenerationReviewFocusPolicy::trigger_focus(trigger_focus)
-            return if saved_focus < 0
-            generation_path_bytes <- generation_path_copy(path)
-            generation_path_page <- 0
-            generation_path_focus <- 2
-            generation_path_trigger_focus <- saved_focus
-            generation_review_focus <- generation_path_trigger_focus
-            generation_path_open <- true
-            touch()
+        def generation_path_open_with(path: darray[u8]&, trigger_focus: i64) -> void can[Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not StudioGenerationReviewPathPolicy::path_valid(path)
+                saved_focus: i64 = StudioGenerationReviewFocusPolicy::trigger_focus(trigger_focus)
+                return if saved_focus < 0
+                generation_path_bytes <- generation_path_copy(path)
+                generation_path_page <- 0
+                generation_path_focus <- 2
+                generation_path_trigger_focus <- saved_focus
+                generation_review_focus <- generation_path_trigger_focus
+                generation_path_open <- true
+                touch()
 
-        def generation_path_close() -> void:
-            generation_path_open <- false
-            generation_path_page <- 0
-            generation_path_bytes <- []
-            generation_review_focus <- StudioGenerationReviewFocusPolicy::restore_focus(generation_path_trigger_focus)
-            generation_path_trigger_focus <- -1
-            touch()
+        def generation_path_close() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                generation_path_open <- false
+                generation_path_page <- 0
+                generation_path_bytes <- []
+                generation_review_focus <- StudioGenerationReviewFocusPolicy::restore_focus(generation_path_trigger_focus)
+                generation_path_trigger_focus <- -1
+                touch()
 
-        def generation_path_action(action: i64) -> void:
-            pages: i64 = StudioGenerationReviewPathPolicy::page_count(generation_path_bytes)
-            if action == 0:
-                generation_path_page <- generation_path_page - 1 if generation_path_page > 0 else 0
-            elif action == 1:
-                generation_path_page <- generation_path_page + 1 if generation_path_page + 1 < pages else generation_path_page
-            elif action == 2:
-                generation_path_close()
-                return
-            generation_path_focus <- action
-            touch()
+        def generation_path_action(action: i64) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                pages: i64 = StudioGenerationReviewPathPolicy::page_count(generation_path_bytes)
+                if action == 0:
+                    generation_path_page <- generation_path_page - 1 if generation_path_page > 0 else 0
+                elif action == 1:
+                    generation_path_page <- generation_path_page + 1 if generation_path_page + 1 < pages else generation_path_page
+                elif action == 2:
+                    generation_path_close()
+                    return
+                generation_path_focus <- action
+                touch()
 
-        def generation_path_key(code: i64) -> bool:
-            return false if not generation_path_open
-            if code == UiCore::Key.Escape:
-                generation_path_close()
-            elif code == UiCore::Key.Left:
-                generation_path_action(0)
-            elif code == UiCore::Key.Right:
-                generation_path_action(1)
-            elif code == UiCore::Key.Tab:
-                generation_path_focus <- (generation_path_focus + (2 if StudioShortcuts::shift(modifiers) else 1)) % 3
-            elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
-                generation_path_action(generation_path_focus)
-            true
+        def generation_path_key(code: i64) -> bool can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return false if not generation_path_open
+                if code == UiCore::Key.Escape:
+                    generation_path_close()
+                elif code == UiCore::Key.Left:
+                    generation_path_action(0)
+                elif code == UiCore::Key.Right:
+                    generation_path_action(1)
+                elif code == UiCore::Key.Tab:
+                    generation_path_focus <- (generation_path_focus + (2 if StudioShortcuts::shift(modifiers) else 1)) % 3
+                elif code == UiCore::Key.Enter or code == UiCore::Key.Space:
+                    generation_path_action(generation_path_focus)
+                return true
 
-        def generation_path_pointer(w: f32, h: f32, x: f32, y: f32, button: i32) -> bool:
-            return false if not generation_path_open or button != 0
-            action: i64 = StudioGenerationReviewPathInspector::button_hit(w, h, x, y)
-            return true if action < 0
-            generation_path_action(action)
-            true
+        def generation_path_pointer(w: f32, h: f32, x: f32, y: f32, button: i32) -> bool can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return false if not generation_path_open or button != 0
+                action: i64 = StudioGenerationReviewPathInspector::button_hit(w, h, x, y)
+                return true if action < 0
+                generation_path_action(action)
+                return true
 
-        def draw_generation_path_inspector(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate]:
-            StudioGenerationReviewPathInspector::drawing_panel(w, h, generation_path_open, generation_path_bytes, generation_path_page, generation_path_focus)
+        def draw_generation_path_inspector(w: f32, h: f32) -> void can[Unsafe.PointerCast, Memory.Allocate, Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioGenerationReviewPathInspector::drawing_panel(w, h, generation_path_open, generation_path_bytes, generation_path_page, generation_path_focus)
