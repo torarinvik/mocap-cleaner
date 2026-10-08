@@ -85,3 +85,11 @@ Input manifests before/after match byte-for-byte. Retained evidence:
 `958eec829c6fb96a4780966bcf532f34fe60604f3ee366fc227b017ba758e1cd`.
 This removes one integration diagnostic; it does not qualify native Studio or
 the FBX redraw fix.
+
+Review the generic-parameter exemption as part of the same owner audit:
+`firm_parameter_type_is_generic` still matches functions by leaf spelling,
+traverses a symbol-name chain without a hop cap and indexes generic parameter
+lines using the names vector's count. Tie exemptions to the selected declaration
+and validate parallel-vector/chain bounds. A same-named generic in another
+module must not suppress a genuine mismatch for a concrete parameter.
+This review finding is pending repair and regression qualification.
