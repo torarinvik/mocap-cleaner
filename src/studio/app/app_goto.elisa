@@ -10,250 +10,273 @@ extend Studio:
 
         # Validate the complete insertion before changing a draft: dropping
         # unsupported characters could turn a malformed paste into another time.
-        def goto_accept_committed_text(text: sview) -> void:
-            return if not goto_open or goto_focus != StudioTimelineGotoFocus::Control.Field
-            mutable valid: bool = StudioTimelineEntryPolicy::extent_valid(goto_mode, text.len, text.data != null)
-            if valid:
-                valid <- typed_len + text.len <= StudioTimelineEntryPolicy::capacity(goto_mode)
-                for i in 0..<text.len.usize() |i, text, valid|:
-                    valid <- false if not StudioTimelineEntryPolicy::byte_allowed(goto_mode, text.data[i])
-            if not valid:
-                status <- "Entry was refused; use the shown format and length. The previous draft was retained."
-                status_file <- null
+        def goto_accept_committed_text(text: sview) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not goto_open or goto_focus != StudioTimelineGotoFocus::Control.Field
+                mutable valid: bool = StudioTimelineEntryPolicy::extent_valid(goto_mode, text.len, text.data != null)
+                if valid:
+                    valid <- typed_len + text.len <= StudioTimelineEntryPolicy::capacity(goto_mode)
+                    for i in 0..<text.len.usize() |i, text, valid|:
+                        valid <- false if not StudioTimelineEntryPolicy::byte_allowed(goto_mode, text.data[i])
+                if not valid:
+                    status <- "Entry was refused; use the shown format and length. The previous draft was retained."
+                    status_file <- null
+                    touch()
+                    return
+                for i in 0..<text.len.usize() |i, text|:
+                    typed[(typed_len + i.i64()).usize()] <- text.data[i]
+                typed_len <- typed_len + text.len
+                goto_sync_text()
                 touch()
-                return
-            for i in 0..<text.len.usize() |i, text|:
-                typed[(typed_len + i.i64()).usize()] <- text.data[i]
-            typed_len <- typed_len + text.len
-            goto_sync_text()
-            touch()
 
-        def goto_show_controls(shown: bool) -> void:
-            return if not accessibility_goto_ready
-            for widget in [accessibility_goto_field_widget,
-                           accessibility_goto_apply_widget,
-                           accessibility_goto_cancel_widget] |widget, shown|:
-                UiFlat::set_visible(widget, shown)
-                UiFlat::set_enabled(widget, shown)
+        def goto_show_controls(shown: bool) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not accessibility_goto_ready
+                for widget in [accessibility_goto_field_widget,
+                               accessibility_goto_apply_widget,
+                               accessibility_goto_cancel_widget] |widget, shown|:
+                    UiFlat::set_visible(widget, shown)
+                    UiFlat::set_enabled(widget, shown)
 
         # Native AX setters edit the retained field. Keep its counted bytes
         # synchronized with the modal draft without recursively accepting our
         # own programmatic Change event.
-        def goto_sync_text() -> void:
-            return if not goto_open or not accessibility_goto_ready
-            goto_syncing_text <- true
-            UiFlat::replace_text(accessibility_goto_field_widget, goto_text())
-            goto_syncing_text <- false
+        def goto_sync_text() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not goto_open or not accessibility_goto_ready
+                goto_syncing_text <- true
+                UiFlat::replace_text(accessibility_goto_field_widget, goto_text())
+                goto_syncing_text <- false
 
-        def goto_accept_accessibility_text() -> void:
-            return if goto_syncing_text
-            value: sview = UiFlat::text_value(accessibility_goto_field_widget)
-            mutable valid: bool = StudioTimelineEntryPolicy::extent_valid(goto_mode, value.len, value.data != null)
-            if valid:
-                for i in 0..<value.len.usize() |i, value, valid|:
-                    valid <- false if not StudioTimelineEntryPolicy::byte_allowed(goto_mode, value.data[i])
-            if not valid:
-                status <- "Use digits and a decimal point for seconds; the previous entry was retained." if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds else "Use up to eight digits for the frame number; the previous entry was retained."
-                status_file <- null
-                goto_sync_text()
-                touch()
-                return
-            for i in 0..<value.len.usize() |i, value|:
-                typed[i] <- value.data[i]
-            typed_len <- value.len
-            goto_focus <- StudioTimelineGotoFocus::Control.Field
-            touch()
-
-        def goto_target_now() -> StudioTimelineGotoDraftPolicy::Target:
-            StudioTimelineGotoDraftPolicy::Target{take: take_serial, document: built,
-                generation: stack_generation, frames: frames()}
-
-        def goto_stale() -> bool:
-            return true if clip == null
-            if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds and clip is c:
-                return true if not StudioSampleClock::ready(c.sample_clock) or StudioSampleClock::count(c.sample_clock) != goto_target.frames
-            StudioTimelineGotoDraftPolicy::current(goto_target, take_serial, built,
-                stack_generation, frames()) == false
-
-        def goto_text() -> sview can Unsafe.PointerCast:
-            StudioText::begin()
-            for i in 0..<typed_len.usize():
-                StudioText::byte(typed[i])
-            StudioText::view()
-
-        def goto_result() -> StudioTimelineGotoPolicy::Result:
-            return StudioTimelineGotoPolicy::parse(goto_text(), goto_target.frames) if goto_mode == StudioTimelineEntryPolicy::Mode.Frame
-            parsed: StudioTimelineTimeInput::MicroDraft = StudioTimelineTimeInput::parse_micros(goto_text())
-            return StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Empty, frame: -1} if parsed.status == StudioTimelineTimeInput::Status.Empty
-            return StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Invalid, frame: -1} if parsed.status != StudioTimelineTimeInput::Status.Exact or goto_stale()
-            time: i64 = parsed.micros
-            if clip is c:
-                frame: i64 = StudioSampleClock::frame_at_us(c.sample_clock, time)
-                last: i64 = StudioSampleClock::last_us(c.sample_clock)
-                converted: StudioTimelineGotoPolicy::Status = StudioTimelineGotoPolicy::Status.Clamped if StudioSampleTimePolicy::past_end(time, last) else StudioTimelineGotoPolicy::Status.Exact
-                return StudioTimelineGotoPolicy::Result{status: converted, frame: frame}
-            StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Invalid, frame: -1}
-
-        def goto_open_dialog() -> void:
-            goto_open_mode(StudioTimelineEntryPolicy::Mode.Frame)
-
-        def goto_open_mode(mode: StudioTimelineEntryPolicy::Mode) -> void:
-            return if clip == null or frames() < 1 or frames() > StudioTimelineGotoPolicy::MAX_FRAMES
-            if mode == StudioTimelineEntryPolicy::Mode.Seconds and clip is c:
-                if not StudioSampleClock::ready(c.sample_clock) or StudioSampleClock::count(c.sample_clock) != frames():
-                    status <- StudioSampleClock::explanation(c.sample_clock)
+        def goto_accept_accessibility_text() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if goto_syncing_text
+                value: sview = UiFlat::text_value(accessibility_goto_field_widget)
+                mutable valid: bool = StudioTimelineEntryPolicy::extent_valid(goto_mode, value.len, value.data != null)
+                if valid:
+                    for i in 0..<value.len.usize() |i, value, valid|:
+                        valid <- false if not StudioTimelineEntryPolicy::byte_allowed(goto_mode, value.data[i])
+                if not valid:
+                    status <- "Use digits and a decimal point for seconds; the previous entry was retained." if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds else "Use up to eight digits for the frame number; the previous entry was retained."
                     status_file <- null
+                    goto_sync_text()
                     touch()
                     return
-            goto_mode <- mode
-            goto_target <- goto_target_now()
-            typed_len <- 0
-            typing <- true
-            goto_open <- true
-            help_open <- false
-            file_menu_open <- false
-            reset_menu_open <- false
-            goto_status <- StudioTimelineGotoPolicy::Status.Empty
-            goto_focus <- StudioTimelineGotoFocus::Control.Field
-            goto_previous_focus <- UiFlat::focused()
-            goto_show_controls(true)
-            goto_sync_text()
-            # A shortcut can open the modal while a pointer gesture is still
-            # in flight. Drop its capture so a later pointer-up cannot commit
-            # it after the dialog closes.
-            drag_view <- -1
-            drag_button <- -1
-            scrubbing <- false
-            selecting <- false
-            slider_drag <- false
-            edge_drag <- RetimeState::no_drag()
-            if timeline is t and t.playing:
-                mutable paused: TimelineState::State = t
-                paused.playing <- false
-                set_timeline(paused)
-            touch()
-
-        def goto_close() -> void:
-            goto_show_controls(false)
-            goto_open <- false
-            typing <- false
-            typed_len <- 0
-            UiFlat::clear_focus()
-            _ = UiFlat::request_focus(goto_previous_focus)
-            goto_previous_focus <- UiFlat::NONE
-            touch()
-
-        def goto_apply() -> void:
-            return if not goto_open
-            if goto_stale():
-                status <- "Go to frame cancelled: the take or timeline changed. Reopen the dialog."
-                status_file <- null
-                goto_close()
-                return
-            parsed: StudioTimelineGotoPolicy::Result = goto_result()
-            goto_status <- parsed.status
-            if parsed.status == StudioTimelineGotoPolicy::Status.Exact or parsed.status == StudioTimelineGotoPolicy::Status.Clamped:
-                scrub_to(parsed.frame)
-                status <- "Frame selected" if parsed.status == StudioTimelineGotoPolicy::Status.Exact else "Entry was past the take; selected the last frame"
-                status_file <- null
-                goto_close()
-            else:
-                status <- "Enter seconds with up to six decimal places." if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds else "Enter a frame number using digits only."
-                status_file <- null
-                touch()
-
-        def goto_key(code: UiCore::Key) -> void:
-            if code == UiCore::Key.Escape:
-                goto_close()
-            elif code == UiCore::Key.Enter:
-                if goto_focus == StudioTimelineGotoFocus::Control.Cancel:
-                    goto_close()
-                else:
-                    goto_apply()
-            elif code == UiCore::Key.Space and goto_focus != StudioTimelineGotoFocus::Control.Field:
-                if goto_focus == StudioTimelineGotoFocus::Control.Cancel:
-                    goto_close()
-                else:
-                    goto_apply()
-            elif code == UiCore::Key.Tab:
-                return if StudioShortcuts::command(modifiers)
-                goto_focus <- StudioTimelineGotoFocus::next(goto_focus, StudioShortcuts::shift(modifiers))
-                touch()
-            elif code == UiCore::Key.Backspace:
-                return if goto_focus != StudioTimelineGotoFocus::Control.Field
-                typed_len <- typed_len - 1 if typed_len > 0 else 0
-                goto_sync_text()
-                touch()
-            else:
-                goto_append_key(code)
-
-        def goto_append_key(code: UiCore::Key) -> void:
-            return if goto_focus != StudioTimelineGotoFocus::Control.Field
-            return if modifiers != 0 or typed_len >= StudioTimelineEntryPolicy::capacity(goto_mode)
-            if code == UiCore::Key.Period and goto_mode == StudioTimelineEntryPolicy::Mode.Seconds:
-                typed[typed_len.usize()] <- 46
-                typed_len <- typed_len + 1
-                goto_sync_text()
-                touch()
-                return
-            mutable digit: i64 = -1
-            digit <- 0 if code == UiCore::Key.Digit0
-            digit <- 1 if code == UiCore::Key.Digit1
-            digit <- 2 if code == UiCore::Key.Digit2
-            digit <- 3 if code == UiCore::Key.Digit3
-            digit <- 4 if code == UiCore::Key.Digit4
-            digit <- 5 if code == UiCore::Key.Digit5
-            digit <- 6 if code == UiCore::Key.Digit6
-            digit <- 7 if code == UiCore::Key.Digit7
-            digit <- 8 if code == UiCore::Key.Digit8
-            digit <- 9 if code == UiCore::Key.Digit9
-            if digit >= 0:
-                typed[typed_len.usize()] <- (48 + digit).u8()
-                typed_len <- typed_len + 1
-                goto_sync_text()
-                touch()
-
-        def goto_pointer(x: f32, y: f32, button: i32) -> void:
-            return if button != 0
-            hit: StudioTimelineGotoFocus::Hit = StudioPanels::goto_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
-            goto_apply() if hit == StudioTimelineGotoFocus::Hit.Apply
-            goto_close() if hit == StudioTimelineGotoFocus::Hit.Cancel
-            if hit == StudioTimelineGotoFocus::Hit.Field:
+                for i in 0..<value.len.usize() |i, value|:
+                    typed[i] <- value.data[i]
+                typed_len <- value.len
                 goto_focus <- StudioTimelineGotoFocus::Control.Field
                 touch()
+
+        def goto_target_now() -> StudioTimelineGotoDraftPolicy::Target can[Global.Read]:
+            can Global.Read:
+                return StudioTimelineGotoDraftPolicy::Target{take: take_serial, document: built,
+                    generation: stack_generation, frames: frames()}
+
+        def goto_stale() -> bool can[Global.Read]:
+            can Global.Read:
+                return true if clip == null
+                if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds and clip is c:
+                    return true if not StudioSampleClock::ready(c.sample_clock) or StudioSampleClock::count(c.sample_clock) != goto_target.frames
+                return StudioTimelineGotoDraftPolicy::current(goto_target, take_serial, built,
+                    stack_generation, frames()) == false
+
+        def goto_text() -> sview can[Unsafe.PointerCast, Global{Read, Write}]:
+            can Global{Read, Write}:
+                StudioText::begin()
+                for i in 0..<typed_len.usize():
+                    StudioText::byte(typed[i])
+                return StudioText::view()
+
+        def goto_result() -> StudioTimelineGotoPolicy::Result can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return StudioTimelineGotoPolicy::parse(goto_text(), goto_target.frames) if goto_mode == StudioTimelineEntryPolicy::Mode.Frame
+                parsed: StudioTimelineTimeInput::MicroDraft = StudioTimelineTimeInput::parse_micros(goto_text())
+                return StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Empty, frame: -1} if parsed.status == StudioTimelineTimeInput::Status.Empty
+                return StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Invalid, frame: -1} if parsed.status != StudioTimelineTimeInput::Status.Exact or goto_stale()
+                time: i64 = parsed.micros
+                if clip is c:
+                    frame: i64 = StudioSampleClock::frame_at_us(c.sample_clock, time)
+                    last: i64 = StudioSampleClock::last_us(c.sample_clock)
+                    converted: StudioTimelineGotoPolicy::Status = StudioTimelineGotoPolicy::Status.Clamped if StudioSampleTimePolicy::past_end(time, last) else StudioTimelineGotoPolicy::Status.Exact
+                    return StudioTimelineGotoPolicy::Result{status: converted, frame: frame}
+                return StudioTimelineGotoPolicy::Result{status: StudioTimelineGotoPolicy::Status.Invalid, frame: -1}
+
+        def goto_open_dialog() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                goto_open_mode(StudioTimelineEntryPolicy::Mode.Frame)
+
+        def goto_open_mode(mode: StudioTimelineEntryPolicy::Mode) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if clip == null or frames() < 1 or frames() > StudioTimelineGotoPolicy::MAX_FRAMES
+                if mode == StudioTimelineEntryPolicy::Mode.Seconds and clip is c:
+                    if not StudioSampleClock::ready(c.sample_clock) or StudioSampleClock::count(c.sample_clock) != frames():
+                        status <- StudioSampleClock::explanation(c.sample_clock)
+                        status_file <- null
+                        touch()
+                        return
+                goto_mode <- mode
+                goto_target <- goto_target_now()
+                typed_len <- 0
+                typing <- true
+                goto_open <- true
+                help_open <- false
+                file_menu_open <- false
+                reset_menu_open <- false
+                goto_status <- StudioTimelineGotoPolicy::Status.Empty
+                goto_focus <- StudioTimelineGotoFocus::Control.Field
+                goto_previous_focus <- UiFlat::focused()
+                goto_show_controls(true)
+                goto_sync_text()
+                # A shortcut can open the modal while a pointer gesture is still
+                # in flight. Drop its capture so a later pointer-up cannot commit
+                # it after the dialog closes.
+                drag_view <- -1
+                drag_button <- -1
+                scrubbing <- false
+                selecting <- false
+                slider_drag <- false
+                edge_drag <- RetimeState::no_drag()
+                if timeline is t and t.playing:
+                    mutable paused: TimelineState::State = t
+                    paused.playing <- false
+                    set_timeline(paused)
+                touch()
+
+        def goto_close() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                goto_show_controls(false)
+                goto_open <- false
+                typing <- false
+                typed_len <- 0
+                UiFlat::clear_focus()
+                _ = UiFlat::request_focus(goto_previous_focus)
+                goto_previous_focus <- UiFlat::NONE
+                touch()
+
+        def goto_apply() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if not goto_open
+                if goto_stale():
+                    status <- "Go to frame cancelled: the take or timeline changed. Reopen the dialog."
+                    status_file <- null
+                    goto_close()
+                    return
+                parsed: StudioTimelineGotoPolicy::Result = goto_result()
+                goto_status <- parsed.status
+                if parsed.status == StudioTimelineGotoPolicy::Status.Exact or parsed.status == StudioTimelineGotoPolicy::Status.Clamped:
+                    scrub_to(parsed.frame)
+                    status <- "Frame selected" if parsed.status == StudioTimelineGotoPolicy::Status.Exact else "Entry was past the take; selected the last frame"
+                    status_file <- null
+                    goto_close()
+                else:
+                    status <- "Enter seconds with up to six decimal places." if goto_mode == StudioTimelineEntryPolicy::Mode.Seconds else "Enter a frame number using digits only."
+                    status_file <- null
+                    touch()
+
+        def goto_key(code: UiCore::Key) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                if code == UiCore::Key.Escape:
+                    goto_close()
+                elif code == UiCore::Key.Enter:
+                    if goto_focus == StudioTimelineGotoFocus::Control.Cancel:
+                        goto_close()
+                    else:
+                        goto_apply()
+                elif code == UiCore::Key.Space and goto_focus != StudioTimelineGotoFocus::Control.Field:
+                    if goto_focus == StudioTimelineGotoFocus::Control.Cancel:
+                        goto_close()
+                    else:
+                        goto_apply()
+                elif code == UiCore::Key.Tab:
+                    return if StudioShortcuts::command(modifiers)
+                    goto_focus <- StudioTimelineGotoFocus::next(goto_focus, StudioShortcuts::shift(modifiers))
+                    touch()
+                elif code == UiCore::Key.Backspace:
+                    return if goto_focus != StudioTimelineGotoFocus::Control.Field
+                    typed_len <- typed_len - 1 if typed_len > 0 else 0
+                    goto_sync_text()
+                    touch()
+                else:
+                    goto_append_key(code)
+
+        def goto_append_key(code: UiCore::Key) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if goto_focus != StudioTimelineGotoFocus::Control.Field
+                return if modifiers != 0 or typed_len >= StudioTimelineEntryPolicy::capacity(goto_mode)
+                if code == UiCore::Key.Period and goto_mode == StudioTimelineEntryPolicy::Mode.Seconds:
+                    typed[typed_len.usize()] <- 46
+                    typed_len <- typed_len + 1
+                    goto_sync_text()
+                    touch()
+                    return
+                mutable digit: i64 = -1
+                digit <- 0 if code == UiCore::Key.Digit0
+                digit <- 1 if code == UiCore::Key.Digit1
+                digit <- 2 if code == UiCore::Key.Digit2
+                digit <- 3 if code == UiCore::Key.Digit3
+                digit <- 4 if code == UiCore::Key.Digit4
+                digit <- 5 if code == UiCore::Key.Digit5
+                digit <- 6 if code == UiCore::Key.Digit6
+                digit <- 7 if code == UiCore::Key.Digit7
+                digit <- 8 if code == UiCore::Key.Digit8
+                digit <- 9 if code == UiCore::Key.Digit9
+                if digit >= 0:
+                    typed[typed_len.usize()] <- (48 + digit).u8()
+                    typed_len <- typed_len + 1
+                    goto_sync_text()
+                    touch()
+
+        def goto_pointer(x: f32, y: f32, button: i32) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if button != 0
+                hit: StudioTimelineGotoFocus::Hit = StudioPanels::goto_hit(UiCore::viewport_width(), UiCore::viewport_height(), x, y)
+                goto_apply() if hit == StudioTimelineGotoFocus::Hit.Apply
+                goto_close() if hit == StudioTimelineGotoFocus::Hit.Cancel
+                if hit == StudioTimelineGotoFocus::Hit.Field:
+                    goto_focus <- StudioTimelineGotoFocus::Control.Field
+                    touch()
 
     public:
-        def goto_time_entry() -> bool:
-            goto_mode == StudioTimelineEntryPolicy::Mode.Seconds
+        def goto_time_entry() -> bool can[Global.Read]:
+            can Global.Read:
+                return goto_mode == StudioTimelineEntryPolicy::Mode.Seconds
 
-        def goto_title() -> sview:
-            "Go to time" if goto_time_entry() else "Go to frame"
+        def goto_title() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Go to time" if goto_time_entry() else "Go to frame"
 
-        def goto_field_label() -> sview:
-            "Clip time in seconds" if goto_time_entry() else "Frame number"
+        def goto_field_label() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Clip time in seconds" if goto_time_entry() else "Frame number"
 
-        def goto_help() -> sview:
-            "Enter seconds with up to six decimal places. Values past the take are clamped." if goto_time_entry() else "Enter a 1-based frame number. Values past the take are clamped."
+        def goto_help() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Enter seconds with up to six decimal places. Values past the take are clamped." if goto_time_entry() else "Enter a 1-based frame number. Values past the take are clamped."
 
-        def goto_field_help() -> sview:
-            "Type unsigned seconds, for example 2.125. Up to eight whole digits and six decimal places." if goto_time_entry() else "Type digits only. The field accepts up to eight digits."
+        def goto_field_help() -> sview can[Global.Read]:
+            can Global.Read:
+                return "Type unsigned seconds, for example 2.125. Up to eight whole digits and six decimal places." if goto_time_entry() else "Type digits only. The field accepts up to eight digits."
 
-        def goto_focused_control() -> StudioTimelineGotoFocus::Control:
-            goto_focus
+        def goto_focused_control() -> StudioTimelineGotoFocus::Control can[Global.Read]:
+            can Global.Read:
+                return goto_focus
 
-        def request_goto_frame() -> void:
-            goto_open_dialog()
+        def request_goto_frame() -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                goto_open_dialog()
 
-        def goto_accessibility_action(widget: usize, event: i32) -> bool:
-            return false if not goto_open
-            if widget == accessibility_goto_field_widget and event == UiConst::WidgetEvent.Change.i32():
-                goto_accept_accessibility_text()
+        def goto_accessibility_action(widget: usize, event: i32) -> bool can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return false if not goto_open
+                if widget == accessibility_goto_field_widget and event == UiConst::WidgetEvent.Change.i32():
+                    goto_accept_accessibility_text()
+                    return true
+                return true if event != UiConst::WidgetEvent.Click.i32()
+                if widget == accessibility_goto_field_widget:
+                    goto_focus <- StudioTimelineGotoFocus::Control.Field
+                    touch()
+                    return true
+                goto_apply() if widget == accessibility_goto_apply_widget
+                goto_close() if widget == accessibility_goto_cancel_widget
                 return true
-            return true if event != UiConst::WidgetEvent.Click.i32()
-            if widget == accessibility_goto_field_widget:
-                goto_focus <- StudioTimelineGotoFocus::Control.Field
-                touch()
-                return true
-            goto_apply() if widget == accessibility_goto_apply_widget
-            goto_close() if widget == accessibility_goto_cancel_widget
-            true
