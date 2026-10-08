@@ -39,3 +39,11 @@ decline or the 300-redraw snapshot test. Exact source/executable hashes and
 terminal logs are retained in
 `build/dialog-result-reduction/text-utf8-helper-driver.record.json`.
 Formal source correspondence and proof replay remain open.
+
+
+The status accessibility node now exposes the retained instruction as its help
+text, separately from the compact display-slot value that appends a filename.
+This avoids forcing a long literal recovery instruction through the 128-byte
+display formatter merely to read it with VoiceOver. Native accessibility review,
+complete filename/path inspection and the discoverable full-details view remain
+open; this source binding alone does not qualify the full recovery workflow.
