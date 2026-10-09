@@ -20,15 +20,16 @@ behavior and proof coverage, and check file lengths before committing. Generated
 
 ## Constants and finite choices
 
-Choose the representation that expresses the domain: prefer a `const enum`
-for a closed set of alternatives, and an algebraic data type when alternatives
-carry different data or must exclude invalid combinations. Use purpose-specific
-`const module` groups for related numeric limits, units or configuration values
-that are not better represented by those types. This applies to existing code
-and every new change. Preserve public/private visibility, contracts, proof
-coverage and the 600-line maximum. Update all consumers and validate explicit
-conversions at serialization/native boundaries; preserve required wire values.
-See the [representation migration inventory](docs/plan/constant-modules.md).
+Whenever a module contains multiple `const` values, group them in a named
+`const module`. Prefer a `const enum` when those values encode a closed set of
+alternatives, and an algebraic data type when alternatives carry different data
+or must exclude invalid combinations. Keep purpose-specific `const module`
+groups for related numeric limits, units and configuration that are better
+expressed as values. Apply this to existing code and every new change. Preserve
+public/private visibility, contracts, proof coverage and the 600-line maximum.
+Update all consumers and validate explicit conversions at serialization/native
+boundaries; preserve required wire values. See the
+[representation migration inventory](docs/plan/constant-modules.md).
 
 ## Highest-return execution focus
 
@@ -58,6 +59,54 @@ Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
    interruption recovery and stale-publication handling before release. Then fix
    measured interaction bottlenecks; resume broader storage, batch and research
    work only after the first useful result passes.
+
+## UI direction from the cleanup prototype
+
+Use the supplied prototype as the product direction for the cleanup workflow.
+Keep its information hierarchy and visual language, then deliver it in small
+steps tied to the first useful result rather than attempting a broad redesign at
+once:
+
+1. Keep a visible five-stage workflow — **Import, Analyze, Auto Fix, Validate,
+   Export** — with the current stage, completed stages and blocked prerequisites
+   clear at a glance. Switching stages must preserve the take, selection and
+   pending edits.
+2. Keep the asset/scene tree on the left. Show the active take, character,
+   skeleton, markers, contacts and scene elements with concise labels, useful
+   counts and stable selection. Loading, missing and incompatible assets need
+   actionable explanations.
+3. Give the central viewport the most space. Keep perspective, front and side
+   views available; make shaded/mesh and skeleton modes obvious; synchronize
+   selection and frame position across views. Keep orbit, pan, zoom, framing and
+   view reset discoverable and keyboard accessible.
+4. Keep timeline, contacts and motion curves together below the viewport.
+   Scrubbing, playback, curve selection and issue selection must identify the
+   same frame range. Show the current frame, total frames and playback state.
+5. Put issue review and cleanup controls in a right-side inspector. Each finding
+   needs a concise name, affected body part, frame range, severity, explanation,
+   confidence source and available action. Filters and sorting must not change
+   the underlying issue identity or selected take.
+6. Separate a batch recommendation from individual fixes. Before applying,
+   show the exact selected scope, preview the before/after result, allow cancel,
+   and retain undo. Make automatic review an explicit choice with visible
+   progress, pause/cancel behavior and a clear completion summary.
+7. Keep validation next to the preview and export action. Report measured
+   results with units, explain failed checks and offer the next useful action.
+   Do not show simulated quality gains, AI confidence or automation coverage as
+   facts; every number must come from the current take and recorded analysis.
+8. Make source preservation, workspace readiness, save state and pending exports
+   visible. A failed import, cleanup, validation or export must say whether the
+   take changed and provide a safe retry, recovery or cancellation path.
+9. Preserve professional density without hiding controls: use consistent
+   spacing, contrast, selection and severity colors; label icon-only controls;
+   show focus and keyboard shortcuts; provide useful empty, loading, error and
+   no-results states; and let secondary diagnostics collapse without moving the
+   main workflow.
+
+First implement only the layout and interactions that help a user open the
+current FBX, understand one finding, preview and undo one repair, and export a
+reopenable result. Measure viewport/playback and panel responsiveness on that
+same take before expanding automation, batch controls or visual polish.
 
 Keep one integrated product slice active, with only the compiler/prover/native
 repairs necessary to unlock it. Prioritize observed failures, user data at risk

@@ -47,10 +47,14 @@ source SHA-256 remained
 That harness does not exercise the packaged app's native file picker, playback
 timer, GPU viewport, or keyboard/pointer/accessibility controls. Attempts to
 bind the current app window through CUA timed out, so interactive acceptance is
-still open. The previous full O0 build log, captured before the latest test
-grant migrations, reports 23 failing Studio tests; rerun the full gate on the
-current tree and current dependencies after completing those migrations. The
-proof/replay phase of that run did not finish and must not be treated as passed.
+still open. The latest complete Studio sweep before the current test repairs
+passed 61 of 68 fixtures. Its seven failures were two tests missing required
+`Global.Read/Write` body grants and five stale runtime expectations or a
+cross-policy size-limit mismatch. The two effect-grant fixtures, three UI
+policy fixtures, and both storage-limit fixtures now pass in a source-matched
+focused run. Rerun all 68 against the final compiler snapshot before treating
+the suite as qualified. The proof/replay phase of the earlier full gate did not
+finish and must not be treated as passed.
 
 1. **Complete the packaged-app portion of the FBX journey.** Open the unchanged
 337-frame FBX in the fresh package and test real-time playback around frame
