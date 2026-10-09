@@ -5,6 +5,7 @@
 #
 #   scripts/build_studio.sh            build + test + prove
 #   STUDIO_SKIP_CHECKS=1 scripts/...   build only
+#   STUDIO_OPT_LEVEL=0 scripts/...     build an unoptimized diagnostic app
 #   build/mocap_studio [clip.glb [animation]]
 #
 # Environment: ELISA_UI_ROOT (../elisa-ui), ELISA_ENGINE_ROOT
@@ -23,6 +24,11 @@ STAGE1="$(cd -- "${ELISA_STAGE1:-$ROOT/../Elisa-compiler}" && pwd)"
 PROOF="${ELISA_PROOF:-$ROOT/../elisa-proof-mocap/build/elisa-proof}"
 RUNTIME="$STAGE1/build/runtime/elisacore_runtime.o"
 OUT="$ROOT/build"
+STUDIO_OPT_LEVEL="${STUDIO_OPT_LEVEL:-2}"
+[[ "$STUDIO_OPT_LEVEL" =~ ^[0-3]$ ]] || {
+  echo "STUDIO_OPT_LEVEL must be 0, 1, 2, or 3" >&2
+  exit 2
+}
 # Use the configured current compiler. Its wrapper enforces build provenance;
 # do not silently select a historical worktree or permit a stale Stage1.
 
@@ -130,7 +136,7 @@ clang -std=c99 -O2 -Wall -Wextra -Werror -I "$ENGINE/dependencies/ufbx" \
 clang -std=c99 -O2 -I "$ENGINE/dependencies/ufbx" \
   -c -o "$pending_directory/studio_ufbx.o" "$ENGINE/dependencies/ufbx/ufbx.c"
 clang++ -c -std=c++17 -O2 -o "$pending_directory/studio_native_fallbacks.o" "$ENGINE/native/elisa_native_fallbacks.cpp"
-bash "$STAGE1/scripts/elisac_stage1.sh" -O2 -o "$pending_object" "$ROOT/src/studio/app/main.elisa" \
+bash "$STAGE1/scripts/elisac_stage1.sh" "-O$STUDIO_OPT_LEVEL" -o "$pending_object" "$ROOT/src/studio/app/main.elisa" \
   2>&1 | tee "$pending_directory/compiler.log"
 # Also refuse compatibility-mode Global warnings if a selected compiler emits
 # them without a failing exit status, including dependency call sites.
