@@ -65,95 +65,96 @@ def same_clip(a: StudioModel::Clip&, b: StudioModel::Clip&) -> i32:
             return 8 if not same_i(&x, &y)
     return 0
 
-def main() -> i32:
-    present: i32 = catch GlbDocument::load(PATH):
-        value: 1
-        GlbDocument::GlbDocumentError.OpenFailed: 0
-        error failure: 2
-    return 0 if present == 0
-    # The windowed path is measured with the foot fix (K) off: with it on,
-    # every edit rebuilds the whole clip (the fix is non-local).
-    mutable s0: StackState::Stack = StudioModel::initial_stack()
-    s0.feet <- false
-    loaded: StudioModel::Memo? = StudioModel::load(PATH, "jab")
-    if loaded is held:
-        mutable m: StudioModel::Memo = held
-        return 60 if m.source_fingerprint.first < 0 or m.source_fingerprint.first >= StudioSourceFingerprint::Residue::FIRST_MODULUS
-        return 61 if m.source_fingerprint.second < 0 or m.source_fingerprint.second >= StudioSourceFingerprint::Residue::SECOND_MODULUS
-        # Changing one source key must change the source identity used by
-        # version-4 sessions.
-        mutable changed_source: GlbDocument::Document = GlbDocument::copy(&m.pristine)
-        return 62 if GlbDocument::channel_count(&changed_source, m.anim) == 0
-        source_channel: GlbDocument::Channel = GlbDocument::channel(&changed_source, m.anim, 0)
-        source_track: GlbDocument::Track = GlbDocument::track(&changed_source, source_channel.output)
-        return 63 if source_track.count == 0 or source_track.components == 0
-        old_value: f32 = GlbDocument::track_value(&changed_source, source_channel.output, 0, 0)
-        new_value: f32 = 0.25 if old_value == 0.0 else 0.0
-        return 64 if not GlbDocument::set_track_value(&changed_source, source_channel.output, 0, 0, new_value)
-        changed_identity: StudioSourceFingerprint::Fingerprint? = StudioModel::fingerprint(&changed_source)
-        if changed_identity is altered:
-            return 65 if altered.first == m.source_fingerprint.first and altered.second == m.source_fingerprint.second
-        else:
-            return 66
-        none_p: darray[Geometry::Vec3] = []
-        none_i: darray[i64] = []
-        b0: i64 = clock()
-        first_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s0)
-        b1: i64 = clock()
-        built: StudioModel::Clip? = StudioModel::build_with(&m, s0, none_p, none_i, none_i, StudioPerf::full(m.frames), 0)
-        if built is c0:
-            return 10 if c0.poses != m.frames
-            # A gizmo correction on the hips at frame 40 (frames 28..52).
-            r: PoseOverride::Rig = StudioModel::rig(c0)
-            hips: i64 = StudioModel::default_bone(c0)
-            mutable goal: Geometry::Transform = StudioModel::models(c0, r, 40, false)[hips.usize()]
-            goal.position <- Geometry::Vec3{x: goal.position.x + 0.04, y: goal.position.y, z: goal.position.z}
-            fix: Corrections::Correction = StudioModel::correction_for(c0, r, hips, 40, goal)
-            mutable s1: StackState::Stack = s0
-            _ = StackState::add_fix(&s1, fix)
-            w: StudioPerf::Window = StudioPerf::edit_window(&s0, &s1, m.frames, m.shortest)
-            row("window", w.lo, w.hi, m.frames)
-            return 11 if w.lo != 28 or w.hi < 52
-            mutable k0: StackState::Stack = s0
-            k0.feet <- true
-            mutable k1: StackState::Stack = s1
-            k1.feet <- true
-            wk: StudioPerf::Window = StudioPerf::edit_window(&k0, &k1, m.frames, m.shortest)
-            return 18 if wk.lo != 0 or wk.hi != m.frames - 1
-            wt: StudioPerf::Window = StudioPerf::edit_window(&s0, &k0, m.frames, m.shortest)
-            return 19 if wt.lo != 0 or wt.hi != m.frames - 1
-            r0: i64 = clock()
-            full_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s1)
-            r1: i64 = clock()
-            inc_opt: StudioModel::Clip? = StudioModel::build_with(&m, s1, c0.points, c0.problems, c0.peaks, w, 0)
-            r2: i64 = clock()
-            if full_opt is full:
-                if inc_opt is inc:
-                    rc: i32 = same_clip(full, inc)
-                    return 20 + rc if rc != 0
-                    return 12 if inc.poses != w.hi - w.lo + 1 or inc.ops_run != 0
-                    row("correction rebuild us full/incremental", r1 - r0, r2 - r1, 0)
-                    row("  incremental evaluate/detect us, poses", inc.evaluate_us, inc.detect_us, inc.poses)
-                    row("  full evaluate/detect us, poses", full.evaluate_us, full.detect_us, full.poses)
-                    # An op edit: whole window, but only the edited op reruns.
-                    mutable s2: StackState::Stack = s1
-                    last: usize = (s2.count - 1).usize()
-                    s2.ops[last].strength <- 3
-                    w2: StudioPerf::Window = StudioPerf::edit_window(&s1, &s2, m.frames, m.shortest)
-                    return 13 if w2.lo != 0 or w2.hi != m.frames - 1
-                    o0: i64 = clock()
-                    full2_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s2)
-                    o1: i64 = clock()
-                    inc2_opt: StudioModel::Clip? = StudioModel::build_with(&m, s2, inc.points, inc.problems, inc.peaks, w2, 0)
-                    o2: i64 = clock()
-                    if full2_opt is full2:
-                        if inc2_opt is inc2:
-                            rc2: i32 = same_clip(full2, inc2)
-                            return 40 + rc2 if rc2 != 0
-                            return 14 if inc2.ops_run <= 0 or inc2.ops_run >= full2.ops_run
-                            row("op-edit rebuild us full/incremental, ops rerun", o1 - o0, o2 - o1, inc2.ops_run)
-                            row("first build (two loads) us", b1 - b0, 0, 0)
-                            return 0
-            return 15
-        return 16
-    return 17
+def main() -> i32 can[Global{Read, Write}]:
+    can Global{Read, Write}:
+        present: i32 = catch GlbDocument::load(PATH):
+            value: 1
+            GlbDocument::GlbDocumentError.OpenFailed: 0
+            error failure: 2
+        return 0 if present == 0
+        # The windowed path is measured with the foot fix (K) off: with it on,
+        # every edit rebuilds the whole clip (the fix is non-local).
+        mutable s0: StackState::Stack = StudioModel::initial_stack()
+        s0.feet <- false
+        loaded: StudioModel::Memo? = StudioModel::load(PATH, "jab")
+        if loaded is held:
+            mutable m: StudioModel::Memo = held
+            return 60 if m.source_fingerprint.first < 0 or m.source_fingerprint.first >= StudioSourceFingerprint::Residue::FIRST_MODULUS
+            return 61 if m.source_fingerprint.second < 0 or m.source_fingerprint.second >= StudioSourceFingerprint::Residue::SECOND_MODULUS
+            # Changing one source key must change the source identity used by
+            # version-4 sessions.
+            mutable changed_source: GlbDocument::Document = GlbDocument::copy(&m.pristine)
+            return 62 if GlbDocument::channel_count(&changed_source, m.anim) == 0
+            source_channel: GlbDocument::Channel = GlbDocument::channel(&changed_source, m.anim, 0)
+            source_track: GlbDocument::Track = GlbDocument::track(&changed_source, source_channel.output)
+            return 63 if source_track.count == 0 or source_track.components == 0
+            old_value: f32 = GlbDocument::track_value(&changed_source, source_channel.output, 0, 0)
+            new_value: f32 = 0.25 if old_value == 0.0 else 0.0
+            return 64 if not GlbDocument::set_track_value(&changed_source, source_channel.output, 0, 0, new_value)
+            changed_identity: StudioSourceFingerprint::Fingerprint? = StudioModel::fingerprint(&changed_source)
+            if changed_identity is altered:
+                return 65 if altered.first == m.source_fingerprint.first and altered.second == m.source_fingerprint.second
+            else:
+                return 66
+            none_p: darray[Geometry::Vec3] = []
+            none_i: darray[i64] = []
+            b0: i64 = clock()
+            first_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s0)
+            b1: i64 = clock()
+            built: StudioModel::Clip? = StudioModel::build_with(&m, s0, none_p, none_i, none_i, StudioPerf::full(m.frames), 0)
+            if built is c0:
+                return 10 if c0.poses != m.frames
+                # A gizmo correction on the hips at frame 40 (frames 28..52).
+                r: PoseOverride::Rig = StudioModel::rig(c0)
+                hips: i64 = StudioModel::default_bone(c0)
+                mutable goal: Geometry::Transform = StudioModel::models(c0, r, 40, false)[hips.usize()]
+                goal.position <- Geometry::Vec3{x: goal.position.x + 0.04, y: goal.position.y, z: goal.position.z}
+                fix: Corrections::Correction = StudioModel::correction_for(c0, r, hips, 40, goal)
+                mutable s1: StackState::Stack = s0
+                _ = StackState::add_fix(&s1, fix)
+                w: StudioPerf::Window = StudioPerf::edit_window(&s0, &s1, m.frames, m.shortest)
+                row("window", w.lo, w.hi, m.frames)
+                return 11 if w.lo != 28 or w.hi < 52
+                mutable k0: StackState::Stack = s0
+                k0.feet <- true
+                mutable k1: StackState::Stack = s1
+                k1.feet <- true
+                wk: StudioPerf::Window = StudioPerf::edit_window(&k0, &k1, m.frames, m.shortest)
+                return 18 if wk.lo != 0 or wk.hi != m.frames - 1
+                wt: StudioPerf::Window = StudioPerf::edit_window(&s0, &k0, m.frames, m.shortest)
+                return 19 if wt.lo != 0 or wt.hi != m.frames - 1
+                r0: i64 = clock()
+                full_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s1)
+                r1: i64 = clock()
+                inc_opt: StudioModel::Clip? = StudioModel::build_with(&m, s1, c0.points, c0.problems, c0.peaks, w, 0)
+                r2: i64 = clock()
+                if full_opt is full:
+                    if inc_opt is inc:
+                        rc: i32 = same_clip(full, inc)
+                        return 20 + rc if rc != 0
+                        return 12 if inc.poses != w.hi - w.lo + 1 or inc.ops_run != 0
+                        row("correction rebuild us full/incremental", r1 - r0, r2 - r1, 0)
+                        row("  incremental evaluate/detect us, poses", inc.evaluate_us, inc.detect_us, inc.poses)
+                        row("  full evaluate/detect us, poses", full.evaluate_us, full.detect_us, full.poses)
+                        # An op edit: whole window, but only the edited op reruns.
+                        mutable s2: StackState::Stack = s1
+                        last: usize = (s2.count - 1).usize()
+                        s2.ops[last].strength <- 3
+                        w2: StudioPerf::Window = StudioPerf::edit_window(&s1, &s2, m.frames, m.shortest)
+                        return 13 if w2.lo != 0 or w2.hi != m.frames - 1
+                        o0: i64 = clock()
+                        full2_opt: StudioModel::Clip? = StudioModel::build(PATH, "jab", s2)
+                        o1: i64 = clock()
+                        inc2_opt: StudioModel::Clip? = StudioModel::build_with(&m, s2, inc.points, inc.problems, inc.peaks, w2, 0)
+                        o2: i64 = clock()
+                        if full2_opt is full2:
+                            if inc2_opt is inc2:
+                                rc2: i32 = same_clip(full2, inc2)
+                                return 40 + rc2 if rc2 != 0
+                                return 14 if inc2.ops_run <= 0 or inc2.ops_run >= full2.ops_run
+                                row("op-edit rebuild us full/incremental, ops rerun", o1 - o0, o2 - o1, inc2.ops_run)
+                                row("first build (two loads) us", b1 - b0, 0, 0)
+                                return 0
+                return 15
+            return 16
+        return 17
