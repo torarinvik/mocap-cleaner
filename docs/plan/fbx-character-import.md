@@ -110,30 +110,36 @@ The old Python conversion driver used the wrong sampling-rate ABI; corrected
 checks and their limits are documented in the captured native evidence.
 Independent eight-influence Blender evidence is under
 `build/fbx-user-highblock-influence8` and `build/fbx-bladed-influence8`.
-UI switching remains unverified.
-The converter currently retains one largest supported skinned mesh; multiple
-mesh/material fidelity remains open.
+UI switching remains unverified. On 2026-10-09, the current engine converter
+converted the unchanged high-block FBX to a derived 17.9 MB GLB. The current
+Studio character harness evaluated, skinned and drew every animation frame for
+the embedded take mesh and character surface in three view modes without a
+crash. The source digest remained
+`50048a8a08f307d378e83d976462addcac62b5529bf60ae690da200d9d9f4485`. This
+headless check does not exercise the packaged app's file picker, playback timer,
+GPU viewport or input controls. The converter currently retains one largest
+supported skinned mesh; multiple mesh/material fidelity remains open.
 
-Compiler upstream performance changes `fb9747ee` and `63585c5f` are integrated in
-selected checkout merge `48dc78e2`. The compiler reseed and Studio compilation/linking succeeded; current build and
-visible workspace control evidence are in
-[workspace build record](../acceptance/studio-workspace-build-2026-10-07.md).
-Package publication remains blocked by the old running bundle lease; the retained
-new bundle is open. Complete full runtime and proof acceptance before treating
-the journey as qualified. Earlier
-build and runtime results remain evidence for their captured source tuple.
+Compiler upstream performance changes `fb9747ee` and `63585c5f` and the
+2026-10-07 package record remain historical evidence. The latest O0 package is
+`build/MocapStudio.app`; its staged inputs are recorded in
+`build/studio-build.PS4fvV/inputs.json`. Compilation and packaging completed with
+the current app and native source snapshot, but the prior full O0 gate recorded
+23 failing Studio tests before the most recent Global-grant fixture updates, and
+its proof/replay phase was interrupted. Re-run both on the current tree; do not
+infer qualification from the successful package build or historical record.
 
 Next acceptance work:
 
-- Qualify the current void-poll result-owner repair before accepting background
-  import. Earlier function-value ABI repairs made focused joins work, but the
-  actual void caller still passed a null result arena: worker payload headers
-  survived while their bytes were freed, and nested Memo cleanup faulted.
-  Preserve worker arena/adoption and callback repairs through the rebase, then
-  run the retained lifetime and performance controls and the actual Studio
-  journey. See [joined-result lifetime evidence](../proof-gaps/fbx-join-buffer-lifetime.md)
-  and [compiler promotion gates](current-delivery-queue.md). A standalone probe
-  omits AppKit and cannot establish the complete user journey.
+- The current compiler revision `09f15cf8` contains the region-handoff fix
+  `806772c7`; its void-poll lifetime regression passed O0, O2 and ASan with the
+  matching LLVM 23 Clang. The actual high-block animation also passed the
+  headless all-frame Studio character/mesh exercise. These checks support the
+  hypothesis that an older build caused the reported crash, but they do not
+  establish the native app's playback timer or GPU path. Complete the native
+  app journey before closing the crash report. See [joined-result lifetime
+  evidence](../proof-gaps/fbx-join-buffer-lifetime.md) and [compiler promotion
+  gates](current-delivery-queue.md).
 
 - Complete cancellation/restart and repeat authorized runtime checks against the
   final current application tuple.

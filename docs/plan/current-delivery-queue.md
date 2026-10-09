@@ -2,7 +2,7 @@
 
 [Roadmap](../../IMPLEMENTATION_PLAN.md) · [Shared acceptance](acceptance-and-dependencies.md)
 
-Updated 2026-10-08. This is the execution order for the entire remaining M0–M8
+Updated 2026-10-09. This is the execution order for the entire remaining M0–M8
 roadmap. Priority changes do not remove requirements. Detailed milestone and
 acceptance documents remain authoritative for each slice. Completed source
 needs qualification, not another implementation. Historical binaries and proof
@@ -29,37 +29,36 @@ until the first usable journey passes.
 
 The retained crash report is from project revision `31459ca3`, with executable
 SHA-256 `14bdc1305cdcb833eb2b65f44460cef69be8655a019a8f41929821c3b257705c`.
-It has no recorded frame position. It predates the later launched package at
-`e3698f7b`; that package is itself one commit behind the current checkout at
-`69d28c69`. The crash's machine code maps to `StudioScene.build_with`, which is a
-lead for reproduction, not proof of a current-source defect.
+It has no recorded frame position. The user later identified playback near 60%
+of the 337-frame clip, approximately frame 202. The report's machine code maps
+to `StudioScene.build_with`, a reproduction lead rather than proof of a current
+source defect.
 
-The latest available launched package is
-`build/studio-package.0IFvJH/MocapStudio.app` (package generation
-`studio-package.0IFvJH`, build generation `studio-build.NitjDS`, source revision
-`e3698f7b`, executable SHA-256
-`fd18a185a409af6cdb3cb516489ae237bf4521ed53d72712e20f7318e333bcad`). Its build
-record notes a dirty compiler worktree, so it is not sufficient to qualify the
-current dependency sources. A rebuild from the current mocap-cleaner checkout
-stopped during semantic preflight at `build/studio-build.biCHfz/semantic.log`;
-the diagnostics include same-name global-effect false positives and a UI dialog
-result-region ownership error. That log contains 71 engine Global-grant
-diagnostics across 12 files; classify them only after owner-aware effect matching
-is qualified. The owner-aware compiler repair passed Stage0 semantic preflight,
-and its focused same-leaf controls report no permissions for the unrelated key
-intent and mesh-toggle callees. Its first Stage1 seed did not complete: runtime
-compilation then exposed missing Global effects in numeric `Str.__cast__`
-scratch-arena overloads. The two controls used a diagnostic compiler product and
-a previously built reporter runtime, so they do not qualify the compiler or
-Studio. Repair only the actual scratch-arena overloads and re-run Stage1 seed,
-runtime build, and current Studio preflight with provenance.
+A fresh O0 package now exists at `build/MocapStudio.app`, built from staged
+inputs recorded in `build/studio-build.PS4fvV/inputs.json`. The current Stage1
+compiler is `09f15cf8` and includes region-handoff fix `806772c7`; the selected
+engine and UI checkouts are `1e98f075` and `65f370f3`. The current native FBX
+converter produced a 17.9 MB derived GLB from the user's unchanged source. The
+Studio character harness then evaluated and drew every animation frame for both
+the character surface and take mesh in three view modes without a crash. The
+source SHA-256 remained
+`50048a8a08f307d378e83d976462addcac62b5529bf60ae690da200d9d9f4485`.
 
-1. **Build and verify the current FBX journey.** Use the current compiler,
-proof assistant, UI and engine sources, and seal their exact revisions and
-products. Then load the unchanged 337-frame FBX, test playback around frame 202,
-Character/Skeleton switching, framing/orbit/zoom, repeated redraw, workspace
-setup, cancellation, retry and malformed-input recovery. Preserve and recheck
-the source digest (`50048a8a08f307d378e83d976462addcac62b5529bf60ae690da200d9d9f4485`).
+That harness does not exercise the packaged app's native file picker, playback
+timer, GPU viewport, or keyboard/pointer/accessibility controls. Attempts to
+bind the current app window through CUA timed out, so interactive acceptance is
+still open. The previous full O0 build log, captured before the latest test
+grant migrations, reports 23 failing Studio tests; rerun the full gate on the
+current tree and current dependencies after completing those migrations. The
+proof/replay phase of that run did not finish and must not be treated as passed.
+
+1. **Complete the packaged-app portion of the FBX journey.** Open the unchanged
+337-frame FBX in the fresh package and test real-time playback around frame
+202, Character/Skeleton switching, framing/orbit/zoom, repeated redraw, workspace
+setup, cancellation, retry and malformed-input recovery. The current native
+conversion and all-frame headless pose/draw check pass, but they do not substitute
+for this native interaction. Preserve and recheck the source digest
+(`50048a8a08f307d378e83d976462addcac62b5529bf60ae690da200d9d9f4485`).
 2. **Deliver one useful cleaned result.** No current proof/replay pair is
 qualified against current proof sources. After its source/product freshness
 check passes and the FBX journey completes, inspect one finding, preview it,
@@ -94,7 +93,7 @@ The following order governs task selection within the detailed queue:
 
 | Rank | Task | Why it earns the next slot | Deliverable |
 | --- | --- | --- | --- |
-| 1 | Qualify the reported FBX first-use journey on current sources | Latest source is not packaged; historical crash evidence predates the last launched build | User's unchanged FBX opens, plays through the reported region, is reviewable, and gives clear cancel/retry/refusal feedback |
+| 1 | Qualify the reported FBX first-use journey in the fresh package | Headless all-frame conversion, pose, skinning and draw checks pass; native open/playback and interaction are unverified | User's unchanged FBX opens, plays through the reported region, is reviewable, and gives clear cancel/retry/refusal feedback |
 | 2 | Complete one cleanup through undo and export/reopen | Turns the repaired import path into a useful result | Reviewed motion exports and reopens with matching identity and proof replay |
 | 3 | Close recovery and publication safety gaps | Protects work after the first result flow is real | Recovery and stale-result controls pass on the same current product |
 | 4 | Measure the largest observed interaction delay | Improves everyday use after correctness | Before/after timing and memory on the same workload |
@@ -116,7 +115,7 @@ new tool while a higher-ranked user journey remains blocked.
 
 | Order | User outcome | Smallest next action | Stop condition |
 | --- | --- | --- | --- |
-| 1 | The reported FBX journey is fully reviewable on current sources | Qualify a freshly built package, then test playback near frame 202, framing/orbit/zoom, repeated redraw, workspace setup, malformed-input details, cancel and retry | Character/Skeleton and playback work; failure/cancel paths are clear; source bytes stay unchanged |
+| 1 | The reported FBX journey is fully reviewable in the current package | Resolve native app access, then test Open, playback near frame 202, Character/Skeleton, camera controls, redraw, workspace setup, malformed-input details, cancel and retry | Character/Skeleton and playback work; failure/cancel paths are clear; source bytes stay unchanged |
 | 2 | A user produces a useful reviewed result | Complete one existing finding-to-preview-to-undo-to-export journey | Export reopens with the reviewed motion and required safety evidence |
 | 3 | Work survives interruption and publication races | Exercise recovery and stale-result refusal against the same sealed product | Recovery restores the intended result and stale candidates cannot replace it |
 

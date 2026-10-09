@@ -1,6 +1,6 @@
 # Mocap Cleaner — Product and Implementation Plan
 
-Updated 2026-10-08. This roadmap describes remaining work. Completed
+Updated 2026-10-09. This roadmap describes remaining work. Completed
 implementation is recorded in Git. Milestone documents retain their original
 section numbering and detailed acceptance criteria.
 
@@ -33,20 +33,25 @@ See the [representation migration inventory](docs/plan/constant-modules.md).
 ## Highest-return execution focus
 
 The retained 2026-10-08 crash report belongs to project revision `31459ca3` and
-does not include a frame or playback position. The later launched package was
-built from `e3698f7b`; the checked-out source is now at `69d28c69`, so the crash
-report does not establish a failure in the current source and the latest source
-has not yet been packaged. Rebuild a current, source-matched package, then verify
-the reported FBX through playback near frame 202 of 337, Character/Skeleton
-switching and camera controls. After that, deliver one existing cleanup with
-preview, apply/cancel, undo and a GLB export that reopens.
+does not include a frame or playback position. The user later located the crash
+around 60% of the 337-frame high-block animation (about frame 202). A fresh O0
+Studio package is now at `build/MocapStudio.app`; its staged-input manifest
+records the current Stage1 compiler binary and runtime hashes. It uses compiler
+revision `09f15cf8`, including region-handoff fix `806772c7`, engine revision
+`1e98f075` and UI revision `65f370f3`. The current converter produced a derived
+GLB from the unchanged FBX, and the Studio character harness evaluated, skinned
+and drew every frame without a crash. This is headless evidence: native file
+opening, playback controls, Character/Skeleton switching and camera behavior
+in the packaged app are still unverified. Complete that current-app journey,
+then deliver one existing cleanup with preview, apply/cancel, undo and a GLB
+export that reopens.
 
 Follow the [ranked delivery queue](docs/plan/current-delivery-queue.md):
 
-1. Qualify the latest source on the reported FBX: build from the current compiler
-   and dependency sources, test playback near frame 202, framing/orbit/zoom,
-   repeated redraw, workspace setup, cancellation, retry and malformed-input
-   recovery. Keep the source hash unchanged.
+1. Finish native interaction with the fresh package on the reported FBX: test
+   opening, playback near frame 202, Character/Skeleton switching,
+   framing/orbit/zoom, repeated redraw, workspace setup, cancellation, retry and
+   malformed-input recovery. Keep the source hash unchanged.
 2. Complete one existing cleanup/export journey with preview, apply/cancel, undo,
    contracts, source correspondence and independent proof replay; reopen the GLB.
 3. Refresh remaining proof/replay evidence against current sources and qualify
