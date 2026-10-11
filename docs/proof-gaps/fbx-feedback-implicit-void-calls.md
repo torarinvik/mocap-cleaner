@@ -39,8 +39,10 @@ Proof commits `f5854683` and `07af1987` respectively canonicalize ordered
 Boolean conjunctions after checked helper expansion and admit assert-only
 implicit-void functions in the sequential subset. Value-returning implicit
 functions, loops and matches remain refused by the void inference scan, and a
-value return in an active void function is rejected. Focused positive and
-refusal harnesses were added in the proof checkout.
+value return in an active void function is rejected. Commit `9542a001` adds an
+early void return/fallthrough ensure control. Commit `41d668af` adds a
+reordered-argument refusal control for the conjunction repair. Focused positive
+and refusal harnesses are in the proof checkout.
 
 The first fresh build attempt for these commits exited 2 before compilation.
 The Stage1 wrapper found
