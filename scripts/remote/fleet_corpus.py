@@ -18,7 +18,7 @@
   fleet_corpus.py --prover-rev 19611a2  prover built from that elisa-proof-mocap commit
   fleet_corpus.py --out FILE            also write the TSV to FILE
   fleet_corpus.py --root DIR            prove another mocap-cleaner checkout
-  fleet_corpus.py --hosts v80,v32:4     hosts, optionally with a slot count (default vast)
+  fleet_corpus.py --hosts v80,v32:4     hosts, optionally with a slot count (explicit configuration required)
   fleet_corpus.py --no-cache            prove everything (still refreshes the cache)
   fleet_corpus.py --clean               remove ~/work/mocap-fleet on every host and exit
   fleet_corpus.py FILE...               just these files (relative to the checkout)
@@ -36,7 +36,7 @@ PROJECTS = os.path.abspath(os.path.join(HERE, "../../.."))
 CFG = os.path.expanduser("~/.ssh/fleet_config")
 RBASE = "work/mocap-fleet"
 # remote_prover.sh links the prover on this host (its WINPC), through fleet_config.
-BUILD_HOST = os.environ.setdefault("WINPC", "vast")
+BUILD_HOST = os.environ.get("WINPC", "")
 os.environ.setdefault("SSH_CONFIG", CFG)
 os.environ.setdefault("REMOTE_BASE", RBASE)
 KEY_VERSION = "fleet-corpus-v1"
@@ -218,10 +218,12 @@ def main():
     ap.add_argument("--prover-src")
     ap.add_argument("--out")
     ap.add_argument("--root", default=os.path.abspath(os.path.join(HERE, "../..")))
-    ap.add_argument("--hosts", default=os.environ.get("FLEET_HOSTS", "vast"))
+    ap.add_argument("--hosts", default=os.environ.get("FLEET_HOSTS", ""))
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--clean", action="store_true")
     a = ap.parse_args()
+    if not a.hosts.strip() or not BUILD_HOST.strip():
+        ap.error("remote execution requires explicit --hosts/FLEET_HOSTS and WINPC; use scripts/prove.py locally")
     hosts = a.hosts.split(",")
     if a.clean:
         clean([h.partition(":")[0] for h in hosts]); return 0

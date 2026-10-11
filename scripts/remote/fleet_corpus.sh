@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECTS="$(cd "$HERE/../../.." && pwd)"
 export ELISA_STAGE1_ROOT="${ELISA_STAGE1_ROOT:-$PROJECTS/Elisa-compiler}"
 export ELISA_COMPILER_SRC="${ELISA_COMPILER_SRC:-$ELISA_STAGE1_ROOT}"
-export SSH_CONFIG="${SSH_CONFIG:-$HOME/.ssh/fleet_config}" WINPC="${WINPC:-vast}"
+export SSH_CONFIG="${SSH_CONFIG:-$HOME/.ssh/fleet_config}"
 export REMOTE_BASE="${REMOTE_BASE:-work/mocap-fleet}"
 args=()
 case " $* " in *" --prover-rev "*|*" --prover-src "*|*" --clean "*) ;;

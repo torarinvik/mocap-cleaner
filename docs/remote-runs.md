@@ -1,3 +1,7 @@
+Local compute is the default. Fleet runs require explicit `WINPC` and
+`--hosts`/`FLEET_HOSTS`; retired instances are never selected automatically.
+Historical measurements below are archival evidence.
+
 # Remote runs on winpc
 
 Heavy verification goes to `ssh winpc` (WSL2 Ubuntu, 12 cores, ~7.8 GB RAM) by default.
@@ -12,7 +16,7 @@ cross-compiled on the Mac (`-target-triple x86_64-unknown-linux-gnu`, with
 |---|---|
 | `scripts/remote/remote_prover.sh [--rev R] [--replay]` | Build/cached Linux elisa-proof from ../elisa-proof-mocap; prints its winpc path |
 | `scripts/remote/remote_prover.sh --runtime` | Ensure the Linux runtime object; print its path |
-| `scripts/remote/fleet_corpus.sh [--quick] [--compare BASE] [--out F]` | Prove the corpus on the fleet (default host `vast`) with a cross-run content cache; same TSV and --compare as remote_corpus.sh. **Use this one.** |
+| `scripts/remote/fleet_corpus.sh [--quick] [--compare BASE] [--out F]` | Prove the corpus on the fleet (explicit hosts required) with a cross-run content cache; same TSV and --compare as remote_corpus.sh. **Use this one.** |
 | `scripts/remote/remote_corpus.sh [--quick] [--compare BASE] [--out F]` | Prove the 91-file corpus (or 10 with --quick); TSV out; --compare exits 1 if any file is worse |
 | `scripts/remote/remote_check.sh [test...]` | Unit tests (test/*.elisa) on winpc; CLI section skipped (Mac-only bridges) |
 | `scripts/remote/remote_prover_tests.sh [--rev R]` | elisa-proof-mocap's scripts/test.sh on winpc; compiles are served from the Mac |
@@ -40,7 +44,7 @@ file-for-file, with the same states and the same proven/unproven counts. The qui
 frontend 2678ff10, cross-compiled with `elisa-compiler-worktrees/studio-globals`, linked on
 `vast`) and runs `fleet_corpus.py`, which takes the same arguments as `remote_corpus.sh` (`--quick`,
 `--compare BASE`, `--out F`, `--prover-rev R`, `--prover-src DIR`, `--root DIR`, `FILE...`)
-plus `--hosts v80,v32:4,...`, `--no-cache` and `--clean`. Hosts default to `vast` (FLEET_HOSTS). It talks to the hosts through
+plus `--hosts v80,v32:4,...`, `--no-cache` and `--clean`. Hosts must be supplied through `--hosts` or `FLEET_HOSTS`. It talks to the hosts through
 `~/.ssh/fleet_config` and works only in `~/work/mocap-fleet/` on each box.
 
 1. Prover: the key is `remote_prover.sh --key` (source revision or dirty-tree hash, opt level,
