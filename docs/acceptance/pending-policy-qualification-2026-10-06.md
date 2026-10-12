@@ -523,3 +523,16 @@ exports now sits at the right end of the toolbar. Frames and bones are
 shown beside the File button, and the duplicate spike line was dropped,
 since "spikes before -> after" is still listed below. Checked by screenshot
 of a development build with the boxer take open; not qualified.
+
+## Export publishes again (2026-10-12)
+
+In a development build, every export ended with "Prepared recovery no
+longer matches the captured export" and nothing was published. The
+recovery journal decoder handed its caller path arrays that were freed
+when it returned (compiler gap G85 in `docs/proof-gaps.md`), so the
+pre-publication reread never matched. With the decoders bound to the
+caller's region, the boxer jab exported. Studio reported "written, reopened
+and validated" with both reports. The exported GLB then opened in a fresh
+Studio at 97 frames and 54 bones. Distinct publication rejections
+(ownership, busy workspace, staging or destination changed) now have their
+own plain-language messages. Development build only; not qualified.

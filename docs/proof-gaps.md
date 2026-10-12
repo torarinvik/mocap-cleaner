@@ -48,3 +48,17 @@ The complete check is not green. Native storage qualification requires fresh
 compiler provenance, and some proof obligations remain unknown or unsupported.
 See the recent records for exact revisions, counts and boundary limitations.
 - [Proof and standalone replay snapshot (2026-10-07)](proof-gaps/proof-replay-snapshot-20261007.md)
+
+## G85: out-parameter writes escape an inferred region silently
+
+Compiler, not prover. Suppose a function allocates arrays in its inferred
+region and stores a struct holding them through a `mutable T&`
+out-parameter. The caller then holds storage that is freed when the function
+returns. Returning the same value is diagnosed ("value escapes its
+`in auto:` scope"); the out-parameter write is not. The export recovery and
+batch journal decoders hit this: every export reread its prepared journal
+with garbage path bytes and was refused before publication. Fixed in the
+cleaner by binding `out` to the caller's region (`def decode[@r](...,
+out: mutable Record& @r) -> bool @r`). Regression test:
+`test/export_recovery_journal.elisa`, which fails without the region
+binding. The compiler should diagnose the out-parameter escape too.

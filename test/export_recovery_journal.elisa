@@ -1,0 +1,41 @@
+# A recovery journal decoded in a callee must still be valid in the caller.
+# Its path arrays were once freed when decode returned, which made every
+# export fail its pre-publication reread (compiler gap G85).
+# The binding module is included because the bug only showed with its
+# allocation pattern in the same program.
+include "../src/studio/io/export_recovery_binding.elisa"
+
+def bytes_of(text: sview) -> darray[u8]:
+    mutable out: darray[u8] = []
+    out.extend(text)
+    out
+
+def main() -> i32 can[Blocking.IO, Memory{Allocate, Release}, Unsafe.PointerCast, Global{Read, Write}]:
+    record: StudioExportRecoveryJournal::Record = StudioExportRecoveryJournal::Record{
+        transaction: bytes_of(".mocap-export-recovery-Ab12Cd"),
+        workspace: bytes_of("/Users/someone/Downloads/high block/build"),
+        destination: bytes_of("/Users/someone/Downloads/high block/build/clean.glb"),
+        json_destination: bytes_of("/Users/someone/Downloads/high block/build/clean.glb.report.json"),
+        text_destination: bytes_of("/Users/someone/Downloads/high block/build/clean.glb.report.txt"),
+        source_generation: 2, animation_index: 9,
+        output_bytes: 57830076, json_bytes: 5192, text_bytes: 4060,
+        observed: StudioExportRecoveryStagePolicy::Stage.Prepared,
+        durable: StudioExportRecoveryStagePolicy::Stage.Prepared}
+    return 1 if not StudioExportRecoveryJournal::valid(record)
+    mutable wire: darray[u8] = []
+    return 2 if not StudioExportRecoveryJournal::encode(record, &wire)
+    mutable decoded: StudioExportRecoveryJournal::Record = zeroed
+    return 3 if not StudioExportRecoveryJournal::decode(wire, &decoded)
+    # Allocate after decode so freed storage would be reused and overwritten.
+    mutable noise: darray[u8] = []
+    for k in 0..<4096 |noise|:
+        noise.push(0)
+    return 4 if not StudioExportRecoveryJournal::valid(decoded)
+    return 5 if not StudioExportRecoveryJournal::same_binding(&decoded, record)
+    return 6 if decoded.output_bytes != 57830076 or decoded.animation_index != 9
+    mutable garbled: darray[u8] = []
+    garbled.extend(wire)
+    garbled[0] <- 88
+    return 7 if StudioExportRecoveryJournal::decode(garbled, &decoded)
+    return 8 if not StudioExportRecoveryJournal::same_binding(&decoded, record)
+    0
