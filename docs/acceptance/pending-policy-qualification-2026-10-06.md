@@ -514,3 +514,12 @@ bar, Go to Frame and the accessibility labels said "Frame 97 / 97". The
 timeline now uses the same 1-based numbering. Export reports keep their
 documented zero-based output frames. Development build only (region-fix
 Stage1); not qualified.
+
+## Sidebar header no longer overlaps (2026-10-12)
+
+The Pending exports button was drawn over the Balance badge, and the
+Workspace / File button covered the frame/bone and spike lines. Pending
+exports now sits at the right end of the toolbar. Frames and bones are
+shown beside the File button, and the duplicate spike line was dropped,
+since "spikes before -> after" is still listed below. Checked by screenshot
+of a development build with the boxer take open; not qualified.
