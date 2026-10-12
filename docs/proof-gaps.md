@@ -62,3 +62,22 @@ cleaner by binding `out` to the caller's region (`def decode[@r](...,
 out: mutable Record& @r) -> bool @r`). Regression test:
 `test/export_recovery_journal.elisa`, which fails without the region
 binding. The compiler should diagnose the out-parameter escape too.
+
+## G86: worker entry calls the job without its hidden arena
+
+Compiler and runtime, not prover. `ctx_concurrency_work1_entry` in
+`elisacore_std/elisacore_runtime_concurrency.elisa` calls the job through
+a function pointer, `fn(arg_box.value)`. A job declared with
+`Memory{Allocate}`, or one that returns heap data, is compiled with a hidden
+arena argument, but nothing sets it. In Studio's development build, the
+disassembly of `load_fbx_import_job`, `load_session_locate_job` and
+`evaluate_contact_preview_job` shows each one reading it from x1, which the
+entry never sets. FBX import then segfaults in `arena_alloc` at offset 0x18
+of a null arena. Opening the grant inside the body instead of declaring it
+leaves the generated code unchanged, so there is no source-side workaround.
+The entry should pass, or create, an arena for the worker thread.
+`../Elisa-compiler` (main) has the same entry code.
+`docs/proof-gaps.md` G85 is a separate region escape.
+`order_laws.elisa` gained two `median5` laws (a two-sample burst is never
+chosen; a monotone five keeps its middle). They are unproven because no
+working prover exists on this host.

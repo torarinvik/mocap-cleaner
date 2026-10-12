@@ -6,6 +6,24 @@ include "../src/tools/track.elisa"
 
 module OldTrack:
     public:
+        # Reference median of five: the window sample with at least three
+        # samples at or below it and three at or above it.
+        def median5_of(values: darray[i64]&, f: i64, looping: bool) -> i64:
+            mutable w: darray[i64] = []
+            for d in 0..<5 |d, w, values, f, looping|:
+                # The centre is the frame itself, like the median-of-3 reference.
+                w.push(values[f.usize()] if d == 2 else Track::sample(values, f - 2 + d.i64(), looping))
+            for k in 0..<5 |k, w|:
+                mutable below: i64 = 0
+                mutable above: i64 = 0
+                for j in 0..<5 |j, k, w, below, above|:
+                    if w[j] <= w[k]:
+                        below <- below + 1
+                    if w[j] >= w[k]:
+                        above <- above + 1
+                return w[k] if below >= 3 and above >= 3
+            w[2]
+
         def despike(values: darray[i64]&, passes: i64, edge: i64, looping: bool) -> darray[i64]:
             count: i64 = values.count.i64()
             current: mutable darray[i64] = []
@@ -15,9 +33,12 @@ module OldTrack:
             round: mutable i64 = 0
             while round < passes |round, current, count, looping|:
                 next: mutable darray[i64] = []
-                for i in 0..<current.count |i, current, next, count, looping|:
+                for i in 0..<current.count |i, current, next, count, looping, round|:
                     f: i64 = i.i64()
-                    next.push(Order::median3(Track::sample(current, f - 1, looping), current[i], Track::sample(current, f + 1, looping)))
+                    if round == 0:
+                        next.push(Order::median3(Track::sample(current, f - 1, looping), current[i], Track::sample(current, f + 1, looping)))
+                    else:
+                        next.push(OldTrack::median5_of(&current, f, looping))
                 current <- next
                 round <- round + 1
             out: mutable darray[i64] = []
@@ -120,4 +141,20 @@ def main() -> i32:
                     return 3 if not same(c, d)
                     checked <- checked + 2
     return 4 if checked < 1000
+    # A two-frame burst on a ramp: one pass (median of 3) keeps it, two
+    # passes (median of 3, then of 5) remove it: every frame lands back
+    # among the ramp's own values (a median picks a neighbour, it does not
+    # interpolate).
+    mutable ramp: darray[i64] = []
+    for i in 0..<20 |ramp|:
+        ramp.push(i.i64() * 100)
+    mutable burst: darray[i64] = []
+    burst.extend(ramp)
+    burst[9] <- 90000
+    burst[10] <- 90000
+    once: darray[i64] = Track::despike(burst, 1, 1, false)
+    return 5 if once[9] != 90000
+    twice: darray[i64] = Track::despike(burst, 2, 1, false)
+    for i in 2..<18 |twice, ramp|:
+        return 6 if twice[i] > 1900 or twice[i] < 0
     return 0

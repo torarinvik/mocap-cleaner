@@ -536,3 +536,31 @@ and validated" with both reports. The exported GLB then opened in a fresh
 Studio at 97 frames and 54 bones. Distinct publication rejections
 (ownership, busy workspace, staging or destination changed) now have their
 own plain-language messages. Development build only; not qualified.
+
+## Two-frame bursts and remaining findings (2026-10-12)
+
+Practice take: `build/practice/noisy-jab.glb`, derived from the boxer GLB
+with quaternion spikes on frames 20-21, 55 and 80 of the jab's arm and leg
+rotations. The default stack cut 172 spikes to 4, but a High "Sudden jerk"
+on frame 20 survived. Despike was median-of-3 only, and two equal
+outliers are a majority of three. Despike's first pass is still
+median-of-3; later passes now use median-of-5 (`Order::median5`, built
+from the proved `low`/`high`/`median3`), which removes bursts up to two
+frames wide. With the default two passes, the same take now goes from
+172 spikes to 2, and only a Low 1.1x finding remains. `track_kernels`
+checks the new passes against a reference and checks that a two-frame
+burst is removed.
+
+Beginner journey on that take:
+- The band no longer says "export" while findings remain. A new
+  `RemainingFindings` hint says "Problems remain: press W to jump to each
+  one...".
+- W now steps through findings (worst first) and Shift-W steps back; with
+  no findings, W keeps its old jump to the worst foot slide.
+- A with nothing left to add now points to the findings list.
+- Adding a step and Cmd-Z restored history 1/2 with the same results.
+
+Related tests pass on the region-fix Stage1: track_kernels, track_tools,
+op_stack, glb_clean, studio_workflow, studio_shortcuts, studio_state,
+studio_issues, studio_issue_browser, studio_duplicate_operation,
+studio_reset_scope and studio_session. Development build only; not qualified.

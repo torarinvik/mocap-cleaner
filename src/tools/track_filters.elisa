@@ -23,8 +23,17 @@ extend Track:
                     after: i64 = sample(src, f + 1, looping)
                     put(dst, f, Order::median3(before, now, after))
 
-        # Running median-of-3 de-spike, repeated `passes` times, then faded to
-        # the source at clip edges (unless looping). Two buffers are reused
+        # One median-of-5 pass: removes bursts up to two frames wide, which
+        # median-of-3 keeps (two equal outliers are a majority of three).
+        def burst_pass(src: darray[i64]&, dst: mutable darray[i64]&, looping: bool) -> void:
+            count: i64 = src.count.i64()
+            for f in 0..<count |f, src, dst, count, looping|:
+                put(dst, f, Order::median5(sample(src, f - 2, looping), sample(src, f - 1, looping), item(src, f), sample(src, f + 1, looping), sample(src, f + 2, looping)))
+
+        # Running median de-spike, repeated `passes` times, then faded to
+        # the source at clip edges (unless looping). The first pass is
+        # median-of-3 (single-frame spikes); later passes are median-of-5
+        # (bursts of up to two frames). Two buffers are reused
         # for every pass (Slide::flip picks the one a pass writes).
     public:
         def despike(values: darray[i64]&, passes: i64, edge: i64, looping: bool) -> darray[i64]:
@@ -40,10 +49,14 @@ extend Track:
             while round < passes:
                 invariant side >= 0
                 invariant side <= 1
-                if side == 1:
+                if side == 1 and round == 0:
                     despike_pass(&first, &second, looping)
-                else:
+                elif side == 1:
+                    burst_pass(&first, &second, looping)
+                elif round == 0:
                     despike_pass(&second, &first, looping)
+                else:
+                    burst_pass(&second, &first, looping)
                 side <- Slide::flip(side)
                 round <- round + 1
             return faded(values, &first, edge, looping, false) if side == 1
