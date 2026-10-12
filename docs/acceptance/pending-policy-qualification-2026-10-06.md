@@ -506,3 +506,11 @@ The Studio runtime bridge `build/generated/studio_runtime.elisa` includes
 `/private/tmp/Elisa-compiler-fbx-latest`, another session's scratch
 checkout. Its runtime currently fails to compile together with
 `gltf_track_sample.elisa`, which is why `SharedGrid` uses `MotionQuat`.
+
+## One frame numbering for beginners (2026-10-12)
+
+The timeline label read "frame 96 / 96" on the last frame, while the status
+bar, Go to Frame and the accessibility labels said "Frame 97 / 97". The
+timeline now uses the same 1-based numbering. Export reports keep their
+documented zero-based output frames. Development build only (region-fix
+Stage1); not qualified.
