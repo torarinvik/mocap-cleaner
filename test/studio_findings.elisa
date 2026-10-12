@@ -1,0 +1,78 @@
+# Foot-slide findings on the boxing jab: every sample is a planted foot over
+# the foot cleanup's mark, carries the foot's rig slot, and groups into runs
+# the issue browser can list; the wording policy reads the ratio and strength.
+include "../src/studio/app/findings.elisa"
+
+extern puts(text: cstr) -> i64
+
+const PATH: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+
+def run(c: StudioModel::Clip&) -> i32 can[Global{Read, Write}]:
+    can Global{Read, Write}:
+        return run_body(c)
+
+def run_body(c: StudioModel::Clip&) -> i32:
+    mutable samples: darray[StudioIssues::Sample] = []
+    added: i64 = StudioFindings::add_foot_slides(c, 7, &samples)
+    return 3 if added != samples.count.i64()
+    left: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, Roles::Joint.LeftFoot.i64())
+    right: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, Roles::Joint.RightFoot.i64())
+    return 4 if left < 0 or right < 0
+    for s in samples |s, left, right, c|:
+        return 5 if s.value <= StudioFoot::Metric::MARK_SLIDE or s.threshold != StudioFoot::Metric::MARK_SLIDE
+        return 6 if s.source_revision != 7 or s.frame < 1 or s.frame >= c.frames
+        if s.issue_type == StudioIssueExplanationPolicy::Detector::LEFT_FOOT_SLIDE:
+            return 7 if s.subject_id != left or not c.left_contact[s.frame.usize()]
+        else:
+            return 8 if s.issue_type != StudioIssueExplanationPolicy::Detector::RIGHT_FOOT_SLIDE or s.subject_id != right or not c.right_contact[s.frame.usize()]
+    grouped: darray[StudioIssues::Issue] = StudioIssues::group(&samples)
+    return 9 if grouped.count > samples.count
+    for g in grouped |g|:
+        return 10 if StudioIssueExplanationPolicy::category(g.issue_type) != StudioIssueExplanationPolicy::Category.FootSlide
+        return 11 if g.first_frame > g.peak_frame or g.peak_frame > g.last_frame
+    return 0
+
+# A planted foot that slides 5 mm a frame on frames 3-6 and stays put
+# elsewhere gives one grouped run of four frames; an unplanted slide gives
+# nothing.
+def synthetic() -> i32:
+    mutable track: darray[Geometry::Vec3] = []
+    mutable planted: darray[bool] = []
+    mutable x: f32 = 0.0
+    for k in 0..<10 |k, track, planted, x|:
+        x <- x + (0.005 if k >= 3 and k <= 6 else 0.0)
+        track.push(Geometry::Vec3{x: x, y: 0.0, z: 0.0})
+        planted.push(k != 8)
+    mutable samples: darray[StudioIssues::Sample] = []
+    added: i64 = StudioFindings::add_slides(&track, &planted, StudioIssueExplanationPolicy::Detector::LEFT_FOOT_SLIDE, 4, 1, &samples)
+    return 30 if added != 4 or samples.count != 4
+    return 31 if samples[0].frame != 3 or samples[3].frame != 6 or samples[0].subject_id != 4
+    return 32 if samples[0].value < 4900 or samples[0].value > 5100
+    grouped: darray[StudioIssues::Issue] = StudioIssues::group(&samples)
+    return 33 if grouped.count != 1 or grouped[0].first_frame != 3 or grouped[0].last_frame != 6
+    return 34 if StudioIssueExplanationPolicy::strength(grouped[0].peak_value, grouped[0].threshold) != StudioIssueExplanationPolicy::Level.Clear
+    mutable lifted: darray[bool] = []
+    for k in 0..<10 |k, lifted|:
+        lifted.push(false)
+    mutable none: darray[StudioIssues::Sample] = []
+    return 35 if StudioFindings::add_slides(&track, &lifted, StudioIssueExplanationPolicy::Detector::LEFT_FOOT_SLIDE, 4, 1, &none) != 0
+    return 0
+
+def main() -> i32 can[Global{Read, Write}]:
+    can Global{Read, Write}:
+        return 20 if StudioIssueExplanationPolicy::ratio_tenths(2600, 1000) != 26
+        return 21 if StudioIssueExplanationPolicy::strength(3000, 1000) != StudioIssueExplanationPolicy::Level.Strong
+        return 22 if StudioIssueExplanationPolicy::strength(1500, 1000) != StudioIssueExplanationPolicy::Level.Clear
+        return 23 if StudioIssueExplanationPolicy::strength(1499, 1000) != StudioIssueExplanationPolicy::Level.Mild
+        return 24 if StudioIssueExplanationPolicy::category(0) != StudioIssueExplanationPolicy::Category.MotionSpike
+        return 25 if StudioIssueExplanationPolicy::category(9) != StudioIssueExplanationPolicy::Category.OtherMotion
+        synthetic_code: i32 = synthetic()
+        return synthetic_code if synthetic_code != 0
+        empty: StackState::Stack = StudioModel::initial_stack()
+        built: StudioModel::Clip? = StudioModel::build(PATH, "jab", &empty)
+        if built is c:
+            code: i32 = run(c)
+            return code if code != 0
+            _ = puts("studio findings: foot-slide samples, grouping and wording pass")
+            return 0
+        return 1

@@ -1,0 +1,31 @@
+# Findings beyond the motion-spike detector, as StudioIssues samples the
+# issue browser groups and ranks with the rest.
+include "model.elisa"
+include "../issues.elisa"
+include "../issue_explanation_policy.elisa"
+
+module StudioFindings:
+    public:
+        # Planted feet that slide: one sample per frame where a planted foot
+        # moves more than the foot cleanup's own mark, per foot. The subject
+        # is the foot's rig slot (-1 when the rig has no such role), so
+        # selecting the finding shows that bone's curves.
+        def add_foot_slides(c: StudioModel::Clip&, revision: i64, samples: mutable darray[StudioIssues::Sample]&) -> i64:
+            left: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, Roles::Joint.LeftFoot.i64())
+            right: i64 = StudioClip::slot_of_role(c.cleaned, c.slot, Roles::Joint.RightFoot.i64())
+            added: i64 = add_slides(c.left_foot, c.left_contact, StudioIssueExplanationPolicy::Detector::LEFT_FOOT_SLIDE, left, revision, samples)
+            return added + add_slides(c.right_foot, c.right_contact, StudioIssueExplanationPolicy::Detector::RIGHT_FOOT_SLIDE, right, revision, samples)
+
+        # One foot: a sample for each frame where the foot is planted on this
+        # and the previous frame and moves more than the mark between them.
+        def add_slides(track: darray[Geometry::Vec3]&, planted: darray[bool]&, detector: i64, slot: i64, revision: i64, samples: mutable darray[StudioIssues::Sample]&) -> i64:
+            mark: i64 = StudioFoot::Metric::MARK_SLIDE
+            mutable added: i64 = 0
+            for frame in 0..<track.count |frame, track, planted, detector, slot, revision, samples, mark, added|:
+                slide: i64 = StudioModel::step_slide(track, planted, frame)
+                if slide > mark:
+                    mutable strength: i64 = slide * 1000 / mark
+                    strength <- StudioIssues::MAX_SEVERITY if strength > StudioIssues::MAX_SEVERITY else strength
+                    samples.push(StudioIssues::Sample{frame: frame.i64(), issue_type: detector, subject_id: slot, source_revision: revision, severity: strength, value: slide, threshold: mark})
+                    added <- added + 1
+            return added

@@ -456,3 +456,20 @@ then crashed in `Studio.clip.rehome`. The same crash happens with HEAD alone
 built by the same stale Stage1, so it is a toolchain fault, not this change.
 Proof replay, baseline rows and native acceptance remain open until a
 current toolchain exists.
+
+## Plain-language findings and foot-slide detection (2026-10-12)
+
+Finding rows now read like "Sudden jerk  frames 119-124  2.6x limit  High"
+instead of raw detector values. `StudioIssueExplanationPolicy::ratio_tenths`
+and `strength` derive the ratio and the Low/Medium/High label from the
+measured peak and threshold; the capped severity cannot, because every
+listed spike is at its maximum. Planted-foot slides over
+`StudioFoot::Metric::MARK_SLIDE` (2 mm per frame) are new findings
+(detectors 1 and 2, left and right foot), with the foot's rig slot as the
+subject. Ranking ties compare peak-to-threshold ratios, because detector
+units differ. On the boxing jab the contact detector plants only 2 of 194
+foot-frames: the boxer steps and stays on the balls of the feet. So the jab
+yields no slide findings, and `test/studio_findings.elisa` also covers a
+synthetic planted slide. Evidence is development-only, with the same
+toolchain limits as the workflow band above. Proof replay of the new
+explanation laws and the user-FBX journey remain open.

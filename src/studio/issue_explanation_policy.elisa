@@ -3,10 +3,15 @@ module StudioIssueExplanationPolicy:
     public:
         const module Detector:
             MOTION_SPIKE: i64 = 0
+            # A planted foot moving more than StudioFoot::Metric::MARK_SLIDE
+            # in one frame; the subject is the foot's rig slot.
+            LEFT_FOOT_SLIDE: i64 = 1
+            RIGHT_FOOT_SLIDE: i64 = 2
 
         const enum Category of i64:
             MotionSpike = 0
             OtherMotion = 1
+            FootSlide = 2
 
         const enum Level of i64:
             Mild = 0
@@ -14,9 +19,11 @@ module StudioIssueExplanationPolicy:
             Strong = 2
 
         def category(issue_type: i64) -> Category:
-            ensure issue_type == Detector::MOTION_SPIKE or result == Category.OtherMotion
             ensure issue_type != Detector::MOTION_SPIKE or result == Category.MotionSpike
+            ensure (issue_type != Detector::LEFT_FOOT_SLIDE and issue_type != Detector::RIGHT_FOOT_SLIDE) or result == Category.FootSlide
+            ensure issue_type == Detector::MOTION_SPIKE or issue_type == Detector::LEFT_FOOT_SLIDE or issue_type == Detector::RIGHT_FOOT_SLIDE or result == Category.OtherMotion
             return Category.MotionSpike if issue_type == Detector::MOTION_SPIKE
+            return Category.FootSlide if issue_type == Detector::LEFT_FOOT_SLIDE or issue_type == Detector::RIGHT_FOOT_SLIDE
             return Category.OtherMotion
 
         def displayed_peak_exceeds(peak_value: i64, threshold: i64) -> bool:
@@ -43,4 +50,28 @@ module StudioIssueExplanationPolicy:
             ensure result.i64() <= Level.Strong.i64()
             return Level.Strong if severity_permille >= 1000
             return Level.Clear if severity_permille >= 500
+            return Level.Mild
+
+        # Bound on a displayed peak so tenths of a ratio cannot overflow.
+        const module RatioDisplay:
+            MAX_PEAK: i64 = 922337203685477580
+
+        # Peak-to-threshold ratio in tenths (26 for "2.6x"), truncated.
+        def ratio_tenths(peak_value: i64, threshold: i64) -> i64:
+            requires threshold > 0
+            requires peak_value >= 0 and peak_value <= RatioDisplay::MAX_PEAK
+            ensure result >= 0
+            ensure result * threshold <= peak_value * 10
+            peak_value * 10 / threshold
+
+        # Beginner strength label from the measured peak: Strong at three
+        # times the threshold or more, Clear from one and a half times.
+        def strength(peak_value: i64, threshold: i64) -> Level:
+            requires threshold > 0 and threshold <= RatioDisplay::MAX_PEAK
+            requires peak_value >= 0 and peak_value <= RatioDisplay::MAX_PEAK
+            ensure peak_value < 3 * threshold or result == Level.Strong
+            ensure peak_value >= 3 * threshold or 2 * peak_value < 3 * threshold or result == Level.Clear
+            ensure 2 * peak_value >= 3 * threshold or result == Level.Mild
+            return Level.Strong if peak_value >= 3 * threshold
+            return Level.Clear if 2 * peak_value >= 3 * threshold
             return Level.Mild

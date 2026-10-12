@@ -1,4 +1,5 @@
 include "app_state.elisa"
+include "findings.elisa"
 include "../issue_explanation.elisa"
 include "../redraw_revision_policy.elisa"
 
@@ -112,6 +113,7 @@ extend Studio:
                             mutable severity: i64 = value * 1000 / c.threshold
                             severity <- StudioIssues::MAX_SEVERITY if severity > StudioIssues::MAX_SEVERITY else severity
                             samples.push(StudioIssues::Sample{frame: frame, issue_type: 0, subject_id: -1, source_revision: built, severity: severity, value: value, threshold: c.threshold})
+                StudioFindings::add_foot_slides(c, built, &samples)
                 mutable ranked: darray[StudioIssues::Issue] = StudioIssues::group(&samples)
                 # Stable descending severity, then descending peak excess. The
                 # grouping kernel has already made each row's peak deterministic.
@@ -121,8 +123,10 @@ extend Studio:
                         while cursor > 0:
                             current: StudioIssues::Issue = ranked[cursor]
                             previous: StudioIssues::Issue = ranked[cursor - 1]
-                            current_margin: i64 = current.peak_value - current.threshold
-                            previous_margin: i64 = previous.peak_value - previous.threshold
+                            # Detectors use different units, so ties compare
+                            # the peak-to-threshold ratio by cross-multiplying.
+                            current_margin: i64 = current.peak_value * previous.threshold
+                            previous_margin: i64 = previous.peak_value * current.threshold
                             wins: bool = current.severity > previous.severity or (current.severity == previous.severity and current_margin > previous_margin)
                             if wins:
                                 ranked[cursor] <- previous
@@ -166,7 +170,7 @@ extend Studio:
                 issue_selected <- index
                 if clip is c and issue.subject_id >= 0 and issue.subject_id < c.nodes.count.i64():
                     bone <- issue.subject_id
-                status <- "Spike peak selected · aggregate subject unknown · review intent" if issue.issue_type == 0 and issue.subject_id < 0 else "Finding peak selected · review detector evidence"
+                status <- "Jumped to the worst frame of this finding. Press Space to play it back." 
                 touch()
 
         def issue_navigation(action: i64) -> void can[Global{Read, Write}]:

@@ -213,36 +213,44 @@ extend StudioPanels:
                 explanation: StudioIssueExplanation::Explanation = StudioIssueExplanation::explain(issue)
                 StudioText::begin()
                 if explanation.category == StudioIssueExplanationPolicy::Category.MotionSpike:
-                    StudioText::put("Spike")
+                    StudioText::put("Sudden jerk")
+                elif issue.issue_type == StudioIssueExplanationPolicy::Detector::LEFT_FOOT_SLIDE:
+                    StudioText::put("Left foot sliding")
+                elif issue.issue_type == StudioIssueExplanationPolicy::Detector::RIGHT_FOOT_SLIDE:
+                    StudioText::put("Right foot sliding")
                 else:
-                    StudioText::put("detector ")
-                    StudioText::put_i(issue.issue_type)
-                StudioText::put(" · ")
-                if issue.subject_id >= 0:
-                    StudioText::put("subject ")
-                    StudioText::put_i(issue.subject_id)
-                else:
-                    StudioText::put("aggregate only")
-                if StudioIssueExplanationPolicy::can_display_one_based(explanation.peak_frame):
-                    StudioText::put("  frame ")
-                    StudioText::put_i(StudioIssueExplanationPolicy::one_based_frame(explanation.peak_frame))
-                else:
-                    StudioText::put("  frame (zero-based) ")
-                    StudioText::put_i(explanation.peak_frame)
-                StudioText::put("  value ")
-                StudioText::put_i(explanation.peak_value)
-                StudioText::put(" / ")
-                StudioText::put_i(explanation.threshold)
+                    StudioText::put("Motion problem")
+                if StudioIssueExplanationPolicy::can_display_one_based(issue.first_frame) and StudioIssueExplanationPolicy::can_display_one_based(issue.last_frame):
+                    if issue.first_frame == issue.last_frame:
+                        StudioText::put("  frame ")
+                        StudioText::put_i(StudioIssueExplanationPolicy::one_based_frame(issue.first_frame))
+                    else:
+                        StudioText::put("  frames ")
+                        StudioText::put_i(StudioIssueExplanationPolicy::one_based_frame(issue.first_frame))
+                        StudioText::put("-")
+                        StudioText::put_i(StudioIssueExplanationPolicy::one_based_frame(issue.last_frame))
+                if explanation.threshold > 0 and explanation.peak_value >= 0 and explanation.peak_value <= StudioIssueExplanationPolicy::RatioDisplay::MAX_PEAK and explanation.threshold <= StudioIssueExplanationPolicy::RatioDisplay::MAX_PEAK:
+                    tenths: i64 = StudioIssueExplanationPolicy::ratio_tenths(explanation.peak_value, explanation.threshold)
+                    StudioText::put("  ")
+                    StudioText::put_i(tenths / 10)
+                    StudioText::put(".")
+                    StudioText::put_i(tenths % 10)
+                    StudioText::put("x limit  ")
+                    level: StudioIssueExplanationPolicy::Level = StudioIssueExplanationPolicy::strength(explanation.peak_value, explanation.threshold)
+                    StudioText::put("High" if level == StudioIssueExplanationPolicy::Level.Strong else "Medium" if level == StudioIssueExplanationPolicy::Level.Clear else "Low")
                 return StudioText::view()
 
         # Aggregate maxima mix translation, rotation and scale channels. They
         # are detector values, not a physical acceleration or a named joint.
+        # Beginner help for a finding: what the detector saw, why it may be a
+        # capture glitch or deliberate motion, and what to do next. Spike
+        # findings aggregate every channel, so no body part is named.
         def issue_row_help(issue: StudioIssues::Issue) -> sview:
-            return "Invalid finding; rebuild analysis before navigation." if not StudioIssueExplanation::valid_issue(issue)
-            return "The displayed peak is at or below the displayed threshold. Values are rounded channel components scaled by 1,000,000. Review the measurement and exact peak frame before deciding whether cleanup is needed; the finding alone does not establish unintended motion." if issue.issue_type == StudioIssueExplanationPolicy::Detector::MOTION_SPIKE and not StudioIssueExplanationPolicy::displayed_peak_exceeds(issue.peak_value, issue.threshold)
-            return "Measured channel second difference exceeds the spike threshold. Values are rounded channel components scaled by 1,000,000, not physical acceleration. The aggregate subject is unknown; deliberate fast motion may be intentional. Select to review the exact peak frame." if issue.issue_type == StudioIssueExplanationPolicy::Detector::MOTION_SPIKE and issue.subject_id < 0
-            return "Measured channel second difference exceeds the spike threshold. Values are rounded channel components scaled by 1,000,000, not physical acceleration. Select to review the exact peak frame and known subject." if issue.issue_type == StudioIssueExplanationPolicy::Detector::MOTION_SPIKE
-            "Detector explanation unavailable. Select to review the exact peak frame and subject when known."
+            return "This finding is out of date. Wait for the analysis to finish, then pick it again." if not StudioIssueExplanation::valid_issue(issue)
+            return "The body moves about as fast here as the limit allows. Play these frames (Space) and decide by eye; it may be fine." if issue.issue_type == StudioIssueExplanationPolicy::Detector::MOTION_SPIKE and not StudioIssueExplanationPolicy::displayed_peak_exceeds(issue.peak_value, issue.threshold)
+            return "The pose jumps much faster on these frames than on the frames around them, usually a capture glitch. A real fast move, like a punch, can also trigger this. Play it back (Space); press A for the suggested cleanup, and Cmd-Z undoes it." if issue.issue_type == StudioIssueExplanationPolicy::Detector::MOTION_SPIKE
+            return "This foot should be planted on the floor here, but it slides more than 2 mm a frame. Press K to lock the feet to their contacts; Cmd-Z undoes it." if issue.issue_type == StudioIssueExplanationPolicy::Detector::LEFT_FOOT_SLIDE or issue.issue_type == StudioIssueExplanationPolicy::Detector::RIGHT_FOOT_SLIDE
+            "Select to jump to these frames and play them back before deciding."
 
         def issue_browser(sb: Box, issues: darray[StudioIssues::Issue]&, first: i64, selected: i64, stale: bool, loading: bool, filter_active: bool) -> void can[Global{Read, Write}]:
             can Global{Read, Write}:
