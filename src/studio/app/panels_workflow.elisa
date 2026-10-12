@@ -1,0 +1,81 @@
+# The beginner workflow band under the toolbar: Import, Analyze, Fix,
+# Validate and Export as numbered steps (a check when done, accent when
+# current, dim when blocked), then one plain-language hint naming the next
+# action and its key. StudioWorkflow decides every state from measured take
+# facts; this file only draws and words them.
+include "../workflow_policy.elisa"
+
+extend StudioPanels:
+    private:
+        const module WorkflowLayout:
+            STEP_WIDTH: f32 = 96.0
+            DOT: f32 = 9.0
+            TEXT_SIZE: f32 = 12.0
+
+    public:
+        def workflow_box(w: f32) -> Box:
+            box(Layout::GAP, Layout::WORKFLOW_TOP, main_width(w), Layout::WORKFLOW)
+
+        def workflow_step_label(step: i64) -> sview:
+            return "Import" if step == StudioWorkflow::Step.Import.i64()
+            return "Analyze" if step == StudioWorkflow::Step.Analyze.i64()
+            return "Fix" if step == StudioWorkflow::Step.Fix.i64()
+            return "Validate" if step == StudioWorkflow::Step.Validate.i64()
+            "Export"
+
+        def workflow_step_number(step: i64) -> sview:
+            return "1" if step == 0
+            return "2" if step == 1
+            return "3" if step == 2
+            return "4" if step == 3
+            "5"
+
+        # Beginner copy for a StudioWorkflow hint: what to do, and the key.
+        def workflow_hint_text(hint: i64) -> sview:
+            return "Next: open a take with Cmd-O, or drop an FBX or GLB file here." if hint == StudioWorkflow::Hint.OpenTake.i64()
+            return "Importing the take... Escape cancels; the source file is never changed." if hint == StudioWorkflow::Hint.Importing.i64()
+            return "Next: press A for the suggested cleanup, or pick a problem in the list." if hint == StudioWorkflow::Hint.ReviewFindings.i64()
+            return "No problems found. Press E to export the take as it is." if hint == StudioWorkflow::Hint.NothingToFix.i64()
+            return "Check: this cleanup made a measured problem worse. Undo with Cmd-Z." if hint == StudioWorkflow::Hint.Regressed.i64()
+            return "Next: play it back (Space) to check, then press E to export." if hint == StudioWorkflow::Hint.ReadyToExport.i64()
+            "Done: the cleaned take is exported. Open another with Cmd-O."
+
+        def workflow_hint_color(hint: i64) -> UiCore::Color:
+            return StudioDraw::severity_color(2) if hint == StudioWorkflow::Hint.Regressed.i64()
+            return StudioDraw::color(120, 220, 140) if hint == StudioWorkflow::Hint.Exported.i64()
+            StudioDraw::ink()
+
+        # Draw the band for the given take facts.
+        def workflow_band(w: f32, loaded: bool, importing: bool, findings: i64, changed: bool, regressed: bool, exported: bool) -> void can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                b: Box = workflow_box(w)
+                StudioDraw::rect(b.x, b.y, b.w, b.h, StudioDraw::panel())
+                now: i64 = StudioWorkflow::current(loaded, findings, changed, regressed, exported)
+                cy: f32 = b.y + b.h * 0.5
+                for k in 0..<StudioWorkflow::Count::STEPS |k, b, now, loaded, cy|:
+                    state: i64 = StudioWorkflow::state(k, now, loaded)
+                    x: f32 = b.x + 14.0 + k.f32() * WorkflowLayout::STEP_WIDTH
+                    if state == StudioWorkflow::State.Done.i64():
+                        StudioDraw::disc(x, cy, WorkflowLayout::DOT, StudioDraw::color(60, 150, 90))
+                        StudioDraw::segment(x - 4.0, cy, x - 1.0, cy + 3.5, 2.0, StudioDraw::ink())
+                        StudioDraw::segment(x - 1.0, cy + 3.5, x + 4.5, cy - 3.5, 2.0, StudioDraw::ink())
+                    elif state == StudioWorkflow::State.Current.i64():
+                        StudioDraw::disc(x, cy, WorkflowLayout::DOT, StudioDraw::accent())
+                        StudioDraw::text(x - 3.5, cy - 7.0, 11.0, workflow_step_number(k), StudioDraw::panel())
+                    else:
+                        StudioDraw::ring(x, cy, WorkflowLayout::DOT, 1.5, StudioDraw::muted() if state == StudioWorkflow::State.Open.i64() else StudioDraw::color(70, 76, 90))
+                        StudioDraw::text(x - 3.5, cy - 7.0, 11.0, workflow_step_number(k), StudioDraw::muted())
+                    label: UiCore::Color = StudioDraw::color(70, 76, 90) if state == StudioWorkflow::State.Blocked.i64() else StudioDraw::ink()
+                    if state == StudioWorkflow::State.Current.i64():
+                        StudioDraw::bold(x + 14.0, cy - 7.5, WorkflowLayout::TEXT_SIZE, workflow_step_label(k), StudioDraw::accent())
+                    else:
+                        StudioDraw::text(x + 14.0, cy - 7.5, WorkflowLayout::TEXT_SIZE, workflow_step_label(k), label)
+                    if k + 1 < StudioWorkflow::Count::STEPS:
+                        StudioDraw::segment(x + WorkflowLayout::STEP_WIDTH - 22.0, cy, x + WorkflowLayout::STEP_WIDTH - 14.0, cy, 1.0, StudioDraw::color(70, 76, 90))
+                hint: i64 = StudioWorkflow::hint(loaded, importing, findings, changed, regressed, exported)
+                hint_x: f32 = b.x + 14.0 + StudioWorkflow::Count::STEPS.f32() * WorkflowLayout::STEP_WIDTH
+                room: f32 = b.x + b.w - hint_x - 8.0
+                if room > 40.0:
+                    UiCore::set_clip(UiCore::Rect(hint_x, b.y, room, b.h))
+                    StudioDraw::text(hint_x, cy - 7.5, WorkflowLayout::TEXT_SIZE, workflow_hint_text(hint), workflow_hint_color(hint))
+                    UiCore::clear_clip()

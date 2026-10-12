@@ -1,0 +1,43 @@
+# The beginner workflow band over every combination of take facts: exactly
+# one current step, done steps before it, blocked steps after it until a take
+# opens, and a hint that agrees with the current step.
+include "../src/studio/workflow_policy.elisa"
+
+extern puts(text: cstr) -> i64
+
+def check(loaded: bool, importing: bool, findings: i64, changed: bool, regressed: bool, exported: bool) -> i32:
+    now: i64 = StudioWorkflow::current(loaded, findings, changed, regressed, exported)
+    return 1 if now < 0 or now >= StudioWorkflow::Count::STEPS
+    return 2 if now == StudioWorkflow::Step.Analyze.i64()
+    mutable currents: i64 = 0
+    for k in 0..<StudioWorkflow::Count::STEPS |k, now, loaded, currents|:
+        s: i64 = StudioWorkflow::state(k, now, loaded)
+        currents <- currents + (1 if s == StudioWorkflow::State.Current.i64() else 0)
+        return 3 if k < now and s != StudioWorkflow::State.Done.i64()
+        return 4 if k > now and not loaded and s != StudioWorkflow::State.Blocked.i64()
+    return 5 if currents != 1
+    h: i64 = StudioWorkflow::hint(loaded, importing, findings, changed, regressed, exported)
+    return 6 if importing and h != StudioWorkflow::Hint.Importing.i64()
+    if not importing:
+        return 7 if now == StudioWorkflow::Step.Import.i64() and h != StudioWorkflow::Hint.OpenTake.i64()
+        return 8 if now == StudioWorkflow::Step.Fix.i64() and h != StudioWorkflow::Hint.Regressed.i64() and h != StudioWorkflow::Hint.ReviewFindings.i64()
+        return 9 if now == StudioWorkflow::Step.Validate.i64() and h != StudioWorkflow::Hint.ReadyToExport.i64()
+        return 10 if now == StudioWorkflow::Step.Export.i64() and h != StudioWorkflow::Hint.Exported.i64() and h != StudioWorkflow::Hint.NothingToFix.i64()
+    return 0
+
+def main() -> i32:
+    for bits in 0..<32 |bits|:
+        b: i64 = bits.i64()
+        for findings in [0, 3] |findings, b|:
+            for importing in [false, true] |importing, b, findings|:
+                code: i32 = check(b % 2 == 1, importing, findings, (b / 2) % 2 == 1, (b / 4) % 2 == 1, (b / 8) % 2 == 1)
+                return 20 + code if code != 0
+    # Spot checks of the journey a beginner walks through.
+    return 40 if StudioWorkflow::current(false, 0, false, false, false) != StudioWorkflow::Step.Import.i64()
+    return 41 if StudioWorkflow::current(true, 12, false, false, false) != StudioWorkflow::Step.Fix.i64()
+    return 42 if StudioWorkflow::current(true, 4, true, false, false) != StudioWorkflow::Step.Validate.i64()
+    return 43 if StudioWorkflow::current(true, 4, true, true, false) != StudioWorkflow::Step.Fix.i64()
+    return 44 if StudioWorkflow::current(true, 4, true, false, true) != StudioWorkflow::Step.Export.i64()
+    return 45 if StudioWorkflow::state(StudioWorkflow::Step.Export.i64(), StudioWorkflow::Step.Fix.i64(), true) != StudioWorkflow::State.Open.i64()
+    _ = puts("studio workflow: one current step, ordered states and matching hints pass")
+    return 0

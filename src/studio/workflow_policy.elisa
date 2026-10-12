@@ -1,0 +1,82 @@
+# The beginner workflow band: five steps (Import, Analyze, Fix, Validate,
+# Export), each Done, Current, Open or Blocked, and the one next-step hint
+# shown beside them. Every input is a measured fact of the current take, so
+# the band never claims progress the take does not have:
+#   - a take is loaded (or an import is running);
+#   - how many findings the detectors report on the cleaned take;
+#   - whether the cleaned take differs from the source (`changed`);
+#   - whether the cleanup made any measured problem worse (`regressed`);
+#   - whether the current cleaned take has been exported.
+# Analyze runs automatically when a take opens, so it is never Current.
+# Exactly one step is Current; every step before it is Done and every step
+# after it is Blocked or Open.
+module StudioWorkflow:
+    public:
+        const enum Step of i64:
+            Import = 0
+            Analyze = 1
+            Fix = 2
+            Validate = 3
+            Export = 4
+
+        const enum State of i64:
+            Done = 0
+            Current = 1
+            Open = 2
+            Blocked = 3
+
+        const enum Hint of i64:
+            OpenTake = 0
+            Importing = 1
+            ReviewFindings = 2
+            NothingToFix = 3
+            Regressed = 4
+            ReadyToExport = 5
+            Exported = 6
+
+        const module Count:
+            STEPS: i64 = 5
+
+        # The step the user should work on now (a Step code).
+        def current(loaded: bool, findings: i64, changed: bool, regressed: bool, exported: bool) -> i64:
+            ensure loaded or result == Step.Import.i64()
+            ensure not loaded or result != Step.Import.i64()
+            ensure result != Step.Analyze.i64()
+            ensure not loaded or not changed or not regressed or result == Step.Fix.i64()
+            ensure not loaded or not exported or (changed and regressed) or result == Step.Export.i64()
+            ensure not loaded or exported or not changed or regressed or result == Step.Validate.i64()
+            ensure result >= Step.Import.i64() and result <= Step.Export.i64()
+            return Step.Import.i64() if not loaded
+            return Step.Fix.i64() if changed and regressed
+            return Step.Export.i64() if exported
+            return Step.Validate.i64() if changed
+            return Step.Export.i64() if findings <= 0
+            return Step.Fix.i64()
+
+        # The State code of `step` when `now` is current. Steps before the
+        # current one are done; the export step stays open (not blocked) once
+        # a take is loaded, because exporting an untouched take is allowed.
+        def state(step: i64, now: i64, loaded: bool) -> i64:
+            ensure step != now or result == State.Current.i64()
+            ensure step >= now or result == State.Done.i64()
+            ensure step <= now or result == State.Open.i64() or result == State.Blocked.i64()
+            ensure loaded or step <= now or result == State.Blocked.i64()
+            ensure result >= State.Done.i64() and result <= State.Blocked.i64()
+            return State.Current.i64() if step == now
+            return State.Done.i64() if step < now
+            return State.Open.i64() if loaded and step == Step.Export.i64()
+            return State.Blocked.i64()
+
+        # The Hint code beside the band.
+        def hint(loaded: bool, importing: bool, findings: i64, changed: bool, regressed: bool, exported: bool) -> i64:
+            ensure not importing or result == Hint.Importing.i64()
+            ensure importing or loaded or result == Hint.OpenTake.i64()
+            ensure importing or not loaded or not changed or not regressed or result == Hint.Regressed.i64()
+            ensure result >= Hint.OpenTake.i64() and result <= Hint.Exported.i64()
+            return Hint.Importing.i64() if importing
+            return Hint.OpenTake.i64() if not loaded
+            return Hint.Regressed.i64() if changed and regressed
+            return Hint.Exported.i64() if exported
+            return Hint.ReadyToExport.i64() if changed
+            return Hint.NothingToFix.i64() if findings <= 0
+            return Hint.ReviewFindings.i64()

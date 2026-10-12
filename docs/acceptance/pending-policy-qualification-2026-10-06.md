@@ -433,3 +433,26 @@ provenance passed. Logs, input manifest, leaf hashes and object sizes are in
 Authenticated proofs, CLI/preview/export parity and motion corpus comparison
 remain open. Exact 100x scaling is specified for representable inputs; it does
 not prove equivalence for newly quantized values.
+
+## Beginner workflow band (2026-10-12)
+
+`src/studio/workflow_policy.elisa` derives the Import, Analyze, Fix,
+Validate and Export step states and one next-step hint from measured take
+facts (take loaded, import running, finding count, cleaned-take change,
+detector regression, export of the current stack generation).
+`src/studio/app/panels_workflow.elisa` draws it under the toolbar.
+`proof/studio_workflow_laws.elisa` states its laws and
+`test/studio_workflow.elisa` checks all 128 fact combinations.
+
+Evidence so far is development-only. No current Stage1 or prover could be
+built on 2026-10-12, because the Elisa-core stage0 tree had uncommitted
+changes and rejected current compiler sources. The test passed and the
+Studio object compiled with the stale Stage1 under
+`ELISA_ALLOW_STALE_STAGE1=1`. The available provers (Oct 8 and Oct 11
+builds) also fail on `contact_editor.elisa`, which the baseline records as
+proved, so they cannot judge the new laws. A scratch-linked development
+binary showed the band on the empty Studio window. Opening the boxer take
+then crashed in `Studio.clip.rehome`. The same crash happens with HEAD alone
+built by the same stale Stage1, so it is a toolchain fault, not this change.
+Proof replay, baseline rows and native acceptance remain open until a
+current toolchain exists.
