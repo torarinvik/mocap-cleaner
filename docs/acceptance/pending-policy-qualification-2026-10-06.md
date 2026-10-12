@@ -564,3 +564,16 @@ Related tests pass on the region-fix Stage1: track_kernels, track_tools,
 op_stack, glb_clean, studio_workflow, studio_shortcuts, studio_state,
 studio_issues, studio_issue_browser, studio_duplicate_operation,
 studio_reset_scope and studio_session. Development build only; not qualified.
+
+## Selecting a stack row works again (2026-10-12)
+
+Up/Down never moved the stack selection. So `[` / `]`, B, I, O, D,
+PgUp/PgDn and Delete always acted on the first row, and so did clicking
+another row. `select_row` sent the selection through `commit`, which drops a
+stack that `StackState::same` calls unchanged, and `same` ignores the
+selection. Selection now changes the current history snapshot in place
+(`HistoryState::reselect`): no undo step, and the take is not marked unsaved.
+While a pending edit is staged, it still goes through `commit`.
+`studio_state` covers it. In a development build on the practice take, Down
+twice selected Despike and `]` raised it to 3x passes as one history step.
+Development build only; not qualified.
