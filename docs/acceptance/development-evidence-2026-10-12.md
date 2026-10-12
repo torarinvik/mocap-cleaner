@@ -243,3 +243,31 @@ after cleanup rose from 41 to 71: the leg-scoped median/smooth and the foot
 lock now actually act on this rig. This needs review before it is called
 an improvement; the workflow band's regression check (spikes up vs source)
 does not fire because 71 is still below the source's 123.
+
+## Spike threshold follows the frame rate (2026-10-12)
+
+The spike test compares a per-frame second difference against a threshold
+tuned at 120 Hz. On the 30 fps Unreal take, the converted runtime GLB had
+these frames with at least one spike, by threshold multiple:
+
+| Multiple | Frames |
+| --- | --- |
+| 1x | 29 |
+| 2x | 12 |
+| 4x | 2 |
+| 8x | 1 (the frame-2 T-pose jump) |
+| 16x | 1 (the frame-2 T-pose jump) |
+
+So most findings at 30 fps were ordinary motion read with a 120 Hz
+yardstick. A constant physical acceleration reads (120/rate)² larger per
+frame, while a one-frame glitch keeps its size. `spike_threshold_at`
+scales the threshold by 120/rate, between the two; this is a judgement
+call, recorded here. Studio now gives each take its own threshold, and the
+export report's `spike_threshold_fixed_channel_units` shows it.
+
+On the FBX take in a development build: spikes 22 -> 11 (were 123 -> 71).
+The T-pose jump stays the top finding (13.8x the limit, High).
+`preset_rate` covers 120, 30 and 240 Hz. studio_issues, studio_findings,
+shared_grid, studio_clip, studio_export_report and
+studio_issue_explanation pass. The new law in `preset_rate_laws.elisa` is
+unproven (no prover on this host).
