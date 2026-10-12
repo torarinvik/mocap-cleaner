@@ -577,3 +577,26 @@ While a pending edit is staged, it still goes through `commit`.
 `studio_state` covers it. In a development build on the practice take, Down
 twice selected Despike and `]` raised it to 3x passes as one history step.
 Development build only; not qualified.
+
+## FBX journey opens; default cleanup follows the frame rate (2026-10-12)
+
+`high block_Unreal5.6.fbx` (SHA `50048a8a…`, unchanged afterwards) imports
+and opens in a development Studio built with
+`/private/tmp/Elisa-compiler-fbx-latest` (branch
+`codex/fbx-worker-region-latest`, Stage1 from `06e945842`). It shows 337
+frames, 94 bones, ~30 fps, and 123 spikes cut to 41. That branch has
+`0b2df353b` ("fix task callback region ABI ownership"), which gives worker
+tasks their own arena (G86), and the region handoff fix. Neither is on
+compiler main. This is labelled comparison evidence from another session's
+unmerged compiler, not qualification.
+
+The take exposed a cleaning fault: the default stack is the 120 Hz boxing
+preset in frames, so at 30 fps its leg median spanned 666 ms instead of
+166 ms. `Presets::operations_at` now retunes the preset to the take's
+rate: median radius scales with the rate, binomial passes with its square
+(the kernel's variance grows linearly with passes), and Despike stays
+per-frame. Studio swaps the retuned stack in as the fresh history base
+right after a take loads. At 30 fps the stack reads "radius 5 fr (166 ms)"
+and "2x passes". `test/preset_rate.elisa` covers 120, 60, 30, 1 and
+invalid rates. `proof/preset_rate_laws.elisa` compiles but is unproven;
+there is no working prover on this host.

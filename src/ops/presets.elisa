@@ -41,6 +41,47 @@ module Presets:
                     ])
             return ops
 
+        const module Timing:
+            # The presets are tuned on 120 Hz takes.
+            TUNED_RATE: i64 = 120
+            MIN_RATE: i64 = 1
+            MAX_RATE: i64 = 1000
+
+        # A median radius tuned at 120 Hz, in frames at `rate`, so it spans the
+        # same time: 20 frames (166 ms) becomes 5 frames at 30 Hz.
+        def scaled_radius(radius: i64, rate: i64) -> i64:
+            requires radius >= 1 and radius <= 1000
+            requires rate >= Timing::MIN_RATE and rate <= Timing::MAX_RATE
+            ensure result >= 1
+            ensure rate != Timing::TUNED_RATE or result == radius
+            scaled: i64 = (radius * rate + Timing::TUNED_RATE / 2) / Timing::TUNED_RATE
+            return scaled if scaled >= 1 else 1
+
+        # Binomial smoothing passes at `rate`: the kernel's variance grows with
+        # the pass count, so keeping its width in time scales passes by rate².
+        def scaled_passes(passes: i64, rate: i64) -> i64:
+            requires passes >= 1 and passes <= 1000
+            requires rate >= Timing::MIN_RATE and rate <= Timing::MAX_RATE
+            ensure result >= 1
+            ensure rate != Timing::TUNED_RATE or result == passes
+            square: i64 = Timing::TUNED_RATE * Timing::TUNED_RATE
+            scaled: i64 = (passes * rate * rate + square / 2) / square
+            return scaled if scaled >= 1 else 1
+
+        # `preset`'s operations retuned for a take sampled at `rate` Hz.
+        # Despike works on single frames and keeps its passes; an unknown or
+        # out-of-range rate keeps the 120 Hz tuning.
+        def operations_at(preset: Preset, rate: i64) -> darray[Ops::Operation]:
+            mutable ops: darray[Ops::Operation] = operations(preset)
+            return ops if rate < Timing::MIN_RATE or rate > Timing::MAX_RATE or rate == Timing::TUNED_RATE
+            for i in 0..<ops.count |ops, rate|:
+                op: Ops::Operation = ops[i]
+                if op.kind == Ops::Kind.Median and op.strength >= 1 and op.strength <= 1000:
+                    ops[i] <- Ops::median(op.first, op.last, op.bones, scaled_radius(op.strength, rate))
+                elif op.kind == Ops::Kind.SmoothPath and op.strength >= 1 and op.strength <= 1000:
+                    ops[i] <- Ops::smooth_path(op.first, op.last, op.bones, scaled_passes(op.strength, rate))
+            return ops
+
         # Rig-level fixes per preset. Boxing keeps none, so its output (and
         # the parity gate) is exactly the channel stack's.
         def rig_operations(preset: Preset) -> darray[RigOps::RigOp]:
