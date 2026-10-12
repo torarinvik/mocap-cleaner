@@ -81,3 +81,21 @@ The entry should pass, or create, an arena for the worker thread.
 `order_laws.elisa` gained two `median5` laws (a two-sample burst is never
 chosen; a monotone five keeps its middle). They are unproven because no
 working prover exists on this host.
+
+## G87: a top-level function shadows a module's private helper silently
+
+Compiler, not prover. A test that defined a top-level `def flag(...)` and
+included `src/tools/track.elisa` failed with "backend could not produce a
+linkable unit; declined 2: next_plant (if statement), carried_blends (if
+statement)". Both functions call Track's private `flag(flags, k)`, and the
+calls bound to the test's `flag` instead. Renaming the test's helper fixed
+it. The checker should resolve the module's own helper first, or report the
+clash at the call, instead of a backend decline far from the cause.
+Seen with the FBX-branch Stage1 (`06e945842`).
+
+Compiler main (`671cfcf47`) cannot be built on this host at all: every
+Stage0 (committed and working-tree `Elisa-core`) and every Stage1 found
+here rejects its payload-binding `when` arms (first in
+`elisac_pymodule_default_container_shape_policy.elisa`, added by
+`225420a30`). So the prover cannot be built either, and
+`contact_debounce_laws.elisa` is unproven.

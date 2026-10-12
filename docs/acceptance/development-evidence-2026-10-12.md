@@ -280,3 +280,27 @@ Elisa tool, `src/practice/main.elisa` over `PracticeTake`
 `build/practice/jab-practice.glb` from the boxer GLB, and refused an
 output outside `build/` (exit 3). A development Studio opened the result
 at 97 frames with spikes 325 -> 0. `test/practice_take.elisa` passes.
+
+## Contact debounce (2026-10-12)
+
+With the per-rate spike threshold, foot lock still added one spike on the
+Unreal take (11 on, 10 off). It was frame 117: the left foot's detected
+contact chattered (`11111110010011111` around it), and locking a lone
+one-frame plant jerked the leg. Contacts are now debounced before any
+lock (`Track::debounce` over `Contact::fills_gap` / `drops_blip`): a lift
+of at most 70 ms between two plants is filled, then a plant of at most
+50 ms is dropped (2 and 1 frames at 30 fps, 8 and 6 at 120 fps). Lifts
+touching a clip end are never filled. Hand contact edits still apply
+after the debounce, so a user can always force a frame either way.
+
+Development build on the FBX take: spikes 22 -> 10 with foot lock on and
+10 with it off, so the lock no longer adds any. The left foot holds one
+plant over frames 104-131. Foot slide 1513 -> 132 mm; the "before" figure
+is larger than the earlier 1141 because merged plants count more frames.
+`contact_debounce` (new), `track_kernels`, `track_tools`, `core_kernels`,
+`studio_clip`, `studio_capture`, `studio_rebuild`, `studio_findings`,
+`studio_export_report`, `studio_perf`, `studio_retime` and `report_diff`
+pass. `studio_foot` exits 51 on the jab with and without this change
+(pre-existing). `rig_ops` and five other rig tests do not build
+(pre-existing missing effect grants). `proof/contact_debounce_laws.elisa`
+compiles; its laws are unproven (G87).
