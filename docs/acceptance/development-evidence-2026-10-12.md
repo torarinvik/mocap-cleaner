@@ -224,3 +224,22 @@ Fixes found on the way:
   take, so it cannot be compared. Check the feet by eye." (the JSON
   comparison reason too; `studio_export_report` updated and passing).
   Why balance cannot be measured on this 94-bone Unreal rig is still open.
+
+## Unreal mannequin bones get roles (2026-10-12)
+
+Balance was "unavailable" on `high block_Unreal5.6.fbx` because
+`RigMap` knew only humanoid spellings (`LeftUpLeg`, `LeftThigh`, ...), so
+the UE4/UE5 mannequin's `thigh_l`, `calf_l`, `foot_l`, `ball_l` and others
+had no role, and leg length was 0. `RigMap::unreal_name` adds the
+mannequin spelling of all 26 roles. Twist bones such as `thigh_twist_01_l`
+still match nothing, and `calf_twist_01_l` / `lowerarm_twist_01_l` take the
+roll roles. `test/rig_map_unreal.elisa` passes. (`rig_model` fails to build
+on missing effect grants with or without this change.)
+
+In a development build (fbx-latest Stage1), the FBX take now shows
+"Balance available" (balance impossible 0 -> 0) and real foot-contact
+intervals on the timeline. Foot slide falls from 1141 to 118 mm. Spikes
+after cleanup rose from 41 to 71: the leg-scoped median/smooth and the foot
+lock now actually act on this rig. This needs review before it is called
+an improvement; the workflow band's regression check (spikes up vs source)
+does not fire because 71 is still below the source's 123.
