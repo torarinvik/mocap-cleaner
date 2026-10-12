@@ -271,3 +271,12 @@ The T-pose jump stays the top finding (13.8x the limit, High).
 shared_grid, studio_clip, studio_export_report and
 studio_issue_explanation pass. The new law in `preset_rate_laws.elisa` is
 unproven (no prover on this host).
+
+## Built-in practice take (2026-10-12)
+
+The practice take used earlier came from a throwaway script. It is now an
+Elisa tool, `src/practice/main.elisa` over `PracticeTake`
+(`docs/practice-take.md`). The tool built with the stale Stage1 wrote
+`build/practice/jab-practice.glb` from the boxer GLB, and refused an
+output outside `build/` (exit 3). A development Studio opened the result
+at 97 frames with spikes 325 -> 0. `test/practice_take.elisa` passes.

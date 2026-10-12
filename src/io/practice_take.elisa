@@ -1,0 +1,77 @@
+# A practice take for beginners: a copy of a real take with the problems a
+# capture typically has added on purpose, so every Studio step (find, jump,
+# fix, undo, export) has something to work on. Problems are deterministic:
+# a two-frame rotation burst, two single-frame spikes, all on arm and leg
+# bones. The source document is never changed; the result is a new
+# in-memory document that callers save under build/.
+include "../../../elisa-engine-mocap/src/assets/glb_resize.elisa"
+include "rig_map.elisa"
+include "../../../elisa-engine-mocap/src/animation/motion_quat.elisa"
+
+module PracticeTake:
+    public:
+        const module Problems:
+            # Frame offsets as a fraction of the take, in permille, so short
+            # and long takes both get all three problems away from the edges.
+            BURST_PERMILLE: i64 = 200
+            SPIKE_A_PERMILLE: i64 = 550
+            SPIKE_B_PERMILLE: i64 = 800
+            # Quaternion nudge before renormalising (about 40 degrees).
+            NUDGE: f64 = 0.35
+            MIN_FRAMES: i64 = 20
+
+        # The frames that get a problem in a take of `frames` keys.
+        def problem_frames(frames: i64) -> darray[i64]:
+            requires frames >= Problems::MIN_FRAMES and frames <= 1000000
+            ensure result.count == 4
+            burst: i64 = frames * Problems::BURST_PERMILLE / 1000
+            return [burst, burst + 1, frames * Problems::SPIKE_A_PERMILLE / 1000, frames * Problems::SPIKE_B_PERMILLE / 1000]
+
+        # Whether `node` is an arm or leg bone of the common rig.
+        def limb(doc: GlbDocument::Document&, node: usize) -> bool:
+            role: i64 = RigMap::role_of(doc, node)
+            return false if role < 0
+            group: i64 = Roles::role_group(role)
+            group == Roles::Group.Arm.i64() or group == Roles::Group.Leg.i64()
+
+        # The practice copy of `doc`'s animation `anim`, or null when the take
+        # is too short or has no limb rotation channels.
+        def make(doc: GlbDocument::Document&, anim: usize) -> GlbDocument::Document? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return null if anim >= GlbDocument::animation_count(doc)
+                mutable slots: darray[usize] = []
+                mutable starts: darray[usize] = []
+                mutable values: darray[f32] = []
+                for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, slots, starts, values|:
+                    held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                    continue if held.path != GlbDocument::TargetPath.Rotation or not limb(doc, held.node)
+                    n: i64 = GlbDocument::key_count(doc, held.output).i64()
+                    continue if n < Problems::MIN_FRAMES or GlbDocument::track(doc, held.output).components != 4
+                    continue if contains(&slots, held.output)
+                    marked: darray[i64] = problem_frames(n)
+                    slots.push(held.output)
+                    starts.push(values.count)
+                    for k in 0..<n |k, doc, held, marked, values|:
+                        mutable q: MotionQuat::Q = MotionQuat::Q{x: GlbDocument::track_value(doc, held.output, k.usize(), 0).f64(), y: GlbDocument::track_value(doc, held.output, k.usize(), 1).f64(), z: GlbDocument::track_value(doc, held.output, k.usize(), 2).f64(), w: GlbDocument::track_value(doc, held.output, k.usize(), 3).f64()}
+                        if k == marked[0] or k == marked[1] or k == marked[2] or k == marked[3]:
+                            q <- MotionQuat::normalize(MotionQuat::Q{x: q.x + Problems::NUDGE, y: q.y - Problems::NUDGE, z: q.z + Problems::NUDGE * 0.7, w: q.w})
+                        values.push(q.x.f32())
+                        values.push(q.y.f32())
+                        values.push(q.z.f32())
+                        values.push(q.w.f32())
+                return null if slots.count == 0
+                starts.push(values.count)
+                failed: bool = catch GlbResize::replace_animation_tracks(doc, anim, slots, starts, values):
+                    value: false
+                    error failure: true
+                return null if failed
+                out: GlbDocument::Document = catch GlbResize::replace_animation_tracks(doc, anim, slots, starts, values):
+                    value: value
+                    error failure: GlbDocument::copy(doc)
+                return move out
+
+    private:
+        def contains(slots: darray[usize]&, slot: usize) -> bool:
+            for s in slots |slot|:
+                return true if s == slot
+            false
