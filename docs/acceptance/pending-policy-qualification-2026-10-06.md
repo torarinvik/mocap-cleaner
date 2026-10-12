@@ -473,3 +473,36 @@ yields no slide findings, and `test/studio_findings.elisa` also covers a
 synthetic planted slide. Evidence is development-only, with the same
 toolchain limits as the workflow band above. Proof replay of the new
 explanation laws and the user-FBX journey remain open.
+
+## GLB takes with mixed channel lengths (2026-10-12)
+
+Studio picks keys by frame index. So a channel with fewer keys than the
+longest froze at its last key, and the sample clock refused playback of such
+takes outright ("Animation channels use different sample times"). The
+boxing jab GLB is one of them. `src/io/shared_grid.elisa` now resamples each
+multi-key channel onto the longest channel's key times when a take loads
+(linear, shortest-arc slerp for rotations, STEP held). This matches what the
+FBX converter does since engine `1e98f075`. The source fingerprint is still
+taken from the file bytes, before alignment, and the source file is never
+written. Cubic-spline takes remain refused. `test/shared_grid.elisa` checks
+that the jab is misaligned before and aligned after, that the sample clock
+accepts the result, and that endpoint values are kept. With the region
+handoff port below, a development build played all 97 frames.
+
+Studio test sweep with the stale Stage1: 68 of 71 pass. `studio_capture`
+and `studio_correction` fail to build on missing effect grants inside engine
+files. `studio_foot` exits 51, as HEAD does without this change.
+
+## Region handoff into globals is missing from compiler main (2026-10-12)
+
+Compiler commit `806772c7` ("Fix region handoff into global stores") exists
+only on `backup/fbx-worker-region-latest-pre-62eb`. Without it, development
+builds crash in `Studio.clip.rehome` on every take load; HEAD without any of
+today's changes crashes the same way. Ported onto `f7b6c4a2`, it made a
+development Studio open, draw and play the boxer take. A main-based port is
+on Elisa-compiler branch `mocap/region-handoff-port` (`a83b2d745`). It is
+unbuilt, because no bootstrap on this host accepts current main's sources.
+The Studio runtime bridge `build/generated/studio_runtime.elisa` includes
+`/private/tmp/Elisa-compiler-fbx-latest`, another session's scratch
+checkout. Its runtime currently fails to compile together with
+`gltf_track_sample.elisa`, which is why `SharedGrid` uses `MotionQuat`.

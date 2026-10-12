@@ -1,0 +1,123 @@
+# Put every channel of one animation on a shared sample grid: the key times
+# of its longest channel. Exporters such as Blender and Mixamo write short
+# channels for bones that barely move (often two keys spanning the whole
+# take). Studio evaluates and plays poses per key, so a short channel would
+# freeze at its last key and the sample clock refuses such takes outright.
+#
+# `align` resamples each multi-key channel whose key count differs from the
+# longest onto the longest channel's times (linear, shortest-arc slerp for
+# rotations, STEP held), as the FBX converter already
+# does for FBX takes. Single-key channels stay constant. The result is a new
+# in-memory document. The source file is never touched, and null means the
+# take needs no aligning (or cannot be aligned, e.g. cubic-spline channels,
+# which the sample clock keeps refusing with its own message).
+include "../../../elisa-engine-mocap/src/assets/glb_resize.elisa"
+include "../../../elisa-engine-mocap/src/animation/motion_quat.elisa"
+
+module SharedGrid:
+    public:
+        # Whether channel key counts differ (ignoring single-key channels).
+        def misaligned(doc: GlbDocument::Document&, anim: usize) -> bool:
+            longest: usize = longest_keys(doc, anim)
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, longest|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                n: usize = GlbDocument::key_count(doc, held.input)
+                return true if n > 1 and n != longest
+            return false
+
+        def align(doc: GlbDocument::Document&, anim: usize) -> GlbDocument::Document? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                return null if anim >= GlbDocument::animation_count(doc) or not misaligned(doc, anim)
+                mutable grid_input: i64 = -1
+                mutable longest: usize = 0
+                for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, grid_input, longest|:
+                    held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                    n: usize = GlbDocument::key_count(doc, held.input)
+                    if n > longest:
+                        longest <- n
+                        grid_input <- held.input.i64()
+                return null if grid_input < 0 or longest < 2
+                mutable grid: darray[f64] = []
+                for k in 0..<longest |k, doc, grid, grid_input|:
+                    grid.push(GlbDocument::track_value(doc, grid_input.usize(), k, 0).f64())
+                mutable slots: darray[usize] = []
+                mutable starts: darray[usize] = []
+                mutable values: darray[f32] = []
+                for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, longest, grid, slots, starts, values|:
+                    held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                    n: usize = GlbDocument::key_count(doc, held.input)
+                    continue if n <= 1 or n == longest
+                    return null if held.interpolation == GlbDocument::Interpolation.CubicSpline
+                    return null if GlbDocument::key_count(doc, held.output) != n
+                    # The resampled keys: one per grid time.
+                    if add_slot(&slots, held.output):
+                        resampled: darray[f32] = resample(doc, held, &grid)
+                        return null if resampled.count == 0
+                        starts.push(values.count)
+                        values.extend(resampled)
+                    # Its times become the grid (once per shared input).
+                    if add_slot(&slots, held.input):
+                        starts.push(values.count)
+                        for t in grid |t, values|:
+                            values.push(t.f32())
+                return null if slots.count == 0
+                starts.push(values.count)
+                failed: bool = catch GlbResize::replace_animation_tracks(doc, anim, slots, starts, values):
+                    value: false
+                    error failure: true
+                return null if failed
+                out: GlbDocument::Document = catch GlbResize::replace_animation_tracks(doc, anim, slots, starts, values):
+                    value: value
+                    error failure: GlbDocument::copy(doc)
+                return move out
+
+    private:
+        def longest_keys(doc: GlbDocument::Document&, anim: usize) -> usize:
+            mutable most: usize = 0
+            for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, most|:
+                held: GlbDocument::Channel = GlbDocument::channel(doc, anim, at)
+                n: usize = GlbDocument::key_count(doc, held.input)
+                most <- n if n > most else most
+            return most
+
+        def add_slot(slots: mutable darray[usize]&, slot: usize) -> bool:
+            for s in slots |s, slot|:
+                return false if s == slot
+            slots.push(slot)
+            return true
+
+        # `held`'s output sampled at every `grid` time (clamped to its first
+        # and last key outside them); empty on failure.
+        def resample(doc: GlbDocument::Document&, held: GlbDocument::Channel, grid: darray[f64]&) -> darray[f32]:
+            mutable out: darray[f32] = []
+            components: usize = GlbDocument::track(doc, held.output).components
+            n: usize = GlbDocument::key_count(doc, held.input)
+            return out if n < 2 or components < 1 or components > 4
+            rotation: bool = held.path == GlbDocument::TargetPath.Rotation
+            return out if rotation and components != 4
+            step: bool = held.interpolation == GlbDocument::Interpolation.Step
+            mutable k: usize = 0
+            for t in grid |t, doc, held, n, components, rotation, step, k, out|:
+                # Advance to the last key at or before t (grid times increase).
+                while k + 1 < n and GlbDocument::track_value(doc, held.input, k + 1, 0).f64() <= t:
+                    k <- k + 1
+                t0: f64 = GlbDocument::track_value(doc, held.input, k, 0).f64()
+                next: usize = k + 1 if k + 1 < n else k
+                t1: f64 = GlbDocument::track_value(doc, held.input, next, 0).f64()
+                mutable w: f64 = (t - t0) / (t1 - t0) if t1 > t0 else 0.0
+                w <- 0.0 if w < 0.0 or step else w
+                w <- 1.0 if w > 1.0 else w
+                if rotation:
+                    a: MotionQuat::Q = MotionQuat::Q{x: GlbDocument::track_value(doc, held.output, k, 0).f64(), y: GlbDocument::track_value(doc, held.output, k, 1).f64(), z: GlbDocument::track_value(doc, held.output, k, 2).f64(), w: GlbDocument::track_value(doc, held.output, k, 3).f64()}
+                    b: MotionQuat::Q = MotionQuat::Q{x: GlbDocument::track_value(doc, held.output, next, 0).f64(), y: GlbDocument::track_value(doc, held.output, next, 1).f64(), z: GlbDocument::track_value(doc, held.output, next, 2).f64(), w: GlbDocument::track_value(doc, held.output, next, 3).f64()}
+                    q: MotionQuat::Q = MotionQuat::slerp(a, b, w)
+                    out.push(q.x.f32())
+                    out.push(q.y.f32())
+                    out.push(q.z.f32())
+                    out.push(q.w.f32())
+                else:
+                    for c in 0..<components |c, doc, held, k, next, w, out|:
+                        va: f64 = GlbDocument::track_value(doc, held.output, k, c).f64()
+                        vb: f64 = GlbDocument::track_value(doc, held.output, next, c).f64()
+                        out.push((va + (vb - va) * w).f32())
+            return out

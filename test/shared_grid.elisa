@@ -1,0 +1,58 @@
+# Shared sample grid on the boxing take, whose channels have different key
+# counts: the aligned copy has every multi-key channel on the longest
+# channel's times, the sample clock accepts it, endpoint values are kept and
+# the source document is unchanged.
+include "../src/studio/sample_clock.elisa"
+include "../src/io/shared_grid.elisa"
+
+extern puts(text: cstr) -> i64
+
+const PATH: cstr = "../elisa-boxing-game/build/dual-stance/black/black-boxer.glb"
+
+def frame_count(doc: GlbDocument::Document&, anim: usize) -> i64:
+    mutable most: i64 = 0
+    for at in 0..<GlbDocument::channel_count(doc, anim) |at, doc, anim, most|:
+        n: i64 = GlbDocument::key_count(doc, GlbDocument::channel(doc, anim, at).output).i64()
+        most <- n if n > most else most
+    return most
+
+def close(a: f32, b: f32) -> bool:
+    d: f32 = a - b
+    return d < 0.0001 and d > -0.0001
+
+def check(src: GlbDocument::Document&, aligned: GlbDocument::Document&, anim: usize) -> i32:
+    return 3 if SharedGrid::misaligned(aligned, anim)
+    frames: i64 = frame_count(aligned, anim)
+    return 4 if frames != frame_count(src, anim)
+    clock: StudioSampleClock::Clock = StudioSampleClock::capture(aligned, anim, frames)
+    return 5 if not StudioSampleClock::ready(&clock)
+    return 6 if GlbDocument::channel_count(aligned, anim) != GlbDocument::channel_count(src, anim)
+    for at in 0..<GlbDocument::channel_count(src, anim) |at, src, aligned, anim|:
+        a: GlbDocument::Channel = GlbDocument::channel(src, anim, at)
+        b: GlbDocument::Channel = GlbDocument::channel(aligned, anim, at)
+        n: usize = GlbDocument::key_count(src, a.output)
+        m: usize = GlbDocument::key_count(aligned, b.output)
+        continue if n <= 1
+        components: usize = GlbDocument::track(src, a.output).components
+        for c in 0..<components |c, src, aligned, a, b, n, m|:
+            return 7 if not close(GlbDocument::track_value(src, a.output, 0, c), GlbDocument::track_value(aligned, b.output, 0, c))
+            return 8 if not close(GlbDocument::track_value(src, a.output, n - 1, c), GlbDocument::track_value(aligned, b.output, m - 1, c))
+    return 0
+
+def main() -> i32 can[Global{Read, Write}]:
+    can Global{Read, Write}:
+        src: GlbDocument::Document = catch GlbDocument::load(PATH):
+            value: value
+            error failure: return 1
+        anim: i64 = GlbDocument::find_animation(&src, "jab")
+        return 2 if anim < 0
+        before: StudioSampleClock::Clock = StudioSampleClock::capture(&src, anim.usize(), frame_count(&src, anim.usize()))
+        return 9 if StudioSampleClock::ready(&before) or not SharedGrid::misaligned(&src, anim.usize())
+        aligned: GlbDocument::Document? = SharedGrid::align(&src, anim.usize())
+        if aligned is a:
+            code: i32 = check(&src, &a, anim.usize())
+            return code if code != 0
+            return 10 if not SharedGrid::misaligned(&src, anim.usize())
+            _ = puts("shared grid: aligned take plays on one clock and keeps its endpoints")
+            return 0
+        return 11

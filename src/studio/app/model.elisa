@@ -25,6 +25,7 @@ include "../take_source_ref_copy.elisa"
 include "../sample_clock.elisa"
 include "../state/perf_state.elisa"
 include "../../ops/retime_apply.elisa"
+include "../../io/shared_grid.elisa"
 
 extern clock() -> i64
 
@@ -196,17 +197,26 @@ module StudioModel:
                     return null if found_any < 0
                     anim: usize = found_any.usize()
                     if fingerprint(&src) is source_fingerprint:
-                        threshold: i64 = Presets::spike_threshold(Presets::Preset.Boxing)
-                        frames: i64 = StudioClip::frame_count(src, anim)
-                        nodes: darray[i64] = StudioClip::order(src)
-                        slot: darray[i64] = StudioClip::slots(src, nodes)
-                        sp: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
-                        shortest: i64 = StudioPerf::shortest_keys(src, anim)
-                        mutable source_balance: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0, availability: StudioBalanceStatusPolicy::Availability.Unavailable}
-                        balance_of(&src, anim, frames, &source_balance)
-                        m: Memo = Memo{pristine: src, source_fingerprint: source_fingerprint, source_reference: null, anim: anim, frames: frames, nodes: nodes, slot: slot, source_problems: sp, bank: [], rig_cache: RigCache::new_cache(), shortest: shortest, threshold: threshold, source_impossible_frames: source_balance.impossible, source_balance_availability: source_balance.availability}
-                        return move m
+                        # The fingerprint names the file on disk; Studio then
+                        # works on a copy with every channel on one sample grid.
+                        aligned: GlbDocument::Document? = SharedGrid::align(&src, anim)
+                        if aligned is grid:
+                            return memo_of(grid, anim, source_fingerprint)
+                        return memo_of(src, anim, source_fingerprint)
                 return null
+
+        def memo_of(src: GlbDocument::Document, anim: usize, source_fingerprint: StudioSourceFingerprint::Fingerprint) -> Memo? can[Global{Read, Write}]:
+            can Global{Read, Write}:
+                threshold: i64 = Presets::spike_threshold(Presets::Preset.Boxing)
+                frames: i64 = StudioClip::frame_count(src, anim)
+                nodes: darray[i64] = StudioClip::order(src)
+                slot: darray[i64] = StudioClip::slots(src, nodes)
+                sp: darray[i64] = StudioClip::problems(src, anim, frames, threshold)
+                shortest: i64 = StudioPerf::shortest_keys(src, anim)
+                mutable source_balance: Balanced = Balanced{com: [], states: [], support: [], ground: 0.0, impossible: 0, availability: StudioBalanceStatusPolicy::Availability.Unavailable}
+                balance_of(&src, anim, frames, &source_balance)
+                m: Memo = Memo{pristine: src, source_fingerprint: source_fingerprint, source_reference: null, anim: anim, frames: frames, nodes: nodes, slot: slot, source_problems: sp, bank: [], rig_cache: RigCache::new_cache(), shortest: shortest, threshold: threshold, source_impossible_frames: source_balance.impossible, source_balance_availability: source_balance.availability}
+                return move m
 
     public:
         # Load `path` and find `anim_name` (the first animation when absent).
