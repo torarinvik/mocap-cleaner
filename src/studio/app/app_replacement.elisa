@@ -405,6 +405,62 @@ extend Studio:
             can Global{Read, Write}:
                 request_replacement(p, Replacement.Take.i64(), false)
 
+    public:
+        # Copy the loaded animation's own name for labels and reports.
+        def remember_shown_animation() -> void can[Unsafe.PointerCast, Global{Read, Write}]:
+            can Global{Read, Write}:
+                shown_animation_bytes[0] <- 0
+                shown_animation_length <- 0
+                if clip is c:
+                    mutable text: darray[u8] = []
+                    n: usize = GlbDocument::animation_name(c.source, c.anim.usize(), &text)
+                    mutable at: usize = 0
+                    while at < n and at < 255 and at < text.count |at, text|:
+                        shown_animation_bytes[at] <- text[at]
+                        at <- at + 1
+                    shown_animation_bytes[at] <- 0
+                    shown_animation_length <- at
+                shown_animation_name <- "animation" if shown_animation_bytes[0] == 0 else (&shown_animation_bytes[0]).cast[cstr]
+
+        # Point the default export at <export folder>/<take stem>_clean.glb so
+        # each take gets its own result instead of replacing the last one.
+        # Leaves export_path alone when there is no folder or the name would
+        # not fit.
+        def name_export_after_take() -> void can[Unsafe.PointerCast, Global{Read, Write}]:
+            can Global{Read, Write}:
+                return if path_slot < 0
+                folder_source: cstr = export_path
+                mutable slash: i64 = -1
+                mutable n: usize = 0
+                while n < 4000 and folder_source[n] != 0 |n, slash, folder_source|:
+                    slash <- n.i64() if folder_source[n] == 47 else slash
+                    n <- n + 1
+                return if slash < 0 or n >= 4000
+                take: cstr = path
+                mutable start: usize = 0
+                mutable stop: usize = 0
+                mutable m: usize = 0
+                while m < 4000 and take[m] != 0 |m, start, stop, take|:
+                    start <- m + 1 if take[m] == 47 else start
+                    stop <- m if take[m] == 46 else stop
+                    m <- m + 1
+                stop <- m if stop <= start else stop
+                suffix: sview = "_clean.glb"
+                total: usize = slash.usize() + 1 + (stop - start) + suffix.len.usize()
+                return if stop <= start or total >= 4000
+                mutable at: usize = 0
+                for i in 0..<(slash.usize() + 1) |i, at, folder_source|:
+                    take_export_bytes[at] <- folder_source[i]
+                    at <- at + 1
+                for i in start..<stop |i, at, take|:
+                    take_export_bytes[at] <- take[i]
+                    at <- at + 1
+                for i in 0..<suffix.len.usize() |i, at, suffix|:
+                    take_export_bytes[at] <- suffix[i]
+                    at <- at + 1
+                take_export_bytes[at] <- 0
+                export_path <- (&take_export_bytes[0]).cast[cstr]
+
     private:
         def load_take_now(p: cstr) -> void can[Unsafe.PointerCast, Global{Read, Write}]:
             can Global{Read, Write}:
@@ -493,6 +549,8 @@ extend Studio:
                 if take_rate >= 1 and take_rate != Presets::Timing::TUNED_RATE:
                     HistoryState::reset(&history, StudioModel::initial_stack_at(take_rate))
                     rebuild()
+                remember_shown_animation()
+                name_export_after_take()
                 if clip is c:
                     timeline <- TimelineState::attach_clock(TimelineState::create(c.frames), c.sample_clock)
                     bone <- StudioModel::default_bone(c)

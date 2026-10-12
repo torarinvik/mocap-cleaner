@@ -195,3 +195,32 @@ to 26, and the worst remaining finding became a 5.8x jerk at frame 316.
 over-long hold and the session kind code. op_stack, studio_session,
 studio_state, glb_clean, studio_shortcuts, track_kernels, studio_capacity
 and studio_issues pass.
+
+## FBX take exported and reopened (2026-10-12)
+
+Rank-1 journey in a development build (fbx-latest Stage1; labelled
+comparison evidence, not qualification):
+- Open `high block_Unreal5.6.fbx` (source SHA `50048a8a…`, unchanged
+  after every step).
+- Review the export; acknowledge the one balance note.
+- Export: "The GLB was written, reopened and validated", with both reports
+  beside it in `build/`.
+- Reopen `high block_Unreal5.6_clean.glb` in a fresh Studio: 337 frames,
+  94 bones, ~30 fps, spikes 41 -> 39 on the already-cleaned result.
+
+Fixes found on the way:
+- **Export name.** Every take exported to `studio_export.glb`, so a second
+  take's export would replace the first take's. The default destination is
+  now `<build>/<take stem>_clean.glb`.
+- **Animation label.** The export review labelled the animation with the
+  requested name (default "jab") even when the take had none by that name.
+  It now uses the loaded animation's own name ("Unreal Take").
+- **Report animation name.** Both reports wrote an empty animation name,
+  including the earlier boxer report: a `cstr` global converted to `sview`
+  gave an empty view. The name is now passed as an explicit byte view;
+  the report reads `"name": "Unreal Take"`.
+- **Balance note.** "Comparison unavailable: The first balance measurement
+  is unavailable." now reads "Balance could not be measured on the original
+  take, so it cannot be compared. Check the feet by eye." (the JSON
+  comparison reason too; `studio_export_report` updated and passing).
+  Why balance cannot be measured on this 94-bone Unreal rig is still open.
